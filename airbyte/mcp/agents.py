@@ -32,7 +32,7 @@ from airbyte.constants import (
     MCP_CONFIG_WORKSPACE_ID,
     MCP_WORKSPACE_ID_HEADER,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteMissingWorkspaceContextError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import _add_defaults_for_exclude_args
@@ -192,23 +192,49 @@ def _get_agent_workspace(ctx: Context, workspace_id: str | None) -> AgentWorkspa
     )
 
 
-def _get_agent_connector(ctx: Context, connector_id: str) -> AgentConnector:
-    """Build an `AgentConnector` from MCP config.
+def _get_agent_connector(
+    ctx: Context,
+    connector_id: str,
+    workspace_id: str | None = None,
+) -> AgentConnector:
+    """Build an `AgentConnector` from MCP config, scoped to a workspace.
 
-    The Agents API addresses a connector by ID alone, so no workspace is needed here.
+    The Agents API addresses a connector by ID alone, so the workspace is not needed to
+    reach the connector. It is required anyway and validated against the connector's own
+    workspace, so a connector ID from another workspace cannot be acted on by mistake.
     """
-    return AgentConnector._from_auth(  # noqa: SLF001  # Internal factory for the MCP layer.
+    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    if not resolved_workspace_id:
+        raise AirbyteMissingWorkspaceContextError
+
+    connector = AgentConnector._from_auth(  # noqa: SLF001  # Internal factory for the MCP layer.
         connector_id,
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
     )
 
+    connector_workspace_id = connector.describe().workspace_id
+    if connector_workspace_id is not None and connector_workspace_id != resolved_workspace_id:
+        raise PyAirbyteInputError(
+            message="The connector belongs to a different workspace.",
+            guidance=(
+                "Call `list_agent_connectors` to find connectors in this workspace, or pass "
+                "the workspace that owns this connector."
+            ),
+            context={
+                "connector_id": connector_id,
+                "requested_workspace_id": resolved_workspace_id,
+            },
+        )
+    return connector
+
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     ctx: Context,
     *,
     connector_id: str,
+    workspace_id: str | None,
     entity_type: str,
     action: str,
     api_args: dict[str, Any] | str | None,
@@ -230,7 +256,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             context={"action": action},
         )
 
-    result = _get_agent_connector(ctx, connector_id).execute(
+    result = _get_agent_connector(ctx, connector_id, workspace_id).execute(
         entity_type,
         action,
         _resolve_api_args(api_args),
@@ -326,12 +352,21 @@ def describe_agent_connector(
         str,
         Field(description="The ID of the Airbyte Agents connector."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> AgentConnectorDetailsResult:
     """Describe an Airbyte Agents connector, including its Context Store entities.
 
-    Call this before `execute_agent_connector` to learn what the connector exposes.
+    Call this before `execute_agent_connector` to learn what the connector exposes. The
+    connector must belong to the given workspace.
     """
-    details = _get_agent_connector(ctx, connector_id).describe()
+    details = _get_agent_connector(ctx, connector_id, workspace_id).describe()
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,
         connector_name=details.name,
@@ -410,16 +445,25 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
             default=None,
         ),
     ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> AgentExecuteToolResult:
     """Read data from an Airbyte Agents connector, without modifying anything.
 
     This tool only accepts read actions, so it stays available in read-only mode. Use
     `execute_agent_connector` for actions that create, update, or delete data. Entity types
-    are connector-specific, so call `describe_agent_connector` first.
+    are connector-specific, so call `describe_agent_connector` first. The connector must
+    belong to the given workspace.
     """
     return _execute(
         ctx,
         connector_id=connector_id,
+        workspace_id=workspace_id,
         entity_type=entity_type,
         action=action,
         api_args=api_args,
@@ -508,16 +552,24 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
             default=None,
         ),
     ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> AgentExecuteToolResult:
     """Execute a single action against an Airbyte Agents connector, including writes.
 
     Prefer `execute_agent_connector_ro` when only reading, since it is available in
     read-only mode. Entity types and actions are connector-specific, so call
-    `describe_agent_connector` first.
+    `describe_agent_connector` first. The connector must belong to the given workspace.
     """
     return _execute(
         ctx,
         connector_id=connector_id,
+        workspace_id=workspace_id,
         entity_type=entity_type,
         action=action,
         api_args=api_args,

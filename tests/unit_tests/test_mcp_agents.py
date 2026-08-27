@@ -61,7 +61,7 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id: stub,
+        lambda ctx, connector_id, workspace_id=None: stub,
     )
     return stub
 
@@ -79,6 +79,7 @@ def _execute_ro(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: AN
         page_size=kwargs.pop("page_size", None),
         cursor=kwargs.pop("cursor", None),
         intent=kwargs.pop("intent", None),
+        workspace_id=kwargs.pop("workspace_id", "workspace-id"),
     )
 
 
@@ -96,6 +97,7 @@ def _execute(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: ANN40
         cursor=kwargs.pop("cursor", None),
         intent=kwargs.pop("intent", None),
         read_only=kwargs.pop("read_only", None),
+        workspace_id=kwargs.pop("workspace_id", "workspace-id"),
     )
 
 
@@ -215,12 +217,13 @@ def test_describe_tool_reports_context_store_entities(
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id: _DescribableConnector(),
+        lambda ctx, connector_id, workspace_id=None: _DescribableConnector(),
     )
 
     result = agents_mcp.describe_agent_connector(
         ctx=cast(Context, object()),
         connector_id="connector-id",
+        workspace_id="workspace-id",
     )
 
     assert result.context_store_entities == ["issues"]
@@ -242,4 +245,51 @@ def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
     assert "read_only" in tools["execute_agent_connector"].parameters["properties"]
     assert (
         "read_only" not in tools["execute_agent_connector_ro"].parameters["properties"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("connector_workspace_id", "requested_workspace_id", "expect_error"),
+    [
+        pytest.param("workspace-1", "workspace-1", False, id="same_workspace_allowed"),
+        pytest.param("workspace-1", "workspace-2", True, id="other_workspace_rejected"),
+        pytest.param(None, "workspace-1", False, id="unreported_workspace_allowed"),
+        pytest.param("workspace-1", None, True, id="missing_workspace_rejected"),
+    ],
+)
+def test_connector_resolution_validates_workspace_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_workspace_id: str | None,
+    requested_workspace_id: str | None,
+    expect_error: bool,
+) -> None:
+    """Verify a connector from another workspace is rejected before it is used."""
+
+    class _ScopedConnector:
+        def describe(self) -> AgentConnectorDetails:
+            return AgentConnectorDetails(
+                connector_id="connector-id",
+                workspace_id=connector_workspace_id,
+            )
+
+    monkeypatch.setattr(
+        agents_mcp.AgentConnector,
+        "_from_auth",
+        classmethod(lambda cls, connector_id, **kwargs: _ScopedConnector()),
+    )
+    monkeypatch.setattr(agents_mcp, "get_mcp_config", lambda ctx, key: None)
+
+    if expect_error:
+        with pytest.raises(PyAirbyteInputError):
+            agents_mcp._get_agent_connector(  # noqa: SLF001
+                cast(Context, object()),
+                "connector-id",
+                requested_workspace_id,
+            )
+        return
+
+    assert agents_mcp._get_agent_connector(  # noqa: SLF001
+        cast(Context, object()),
+        "connector-id",
+        requested_workspace_id,
     )
