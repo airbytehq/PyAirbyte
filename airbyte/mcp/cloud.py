@@ -210,10 +210,10 @@ class CloudOrganizationResult(BaseModel):
 
     id: str
     """The organization ID."""
-    name: str
-    """Display name of the organization."""
-    email: str
-    """Email associated with the organization."""
+    name: str | None = None
+    """Display name of the organization, when available."""
+    email: str | None = None
+    """Email associated with the organization, when available."""
     payment_status: str | None = None
     """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
     When 'disabled', syncs are blocked due to unpaid invoices."""
@@ -224,15 +224,6 @@ class CloudOrganizationResult(BaseModel):
     """Whether the account is locked due to billing issues.
     True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
     Defaults to False unless we have affirmative evidence of a locked state."""
-
-
-class CloudOrganizationCandidate(BaseModel):
-    """Organization candidate for resolving an ambiguous workspace listing."""
-
-    id: str
-    """Organization ID."""
-    name: str | None = None
-    """Organization name when available."""
 
 
 class CloudOrganizationListResult(BaseModel):
@@ -281,7 +272,7 @@ class CloudWorkspaceListResult(BaseModel):
     message: str | None = None
     """Additional guidance when discovery returns no results."""
 
-    candidate_organizations: list[CloudOrganizationCandidate] | None = None
+    available_organizations: list[CloudOrganizationResult] | None = None
     """Organizations to choose from when the credentials match multiple organizations."""
 
 
@@ -1548,7 +1539,7 @@ def list_cloud_workspaces(
         candidates = context.get("organization_candidates")
         if not isinstance(candidates, list):
             raise
-        candidate_organizations: list[CloudOrganizationCandidate] = []
+        available_organizations: list[CloudOrganizationResult] = []
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue
@@ -1556,18 +1547,18 @@ def list_cloud_workspaces(
             if not isinstance(candidate_id, str):
                 continue
             candidate_name = candidate.get("organization_name")
-            candidate_organizations.append(
-                CloudOrganizationCandidate(
+            available_organizations.append(
+                CloudOrganizationResult(
                     id=candidate_id,
                     name=candidate_name if isinstance(candidate_name, str) else None,
                 )
             )
         message = error.get_message()
-        if candidate_organizations:
+        if available_organizations:
             message += " Retry with one of the candidate organization IDs."
         return CloudWorkspaceListResult(
             workspaces=[],
-            candidate_organizations=candidate_organizations,
+            available_organizations=available_organizations,
             message=message,
         )
     except AirbyteError as error:
@@ -1649,8 +1640,8 @@ def list_cloud_organizations(
         organizations=[
             CloudOrganizationResult(
                 id=organization.organization_id,
-                name=organization.organization_name or "",
-                email=organization.email or "",
+                name=organization.organization_name,
+                email=organization.email,
             )
             for organization in organizations
         ],

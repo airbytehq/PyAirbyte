@@ -1051,12 +1051,16 @@ def test_mcp_list_cloud_workspaces_returns_typed_organization_candidates(
     )
 
     assert result.workspaces == []
-    assert result.candidate_organizations is not None
-    assert [candidate.id for candidate in result.candidate_organizations] == [
+    assert result.available_organizations is not None
+    assert all(
+        isinstance(candidate, mcp_cloud.CloudOrganizationResult)
+        for candidate in result.available_organizations
+    )
+    assert [candidate.id for candidate in result.available_organizations] == [
         "organization-1",
         "organization-2",
     ]
-    assert result.candidate_organizations[1].name == "Organization 2"
+    assert result.available_organizations[1].name == "Organization 2"
     assert "Retry with one of the candidate organization IDs." in (result.message or "")
 
 
@@ -1080,7 +1084,7 @@ def test_mcp_list_cloud_workspaces_without_candidates_omits_retry_guidance(
         limit=None,
     )
 
-    assert result.candidate_organizations == []
+    assert result.available_organizations == []
     assert result.message == "No organization membership was found."
 
 
@@ -1170,6 +1174,26 @@ def test_mcp_list_cloud_organizations_discovery(
         assert expected_message in (result.message or "")
     else:
         assert result.message is None
+
+
+def test_mcp_list_cloud_organizations_preserves_missing_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DiscoveryClient:
+        def list_organizations(self, **_: object) -> list[CloudOrganization]:
+            return [CloudOrganization(organization_id="organization-id")]
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(None)
+
+    assert result.organizations == [
+        mcp_cloud.CloudOrganizationResult(
+            id="organization-id",
+            name=None,
+            email=None,
+        )
+    ]
 
 
 @pytest.mark.parametrize(
