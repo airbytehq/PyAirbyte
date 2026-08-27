@@ -1,9 +1,9 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Privacy-safe attribution properties for MCP tool-call telemetry.
 
-Hosted deployments should set `AIRBYTE_MCP_TELEMETRY_SALT` explicitly. The
-analytics-ID fallback is regenerated per container, which would otherwise make
-the surrogates identify instances instead of callers.
+Hosted deployments should set `AIRBYTE_TELEMETRY_ANONYMIZATION_SEED` explicitly.
+The analytics-ID fallback is regenerated per container, which would otherwise
+make the surrogates identify instances instead of callers.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import hashlib
 import hmac
 import os
 from collections.abc import Callable  # noqa: TC003
-from contextlib import suppress
 from functools import lru_cache
 from typing import TypeVar
 from urllib.parse import urlsplit
@@ -27,7 +26,7 @@ from airbyte._util.telemetry import _get_analytics_id
 from airbyte.constants import is_hosted_mcp_mode
 
 
-_TELEMETRY_SALT_ENV = "AIRBYTE_MCP_TELEMETRY_SALT"
+_TELEMETRY_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SEED"
 _AIRBYTE_OWNED_DOMAINS = ("airbyte.ai", "airbyte.com", "airbyte.io")
 _T = TypeVar("_T")
 
@@ -48,20 +47,19 @@ def _hash_value(value: str, scope_label: str, endpoint: str = "local") -> str | 
             return None
         message = f"{scope_label}|{endpoint}|{value}".encode()
         return hmac.new(salt.encode(), message, hashlib.sha256).hexdigest()[:16]
-    except Exception:
+    except RuntimeError:
         return None
 
 
 def _safe_value(resolver: Callable[[], _T]) -> _T | None:
     try:
         value = resolver()
-    except Exception:
+    except RuntimeError:
         return None
     return value or None
 
 
 def _session_id() -> str | None:
-    get_http_request()
     return get_context().session_id
 
 
@@ -102,7 +100,6 @@ def _request_endpoint(host: str) -> str:
 
 
 def _client_info() -> tuple[str | None, str | None]:
-    get_http_request()
     context = get_context()
     client_params = context.session.client_params
     if client_params is None:
@@ -124,8 +121,7 @@ def _is_airbyte_owned(host: str) -> bool:
 def get_telemetry_attribution() -> dict[str, str | bool]:
     """Return privacy-safe attribution properties for an MCP tool call."""
     properties: dict[str, str | bool] = {}
-    with suppress(Exception):
-        properties["is_hosted_mcp"] = is_hosted_mcp_mode()
+    properties["is_hosted_mcp"] = is_hosted_mcp_mode()
     if _safe_value(_get_telemetry_salt) is None:
         return properties
 
