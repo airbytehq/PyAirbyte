@@ -83,7 +83,7 @@ class CloudClient:
         return self._credentials.organization_id
 
     @property
-    def workspace_id(self) -> str | None:
+    def default_workspace_id(self) -> str | None:
         """Default workspace ID for workspace-scoped operations."""
         return self._credentials.workspace_id
 
@@ -340,9 +340,9 @@ class CloudClient:
             return self._get_workspace_parent_organization_id(workspace_id)
 
         configured_organization_id = self.organization_id
-        if configured_organization_id is None and self.workspace_id is not None:
+        if configured_organization_id is None and self.default_workspace_id is not None:
             configured_organization_id = self._get_workspace_parent_organization_id(
-                self.workspace_id
+                self.default_workspace_id
             )
         if configured_organization_id is not None:
             return configured_organization_id
