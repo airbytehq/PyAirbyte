@@ -18,4 +18,4 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Check for TK-TODO markers  # IGNORE:TK
-        uses: aaronsteers/tk-todo-check-action@v1.0.0  # IGNORE:TK
+        uses: aaronsteers/tk-todo-check-action@76cd8dbb434bc93c7898ebdf43eff6105ca186ac # v1.0.0 IGNORE:TK
