@@ -25,7 +25,7 @@ connector = workspace.get_connector("GitHub")  # by ID or name (case insensitive
 
 result = connector.list_entities(
     "issues",
-    api_args={"repository": "airbytehq/PyAirbyte"},
+    api_args={"repository": "airbytehq/PyAirbyte"},  # Passthrough API args
     limit=50,
 )
 for entity in result.entities:
