@@ -113,7 +113,7 @@ class AgentOrganization:
     def list_workspaces(self) -> list[AgentWorkspace]:
         """List the workspaces visible to these credentials in the Agents API."""
         return [
-            self._as_workspace(info)
+            self._workspace_from_info(info)
             for info in (
                 AgentWorkspaceInfo.model_validate(record)
                 for record in _api_util.list_agent_workspaces(
@@ -147,7 +147,7 @@ class AgentOrganization:
         )
 
         if lookup.workspace_id and not lookup.name:
-            return self._as_workspace(AgentWorkspaceInfo(id=lookup.workspace_id))
+            return self._workspace_from_info(AgentWorkspaceInfo(id=lookup.workspace_id))
 
         workspaces = self.list_workspaces()
         if lookup.workspace_id:
@@ -222,7 +222,7 @@ class AgentOrganization:
             bearer_token=credentials.bearer_token,
         )
 
-    def _as_workspace(self, info: AgentWorkspaceInfo) -> AgentWorkspace:
+    def _workspace_from_info(self, info: AgentWorkspaceInfo) -> AgentWorkspace:
         """Build an `AgentWorkspace` from workspace info, reusing these credentials."""
         return AgentWorkspace(
             workspace_id=info.id,
