@@ -82,6 +82,8 @@ back_to_cloud = agent_workspace.as_cloud_workspace()
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.models import (
     AgentConnectorDetails,
@@ -97,7 +99,24 @@ from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 
 
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TC004
+    from airbyte.agents import (
+        connectors,
+        models,
+        organizations,
+        workspaces,
+    )
+
+
 __all__ = [
+    # Submodules
+    "connectors",
+    "models",
+    "organizations",
+    "workspaces",
+    # Classes
     "AgentConnector",
     "AgentConnectorDetails",
     "AgentConnectorInfo",
