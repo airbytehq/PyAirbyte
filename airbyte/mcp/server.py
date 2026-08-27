@@ -71,9 +71,9 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
+from airbyte._util.telemetry_anonymization import get_telemetry_attribution
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool
 from airbyte.mcp._config import load_secrets_to_env_vars
-from airbyte.mcp._telemetry_attribution import get_telemetry_attribution
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,

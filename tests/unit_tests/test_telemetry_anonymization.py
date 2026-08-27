@@ -17,8 +17,8 @@ from segment import analytics
 
 from airbyte import constants
 from airbyte.constants import set_hosted_mcp_mode
-from airbyte.mcp import _telemetry_attribution as attribution
 from airbyte.mcp import server
+from airbyte._util import telemetry_anonymization as attribution
 
 
 _DUMMY_SEGMENT_WRITE_KEY = "dummy-segment-write-key"
@@ -33,45 +33,52 @@ def force_online_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     attribution._get_telemetry_salt.cache_clear()
 
 
-def test_segment_write_key_defaults_to_app_tracking_key(
+@pytest.mark.parametrize(
+    ("do_not_track", "segment_key", "offline_mode", "expected_key"),
+    [
+        pytest.param(
+            None, None, False, server.PYAIRBYTE_APP_TRACKING_KEY, id="default"
+        ),
+        pytest.param(
+            None,
+            _DUMMY_SEGMENT_WRITE_KEY,
+            False,
+            _DUMMY_SEGMENT_WRITE_KEY,
+            id="environment-override",
+        ),
+        pytest.param(
+            "1",
+            _DUMMY_SEGMENT_WRITE_KEY,
+            False,
+            None,
+            id="do-not-track",
+        ),
+        pytest.param(
+            None,
+            _DUMMY_SEGMENT_WRITE_KEY,
+            True,
+            None,
+            id="offline-mode",
+        ),
+    ],
+)
+def test_segment_write_key_respects_configuration(
     monkeypatch: pytest.MonkeyPatch,
+    do_not_track: str | None,
+    segment_key: str | None,
+    offline_mode: bool,
+    expected_key: str | None,
 ) -> None:
-    """The telemetry key defaults to PyAirbyte's application key."""
+    """The Segment key reflects tracking, environment, and offline configuration."""
     monkeypatch.delenv(server.SEGMENT_WRITE_KEY_ENV, raising=False)
     monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
+    if do_not_track is not None:
+        monkeypatch.setenv(server.DO_NOT_TRACK, do_not_track)
+    if segment_key is not None:
+        monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, segment_key)
+    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", offline_mode)
 
-    assert server._segment_write_key() == server.PYAIRBYTE_APP_TRACKING_KEY
-
-
-def test_segment_write_key_uses_env_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The MCP server can use a deployment-specific Segment key."""
-    monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert server._segment_write_key() == _DUMMY_SEGMENT_WRITE_KEY
-
-
-def test_segment_write_key_respects_do_not_track(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The telemetry sink is disabled when tracking is opted out."""
-    monkeypatch.setenv(server.DO_NOT_TRACK, "1")
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert server._segment_write_key() is None
-
-
-def test_segment_write_key_respects_offline_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Offline mode disables the external Segment sink."""
-    monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", True)
-
-    assert server._segment_write_key() is None
+    assert server._segment_write_key() == expected_key
 
 
 def test_segment_write_key_rechecks_runtime_offline_mode() -> None:
@@ -229,13 +236,26 @@ def test_stdio_attribution_includes_session_and_client(
     assert payload["mcp_client_version"] == "1.0.0"
 
 
-def test_attribution_uses_first_forwarded_ip_and_airbyte_endpoint(
+@pytest.mark.parametrize(
+    ("host", "expected_endpoint"),
+    [
+        pytest.param(
+            "preview.airbyte.ai",
+            "preview.airbyte.ai/cloud-mcp",
+            id="airbyte-subdomain",
+        ),
+        pytest.param("customer.example.com", None, id="third-party-host"),
+    ],
+)
+def test_endpoint_attribution_is_privacy_safe(
     monkeypatch: pytest.MonkeyPatch,
+    host: str,
+    expected_endpoint: str | None,
 ) -> None:
-    """HTTP attribution uses the original forwarded client and owned endpoint."""
+    """Owned endpoints are readable while third-party endpoints stay hashed."""
     monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     request = _http_request(
-        host="preview.airbyte.ai",
+        host=host,
         path="/cloud-mcp",
         forwarded_for="198.51.100.23, 192.0.2.10",
     )
@@ -260,47 +280,31 @@ def test_attribution_uses_first_forwarded_ip_and_airbyte_endpoint(
     payload = attribution.get_telemetry_attribution()
 
     assert payload["caller_hash"] == attribution._hash_value(
-        "198.51.100.23", "ip", "preview.airbyte.ai"
+        "198.51.100.23", "ip", host
     )
-    assert payload["mcp_endpoint"] == "preview.airbyte.ai/cloud-mcp"
     assert payload["mcp_endpoint_hash"] == attribution._hash_value(
-        "preview.airbyte.ai", "endpoint", "preview.airbyte.ai"
+        host, "endpoint", host
     )
     assert payload["session_id_hash"] == attribution._hash_value(
-        "session-secret", "session", "preview.airbyte.ai"
+        "session-secret", "session", host
     )
     assert payload["auth_subject_hash"] == attribution._hash_value(
-        "subject-secret", "subject", "preview.airbyte.ai"
+        "subject-secret", "subject", host
     )
     assert (
         payload["caller_hash"]
         == hmac.new(
             b"test-salt",
-            b"ip|preview.airbyte.ai|198.51.100.23",
+            f"ip|{host}|198.51.100.23".encode(),
             hashlib.sha256,
         ).hexdigest()[:16]
     )
     assert payload["mcp_client_name"] == "Test Client"
     assert payload["mcp_client_version"] == "1.2.3"
-
-
-def test_non_airbyte_endpoint_is_hashed_but_not_emitted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Third-party deployment hostnames are never emitted in plaintext."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
-    host = "customer.example.com"
-    request = _http_request(host=host)
-    monkeypatch.setattr(attribution, "get_http_request", lambda: request)
-    monkeypatch.setattr(attribution, "get_context", _context)
-    monkeypatch.setattr(attribution, "get_access_token", lambda: None)
-
-    payload = attribution.get_telemetry_attribution()
-
-    assert "mcp_endpoint" not in payload
-    assert payload["mcp_endpoint_hash"] == attribution._hash_value(
-        host, "endpoint", host
-    )
+    if expected_endpoint is None:
+        assert "mcp_endpoint" not in payload
+    else:
+        assert payload["mcp_endpoint"] == expected_endpoint
 
 
 def test_hashes_are_stable_and_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -369,54 +373,51 @@ def test_attribution_payload_contains_no_raw_identifiers(
     assert "customer.example.com" not in payload_text
 
 
-def test_salt_prefers_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An explicit deployment salt is used before the analytics ID."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "environment-salt")
-    monkeypatch.setattr(
-        attribution,
-        "_get_analytics_id",
-        lambda: pytest.fail("analytics ID should not be read when salt is configured"),
-    )
-
-    assert (
-        attribution._hash_value("value", "session")
-        == hmac.new(
-            b"environment-salt",
-            b"session|local|value",
-            hashlib.sha256,
-        ).hexdigest()[:16]
-    )
-
-
-def test_salt_falls_back_to_analytics_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The persisted anonymous analytics ID provides the fallback salt."""
-    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", raising=False)
-    monkeypatch.setattr(attribution, "_get_analytics_id", lambda: "analytics-id")
-
-    assert (
-        attribution._hash_value("value", "session")
-        == hmac.new(
-            b"analytics-id",
-            b"session|local|value",
-            hashlib.sha256,
-        ).hexdigest()[:16]
-    )
-
-
-def test_opted_out_analytics_omits_attribution(
+@pytest.mark.parametrize(
+    ("environment_salt", "analytics_id", "expected_salt"),
+    [
+        pytest.param(
+            "environment-salt", "unused", "environment-salt", id="environment"
+        ),
+        pytest.param(None, "analytics-id", "analytics-id", id="analytics-id-fallback"),
+        pytest.param(None, None, None, id="opted-out"),
+    ],
+)
+def test_salt_resolution(
     monkeypatch: pytest.MonkeyPatch,
+    environment_salt: str | None,
+    analytics_id: str | None,
+    expected_salt: str | None,
 ) -> None:
-    """Opting out of analytics also omits attribution properties."""
-    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", raising=False)
-    monkeypatch.setattr(attribution, "_get_analytics_id", lambda: None)
-    monkeypatch.setattr(
-        attribution,
-        "get_http_request",
-        lambda: _http_request(host="preview.airbyte.ai", forwarded_for="198.51.100.23"),
-    )
-    monkeypatch.setattr(attribution, "get_context", _context)
+    """The explicit salt takes precedence over analytics fallback and opt-out."""
+    if environment_salt is None:
+        monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", raising=False)
+    else:
+        monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", environment_salt)
 
-    assert attribution.get_telemetry_attribution() == {"is_hosted_mcp": False}
+    analytics_id_calls = 0
+
+    def get_analytics_id() -> str | None:
+        nonlocal analytics_id_calls
+        analytics_id_calls += 1
+        return analytics_id
+
+    monkeypatch.setattr(attribution, "_get_analytics_id", get_analytics_id)
+
+    if expected_salt is None:
+        assert attribution.get_telemetry_attribution() == {"is_hosted_mcp": False}
+        assert analytics_id_calls == 1
+        return
+
+    assert (
+        attribution._hash_value("value", "session")
+        == hmac.new(
+            expected_salt.encode(),
+            b"session|local|value",
+            hashlib.sha256,
+        ).hexdigest()[:16]
+    )
+    assert analytics_id_calls == int(environment_salt is None)
 
 
 @pytest.mark.parametrize(
