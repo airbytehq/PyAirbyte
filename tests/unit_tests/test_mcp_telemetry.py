@@ -17,6 +17,12 @@ from airbyte.mcp import server
 _DUMMY_SEGMENT_WRITE_KEY = "dummy-segment-write-key"
 
 
+@pytest.fixture(autouse=True)
+def force_online_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep in-process telemetry tests independent of the runner environment."""
+    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", False)
+
+
 def test_segment_write_key_defaults_to_app_tracking_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
