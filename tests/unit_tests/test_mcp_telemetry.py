@@ -217,7 +217,7 @@ def test_stdio_attribution_includes_session_and_client(
         raise RuntimeError("no HTTP request")
 
     monkeypatch.setattr(attribution, "get_http_request", no_http_request)
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "test-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
 
     payload = attribution.get_telemetry_attribution()
 
@@ -233,7 +233,7 @@ def test_attribution_uses_first_forwarded_ip_and_airbyte_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """HTTP attribution uses the original forwarded client and owned endpoint."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "test-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     request = _http_request(
         host="preview.airbyte.ai",
         path="/cloud-mcp",
@@ -288,7 +288,7 @@ def test_non_airbyte_endpoint_is_hashed_but_not_emitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Third-party deployment hostnames are never emitted in plaintext."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "test-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     host = "customer.example.com"
     request = _http_request(host=host)
     monkeypatch.setattr(attribution, "get_http_request", lambda: request)
@@ -305,7 +305,7 @@ def test_non_airbyte_endpoint_is_hashed_but_not_emitted(
 
 def test_hashes_are_stable_and_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
     """Attribution hashes are stable but scoped to their field."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "test-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
 
     session_hash = attribution._hash_value("same-value", "session")
     assert session_hash == attribution._hash_value("same-value", "session")
@@ -318,14 +318,14 @@ def test_hashes_are_stable_and_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
             hashlib.sha256,
         ).hexdigest()[:16]
     )
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "different-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "different-salt")
     attribution._get_telemetry_salt.cache_clear()
     assert session_hash != attribution._hash_value("same-value", "session")
 
 
 def test_caller_hash_is_bound_to_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     """The same caller has different surrogates on different deployments."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "test-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     current_request = [
         _http_request(host="prod.airbyte.ai", forwarded_for="198.51.100.23")
     ]
@@ -346,7 +346,7 @@ def test_attribution_payload_contains_no_raw_identifiers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Raw request identifiers are absent from the emitted properties."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "test-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "test-salt")
     raw_ip = "198.51.100.42"
     raw_session = "session-secret"
     raw_subject = "subject-secret"
@@ -371,7 +371,7 @@ def test_attribution_payload_contains_no_raw_identifiers(
 
 def test_salt_prefers_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """An explicit deployment salt is used before the analytics ID."""
-    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", "environment-salt")
+    monkeypatch.setenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", "environment-salt")
     monkeypatch.setattr(
         attribution,
         "_get_analytics_id",
@@ -390,7 +390,7 @@ def test_salt_prefers_environment_override(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_salt_falls_back_to_analytics_id(monkeypatch: pytest.MonkeyPatch) -> None:
     """The persisted anonymous analytics ID provides the fallback salt."""
-    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", raising=False)
+    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", raising=False)
     monkeypatch.setattr(attribution, "_get_analytics_id", lambda: "analytics-id")
 
     assert (
@@ -407,7 +407,7 @@ def test_opted_out_analytics_omits_attribution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Opting out of analytics also omits attribution properties."""
-    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SEED", raising=False)
+    monkeypatch.delenv("AIRBYTE_TELEMETRY_ANONYMIZATION_SALT", raising=False)
     monkeypatch.setattr(attribution, "_get_analytics_id", lambda: None)
     monkeypatch.setattr(
         attribution,

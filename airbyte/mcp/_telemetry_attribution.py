@@ -1,9 +1,11 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Privacy-safe attribution properties for MCP tool-call telemetry.
+"""Hash and obfuscation processes for Airbyte anonymized telemetry.
 
-Hosted deployments should set `AIRBYTE_TELEMETRY_ANONYMIZATION_SEED` explicitly.
+Deployments can optionally set `AIRBYTE_TELEMETRY_ANONYMIZATION_SALT` explicitly.
 The analytics-ID fallback is regenerated per container, which would otherwise
 make the surrogates identify instances instead of callers.
+
+Deployments can use `DO_NOT_TRACK` to opt out of anonymized telemetry.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from airbyte._util.telemetry import _get_analytics_id
 from airbyte.constants import is_hosted_mcp_mode
 
 
-_TELEMETRY_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SEED"
+_TELEMETRY_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SALT"
 _AIRBYTE_OWNED_DOMAINS = ("airbyte.ai", "airbyte.com", "airbyte.io")
 _T = TypeVar("_T")
 
