@@ -46,6 +46,11 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.agents import (
+    AgentConnector,
+    get_agent_connector,
+    list_agent_connectors,
+)
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -115,6 +120,7 @@ class CloudWorkspace:
         client_secret: str | SecretString | None = None,
         api_root: str | None = None,
         config_api_root: str | None = None,
+        agents_api_root: str | None = None,
         bearer_token: str | SecretString | None = None,
     ) -> None:
         """Validate and initialize credentials."""
@@ -126,6 +132,7 @@ class CloudWorkspace:
             bearer_token=bearer_token,
             public_api_root=api_root,
             config_api_root=config_api_root,
+            agents_api_root=agents_api_root,
             env_vars=env_vars,
         )
         if not credentials.workspace_id:
@@ -158,6 +165,7 @@ class CloudWorkspace:
         *,
         api_root: str | None = None,
         config_api_root: str | None = None,
+        agents_api_root: str | None = None,
     ) -> CloudWorkspace:
         """Create a CloudWorkspace using credentials from environment variables.
 
@@ -176,6 +184,7 @@ class CloudWorkspace:
             - `AIRBYTE_CLOUD_WORKSPACE_ID`: The workspace ID (if not passed as argument).
             - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
             - `AIRBYTE_CLOUD_CONFIG_API_URL`: Optional. The Config API root URL.
+            - `AIRBYTE_AGENTS_API_URL`: Optional. The Airbyte Agents API root URL.
 
         Args:
             workspace_id: The workspace ID. If not provided, will be resolved from
@@ -185,6 +194,9 @@ class CloudWorkspace:
                 the Airbyte Cloud API.
             config_api_root: The Config API root URL. If not provided, will be resolved
                 from the `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable.
+            agents_api_root: The Airbyte Agents API root URL. If not provided, will be
+                resolved from the `AIRBYTE_AGENTS_API_URL` environment variable, or
+                default to the Airbyte Agents API.
 
         Returns:
             A CloudWorkspace instance configured with credentials from the environment.
@@ -206,6 +218,7 @@ class CloudWorkspace:
             workspace_id=workspace_id,
             api_root=api_root,
             config_api_root=config_api_root,
+            agents_api_root=agents_api_root,
         )
 
     @property
@@ -347,6 +360,66 @@ class CloudWorkspace:
         return CloudSource(
             workspace=self,
             connector_id=source_id,
+        )
+
+    # Airbyte Agents connectors
+
+    def _resolve_agents_organization_id(self, organization_id: str | None = None) -> str | None:
+        """Resolve the organization ID to send to the Agents API.
+
+        The Agents API requires an organization when the caller's credentials map to more
+        than one organization, so this falls back to looking the organization up from the
+        workspace when it was not provided explicitly or through credentials.
+        """
+        if organization_id:
+            return organization_id
+        if self._credentials.organization_id:
+            return self._credentials.organization_id
+
+        organization = self.get_organization(raise_on_error=False)
+        return organization.organization_id if organization else None
+
+    def list_agent_connectors(
+        self,
+        *,
+        organization_id: str | None = None,
+    ) -> list[AgentConnector]:
+        """List the Airbyte Agents connectors configured in this workspace.
+
+        Args:
+            organization_id: The organization that owns the workspace. Resolved from
+                credentials or from the workspace itself when not provided.
+        """
+        return list_agent_connectors(
+            workspace_id=self.workspace_id,
+            credentials=self._credentials,
+            organization_id=self._resolve_agents_organization_id(organization_id),
+        )
+
+    def get_agent_connector(
+        self,
+        connector_id: str | None = None,
+        *,
+        name: str | None = None,
+        organization_id: str | None = None,
+    ) -> AgentConnector:
+        """Get an Airbyte Agents connector by ID or by name.
+
+        Passing `connector_id` does not fetch anything from the API. Passing `name` lists
+        the workspace's connectors to resolve the name to an ID.
+
+        Args:
+            connector_id: The connector ID. Mutually exclusive with `name`.
+            name: The connector's display name. Mutually exclusive with `connector_id`.
+            organization_id: The organization that owns the workspace. Resolved from
+                credentials or from the workspace itself when not provided.
+        """
+        return get_agent_connector(
+            workspace_id=self.workspace_id,
+            credentials=self._credentials,
+            connector_id=connector_id,
+            name=name,
+            organization_id=self._resolve_agents_organization_id(organization_id),
         )
 
     def get_destination(

@@ -84,6 +84,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from airbyte.cloud.agents import (
+    AgentConnector,
+    AgentConnectorDetails,
+    AgentConnectorInfo,
+    AgentExecuteResult,
+)
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
@@ -97,6 +103,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 if TYPE_CHECKING:
     # ruff: noqa: TC004
     from airbyte.cloud import (
+        agents,
         client,
         client_config,
         connections,
@@ -109,6 +116,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     # Submodules
+    "agents",
     "workspaces",
     "client",
     "organizations",
@@ -117,6 +125,10 @@ __all__ = [
     "client_config",
     "sync_results",
     # Classes
+    "AgentConnector",
+    "AgentConnectorDetails",
+    "AgentConnectorInfo",
+    "AgentExecuteResult",
     "CloudClient",
     "CloudOrganization",
     "CloudWorkspace",
