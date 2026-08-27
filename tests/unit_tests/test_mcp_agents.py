@@ -16,6 +16,7 @@ from airbyte.agents.models import (
     AgentExecutionMetadata,
 )
 from airbyte.agents.connectors import AgentConnector
+from airbyte.constants import MCP_CONFIG_BEARER_TOKEN
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
@@ -272,7 +273,11 @@ def test_connector_resolution_validates_workspace_scope(
     expect_error: bool,
 ) -> None:
     """Verify a connector outside the requested workspace is rejected before it is used."""
-    monkeypatch.setattr(agents_mcp, "get_mcp_config", lambda ctx, key: None)
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
     monkeypatch.setattr(
         agents_mcp.AgentWorkspace,
         "list_connectors",
