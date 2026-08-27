@@ -157,7 +157,6 @@ def test_shared_app_passes_upstream_attribution_configuration(
     assert attribution._anonymization_salt() == "configured-salt"
     monkeypatch.delenv(server.ANONYMIZATION_SALT_ENV)
     assert attribution._anonymization_salt() == "analytics-ulid"
-    assert attribution._caller_ip_fallback is False
 
 
 def test_hosted_attribution_is_resolved_per_call(

@@ -378,7 +378,6 @@ app = mcp_server(
         extra_properties=_mcp_extra_properties,
         known_public_mcp_domains=("airbyte.ai", "airbyte.com", "airbyte.io"),
         anonymization_salt=_mcp_anonymization_salt,
-        caller_ip_fallback=False,
     ),
 )
 """The Airbyte MCP Server application instance."""
