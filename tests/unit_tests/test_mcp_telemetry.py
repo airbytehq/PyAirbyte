@@ -11,6 +11,8 @@ import pytest
 from fastmcp_extensions import ToolCallTelemetryMiddleware
 from segment import analytics
 
+from airbyte import constants
+from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp import server
 
 
@@ -53,67 +55,80 @@ def test_segment_write_key_respects_do_not_track(
     assert server._segment_write_key() is None
 
 
-def test_register_tool_call_telemetry_adds_middleware(
+def test_segment_write_key_respects_offline_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Enabled telemetry adds exactly one middleware without sending an event."""
+    """Offline mode disables the external Segment sink."""
     monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
     monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
+    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", True)
+
+    assert server._segment_write_key() is None
+
+
+def test_shared_app_registers_telemetry_without_sending_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared app has one telemetry middleware for both transports."""
 
     def fail_if_called(*_: object, **__: object) -> None:
-        pytest.fail("middleware registration must not send Segment traffic")
+        pytest.fail("telemetry setup must not send Segment traffic")
 
     monkeypatch.setattr(analytics, "track", fail_if_called)
-    # Constructing the middleware configures the module-level Segment client, so
-    # snapshot the client state that registration mutates.
+    # Keep the module-level Segment client state isolated from middleware setup.
     monkeypatch.setattr(analytics, "write_key", analytics.write_key)
     monkeypatch.setattr(analytics, "send", analytics.send)
     monkeypatch.setattr(analytics, "on_error", analytics.on_error)
     original_middleware = list(server.app.middleware)
     try:
-        server._register_tool_call_telemetry()
-        added_middleware = [
+        telemetry_middleware = [
             middleware
             for middleware in server.app.middleware
-            if middleware not in original_middleware
+            if isinstance(middleware, ToolCallTelemetryMiddleware)
         ]
-        assert len(added_middleware) == 1
-        assert isinstance(added_middleware[0], ToolCallTelemetryMiddleware)
+        assert len(telemetry_middleware) == 1
     finally:
         server.app.middleware[:] = original_middleware
 
 
-def test_register_tool_call_telemetry_is_disabled(
+def test_hosted_attribution_is_resolved_per_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Opting out leaves the MCP app middleware unchanged."""
-    monkeypatch.setenv(server.DO_NOT_TRACK, "1")
-    original_middleware = list(server.app.middleware)
-    try:
-        server._register_tool_call_telemetry()
-        assert server.app.middleware == original_middleware
-    finally:
-        server.app.middleware[:] = original_middleware
+    """Hosted attribution reflects mode changes after module import."""
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    telemetry = next(
+        middleware
+        for middleware in server.app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    extra_properties = telemetry._extra_properties
+    assert callable(extra_properties)
+    assert extra_properties() == {"is_hosted_mcp": False}
+
+    set_hosted_mcp_mode()
+
+    assert extra_properties() == {"is_hosted_mcp": True}
 
 
 @pytest.mark.parametrize(
-    ("do_not_track", "expected"),
+    ("disabled_env", "expected_segment"),
     [
         pytest.param(None, True, id="enabled"),
-        pytest.param("1", False, id="opted-out"),
+        pytest.param("DO_NOT_TRACK", False, id="do-not-track"),
+        pytest.param("AIRBYTE_OFFLINE_MODE", False, id="offline-mode"),
     ],
 )
-def test_module_level_registration_adds_telemetry_middleware(
-    do_not_track: str | None,
-    expected: bool,
+def test_module_level_registration_configures_telemetry(
+    disabled_env: str | None,
+    expected_segment: bool,
 ) -> None:
-    """The shared MCP app registers telemetry according to its environment."""
+    """A clean import registers telemetry and respects external-sink opt-outs."""
     child_env = os.environ.copy()
     child_env.pop(server.DO_NOT_TRACK, None)
     child_env.pop("AIRBYTE_OFFLINE_MODE", None)
     child_env[server.SEGMENT_WRITE_KEY_ENV] = _DUMMY_SEGMENT_WRITE_KEY
-    if do_not_track is not None:
-        child_env[server.DO_NOT_TRACK] = do_not_track
+    if disabled_env is not None:
+        child_env[disabled_env] = "1"
 
     child_script = f"""
 from fastmcp_extensions import ToolCallTelemetryMiddleware
@@ -123,9 +138,16 @@ has_telemetry = any(
     isinstance(middleware, ToolCallTelemetryMiddleware)
     for middleware in server.app.middleware
 )
-if has_telemetry is not {expected!r}:
+telemetry = next(
+    middleware
+    for middleware in server.app.middleware
+    if isinstance(middleware, ToolCallTelemetryMiddleware)
+)
+if has_telemetry is not True or telemetry._segment_enabled is not {expected_segment!r}:
     raise SystemExit(
-        f"expected telemetry middleware={expected!r}, got {{has_telemetry!r}}"
+        "expected telemetry middleware and segment sink="
+        f"True/{{expected_segment!r}}, got "
+        f"{{has_telemetry!r}}/{{telemetry._segment_enabled!r}}"
     )
 """
     result = subprocess.run(

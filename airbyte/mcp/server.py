@@ -57,7 +57,7 @@ from typing import TYPE_CHECKING, Protocol
 from fastmcp_extensions import (
     JWTAuthConfig,
     OIDCAuthConfig,
-    ToolCallTelemetryMiddleware,
+    TelemetryConfig,
     build_mcp_auth,
     mcp_server,
 )
@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
@@ -322,28 +322,12 @@ def _segment_write_key() -> str | None:
     return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
 
 
-def _register_tool_call_telemetry() -> None:
-    """Record an `mcp_tool_call` event per tool invocation on this MCP server.
-
-    The Segment sink queues events on a background thread, so it does not add
-    latency to the tool call it reports on.
-    """
-    write_key = _segment_write_key()
-    if write_key is None:
-        logger.info("Tool-call telemetry is disabled.")
-        return
-
-    app.add_middleware(
-        ToolCallTelemetryMiddleware(
-            package_name="airbyte",
-            segment_write_key=write_key,
-            segment_user_id=SEGMENT_USER_ID,
-        )
-    )
-
-
 set_mcp_mode()
 load_secrets_to_env_vars()
+
+segment_write_key = _segment_write_key()
+if segment_write_key is None:
+    logger.info("Segment telemetry is disabled; MCP tool-call telemetry remains log-only.")
 
 app = mcp_server(
     name="airbyte-mcp",
@@ -367,10 +351,14 @@ app = mcp_server(
         airbyte_module_filter,
     ],
     auth=_create_auth(),
+    telemetry=TelemetryConfig(
+        package_name="airbyte",
+        segment_write_key=segment_write_key,
+        segment_user_id=SEGMENT_USER_ID,
+        extra_properties=lambda: {"is_hosted_mcp": is_hosted_mcp_mode()},
+    ),
 )
 """The Airbyte MCP Server application instance."""
-
-_register_tool_call_telemetry()
 
 # Register tools from each module
 register_cloud_tools(app)
