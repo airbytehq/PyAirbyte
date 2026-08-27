@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import requests
 
 from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte.constants import CLOUD_API_ROOT
+from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 
 
@@ -41,6 +41,33 @@ API, but finite, so a stalled request cannot hang the caller forever.
 
 _MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
 """Fragment of the Agents API error returned when credentials span several organizations."""
+
+
+def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
+    """Raise `PyAirbyteInputError` unless the credentials use the public Cloud API roots.
+
+    The Agents API has a single hosted root, so an Agents object carries no API root of its
+    own. Converting from a Cloud object that points somewhere other than public Airbyte
+    Cloud would therefore silently discard those roots, so the conversion is refused.
+    """
+    overridden = {
+        name: value
+        for name, value, default in (
+            ("api_root", credentials.public_api_root, CLOUD_API_ROOT),
+            ("config_api_root", credentials.config_api_root, CLOUD_CONFIG_API_ROOT),
+        )
+        if value is not None and value.rstrip("/") != default
+    }
+    if overridden:
+        raise PyAirbyteInputError(
+            message="The Airbyte Agents API is only available on Airbyte Cloud.",
+            guidance=(
+                "Agents objects always use the hosted Agents API, so a custom Cloud API "
+                "root cannot be honored. Convert from a Cloud object using the public "
+                "Airbyte Cloud API roots instead."
+            ),
+            context=overridden,
+        )
 
 
 def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:

@@ -13,6 +13,7 @@ from airbyte.agents.models import AgentExecuteResult
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
@@ -703,3 +704,51 @@ def test_cloud_conversions(
         assert captured_requests == []
     else:
         assert captured_requests[0]["url"].endswith(expected_request_path)
+
+
+@pytest.mark.parametrize(
+    "convert",
+    [
+        pytest.param(
+            lambda: AgentWorkspace.from_cloud_workspace(
+                CloudWorkspace(
+                    workspace_id="workspace-id",
+                    bearer_token="test-token",
+                    api_root="https://airbyte.example.com/api/public/v1",
+                ),
+                verify=False,
+            ),
+            id="workspace_api_root",
+        ),
+        pytest.param(
+            lambda: AgentWorkspace.from_cloud_workspace(
+                CloudWorkspace(
+                    workspace_id="workspace-id",
+                    bearer_token="test-token",
+                    config_api_root="https://airbyte.example.com/api/v1",
+                ),
+                verify=False,
+            ),
+            id="workspace_config_api_root",
+        ),
+        pytest.param(
+            lambda: AgentOrganization.from_cloud_organization(
+                CloudOrganization(
+                    organization_id="org-id",
+                    bearer_token="test-token",
+                    public_api_root="https://airbyte.example.com/api/public/v1",
+                ),
+            ),
+            id="organization_api_root",
+        ),
+    ],
+)
+def test_conversion_rejects_non_public_cloud_api_roots(
+    captured_requests: list[dict[str, Any]],
+    convert: Any,
+) -> None:
+    """A Cloud object with custom API roots cannot become an Agents object."""
+    with pytest.raises(PyAirbyteInputError, match="only available on Airbyte Cloud"):
+        convert()
+
+    assert captured_requests == []

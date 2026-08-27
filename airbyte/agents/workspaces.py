@@ -222,7 +222,13 @@ class AgentWorkspace:
         subscription. By default this is verified by fetching the workspace from the Agents
         API, which raises `AirbyteError` when it is not eligible. Pass `verify=False` to
         skip that call.
+
+        Raises `PyAirbyteInputError` when the Cloud workspace uses non-public Cloud API
+        roots, since an `AgentWorkspace` cannot carry them.
         """
+        _api_util.check_public_cloud_api_roots(
+            cloud_workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
+        )
         workspace = cls(
             workspace_id=cloud_workspace.workspace_id,
             organization_id=organization_id,

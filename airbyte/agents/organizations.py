@@ -213,8 +213,12 @@ class AgentOrganization:
         Whether the organization can actually execute connector actions depends on its
         Airbyte Agents subscription, which is only knowable per workspace. Use
         `AgentWorkspace.from_cloud_workspace()` for an authoritative eligibility check.
+
+        Raises `PyAirbyteInputError` when the Cloud organization uses non-public Cloud API
+        roots, since an `AgentOrganization` cannot carry them.
         """
         credentials = cloud_organization._credentials  # noqa: SLF001  # Same-domain conversion.
+        _api_util.check_public_cloud_api_roots(credentials)
         return cls(
             organization_id=cloud_organization.organization_id,
             client_id=credentials.client_id,
