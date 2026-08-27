@@ -1528,13 +1528,6 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description="Optional workspace ID used to resolve its organization.",
-            default=None,
-        ),
-    ],
     all_organizations: Annotated[
         bool,
         Field(
@@ -1558,7 +1551,6 @@ def list_cloud_workspaces(
         workspaces = client.list_workspaces(
             organization_id=organization_id,
             organization_name=organization_name,
-            workspace_id=workspace_id,
             name_contains=name_contains,
             limit=limit,
             all_organizations=all_organizations,

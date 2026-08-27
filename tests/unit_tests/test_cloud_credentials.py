@@ -1030,7 +1030,6 @@ def test_mcp_list_cloud_workspaces_returns_typed_organization_candidates(
         organization_name=None,
         name_contains=None,
         limit=None,
-        workspace_id=None,
         all_organizations=False,
     )
 
@@ -1062,7 +1061,6 @@ def test_mcp_list_cloud_workspaces_without_candidates_omits_retry_guidance(
         organization_name=None,
         name_contains=None,
         limit=None,
-        workspace_id=None,
         all_organizations=False,
     )
 
@@ -1216,7 +1214,6 @@ def test_mcp_list_cloud_workspaces_discovery(
         organization_name=None,
         name_contains=None,
         limit=None,
-        workspace_id=None,
         all_organizations=False,
     )
 
