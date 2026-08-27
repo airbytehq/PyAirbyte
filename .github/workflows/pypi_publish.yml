@@ -87,6 +87,10 @@ jobs:
     name: Deploy Cloud MCP
     needs: publish_to_pypi
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    # The dispatch to airbyte-ops-mcp is authenticated with a GitHub App token,
+    # not `GITHUB_TOKEN`, so this job needs nothing beyond reading the workflow.
+    permissions:
+      contents: read
     uses: ./.github/workflows/deploy_cloud_mcp.yml
     secrets: inherit
     with:
