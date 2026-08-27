@@ -135,7 +135,7 @@ class AgentConnector:
         self._details: AgentConnectorDetails | None = None
 
     @classmethod
-    def from_auth(
+    def _from_auth(
         cls,
         connector_id: str,
         *,
@@ -146,7 +146,9 @@ class AgentConnector:
     ) -> AgentConnector:
         """Create an `AgentConnector` from credentials, without a workspace lookup.
 
-        The Agents API addresses a connector by ID alone, so no workspace is needed.
+        Internal: callers should use `AgentWorkspace.get_connector()`. This exists for the
+        MCP layer, which is handed a connector ID and credentials with no workspace context.
+
         Credentials fall back to the `AIRBYTE_CLOUD_*` environment variables when they are
         not passed explicitly.
         """

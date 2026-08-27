@@ -197,7 +197,7 @@ def _get_agent_connector(ctx: Context, connector_id: str) -> AgentConnector:
 
     The Agents API addresses a connector by ID alone, so no workspace is needed here.
     """
-    return AgentConnector.from_auth(
+    return AgentConnector._from_auth(  # noqa: SLF001  # Internal factory for the MCP layer.
         connector_id,
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
