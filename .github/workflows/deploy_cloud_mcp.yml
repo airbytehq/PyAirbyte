@@ -33,9 +33,10 @@ on:
 permissions:
   contents: read
 
-# Serialize per target service so two deploys cannot race the same Cloud Run
-# service. Preview only ever wants the newest commit, so supersede in-flight
-# preview runs; production deploys always run to completion.
+# Serialize the dispatch requests per target service. The Cloud Run rollout
+# itself happens in airbyte-ops-mcp, which does not guard concurrency, so this
+# narrows the race rather than removing it. Preview only ever wants the newest
+# commit, so supersede in-flight preview runs; production runs to completion.
 concurrency:
   group: deploy-cloud-mcp-${{ inputs.preview || 'true' }}
   cancel-in-progress: ${{ inputs.preview != 'false' }}
