@@ -258,19 +258,6 @@ Documentation:
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
 """
 
-AGENTS_API_ROOT_ENV_VAR: str = "AIRBYTE_AGENTS_API_URL"
-"""The environment variable name for the Airbyte Agents API URL."""
-
-AGENTS_API_ROOT: str = "https://api.airbyte.ai/api/v1"
-"""The Airbyte Agents API root URL.
-
-The Agents API is a distinct API surface from both the Public API (`CLOUD_API_ROOT`) and
-the Config API (`CLOUD_CONFIG_API_ROOT`). It serves connector `execute` operations, which
-run a single connector action (for example, listing GitHub repositories) instead of a full
-sync. Airbyte Cloud credentials authenticate against it, as long as the organization has
-an Airbyte Agents subscription.
-"""
-
 # MCP (Model Context Protocol) Constants
 
 _HOSTED_MCP_MODE_ENABLED: bool = False

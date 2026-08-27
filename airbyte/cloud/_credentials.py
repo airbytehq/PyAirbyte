@@ -6,8 +6,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from airbyte.constants import (
-    AGENTS_API_ROOT,
-    AGENTS_API_ROOT_ENV_VAR,
     CLOUD_API_ROOT,
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -40,10 +38,9 @@ class _AirbyteCredentials:
     config_api_root: str | None
     workspace_id: str | None = None
     organization_id: str | None = None
-    agents_api_root: str = AGENTS_API_ROOT
 
     @classmethod
-    def from_auth(  # noqa: PLR0913  # Auth resolution accepts all credential inputs.
+    def from_auth(
         cls,
         *,
         workspace_id: str | None = None,
@@ -53,7 +50,6 @@ class _AirbyteCredentials:
         bearer_token: str | SecretString | None = None,
         public_api_root: str | None = None,
         config_api_root: str | None = None,
-        agents_api_root: str | None = None,
         env_vars: bool = True,
     ) -> _AirbyteCredentials:
         """Resolve Airbyte Cloud credentials from inputs and optionally env vars.
@@ -113,11 +109,6 @@ class _AirbyteCredentials:
                 if env_vars
                 else None,
             ),
-            agents_api_root=_first_value(
-                agents_api_root,
-                _env_value(AGENTS_API_ROOT_ENV_VAR) if env_vars else None,
-            )
-            or AGENTS_API_ROOT,
         )
 
     def with_workspace_id(self, workspace_id: str | None) -> _AirbyteCredentials:
