@@ -342,6 +342,17 @@ def _mcp_anonymization_salt() -> str | None:
     return os.environ.get(ANONYMIZATION_SALT_ENV) or _get_analytics_id()
 
 
+def _mcp_segment_anonymous_id() -> str | None:
+    """Return the local analytics ID; hosted identity comes from caller hashes.
+
+    A hosted container's analytics ID is per-revision and shared across callers,
+    so emitting it would invent a fake user instead of representing a caller.
+    """
+    if is_hosted_mcp_mode():
+        return None
+    return _get_analytics_id()
+
+
 set_mcp_mode()
 load_secrets_to_env_vars()
 
@@ -375,6 +386,7 @@ app = mcp_server(
         package_name="airbyte",
         segment_write_key=segment_write_key,
         segment_user_id=SEGMENT_USER_ID,
+        segment_anonymous_id=_mcp_segment_anonymous_id,
         extra_properties=_mcp_extra_properties,
         known_public_mcp_domains=("airbyte.ai", "airbyte.com", "airbyte.io"),
         anonymization_salt=_mcp_anonymization_salt,

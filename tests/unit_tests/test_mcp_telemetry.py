@@ -157,6 +157,27 @@ def test_shared_app_passes_upstream_attribution_configuration(
     assert attribution._anonymization_salt() == "configured-salt"
     monkeypatch.delenv(server.ANONYMIZATION_SALT_ENV)
     assert attribution._anonymization_salt() == "analytics-ulid"
+    telemetry_middleware = next(
+        middleware
+        for middleware in server.app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    assert (
+        telemetry_middleware._sinks._segment_anonymous_id
+        is server._mcp_segment_anonymous_id
+    )
+
+
+def test_segment_anonymous_id_uses_local_analytics_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the analytics ID locally, but not as a hosted shared user."""
+    monkeypatch.setattr(telemetry, "_ANALYTICS_ID", "analytics-ulid")
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    assert server._mcp_segment_anonymous_id() == "analytics-ulid"
+
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    assert server._mcp_segment_anonymous_id() is None
 
 
 def test_hosted_attribution_is_resolved_per_call(
