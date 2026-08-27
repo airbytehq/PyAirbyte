@@ -188,7 +188,9 @@ def test_describe_tool_reports_context_store_entities(
                 workspace_id="workspace-id",
                 source_definition_name="GitHub",
                 context_store_readiness=AgentContextStoreReadiness(
-                    supported_context_store_entities=[AgentContextStoreEntity(entity="issues")],
+                    supported_context_store_entities=[
+                        AgentContextStoreEntity(entity="issues")
+                    ],
                 ),
                 warnings=["Context Store is still syncing."],
             )
