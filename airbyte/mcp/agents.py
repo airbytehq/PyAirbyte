@@ -32,7 +32,7 @@ from airbyte.constants import (
     MCP_CONFIG_WORKSPACE_ID,
     MCP_WORKSPACE_ID_HEADER,
 )
-from airbyte.exceptions import AirbyteMissingWorkspaceContextError, PyAirbyteInputError
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import _add_defaults_for_exclude_args
@@ -197,37 +197,13 @@ def _get_agent_connector(
     connector_id: str,
     workspace_id: str | None = None,
 ) -> AgentConnector:
-    """Build an `AgentConnector` from MCP config, scoped to a workspace.
+    """Get an `AgentConnector` from its workspace, using MCP config.
 
-    The Agents API addresses a connector by ID alone, so the workspace is not needed to
-    reach the connector. It is required anyway and validated against the connector's own
-    workspace, so a connector ID from another workspace cannot be acted on by mistake.
+    The Agents API addresses a connector by ID alone, but the connector is fetched through
+    its workspace anyway, so a connector ID belonging to another workspace raises before
+    any action runs.
     """
-    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
-    if not resolved_workspace_id:
-        raise AirbyteMissingWorkspaceContextError
-
-    connector = AgentConnector._from_auth(  # noqa: SLF001  # Internal factory for the MCP layer.
-        connector_id,
-        client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
-        client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
-        bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
-    )
-
-    connector_workspace_id = connector.describe().workspace_id
-    if connector_workspace_id is not None and connector_workspace_id != resolved_workspace_id:
-        raise PyAirbyteInputError(
-            message="The connector belongs to a different workspace.",
-            guidance=(
-                "Call `list_agent_connectors` to find connectors in this workspace, or pass "
-                "the workspace that owns this connector."
-            ),
-            context={
-                "connector_id": connector_id,
-                "requested_workspace_id": resolved_workspace_id,
-            },
-        )
-    return connector
+    return _get_agent_workspace(ctx, workspace_id).get_connector(connector_id)
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.

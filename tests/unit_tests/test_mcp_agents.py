@@ -15,7 +15,8 @@ from airbyte.agents.models import (
     AgentExecuteResult,
     AgentExecutionMetadata,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.agents.connectors import AgentConnector
+from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
 
@@ -249,38 +250,40 @@ def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
 
 
 @pytest.mark.parametrize(
-    ("connector_workspace_id", "requested_workspace_id", "expect_error"),
+    ("workspace_connector_ids", "requested_workspace_id", "expect_error"),
     [
-        pytest.param("workspace-1", "workspace-1", False, id="same_workspace_allowed"),
-        pytest.param("workspace-1", "workspace-2", True, id="other_workspace_rejected"),
-        pytest.param(None, "workspace-1", False, id="unreported_workspace_allowed"),
-        pytest.param("workspace-1", None, True, id="missing_workspace_rejected"),
+        pytest.param(
+            ["connector-id"], "workspace-1", False, id="connector_in_workspace"
+        ),
+        pytest.param(
+            ["other-connector-id"],
+            "workspace-1",
+            True,
+            id="connector_in_other_workspace",
+        ),
+        pytest.param([], "workspace-1", True, id="empty_workspace"),
+        pytest.param(["connector-id"], None, True, id="missing_workspace_rejected"),
     ],
 )
 def test_connector_resolution_validates_workspace_scope(
     monkeypatch: pytest.MonkeyPatch,
-    connector_workspace_id: str | None,
+    workspace_connector_ids: list[str],
     requested_workspace_id: str | None,
     expect_error: bool,
 ) -> None:
-    """Verify a connector from another workspace is rejected before it is used."""
-
-    class _ScopedConnector:
-        def describe(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
-                connector_id="connector-id",
-                workspace_id=connector_workspace_id,
-            )
-
-    monkeypatch.setattr(
-        agents_mcp.AgentConnector,
-        "_from_auth",
-        classmethod(lambda cls, connector_id, **kwargs: _ScopedConnector()),
-    )
+    """Verify a connector outside the requested workspace is rejected before it is used."""
     monkeypatch.setattr(agents_mcp, "get_mcp_config", lambda ctx, key: None)
+    monkeypatch.setattr(
+        agents_mcp.AgentWorkspace,
+        "list_connectors",
+        lambda self: [
+            AgentConnector(connector_id=connector_id, credentials=self._credentials)  # noqa: SLF001
+            for connector_id in workspace_connector_ids
+        ],
+    )
 
     if expect_error:
-        with pytest.raises(PyAirbyteInputError):
+        with pytest.raises((PyAirbyteInputError, AirbyteError)):
             agents_mcp._get_agent_connector(  # noqa: SLF001
                 cast(Context, object()),
                 "connector-id",
@@ -288,8 +291,9 @@ def test_connector_resolution_validates_workspace_scope(
             )
         return
 
-    assert agents_mcp._get_agent_connector(  # noqa: SLF001
+    connector = agents_mcp._get_agent_connector(  # noqa: SLF001
         cast(Context, object()),
         "connector-id",
         requested_workspace_id,
     )
+    assert connector.connector_id == "connector-id"
