@@ -70,9 +70,12 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
-from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
-from airbyte._util.telemetry_anonymization import get_telemetry_attribution
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool
+from airbyte._util.telemetry import (
+    DO_NOT_TRACK,
+    PYAIRBYTE_APP_TRACKING_KEY,
+    _get_analytics_id,
+)
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
@@ -306,6 +309,7 @@ def _create_auth() -> AuthProvider | None:
 
 
 SEGMENT_WRITE_KEY_ENV = "AIRBYTE_MCP_SEGMENT_WRITE_KEY"
+ANONYMIZATION_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SALT"
 
 SEGMENT_USER_ID = "airbyte-mcp"
 """Identifies the PyAirbyte MCP server as the event source.
@@ -326,6 +330,16 @@ def _segment_write_key() -> str | None:
         return None
 
     return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
+
+
+def _mcp_extra_properties() -> dict[str, bool]:
+    """Return PyAirbyte-specific telemetry properties for an MCP tool call."""
+    return {"is_hosted_mcp": is_hosted_mcp_mode()}
+
+
+def _mcp_anonymization_salt() -> str | None:
+    """Return the configured salt or the persisted analytics ID."""
+    return os.environ.get(ANONYMIZATION_SALT_ENV) or _get_analytics_id()
 
 
 set_mcp_mode()
@@ -361,7 +375,10 @@ app = mcp_server(
         package_name="airbyte",
         segment_write_key=segment_write_key,
         segment_user_id=SEGMENT_USER_ID,
-        extra_properties=get_telemetry_attribution,
+        extra_properties=_mcp_extra_properties,
+        known_public_mcp_domains=("airbyte.ai", "airbyte.com", "airbyte.io"),
+        anonymization_salt=_mcp_anonymization_salt,
+        caller_ip_fallback=False,
     ),
 )
 """The Airbyte MCP Server application instance."""
