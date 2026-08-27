@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 
 import pytest
 from fastmcp_extensions import ToolCallTelemetryMiddleware
@@ -88,12 +90,49 @@ def test_register_tool_call_telemetry_is_disabled(
         server.app.middleware[:] = original_middleware
 
 
-def test_module_level_registration_adds_telemetry_middleware() -> None:
-    """The shared MCP app registers telemetry when tracking is enabled."""
-    if os.environ.get(server.DO_NOT_TRACK) or server.AIRBYTE_OFFLINE_MODE:
-        pytest.skip("telemetry is disabled by the test environment")
+@pytest.mark.parametrize(
+    ("do_not_track", "expected"),
+    [
+        pytest.param(None, True, id="enabled"),
+        pytest.param("1", False, id="opted-out"),
+    ],
+)
+def test_module_level_registration_adds_telemetry_middleware(
+    do_not_track: str | None,
+    expected: bool,
+) -> None:
+    """The shared MCP app registers telemetry according to its environment."""
+    child_env = os.environ.copy()
+    child_env.pop(server.DO_NOT_TRACK, None)
+    child_env.pop("AIRBYTE_OFFLINE_MODE", None)
+    child_env[server.SEGMENT_WRITE_KEY_ENV] = _DUMMY_SEGMENT_WRITE_KEY
+    if do_not_track is not None:
+        child_env[server.DO_NOT_TRACK] = do_not_track
 
-    assert any(
-        isinstance(middleware, ToolCallTelemetryMiddleware)
-        for middleware in server.app.middleware
+    child_script = f"""
+from fastmcp_extensions import ToolCallTelemetryMiddleware
+from airbyte.mcp import server
+
+has_telemetry = any(
+    isinstance(middleware, ToolCallTelemetryMiddleware)
+    for middleware in server.app.middleware
+)
+if has_telemetry is not {expected!r}:
+    raise SystemExit(
+        f"expected telemetry middleware={{expected!r}}, got {{has_telemetry!r}}"
+    )
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", child_script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+        env=child_env,
+    )
+
+    assert result.returncode == 0, (
+        f"child process failed with return code {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
     )
