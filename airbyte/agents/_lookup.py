@@ -15,10 +15,24 @@ def resolve_id_or_name(
 
     The keys of `id_args` are synonyms for the same ID, so callers may pass a short `id`
     alongside a specific alias such as `connector_id`. Exactly one of the ID aliases or
-    `name` is required, and conflicting ID values are rejected.
+    `name` is required, conflicting ID values are rejected, and a blank lookup value is
+    rejected rather than treated as omitted.
     """
-    provided = {key: value for key, value in id_args.items() if value}
     id_arg_names = " or ".join(f"`{key}`" for key in id_args)
+
+    blank_args = sorted(
+        key
+        for key, value in {**id_args, "name": name}.items()
+        if value is not None and not value.strip()
+    )
+    if blank_args:
+        raise PyAirbyteInputError(
+            message="Lookup arguments cannot be blank.",
+            guidance="Omit the argument entirely, or pass a non-blank value.",
+            context={"blank_args": blank_args},
+        )
+
+    provided = {key: value for key, value in id_args.items() if value}
 
     if len(set(provided.values())) > 1:
         raise PyAirbyteInputError(

@@ -335,6 +335,18 @@ def test_list_connectors(captured_requests: list[dict[str, Any]]) -> None:
             "conflicting values",
             id="by_id_alias_conflicting",
         ),
+        pytest.param(
+            {"id": "", "name": "GitHub"},
+            None,
+            "cannot be blank",
+            id="blank_id",
+        ),
+        pytest.param(
+            {"connector_id": "explicit-id", "name": " "},
+            None,
+            "cannot be blank",
+            id="blank_name",
+        ),
         pytest.param({"name": "Slack"}, "connector-2", None, id="by_exact_name"),
         pytest.param({"name": "GitHub"}, "connector-1", None, id="by_partial_name"),
         pytest.param(
