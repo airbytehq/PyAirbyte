@@ -117,8 +117,9 @@ class AgentOrganization:
     def as_cloud_organization(self) -> CloudOrganization:
         """Return this organization as an `airbyte.cloud.CloudOrganization`.
 
-        Every Agents organization is also a Cloud organization, so this conversion always
-        succeeds without calling either API.
+        Every Agents organization is also a Cloud organization, so this conversion needs no
+        API call. It requires a known organization ID, and raises `PyAirbyteInputError`
+        when the ID is unknown.
         """
         if not self.organization_id:
             raise PyAirbyteInputError(
