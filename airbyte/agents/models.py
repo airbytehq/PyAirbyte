@@ -140,7 +140,7 @@ class AgentConnectorMetadata(BaseModel):
 class AgentExecuteResult(BaseModel):
     """The result of executing a single action against an Airbyte Agents connector."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")
 
     status: str
     """The execution status reported by the Agents API, for example `success`."""
