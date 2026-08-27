@@ -15,7 +15,7 @@ credentials or environment variables exist: the `AIRBYTE_CLOUD_*` variables are 
 
 ## Usage Examples
 
-Execute an action against a connector:
+Read entities from a connector, paging automatically as you iterate:
 
 ```python
 from airbyte import agents
@@ -23,19 +23,30 @@ from airbyte import agents
 workspace = agents.AgentWorkspace.from_env()
 connector = workspace.get_connector("GitHub")  # by ID or name (case insensitive)
 
-result = connector.list_entities(
+for issue in connector.iter_entities(
     "issues",
     api_args={"repository": "airbytehq/PyAirbyte"},  # Passthrough API args
+):
+    print(issue["title"])
+```
+
+Fetch a single page instead, when the result's status and metadata are needed:
+
+```python
+result = connector.list_entities(
+    "issues",
+    api_args={"repository": "airbytehq/PyAirbyte"},
     limit=50,
 )
+print(result.status, result.has_next_page)
 for entity in result.entities:
     print(entity["title"])
 ```
 
-Page through results using the cursor the connector reports:
+Pass `result.end_cursor` back as `cursor` to page through manually:
 
 ```python
-cursor: str | None = None
+cursor = None
 while True:
     result = connector.list_entities(
         "issues", api_args={"repository": "airbytehq/PyAirbyte"}, cursor=cursor

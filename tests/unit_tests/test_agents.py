@@ -405,6 +405,84 @@ def test_listings(
 
 
 @pytest.mark.parametrize(
+    ("pages", "max_entities", "expected_titles", "expected_request_count"),
+    [
+        pytest.param(
+            [
+                ("one", True, "cursor-1"),
+                ("two", True, "cursor-2"),
+                ("three", False, None),
+            ],
+            None,
+            ["one", "two", "three"],
+            3,
+            id="follows_cursor_to_last_page",
+        ),
+        pytest.param(
+            [("one", False, None)],
+            None,
+            ["one"],
+            1,
+            id="single_page",
+        ),
+        pytest.param(
+            [("one", True, "cursor-1"), ("two", True, "cursor-2")],
+            2,
+            ["one", "two"],
+            2,
+            id="stops_at_max_entities",
+        ),
+        pytest.param(
+            [("one", True, "cursor-1"), ("two", True, "cursor-1")],
+            None,
+            ["one", "two"],
+            2,
+            id="stops_when_cursor_does_not_advance",
+        ),
+        pytest.param(
+            [("one", True, None)],
+            None,
+            ["one"],
+            1,
+            id="stops_when_next_page_has_no_cursor",
+        ),
+    ],
+)
+def test_iter_entities(
+    monkeypatch: pytest.MonkeyPatch,
+    pages: list[tuple[str, bool, str | None]],
+    max_entities: int | None,
+    expected_titles: list[str],
+    expected_request_count: int,
+) -> None:
+    """`iter_entities()` follows the connector's cursor and stops without looping."""
+    calls: list[dict[str, Any]] = []
+
+    def _fake_request(**kwargs: Any) -> _FakeResponse:
+        calls.append(kwargs)
+        title, has_next_page, end_cursor = pages[min(len(calls) - 1, len(pages) - 1)]
+        return _FakeResponse({
+            "status": "success",
+            "result": [{"title": title}],
+            "connector_metadata": {
+                "has_next_page": has_next_page,
+                "end_cursor": end_cursor,
+            },
+        })
+
+    monkeypatch.setattr(requests, "request", _fake_request)
+
+    entities = list(_connector().iter_entities("issues", max_entities=max_entities))
+
+    assert [entity["title"] for entity in entities] == expected_titles
+    assert len(calls) == expected_request_count
+    assert [call["json"]["params"].get("cursor") for call in calls] == [
+        None,
+        *[page[2] for page in pages[: expected_request_count - 1]],
+    ]
+
+
+@pytest.mark.parametrize(
     ("args", "kwargs", "expected_id", "expected_error"),
     [
         pytest.param(

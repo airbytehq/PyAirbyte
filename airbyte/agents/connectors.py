@@ -12,6 +12,8 @@ from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from airbyte.secrets.base import SecretString
 
 
@@ -261,6 +263,50 @@ class AgentConnector:
     ) -> AgentExecuteResult:
         """Run the `list` action, which returns a page of entities for `entity`."""
         return self.execute(entity, "list", api_args, **kwargs)
+
+    def iter_entities(
+        self,
+        entity: str,
+        api_args: dict[str, Any] | None = None,
+        *,
+        max_entities: int | None = None,
+        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `list_entities()`.
+    ) -> Iterator[dict[str, Any]]:
+        """Yield entities for `entity`, following the connector's pagination cursor.
+
+        This is the pagination-free way to read entities: each page is fetched lazily as
+        the caller iterates, so no cursor bookkeeping is needed.
+
+        ```python
+        for issue in connector.iter_entities("issues", {"repository": "airbytehq/PyAirbyte"}):
+            print(issue["title"])
+        ```
+
+        `max_entities` caps how many entities are yielded, which matters for entities with
+        no natural end. A `limit` keyword argument sets the page size rather than the total.
+
+        Iteration stops early if the connector reports another page without advancing its
+        cursor, rather than requesting the same page forever.
+
+        Use `list_entities()` instead when a single page is enough, or when the result's
+        `status`, `warning`, or `execution_metadata` are needed.
+        """
+        cursor: str | None = kwargs.pop("cursor", None)
+        seen_cursors: set[str] = set()
+        yielded = 0
+
+        while True:
+            result = self.list_entities(entity, api_args, cursor=cursor, **kwargs)
+            for agent_entity in result.entities:
+                yield agent_entity
+                yielded += 1
+                if max_entities is not None and yielded >= max_entities:
+                    return
+
+            cursor = result.end_cursor
+            if not result.has_next_page or cursor is None or cursor in seen_cursors:
+                return
+            seen_cursors.add(cursor)
 
     def search_entities(
         self,
