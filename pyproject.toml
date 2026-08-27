@@ -46,7 +46,7 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=3.0,<4.0",
-    # Temporary PR prerelease for airbytehq/fastmcp-extensions#110; relax back to a range once it lands.
+    # TK-TODO: Temporary PR prerelease for airbytehq/fastmcp-extensions#110; relax back to a range once it lands.
     "fastmcp-extensions==0.21.0.dev11033089788126",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "uv>=0.5.0,<0.9.0",
