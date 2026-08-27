@@ -66,6 +66,48 @@ def test_segment_write_key_respects_offline_mode(
     assert server._segment_write_key() is None
 
 
+def test_segment_write_key_rechecks_runtime_offline_mode() -> None:
+    """Offline mode loaded after constants import still disables Segment."""
+    child_env = os.environ.copy()
+    child_env.pop("AIRBYTE_OFFLINE_MODE", None)
+    child_env.pop("AIRBYTE_MCP_ENV_FILE", None)
+    child_env.pop(server.DO_NOT_TRACK, None)
+    child_env[server.SEGMENT_WRITE_KEY_ENV] = _DUMMY_SEGMENT_WRITE_KEY
+    child_script = f"""
+import os
+
+from airbyte import constants
+from airbyte.mcp import server
+
+if constants.AIRBYTE_OFFLINE_MODE is not False:
+    raise SystemExit(
+        f"expected imported offline mode=False, got {{constants.AIRBYTE_OFFLINE_MODE!r}}"
+    )
+
+os.environ["AIRBYTE_OFFLINE_MODE"] = "true"
+if server._segment_write_key() is not None:
+    raise SystemExit("runtime offline mode did not disable Segment")
+
+os.environ["AIRBYTE_OFFLINE_MODE"] = "false"
+if server._segment_write_key() != {_DUMMY_SEGMENT_WRITE_KEY!r}:
+    raise SystemExit("runtime false offline mode did not restore the Segment key")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", child_script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+        env=child_env,
+    )
+
+    assert result.returncode == 0, (
+        f"child process failed with return code {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+
+
 def test_shared_app_registers_telemetry_without_sending_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -71,7 +71,7 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, is_hosted_mcp_mode
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
@@ -316,7 +316,12 @@ identity to attribute a tool call to.
 
 def _segment_write_key() -> str | None:
     """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
-    if os.environ.get(DO_NOT_TRACK) or AIRBYTE_OFFLINE_MODE:
+    offline_mode_from_env = os.environ.get("AIRBYTE_OFFLINE_MODE")
+    # Dotenv secrets load after constants are imported, so check the environment at call time.
+    offline_mode = AIRBYTE_OFFLINE_MODE or (
+        _str_to_bool(offline_mode_from_env) if offline_mode_from_env is not None else False
+    )
+    if os.environ.get(DO_NOT_TRACK) or offline_mode:
         return None
 
     return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
