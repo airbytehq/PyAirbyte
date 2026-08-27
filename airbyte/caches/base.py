@@ -324,7 +324,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     @final
     @property
     def streams(self) -> dict[str, CachedDataset]:
-        """Return a temporary table name."""
+        """Return a mapping of stream names to cached datasets."""
         result = {}
         stream_names = set(self._catalog_backend.stream_names)
 
