@@ -28,7 +28,7 @@ from airbyte._util.telemetry import _get_analytics_id
 from airbyte.constants import is_hosted_mcp_mode
 
 
-_TELEMETRY_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SALT"
+_TELEMETRY_ANONYMIZATION_SALT_ENV = "AIRBYTE_TELEMETRY_ANONYMIZATION_SALT"
 _AIRBYTE_OWNED_DOMAINS = ("airbyte.ai", "airbyte.com", "airbyte.io")
 _T = TypeVar("_T")
 
@@ -36,7 +36,7 @@ _T = TypeVar("_T")
 @lru_cache(maxsize=1)
 def _get_telemetry_salt() -> str | None:
     """Return the process-wide attribution salt, if telemetry is available."""
-    salt = os.environ.get(_TELEMETRY_SALT_ENV)
+    salt = os.environ.get(_TELEMETRY_ANONYMIZATION_SALT_ENV)
     if salt is None:
         salt = _get_analytics_id()
     return salt or None
