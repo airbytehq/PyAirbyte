@@ -25,8 +25,13 @@ streaming responses, so it is rejected with actionable guidance instead of faili
 inside the transport layer.
 """
 
-_PAGINATION_ARGS: tuple[str, ...] = ("limit", "cursor")
-"""Convenience arguments that PyAirbyte merges into the connector's `params`."""
+_PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
+"""Pagination conveniences PyAirbyte merges into the connector's `params`.
+
+Maps the PyAirbyte argument name to the connector's own `params` key: the Agents API calls
+page size `limit`, which PyAirbyte does not expose under that name because `limit` reads as
+a cap on the whole result set rather than on one page.
+"""
 
 
 class _ConnectorLookup(NamedTuple):
@@ -193,29 +198,30 @@ class AgentConnector:
 
     def execute(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
-        entity: str,
+        entity_type: str,
         action: str,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
         exclude_fields: list[str] | None = None,
-        limit: int | None = None,
+        page_size: int | None = None,
         cursor: str | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
     ) -> AgentExecuteResult:
-        """Execute a single action against an entity on this connector.
+        """Execute a single action against one entity type on this connector.
 
-        `entity` and `action` are connector-specific, for example `issues` and `list`. Use
-        `describe()` to see what a connector supports.
+        `entity_type` and `action` are connector-specific, for example `issues` and `list`.
+        Use `describe()` to see what a connector supports.
 
         `api_args` holds connector-specific arguments passed through to the connector, for
         example `{"repository": "airbytehq/PyAirbyte"}`. All other arguments are interpreted
         by PyAirbyte or by the Agents API itself:
 
         - `select_fields` and `exclude_fields` prune fields from returned entities.
-        - `limit` and `cursor` are merged into `api_args` as pagination arguments. Pass the
-          `end_cursor` of a previous result as `cursor` to fetch the next page.
+        - `page_size` and `cursor` are merged into `api_args` as pagination arguments, where
+          the connector receives `page_size` as its own `limit`. Pass the `end_cursor` of a
+          previous result as `cursor` to fetch the next page.
         - `skip_truncation` disables the Agents API's default truncation of large payloads.
         - `intent` is a free-text description of why the action is being run, which some
           connectors use to refine results.
@@ -230,13 +236,13 @@ class AgentConnector:
                     "This action returns a binary stream instead of JSON, and PyAirbyte does "
                     "not yet support streaming responses."
                 ),
-                context={"entity": entity, "action": action},
+                context={"entity_type": entity_type, "action": action},
             )
 
         request_body: dict[str, Any] = {
-            "entity": entity,
+            "entity": entity_type,
             "action": action,
-            "params": _build_params(api_args=api_args, limit=limit, cursor=cursor),
+            "params": _build_params(api_args=api_args, page_size=page_size, cursor=cursor),
             "skip_truncation": skip_truncation,
         }
         if select_fields is not None:
@@ -257,22 +263,22 @@ class AgentConnector:
 
     def list_entities(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `list` action, which returns a page of entities for `entity`."""
-        return self.execute(entity, "list", api_args, **kwargs)
+        """Run the `list` action, which returns a page of entities of `entity_type`."""
+        return self.execute(entity_type, "list", api_args, **kwargs)
 
     def iter_entities(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         *,
-        max_entities: int | None = None,
+        limit: int | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `list_entities()`.
     ) -> Iterator[dict[str, Any]]:
-        """Yield entities for `entity`, following the connector's pagination cursor.
+        """Yield entities of `entity_type`, following the connector's pagination cursor.
 
         This is the pagination-free way to read entities: each page is fetched lazily as
         the caller iterates, so no cursor bookkeeping is needed.
@@ -282,8 +288,8 @@ class AgentConnector:
             print(issue["title"])
         ```
 
-        `max_entities` caps how many entities are yielded, which matters for entities with
-        no natural end. A `limit` keyword argument sets the page size rather than the total.
+        `limit` caps how many entities are yielded in total, which matters for entity types
+        with no natural end. Pass `page_size` to control how many are fetched per request.
 
         Iteration stops early if the connector reports another page without advancing its
         cursor, rather than requesting the same page forever.
@@ -296,11 +302,11 @@ class AgentConnector:
         yielded = 0
 
         while True:
-            result = self.list_entities(entity, api_args, cursor=cursor, **kwargs)
+            result = self.list_entities(entity_type, api_args, cursor=cursor, **kwargs)
             for agent_entity in result.entities:
                 yield agent_entity
                 yielded += 1
-                if max_entities is not None and yielded >= max_entities:
+                if limit is not None and yielded >= limit:
                     return
 
             cursor = result.end_cursor
@@ -310,74 +316,81 @@ class AgentConnector:
 
     def search_entities(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `search` action, which returns matching entities for `entity`."""
-        return self.execute(entity, "search", api_args, **kwargs)
+        """Run the `search` action, which returns matching entities of `entity_type`."""
+        return self.execute(entity_type, "search", api_args, **kwargs)
 
     def get_entity(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `get` action, which returns a single entity of type `entity`."""
-        return self.execute(entity, "get", api_args, **kwargs)
+        """Run the `get` action, which returns a single entity of `entity_type`."""
+        return self.execute(entity_type, "get", api_args, **kwargs)
 
     def create_entity(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `create` action, which creates an entity of type `entity`."""
-        return self.execute(entity, "create", api_args, **kwargs)
+        """Run the `create` action, which creates an entity of `entity_type`."""
+        return self.execute(entity_type, "create", api_args, **kwargs)
 
     def update_entity(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `update` action, which updates an entity of type `entity`."""
-        return self.execute(entity, "update", api_args, **kwargs)
+        """Run the `update` action, which updates an entity of `entity_type`."""
+        return self.execute(entity_type, "update", api_args, **kwargs)
 
     def delete_entity(
         self,
-        entity: str,
+        entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `delete` action, which deletes an entity of type `entity`."""
-        return self.execute(entity, "delete", api_args, **kwargs)
+        """Run the `delete` action, which deletes an entity of `entity_type`."""
+        return self.execute(entity_type, "delete", api_args, **kwargs)
 
 
 def _build_params(
     *,
     api_args: dict[str, Any] | None,
-    limit: int | None,
+    page_size: int | None,
     cursor: str | None,
 ) -> dict[str, Any]:
     """Merge the pagination conveniences into the connector-specific `api_args`."""
     params: dict[str, Any] = dict(api_args or {})
-    pagination: dict[str, Any] = {"limit": limit, "cursor": cursor}
+    pagination: dict[str, Any] = {"page_size": page_size, "cursor": cursor}
 
     conflicts = sorted(
-        name for name in _PAGINATION_ARGS if pagination[name] is not None and name in params
+        name
+        for name, param_key in _PAGINATION_ARGS.items()
+        if pagination[name] is not None and param_key in params
     )
     if conflicts:
         raise PyAirbyteInputError(
             message="Pagination arguments were provided twice.",
             guidance=(
-                "Pass each of `limit` and `cursor` either as a keyword argument or within "
-                "`api_args`, but not both."
+                "Pass each of `page_size` and `cursor` either as a keyword argument or "
+                "within `api_args`, but not both. Note that `page_size` is sent to the "
+                "connector as `limit`."
             ),
             context={"duplicated_args": conflicts},
         )
 
     params.update(
-        {name: pagination[name] for name in _PAGINATION_ARGS if pagination[name] is not None}
+        {
+            param_key: pagination[name]
+            for name, param_key in _PAGINATION_ARGS.items()
+            if pagination[name] is not None
+        }
     )
     return params

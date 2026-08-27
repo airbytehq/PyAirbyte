@@ -202,7 +202,7 @@ def test_agents_api_request_failures(
         pytest.param(
             {
                 "api_args": {"repository": "airbytehq/PyAirbyte"},
-                "limit": 5,
+                "page_size": 5,
                 "cursor": "c1",
             },
             {
@@ -259,9 +259,9 @@ def test_execute_request_body(
         pytest.param(("files", "download"), {}, "not supported", id="download_action"),
         pytest.param(
             ("issues", "list", {"limit": 10}),
-            {"limit": 5},
+            {"page_size": 5},
             "twice",
-            id="duplicated_limit",
+            id="duplicated_page_size",
         ),
         pytest.param(
             ("issues", "list", {"cursor": "c1"}),
@@ -405,7 +405,7 @@ def test_listings(
 
 
 @pytest.mark.parametrize(
-    ("pages", "max_entities", "expected_titles", "expected_request_count"),
+    ("pages", "limit", "expected_titles", "expected_request_count"),
     [
         pytest.param(
             [
@@ -430,7 +430,7 @@ def test_listings(
             2,
             ["one", "two"],
             2,
-            id="stops_at_max_entities",
+            id="stops_at_limit",
         ),
         pytest.param(
             [("one", True, "cursor-1"), ("two", True, "cursor-1")],
@@ -451,7 +451,7 @@ def test_listings(
 def test_iter_entities(
     monkeypatch: pytest.MonkeyPatch,
     pages: list[tuple[str, bool, str | None]],
-    max_entities: int | None,
+    limit: int | None,
     expected_titles: list[str],
     expected_request_count: int,
 ) -> None:
@@ -472,7 +472,7 @@ def test_iter_entities(
 
     monkeypatch.setattr(requests, "request", _fake_request)
 
-    entities = list(_connector().iter_entities("issues", max_entities=max_entities))
+    entities = list(_connector().iter_entities("issues", limit=limit))
 
     assert [entity["title"] for entity in entities] == expected_titles
     assert len(calls) == expected_request_count

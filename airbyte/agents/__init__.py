@@ -36,7 +36,7 @@ Fetch a single page instead, when the result's status and metadata are needed:
 result = connector.list_entities(
     "issues",
     api_args={"repository": "airbytehq/PyAirbyte"},
-    limit=50,
+    page_size=50,
 )
 print(result.status, result.has_next_page)
 for entity in result.entities:

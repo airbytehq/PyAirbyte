@@ -209,12 +209,12 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     ctx: Context,
     *,
     connector_id: str,
-    entity: str,
+    entity_type: str,
     action: str,
     api_args: dict[str, Any] | str | None,
     select_fields: list[str] | str | None,
     exclude_fields: list[str] | str | None,
-    limit: int | None,
+    page_size: int | None,
     cursor: str | None,
     intent: str | None,
     read_only: bool | None = None,
@@ -231,12 +231,12 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
         )
 
     result = _get_agent_connector(ctx, connector_id).execute(
-        entity,
+        entity_type,
         action,
         _resolve_api_args(api_args),
         select_fields=resolve_list_of_strings(select_fields),
         exclude_fields=resolve_list_of_strings(exclude_fields),
-        limit=limit,
+        page_size=page_size,
         cursor=cursor,
         intent=intent,
     )
@@ -354,18 +354,18 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         str,
         Field(description="The ID of the Airbyte Agents connector."),
     ],
-    entity: Annotated[
+    entity_type: Annotated[
         str,
         Field(
             description=(
-                "The entity to act on, for example 'issues'. Call "
-                "`describe_agent_connector` to see the entities a connector supports."
+                "The type of entity to act on, for example 'issues'. Call "
+                "`describe_agent_connector` to see the entity types a connector supports."
             ),
         ),
     ],
     action: Annotated[
         AgentReadAction,
-        Field(description="The read action to run against the entity."),
+        Field(description="The read action to run against the entity type."),
     ],
     api_args: Annotated[
         dict[str, Any] | str | None,
@@ -392,7 +392,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
             default=None,
         ),
     ],
-    limit: Annotated[
+    page_size: Annotated[
         int | None,
         Field(description="Maximum number of entities to return in this page.", default=None),
     ],
@@ -414,18 +414,18 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     """Read data from an Airbyte Agents connector, without modifying anything.
 
     This tool only accepts read actions, so it stays available in read-only mode. Use
-    `execute_agent_connector` for actions that create, update, or delete data. Entities are
-    connector-specific, so call `describe_agent_connector` first.
+    `execute_agent_connector` for actions that create, update, or delete data. Entity types
+    are connector-specific, so call `describe_agent_connector` first.
     """
     return _execute(
         ctx,
         connector_id=connector_id,
-        entity=entity,
+        entity_type=entity_type,
         action=action,
         api_args=api_args,
         select_fields=select_fields,
         exclude_fields=exclude_fields,
-        limit=limit,
+        page_size=page_size,
         cursor=cursor,
         intent=intent,
         read_only=True,
@@ -442,18 +442,18 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         str,
         Field(description="The ID of the Airbyte Agents connector."),
     ],
-    entity: Annotated[
+    entity_type: Annotated[
         str,
         Field(
             description=(
-                "The entity to act on, for example 'issues'. Call "
-                "`describe_agent_connector` to see the entities a connector supports."
+                "The type of entity to act on, for example 'issues'. Call "
+                "`describe_agent_connector` to see the entity types a connector supports."
             ),
         ),
     ],
     action: Annotated[
         AgentAction,
-        Field(description="The action to run against the entity."),
+        Field(description="The action to run against the entity type."),
     ],
     api_args: Annotated[
         dict[str, Any] | str | None,
@@ -480,7 +480,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
             default=None,
         ),
     ],
-    limit: Annotated[
+    page_size: Annotated[
         int | None,
         Field(description="Maximum number of entities to return in this page.", default=None),
     ],
@@ -512,18 +512,18 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     """Execute a single action against an Airbyte Agents connector, including writes.
 
     Prefer `execute_agent_connector_ro` when only reading, since it is available in
-    read-only mode. Entities and actions are connector-specific, so call
+    read-only mode. Entity types and actions are connector-specific, so call
     `describe_agent_connector` first.
     """
     return _execute(
         ctx,
         connector_id=connector_id,
-        entity=entity,
+        entity_type=entity_type,
         action=action,
         api_args=api_args,
         select_fields=select_fields,
         exclude_fields=exclude_fields,
-        limit=limit,
+        page_size=page_size,
         cursor=cursor,
         intent=intent,
         read_only=read_only,
