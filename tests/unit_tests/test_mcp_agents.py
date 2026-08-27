@@ -110,61 +110,78 @@ def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> 
     assert result.execution_time_ms == 42
 
 
-def test_api_args_accepts_json_string(connector: _AgentConnectorLike) -> None:
-    """Verify `api_args` is parsed when an agent passes it as a JSON string."""
-    _execute_ro(api_args='{"state": "open"}')
+@pytest.mark.parametrize(
+    ("tool_kwargs", "expected_forwarded"),
+    [
+        pytest.param(
+            {"api_args": '{"state": "open"}'},
+            {"api_args": {"state": "open"}},
+            id="api_args_json_string",
+        ),
+        pytest.param(
+            {"api_args": {"state": "open"}},
+            {"api_args": {"state": "open"}},
+            id="api_args_dict",
+        ),
+        pytest.param(
+            {"select_fields": "id,title", "exclude_fields": ["body"]},
+            {"select_fields": ["id", "title"], "exclude_fields": ["body"]},
+            id="field_lists_csv_and_list",
+        ),
+        pytest.param(
+            {"api_args": "[1, 2]"},
+            None,
+            id="api_args_json_array_rejected",
+        ),
+        pytest.param(
+            {"api_args": "not json"},
+            None,
+            id="api_args_not_json_rejected",
+        ),
+    ],
+)
+def test_argument_coercion(
+    connector: _AgentConnectorLike,
+    tool_kwargs: dict[str, Any],
+    expected_forwarded: dict[str, Any] | None,
+) -> None:
+    """Verify agent-supplied arguments are coerced, or rejected when unusable."""
+    if expected_forwarded is None:
+        with pytest.raises(PyAirbyteInputError):
+            _execute_ro(**tool_kwargs)
+        assert connector.calls == []
+        return
 
-    assert connector.calls[0]["api_args"] == {"state": "open"}
+    _execute_ro(**tool_kwargs)
+    for key, expected_value in expected_forwarded.items():
+        assert connector.calls[0][key] == expected_value
 
 
 @pytest.mark.parametrize(
-    "api_args",
+    ("action", "read_only", "is_rejected"),
     [
-        pytest.param("[1, 2]", id="json-array"),
-        pytest.param("not json", id="not-json"),
+        pytest.param("create", None, False, id="write_allowed_by_default"),
+        pytest.param("delete", None, False, id="delete_allowed_by_default"),
+        pytest.param("delete", True, True, id="write_rejected_when_read_only"),
+        pytest.param("create", True, True, id="create_rejected_when_read_only"),
+        pytest.param("list", True, False, id="read_allowed_when_read_only"),
     ],
 )
-def test_api_args_rejects_non_object_input(
+def test_write_tool_read_only_enforcement(
     connector: _AgentConnectorLike,
-    api_args: str,
+    action: str,
+    read_only: bool | None,
+    is_rejected: bool,
 ) -> None:
-    """Verify `api_args` must resolve to a JSON object."""
-    with pytest.raises(PyAirbyteInputError):
-        _execute_ro(api_args=api_args)
+    """Verify the write-capable tool honors the caller's `read_only` request."""
+    if is_rejected:
+        with pytest.raises(PyAirbyteInputError):
+            _execute(action=action, read_only=read_only)
+        assert connector.calls == []
+        return
 
-
-def test_field_lists_accept_csv_strings(connector: _AgentConnectorLike) -> None:
-    """Verify field selection arguments accept CSV strings as well as lists."""
-    _execute_ro(select_fields="id,title", exclude_fields=["body"])
-
-    assert connector.calls[0]["select_fields"] == ["id", "title"]
-    assert connector.calls[0]["exclude_fields"] == ["body"]
-
-
-def test_write_tool_forwards_write_action(connector: _AgentConnectorLike) -> None:
-    """Verify the write-capable tool passes write actions through to the connector."""
-    _execute(action="create", api_args={"title": "Bug"})
-
-    assert connector.calls[0]["action"] == "create"
-
-
-def test_write_tool_rejects_writes_when_read_only_is_requested(
-    connector: _AgentConnectorLike,
-) -> None:
-    """Verify `read_only=True` blocks write actions before any request is sent."""
-    with pytest.raises(PyAirbyteInputError):
-        _execute(action="delete", read_only=True)
-
-    assert connector.calls == []
-
-
-def test_write_tool_allows_reads_when_read_only_is_requested(
-    connector: _AgentConnectorLike,
-) -> None:
-    """Verify `read_only=True` still permits read actions."""
-    _execute(action="list", read_only=True)
-
-    assert connector.calls[0]["action"] == "list"
+    _execute(action=action, read_only=read_only)
+    assert connector.calls[0]["action"] == action
 
 
 def test_read_only_tool_action_type_excludes_writes() -> None:

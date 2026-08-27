@@ -138,21 +138,52 @@ def test_make_agents_api_request(captured_requests: list[dict[str, Any]]) -> Non
     assert "X-Organization-Id" not in captured_requests[1]["headers"]
 
 
-def test_make_agents_api_request_rejects_non_json(
+@pytest.mark.parametrize(
+    ("response", "expected_match", "expected_status"),
+    [
+        pytest.param(
+            _FakeResponse(b"", content_type="application/octet-stream"),
+            "non-JSON response",
+            None,
+            id="non_json_response",
+        ),
+        pytest.param(
+            _FakeResponse({"message": "forbidden"}, status_code=403),
+            "status 403",
+            403,
+            id="error_status_code",
+        ),
+        pytest.param(
+            _FakeResponse({"not_data": []}),
+            "Unexpected list payload",
+            None,
+            id="missing_data_key",
+        ),
+        pytest.param(
+            _FakeResponse({"data": [{"id": "workspace-1"}, "not-a-workspace"]}),
+            "Unexpected list payload",
+            None,
+            id="non_dict_in_data",
+        ),
+    ],
+)
+def test_agents_api_request_failures(
     monkeypatch: pytest.MonkeyPatch,
+    response: _FakeResponse,
+    expected_match: str,
+    expected_status: int | None,
 ) -> None:
-    """A non-JSON response raises rather than failing inside `json()` parsing."""
-    monkeypatch.setattr(
-        requests,
-        "request",
-        lambda **_: _FakeResponse(b"", content_type="application/octet-stream"),
-    )
-    with pytest.raises(AirbyteError, match="non-JSON response"):
-        _api_util.make_agents_api_request(
-            method="GET",
-            path="/whatever",
+    """Malformed and non-2xx Agents API responses raise `AirbyteError`."""
+    monkeypatch.setattr(requests, "request", lambda **_: response)
+
+    with pytest.raises(AirbyteError, match=expected_match) as error_info:
+        _api_util.list_agent_workspaces(
             credentials=_credentials(),
+            organization_id="org-id",
         )
+
+    if expected_status is not None:
+        assert error_info.value.context["status_code"] == expected_status
 
 
 @pytest.mark.parametrize(
@@ -222,19 +253,33 @@ def test_execute_request_body(
     assert result.execution_metadata.execution_time_ms == 42
 
 
-def test_execute_rejects_download(captured_requests: list[dict[str, Any]]) -> None:
-    """`download` is rejected before any request is sent."""
-    with pytest.raises(PyAirbyteInputError, match="not supported"):
-        _connector().execute("files", "download")
-    assert captured_requests == []
-
-
-def test_execute_rejects_duplicated_pagination_args(
+@pytest.mark.parametrize(
+    ("args", "kwargs", "expected_error"),
+    [
+        pytest.param(("files", "download"), {}, "not supported", id="download_action"),
+        pytest.param(
+            ("issues", "list", {"limit": 10}),
+            {"limit": 5},
+            "twice",
+            id="duplicated_limit",
+        ),
+        pytest.param(
+            ("issues", "list", {"cursor": "c1"}),
+            {"cursor": "c2"},
+            "twice",
+            id="duplicated_cursor",
+        ),
+    ],
+)
+def test_execute_rejects_invalid_args(
     captured_requests: list[dict[str, Any]],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    expected_error: str,
 ) -> None:
-    """Pagination args cannot be given both explicitly and within `api_args`."""
-    with pytest.raises(PyAirbyteInputError, match="twice"):
-        _connector().execute("issues", "list", {"limit": 10}, limit=5)
+    """`execute()` rejects unsupported actions and duplicated args before any request."""
+    with pytest.raises(PyAirbyteInputError, match=expected_error):
+        _connector().execute(*args, **kwargs)
     assert captured_requests == []
 
 
@@ -304,18 +349,59 @@ def test_describe(captured_requests: list[dict[str, Any]]) -> None:
     assert len(captured_requests) == 2
 
 
-def test_list_connectors(captured_requests: list[dict[str, Any]]) -> None:
-    """`list_connectors()` returns connectors from the workspace listing."""
-    connectors = AgentWorkspace(
-        workspace_id="workspace-id", bearer_token="test-token"
-    ).list_connectors()
+@pytest.mark.parametrize(
+    (
+        "list_items",
+        "expected_ids",
+        "expected_names",
+        "expected_path",
+        "expected_params",
+    ),
+    [
+        pytest.param(
+            lambda: [
+                (connector.connector_id, connector.name)
+                for connector in AgentWorkspace(
+                    workspace_id="workspace-id", bearer_token="test-token"
+                ).list_connectors()
+            ],
+            ["connector-1", "connector-2"],
+            ["GitHub - workspace-id", "Slack"],
+            "/integrations/connectors",
+            {"workspace_id": "workspace-id"},
+            id="connectors",
+        ),
+        pytest.param(
+            lambda: [
+                (workspace.workspace_id, workspace.name)
+                for workspace in AgentOrganization(
+                    organization_id="org-id", bearer_token="test-token"
+                ).list_workspaces()
+            ],
+            ["workspace-1", "workspace-2"],
+            ["primary", "secondary"],
+            "/workspaces",
+            None,
+            id="workspaces",
+        ),
+    ],
+)
+def test_listings(
+    captured_requests: list[dict[str, Any]],
+    list_items: Any,
+    expected_ids: list[str],
+    expected_names: list[str],
+    expected_path: str,
+    expected_params: dict[str, str] | None,
+) -> None:
+    """Listing methods return the API's records, scoped to the caller's container."""
+    items = list_items()
 
-    assert [connector.connector_id for connector in connectors] == [
-        "connector-1",
-        "connector-2",
-    ]
-    assert captured_requests[0]["url"].endswith("/integrations/connectors")
-    assert captured_requests[0]["params"] == {"workspace_id": "workspace-id"}
+    assert [item_id for item_id, _ in items] == expected_ids
+    assert [name for _, name in items] == expected_names
+    assert captured_requests[0]["url"].endswith(expected_path)
+    if expected_params is not None:
+        assert captured_requests[0]["params"] == expected_params
 
 
 @pytest.mark.parametrize(
@@ -417,21 +503,6 @@ def test_get_connector(
         assert captured_requests == []
 
 
-def test_list_workspaces(captured_requests: list[dict[str, Any]]) -> None:
-    """`list_workspaces()` returns workspaces scoped to the organization."""
-    workspaces = AgentOrganization(
-        organization_id="org-id",
-        bearer_token="test-token",
-    ).list_workspaces()
-
-    assert [workspace.workspace_id for workspace in workspaces] == [
-        "workspace-1",
-        "workspace-2",
-    ]
-    assert [workspace.name for workspace in workspaces] == ["primary", "secondary"]
-    assert captured_requests[0]["headers"]["X-Organization-Id"] == "org-id"
-
-
 @pytest.mark.parametrize(
     ("args", "kwargs", "expected_id", "expected_error"),
     [
@@ -488,54 +559,69 @@ def test_get_workspace(
         assert captured_requests == []
 
 
-def test_as_cloud_workspace() -> None:
-    """An Agents workspace converts to a Cloud workspace without any API call."""
-    cloud_workspace = AgentWorkspace(
-        workspace_id="workspace-id",
-        bearer_token="test-token",
-    ).as_cloud_workspace()
+@pytest.mark.parametrize(
+    ("convert", "expected_id", "expected_bearer_token", "expected_request_path"),
+    [
+        pytest.param(
+            lambda: AgentWorkspace(
+                workspace_id="workspace-id", bearer_token="test-token"
+            ).as_cloud_workspace(),
+            "workspace-id",
+            "test-token",
+            None,
+            id="agent_workspace_to_cloud",
+        ),
+        pytest.param(
+            lambda: AgentOrganization(
+                organization_id="org-id", bearer_token="test-token"
+            ).as_cloud_organization(),
+            "org-id",
+            None,
+            None,
+            id="agent_organization_to_cloud",
+        ),
+        pytest.param(
+            lambda: AgentWorkspace.from_cloud_workspace(
+                CloudWorkspace(workspace_id="workspace-id", bearer_token="test-token"),
+                verify=False,
+            ),
+            "workspace-id",
+            None,
+            None,
+            id="cloud_workspace_to_agent_unverified",
+        ),
+        pytest.param(
+            lambda: AgentWorkspace.from_cloud_workspace(
+                CloudWorkspace(workspace_id="workspace-id", bearer_token="test-token"),
+                organization_id="org-id",
+            ),
+            "workspace-id",
+            None,
+            "/workspaces/workspace-id",
+            id="cloud_workspace_to_agent_verified",
+        ),
+    ],
+)
+def test_cloud_conversions(
+    captured_requests: list[dict[str, Any]],
+    convert: Any,
+    expected_id: str,
+    expected_bearer_token: str | None,
+    expected_request_path: str | None,
+) -> None:
+    """Converting between Cloud and Agents objects reuses credentials and identifiers."""
+    converted = convert()
 
-    assert isinstance(cloud_workspace, CloudWorkspace)
-    assert cloud_workspace.workspace_id == "workspace-id"
-    assert str(cloud_workspace.bearer_token) == "test-token"
+    if isinstance(converted, CloudWorkspace | AgentWorkspace):
+        assert converted.workspace_id == expected_id
+    else:
+        assert converted.organization_id == expected_id
 
+    if expected_bearer_token is not None:
+        assert isinstance(converted, CloudWorkspace)
+        assert str(converted.bearer_token) == expected_bearer_token
 
-def test_from_cloud_workspace(captured_requests: list[dict[str, Any]]) -> None:
-    """Converting from Cloud verifies Agents eligibility unless `verify=False`."""
-    cloud_workspace = CloudWorkspace(
-        workspace_id="workspace-id", bearer_token="test-token"
-    )
-
-    AgentWorkspace.from_cloud_workspace(cloud_workspace, verify=False)
-    assert captured_requests == []
-
-    workspace = AgentWorkspace.from_cloud_workspace(
-        cloud_workspace, organization_id="org-id"
-    )
-    assert workspace.workspace_id == "workspace-id"
-    assert captured_requests[0]["url"].endswith("/workspaces/workspace-id")
-
-
-def test_as_cloud_organization() -> None:
-    """An Agents organization converts to a Cloud organization without an API call."""
-    cloud_organization = AgentOrganization(
-        organization_id="org-id",
-        bearer_token="test-token",
-    ).as_cloud_organization()
-
-    assert cloud_organization.organization_id == "org-id"
-
-
-def test_agents_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-2xx response raises `AirbyteError` with the status code in context."""
-    monkeypatch.setattr(
-        requests,
-        "request",
-        lambda **_: _FakeResponse({"message": "forbidden"}, status_code=403),
-    )
-    with pytest.raises(AirbyteError) as error_info:
-        _api_util.inspect_agent_connector(
-            connector_id="connector-id",
-            credentials=_credentials(),
-        )
-    assert error_info.value.context["status_code"] == 403
+    if expected_request_path is None:
+        assert captured_requests == []
+    else:
+        assert captured_requests[0]["url"].endswith(expected_request_path)
