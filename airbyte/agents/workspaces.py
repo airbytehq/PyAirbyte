@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.agents import _api_util
+from airbyte.agents._lookup import resolve_id_or_name
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.models import AgentConnectorInfo, AgentWorkspaceInfo
 from airbyte.cloud._credentials import _AirbyteCredentials
@@ -128,24 +129,25 @@ class AgentWorkspace:
     def get_connector(
         self,
         *,
+        id: str | None = None,  # noqa: A002  # Shadows `id` deliberately, as a short alias.
         connector_id: str | None = None,
         name: str | None = None,
     ) -> AgentConnector:
         """Get a connector in this workspace, by ID or by name.
 
-        Lookup by `connector_id` does not call the Agents API. Lookup by `name` lists the
-        workspace's connectors and matches on an exact name first, falling back to a
-        unique substring match, so `name="GitHub"` finds a connector named
-        `GitHub - <workspace_id>`. Both tiers are case-insensitive.
+        `id` and `connector_id` are synonyms; pass whichever reads better. Lookup by ID
+        does not call the Agents API. Lookup by `name` lists the workspace's connectors
+        and matches on an exact name first, falling back to a unique substring match, so
+        `name="GitHub"` finds a connector named `GitHub - <workspace_id>`. Both tiers are
+        case-insensitive.
         """
-        if bool(connector_id) == bool(name):
-            raise PyAirbyteInputError(
-                message="Exactly one of `connector_id` or `name` is required.",
-                guidance="Provide either `connector_id` or `name`, but not both.",
-            )
+        resolved_id = resolve_id_or_name(
+            id_args={"id": id, "connector_id": connector_id},
+            name=name,
+        )
 
-        if connector_id:
-            return AgentConnector(connector_id=connector_id, credentials=self._credentials)
+        if resolved_id:
+            return AgentConnector(connector_id=resolved_id, credentials=self._credentials)
 
         connectors = self.list_connectors()
         name_lower = (name or "").lower()

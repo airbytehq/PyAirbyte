@@ -322,6 +322,19 @@ def test_list_connectors(captured_requests: list[dict[str, Any]]) -> None:
     ("kwargs", "expected_id", "expected_error"),
     [
         pytest.param({"connector_id": "explicit-id"}, "explicit-id", None, id="by_id"),
+        pytest.param({"id": "explicit-id"}, "explicit-id", None, id="by_id_alias"),
+        pytest.param(
+            {"id": "explicit-id", "connector_id": "explicit-id"},
+            "explicit-id",
+            None,
+            id="by_id_alias_agreeing",
+        ),
+        pytest.param(
+            {"id": "one-id", "connector_id": "other-id"},
+            None,
+            "conflicting values",
+            id="by_id_alias_conflicting",
+        ),
         pytest.param({"name": "Slack"}, "connector-2", None, id="by_exact_name"),
         pytest.param({"name": "GitHub"}, "connector-1", None, id="by_partial_name"),
         pytest.param(
@@ -356,7 +369,7 @@ def test_get_connector(
 
     connector = workspace.get_connector(**kwargs)
     assert connector.connector_id == expected_id
-    if "connector_id" in kwargs:
+    if "connector_id" in kwargs or "id" in kwargs:
         assert captured_requests == []
 
 

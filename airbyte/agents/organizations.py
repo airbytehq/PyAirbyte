@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.agents import _api_util
+from airbyte.agents._lookup import resolve_id_or_name
 from airbyte.agents.models import AgentWorkspaceInfo
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
@@ -85,14 +86,13 @@ class AgentOrganization:
         Lookup by `workspace_id` does not call the Agents API. Lookup by `name` lists the
         organization's workspaces and matches the name exactly, ignoring case.
         """
-        if bool(workspace_id) == bool(name):
-            raise PyAirbyteInputError(
-                message="Exactly one of `workspace_id` or `name` is required.",
-                guidance="Provide either `workspace_id` or `name`, but not both.",
-            )
+        resolved_id = resolve_id_or_name(
+            id_args={"workspace_id": workspace_id},
+            name=name,
+        )
 
-        if workspace_id:
-            return self._as_workspace(AgentWorkspaceInfo(id=workspace_id))
+        if resolved_id:
+            return self._as_workspace(AgentWorkspaceInfo(id=resolved_id))
 
         name_lower = (name or "").lower()
         matches = [
