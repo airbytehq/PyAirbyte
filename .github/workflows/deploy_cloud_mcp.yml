@@ -20,15 +20,13 @@ on:
   workflow_call:
     inputs:
       pyairbyte-version:
-        description: 'Published PyAirbyte version to pin (e.g. "0.56.0"). Empty installs the triggering commit from git.'
-        required: false
+        description: 'Published PyAirbyte version to pin (e.g. "0.56.0").'
+        required: true
         type: string
-        default: ""
       preview:
-        description: "Whether to deploy the preview service instead of production."
-        required: false
+        description: 'Whether to deploy the preview service instead of production ("true" or "false").'
+        required: true
         type: string
-        default: "true"
 
 permissions:
   contents: read
@@ -50,15 +48,27 @@ jobs:
         id: resolve-vars
         env:
           PYAIRBYTE_VERSION: ${{ inputs.pyairbyte-version || '' }}
-          PREVIEW: ${{ inputs.preview || 'true' }}
-          TRIGGER: ${{ github.event_name }}
+          # `preview` is a required `workflow_call` input, so a non-empty value
+          # means a caller invoked this workflow. On the `push` trigger the
+          # `inputs` context is empty, which is what selects the git install
+          # below. This does not use `github.event_name`, which in a reusable
+          # workflow reports the *caller's* trigger.
+          PREVIEW: ${{ inputs.preview || '' }}
         run: |
           set -euo pipefail
           version="${PYAIRBYTE_VERSION#v}"
 
           # ---------- Validate inputs (guard statements) ----------
-          printf '%s\n' true false | grep -qxF "$PREVIEW" \
-            || { echo "::error::Invalid preview value: '$PREVIEW' (allowed: true, false)"; exit 1; }
+          if [ -n "$PREVIEW" ]; then
+            printf '%s\n' true false | grep -qxF "$PREVIEW" \
+              || { echo "::error::Invalid preview value: '$PREVIEW' (allowed: true, false)"; exit 1; }
+            # A caller shipping a publish must name the published version, or
+            # this would silently deploy the ref instead of the release.
+            [ -n "$version" ] \
+              || { echo "::error::pyairbyte-version is required when this workflow is called."; exit 1; }
+          else
+            PREVIEW=true
+          fi
           if [ -n "$version" ]; then
             case "$version" in
               [!0-9]*|*[!0-9A-Za-z.+!-]*)
@@ -66,12 +76,6 @@ jobs:
                 exit 1
                 ;;
             esac
-          elif [ "$TRIGGER" != push ]; then
-            # The git fallback below exists for the push-to-main preview only.
-            # A caller shipping a publish must name the published version, or it
-            # would silently deploy this ref instead of the released package.
-            echo "::error::pyairbyte-version is required when this workflow is called ($TRIGGER)."
-            exit 1
           fi
 
           # ---------- Requirement to install into the image ----------
