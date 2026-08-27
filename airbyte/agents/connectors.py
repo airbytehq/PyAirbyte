@@ -112,7 +112,7 @@ class AgentConnector:
     from airbyte import agents
 
     workspace = agents.AgentWorkspace.from_env()
-    connector = workspace.get_connector("GitHub")  # by ID or name
+    connector = workspace.get_connector("GitHub")  # by ID or name (case insensitive)
     result = connector.list_entities("issues", api_args={"repository": "airbytehq/PyAirbyte"})
     for entity in result.entities:
         print(entity["title"])

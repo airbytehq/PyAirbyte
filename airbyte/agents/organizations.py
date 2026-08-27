@@ -73,7 +73,7 @@ class AgentOrganization:
     from airbyte import agents
 
     organization = agents.AgentOrganization.from_env()
-    workspace = organization.get_workspace("my-workspace")  # by ID or name
+    workspace = organization.get_workspace("my-workspace")  # by ID or name (case insensitive)
     ```
     """
 
