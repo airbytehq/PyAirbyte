@@ -119,7 +119,7 @@ has_telemetry = any(
 )
 if has_telemetry is not {expected!r}:
     raise SystemExit(
-        f"expected telemetry middleware={{expected!r}}, got {{has_telemetry!r}}"
+        f"expected telemetry middleware={expected!r}, got {{has_telemetry!r}}"
     )
 """
     result = subprocess.run(
