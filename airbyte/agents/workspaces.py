@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.agents import _api_util
-from airbyte.agents.connectors import AgentConnector, _resolve_connector_id_or_name
+from airbyte.agents.connectors import AgentConnector, _resolve_connector_lookup
 from airbyte.agents.models import AgentConnectorInfo, AgentWorkspaceInfo
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -127,6 +127,8 @@ class AgentWorkspace:
 
     def get_connector(
         self,
+        id_or_name: str | None = None,
+        /,
         *,
         id: str | None = None,  # noqa: A002  # Shadows `id` deliberately, as a short alias.
         connector_id: str | None = None,
@@ -134,23 +136,36 @@ class AgentWorkspace:
     ) -> AgentConnector:
         """Get a connector in this workspace, by ID or by name.
 
-        `id` and `connector_id` are synonyms; pass whichever reads better. Lookup by ID
-        does not call the Agents API. Lookup by `name` lists the workspace's connectors
-        and matches on an exact name first, falling back to a unique substring match, so
-        `name="GitHub"` finds a connector named `GitHub - <workspace_id>`. Both tiers are
-        case-insensitive.
+        Pass a single positional value to look the connector up by either its ID or its
+        name, or name the argument to be explicit: `id` and `connector_id` are synonyms,
+        so pass whichever reads better.
+
+        Lookup by an explicit ID does not call the Agents API. Every other form lists the
+        workspace's connectors and matches on ID first, then on an exact name, then on a
+        unique substring, so `name="GitHub"` finds a connector named
+        `GitHub - <workspace_id>`. Name matching is case-insensitive.
         """
-        resolved_id = _resolve_connector_id_or_name(
+        lookup = _resolve_connector_lookup(
+            id_or_name,
             id=id,
             connector_id=connector_id,
             name=name,
         )
 
-        if resolved_id:
-            return AgentConnector(connector_id=resolved_id, credentials=self._credentials)
+        if lookup.connector_id and not lookup.name:
+            return AgentConnector(connector_id=lookup.connector_id, credentials=self._credentials)
 
         connectors = self.list_connectors()
-        name_lower = (name or "").lower()
+        if lookup.connector_id:
+            id_matches = [
+                connector
+                for connector in connectors
+                if connector.connector_id == lookup.connector_id
+            ]
+            if id_matches:
+                return id_matches[0]
+
+        name_lower = (lookup.name or "").lower()
         matches = [
             connector
             for connector in connectors
@@ -162,16 +177,16 @@ class AgentWorkspace:
         ]
         if not matches:
             raise AirbyteError(
-                message="No connector found with the given name.",
+                message="No connector found with the given ID or name.",
                 guidance="Use `list_connectors()` to see the available connectors.",
-                context={"name": name, "workspace_id": self.workspace_id},
+                context={"lookup": lookup.name, "workspace_id": self.workspace_id},
             )
         if len(matches) > 1:
             raise AirbyteError(
                 message="Multiple connectors matched the given name.",
                 guidance="Pass `connector_id`, or a name that matches only one connector.",
                 context={
-                    "name": name,
+                    "name": lookup.name,
                     "matched_names": [connector.name for connector in matches],
                 },
             )

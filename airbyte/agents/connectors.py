@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from airbyte.agents import _api_util
 from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
@@ -27,22 +27,40 @@ _PAGINATION_ARGS: tuple[str, ...] = ("limit", "cursor")
 """Convenience arguments that PyAirbyte merges into the connector's `params`."""
 
 
-def _resolve_connector_id_or_name(
+class _ConnectorLookup(NamedTuple):
+    """What to look a connector up by, once the lookup arguments have been validated.
+
+    Both fields are set when the caller passed a positional value that could be either an
+    ID or a name, in which case an ID match takes precedence over a name match.
+    """
+
+    connector_id: str | None
+    name: str | None
+
+
+def _resolve_connector_lookup(
+    id_or_name: str | None,
+    /,
     *,
     id: str | None,  # noqa: A002  # Mirrors the public `id` alias it validates.
     connector_id: str | None,
     name: str | None,
-) -> str | None:
-    """Return the connector ID to look up, or `None` when the lookup is by name.
+) -> _ConnectorLookup:
+    """Validate connector lookup arguments and return what to look the connector up by.
 
-    `id` and `connector_id` are synonyms, so exactly one of them or `name` is required.
-    Conflicting synonym values are rejected, as is a blank value, which would otherwise be
-    treated as an omitted argument.
+    `id` and `connector_id` are synonyms, so exactly one of them, `name`, or the positional
+    `id_or_name` is required. Conflicting synonym values are rejected, as is a blank value,
+    which would otherwise be treated as an omitted argument.
     """
+    all_args = {
+        "id_or_name": id_or_name,
+        "id": id,
+        "connector_id": connector_id,
+        "name": name,
+    }
+
     blank_args = sorted(
-        key
-        for key, value in {"id": id, "connector_id": connector_id, "name": name}.items()
-        if value is not None and not value.strip()
+        key for key, value in all_args.items() if value is not None and not value.strip()
     )
     if blank_args:
         raise PyAirbyteInputError(
@@ -50,6 +68,18 @@ def _resolve_connector_id_or_name(
             guidance="Omit the argument entirely, or pass a non-blank value.",
             context={"blank_args": blank_args},
         )
+
+    if id_or_name:
+        keyword_args = sorted(
+            key for key, value in all_args.items() if value and key != "id_or_name"
+        )
+        if keyword_args:
+            raise PyAirbyteInputError(
+                message="A positional connector lookup cannot be combined with keyword arguments.",
+                guidance="Pass the value positionally, or pass `id`, `connector_id`, or `name`.",
+                context={"keyword_args": keyword_args},
+            )
+        return _ConnectorLookup(connector_id=id_or_name, name=id_or_name)
 
     provided = {
         key: value for key, value in {"id": id, "connector_id": connector_id}.items() if value
@@ -63,11 +93,14 @@ def _resolve_connector_id_or_name(
 
     if bool(provided) == bool(name):
         raise PyAirbyteInputError(
-            message="Exactly one of `id`, `connector_id`, or `name` is required.",
-            guidance="Provide either a connector ID or `name`, but not both.",
+            message="Exactly one connector lookup argument is required.",
+            guidance=(
+                "Pass a connector ID or name positionally, or as `id`, `connector_id`, "
+                "or `name`."
+            ),
         )
 
-    return next(iter(provided.values()), None)
+    return _ConnectorLookup(connector_id=next(iter(provided.values()), None), name=name)
 
 
 class AgentConnector:
@@ -79,7 +112,7 @@ class AgentConnector:
     from airbyte import agents
 
     workspace = agents.AgentWorkspace.from_env()
-    connector = workspace.get_connector(name="GitHub")
+    connector = workspace.get_connector("GitHub")  # by ID or name
     result = connector.list_entities("issues", api_args={"repository": "airbytehq/PyAirbyte"})
     for entity in result.entities:
         print(entity["title"])

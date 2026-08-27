@@ -319,54 +319,86 @@ def test_list_connectors(captured_requests: list[dict[str, Any]]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expected_id", "expected_error"),
+    ("args", "kwargs", "expected_id", "expected_error"),
     [
-        pytest.param({"connector_id": "explicit-id"}, "explicit-id", None, id="by_id"),
-        pytest.param({"id": "explicit-id"}, "explicit-id", None, id="by_id_alias"),
         pytest.param(
+            (),
+            {"connector_id": "explicit-id"},
+            "explicit-id",
+            None,
+            id="by_id",
+        ),
+        pytest.param((), {"id": "explicit-id"}, "explicit-id", None, id="by_id_alias"),
+        pytest.param(
+            (),
             {"id": "explicit-id", "connector_id": "explicit-id"},
             "explicit-id",
             None,
             id="by_id_alias_agreeing",
         ),
         pytest.param(
+            (),
             {"id": "one-id", "connector_id": "other-id"},
             None,
             "conflicting values",
             id="by_id_alias_conflicting",
         ),
         pytest.param(
+            (),
             {"id": "", "name": "GitHub"},
             None,
             "cannot be blank",
             id="blank_id",
         ),
         pytest.param(
+            (),
             {"connector_id": "explicit-id", "name": " "},
             None,
             "cannot be blank",
             id="blank_name",
         ),
-        pytest.param({"name": "Slack"}, "connector-2", None, id="by_exact_name"),
-        pytest.param({"name": "GitHub"}, "connector-1", None, id="by_partial_name"),
+        pytest.param((), {"name": "Slack"}, "connector-2", None, id="by_exact_name"),
+        pytest.param((), {"name": "GitHub"}, "connector-1", None, id="by_partial_name"),
         pytest.param(
-            {"name": "slack"}, "connector-2", None, id="by_exact_name_other_case"
+            (), {"name": "slack"}, "connector-2", None, id="by_exact_name_other_case"
         ),
         pytest.param(
-            {"name": "github"}, "connector-1", None, id="by_partial_name_other_case"
+            (),
+            {"name": "github"},
+            "connector-1",
+            None,
+            id="by_partial_name_other_case",
         ),
-        pytest.param({"name": "Missing"}, None, "No connector found", id="no_match"),
-        pytest.param({}, None, "Exactly one of", id="no_args"),
+        pytest.param(("connector-2",), {}, "connector-2", None, id="positional_id"),
+        pytest.param(("Slack",), {}, "connector-2", None, id="positional_name"),
+        pytest.param(("github",), {}, "connector-1", None, id="positional_partial"),
         pytest.param(
+            ("missing",), {}, None, "No connector found", id="positional_no_match"
+        ),
+        pytest.param((" ",), {}, None, "cannot be blank", id="positional_blank"),
+        pytest.param(
+            ("Slack",),
+            {"name": "Slack"},
+            None,
+            "cannot be combined with keyword arguments",
+            id="positional_and_keyword",
+        ),
+        pytest.param(
+            (), {"name": "Missing"}, None, "No connector found", id="no_match"
+        ),
+        pytest.param((), {}, None, "Exactly one", id="no_args"),
+        pytest.param(
+            (),
             {"connector_id": "id", "name": "GitHub"},
             None,
-            "Exactly one of",
+            "Exactly one",
             id="both_args",
         ),
     ],
 )
 def test_get_connector(
     captured_requests: list[dict[str, Any]],
+    args: tuple[str, ...],
     kwargs: dict[str, Any],
     expected_id: str | None,
     expected_error: str | None,
@@ -376,10 +408,10 @@ def test_get_connector(
 
     if expected_error:
         with pytest.raises((AirbyteError, PyAirbyteInputError), match=expected_error):
-            workspace.get_connector(**kwargs)
+            workspace.get_connector(*args, **kwargs)
         return
 
-    connector = workspace.get_connector(**kwargs)
+    connector = workspace.get_connector(*args, **kwargs)
     assert connector.connector_id == expected_id
     if "connector_id" in kwargs or "id" in kwargs:
         assert captured_requests == []
@@ -401,19 +433,41 @@ def test_list_workspaces(captured_requests: list[dict[str, Any]]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expected_id", "expected_error"),
+    ("args", "kwargs", "expected_id", "expected_error"),
     [
-        pytest.param({"workspace_id": "explicit-id"}, "explicit-id", None, id="by_id"),
-        pytest.param({"name": "secondary"}, "workspace-2", None, id="by_name"),
         pytest.param(
-            {"name": "SECONDARY"}, "workspace-2", None, id="by_name_other_case"
+            (),
+            {"workspace_id": "explicit-id"},
+            "explicit-id",
+            None,
+            id="by_id",
         ),
-        pytest.param({"name": "missing"}, None, "No workspace found", id="no_match"),
-        pytest.param({}, None, "Exactly one of", id="no_args"),
+        pytest.param((), {"name": "secondary"}, "workspace-2", None, id="by_name"),
+        pytest.param(
+            (), {"name": "SECONDARY"}, "workspace-2", None, id="by_name_other_case"
+        ),
+        pytest.param(("workspace-2",), {}, "workspace-2", None, id="positional_id"),
+        pytest.param(("secondary",), {}, "workspace-2", None, id="positional_name"),
+        pytest.param(
+            ("missing",), {}, None, "No workspace found", id="positional_no_match"
+        ),
+        pytest.param(("",), {}, None, "cannot be blank", id="positional_blank"),
+        pytest.param(
+            ("secondary",),
+            {"name": "secondary"},
+            None,
+            "Exactly one",
+            id="positional_and_keyword",
+        ),
+        pytest.param(
+            (), {"name": "missing"}, None, "No workspace found", id="no_match"
+        ),
+        pytest.param((), {}, None, "Exactly one", id="no_args"),
     ],
 )
 def test_get_workspace(
     captured_requests: list[dict[str, Any]],
+    args: tuple[str, ...],
     kwargs: dict[str, Any],
     expected_id: str | None,
     expected_error: str | None,
@@ -425,10 +479,10 @@ def test_get_workspace(
 
     if expected_error:
         with pytest.raises((AirbyteError, PyAirbyteInputError), match=expected_error):
-            organization.get_workspace(**kwargs)
+            organization.get_workspace(*args, **kwargs)
         return
 
-    workspace = organization.get_workspace(**kwargs)
+    workspace = organization.get_workspace(*args, **kwargs)
     assert workspace.workspace_id == expected_id
     if "workspace_id" in kwargs:
         assert captured_requests == []

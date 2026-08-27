@@ -21,7 +21,7 @@ Execute an action against a connector:
 from airbyte import agents
 
 workspace = agents.AgentWorkspace.from_env()
-connector = workspace.get_connector(name="GitHub")
+connector = workspace.get_connector("GitHub")  # by ID or name
 
 result = connector.list_entities(
     "issues",

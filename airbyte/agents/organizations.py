@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from airbyte.agents import _api_util
 from airbyte.agents.models import AgentWorkspaceInfo
@@ -17,6 +17,55 @@ if TYPE_CHECKING:
     from airbyte.secrets.base import SecretString
 
 
+class _WorkspaceLookup(NamedTuple):
+    """What to look a workspace up by, once the lookup arguments have been validated.
+
+    Both fields are set when the caller passed a positional value that could be either an
+    ID or a name, in which case an ID match takes precedence over a name match.
+    """
+
+    workspace_id: str | None
+    name: str | None
+
+
+def _resolve_workspace_lookup(
+    id_or_name: str | None,
+    /,
+    *,
+    workspace_id: str | None,
+    name: str | None,
+) -> _WorkspaceLookup:
+    """Validate workspace lookup arguments and return what to look the workspace up by.
+
+    Exactly one of `workspace_id`, `name`, or the positional `id_or_name` is required. A
+    blank value is rejected rather than treated as an omitted argument.
+    """
+    all_args = {"id_or_name": id_or_name, "workspace_id": workspace_id, "name": name}
+
+    blank_args = sorted(
+        key for key, value in all_args.items() if value is not None and not value.strip()
+    )
+    if blank_args:
+        raise PyAirbyteInputError(
+            message="Workspace lookup arguments cannot be blank.",
+            guidance="Omit the argument entirely, or pass a non-blank value.",
+            context={"blank_args": blank_args},
+        )
+
+    provided = sorted(key for key, value in all_args.items() if value)
+    if len(provided) != 1:
+        raise PyAirbyteInputError(
+            message="Exactly one workspace lookup argument is required.",
+            guidance="Pass a workspace ID or name positionally, or as `workspace_id` or `name`.",
+            context={"provided": provided},
+        )
+
+    if id_or_name:
+        return _WorkspaceLookup(workspace_id=id_or_name, name=id_or_name)
+
+    return _WorkspaceLookup(workspace_id=workspace_id, name=name)
+
+
 class AgentOrganization:
     """An organization on the Airbyte Agents platform.
 
@@ -24,7 +73,7 @@ class AgentOrganization:
     from airbyte import agents
 
     organization = agents.AgentOrganization.from_env()
-    workspace = organization.get_workspace(name="my-workspace")
+    workspace = organization.get_workspace("my-workspace")  # by ID or name
     ```
     """
 
@@ -76,33 +125,49 @@ class AgentOrganization:
 
     def get_workspace(
         self,
+        id_or_name: str | None = None,
+        /,
         *,
         workspace_id: str | None = None,
         name: str | None = None,
     ) -> AgentWorkspace:
         """Get a workspace in this organization, by ID or by name.
 
-        Lookup by `workspace_id` does not call the Agents API. Lookup by `name` lists the
-        organization's workspaces and matches the name exactly, ignoring case.
+        Pass a single positional value to look the workspace up by either its ID or its
+        name, or name the argument to be explicit.
+
+        Lookup by an explicit `workspace_id` does not call the Agents API. Every other form
+        lists the organization's workspaces and matches on ID first, then on an exact name,
+        ignoring case.
         """
-        if bool(workspace_id) == bool(name):
-            raise PyAirbyteInputError(
-                message="Exactly one of `workspace_id` or `name` is required.",
-                guidance="Provide either `workspace_id` or `name`, but not both.",
-            )
+        lookup = _resolve_workspace_lookup(
+            id_or_name,
+            workspace_id=workspace_id,
+            name=name,
+        )
 
-        if workspace_id:
-            return self._as_workspace(AgentWorkspaceInfo(id=workspace_id))
+        if lookup.workspace_id and not lookup.name:
+            return self._as_workspace(AgentWorkspaceInfo(id=lookup.workspace_id))
 
-        name_lower = (name or "").lower()
+        workspaces = self.list_workspaces()
+        if lookup.workspace_id:
+            id_matches = [
+                workspace
+                for workspace in workspaces
+                if workspace.workspace_id == lookup.workspace_id
+            ]
+            if id_matches:
+                return id_matches[0]
+
+        name_lower = (lookup.name or "").lower()
         matches = [
             workspace
-            for workspace in self.list_workspaces()
+            for workspace in workspaces
             if workspace.name and workspace.name.lower() == name_lower
         ]
         if not matches:
             raise AirbyteError(
-                message="No workspace found with the given name.",
+                message="No workspace found with the given ID or name.",
                 guidance="Use `list_workspaces()` to see the available workspaces.",
                 context={"name": name},
             )
