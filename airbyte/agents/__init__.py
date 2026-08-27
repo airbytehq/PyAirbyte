@@ -49,7 +49,9 @@ Pass `result.end_cursor` back as `cursor` to page through manually:
 cursor = None
 while True:
     result = connector.list_entities(
-        "issues", api_args={"repository": "airbytehq/PyAirbyte"}, cursor=cursor
+        "issues",
+        api_args={"repository": "airbytehq/PyAirbyte"},
+        cursor=cursor,
     )
     print(len(result.entities))
     if not result.has_next_page:
