@@ -874,16 +874,14 @@ def test_cloud_client_list_workspaces_resolves_organization_context(
 def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured = _patch_workspace_discovery(
-        monkeypatch,
-        permissions=[
-            {"permissionType": "instance_admin"},
-            {
-                "permissionType": "organization_member",
-                "organizationId": "organization-id",
-            },
-        ],
-    )
+    permissions: list[dict[str, object]] = [
+        {"permissionType": "instance_admin"},
+        {
+            "permissionType": "organization_member",
+            "organizationId": "organization-id",
+        },
+    ]
+    captured = _patch_workspace_discovery(monkeypatch, permissions=permissions)
     calls = {"user": 0, "permissions": 0}
 
     def fake_get_user_by_auth_id(*_: object, **__: object) -> dict[str, object]:
@@ -894,13 +892,7 @@ def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
         *_: object, **__: object
     ) -> list[dict[str, object]]:
         calls["permissions"] += 1
-        return [
-            {"permissionType": "instance_admin"},
-            {
-                "permissionType": "organization_member",
-                "organizationId": "organization-id",
-            },
-        ]
+        return permissions
 
     monkeypatch.setattr(api_util, "get_user_by_auth_id", fake_get_user_by_auth_id)
     monkeypatch.setattr(
