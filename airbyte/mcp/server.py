@@ -79,6 +79,7 @@ from airbyte.mcp._tool_utils import (
     airbyte_readonly_mode_filter,
     validate_airbyte_domains,
 )
+from airbyte.mcp.agents import register_agents_tools
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
@@ -325,6 +326,7 @@ app = mcp_server(
 
 # Register tools from each module
 register_cloud_tools(app)
+register_agents_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)

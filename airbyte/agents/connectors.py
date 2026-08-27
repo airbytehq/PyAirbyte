@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Any
 
 from airbyte.agents import _api_util
 from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
-    from airbyte.cloud._credentials import _AirbyteCredentials
+    from airbyte.secrets.base import SecretString
 
 
 UNSUPPORTED_ACTIONS: set[str] = {"download"}
@@ -56,6 +57,36 @@ class AgentConnector:
         self._credentials = credentials
         self._name = name
         self._details: AgentConnectorDetails | None = None
+
+    @classmethod
+    def from_auth(
+        cls,
+        connector_id: str,
+        *,
+        organization_id: str | None = None,
+        client_id: str | SecretString | None = None,
+        client_secret: str | SecretString | None = None,
+        bearer_token: str | SecretString | None = None,
+    ) -> AgentConnector:
+        """Create an `AgentConnector` from credentials, without a workspace lookup.
+
+        The Agents API addresses a connector by ID alone, so no workspace is needed.
+        Credentials fall back to the `AIRBYTE_CLOUD_*` environment variables when they are
+        not passed explicitly.
+        """
+        return cls(
+            connector_id,
+            credentials=_AirbyteCredentials.from_auth(
+                organization_id=organization_id,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+                # Mirrors `CloudWorkspace.__init__`: any explicit credential disables env
+                # fallback, since an env bearer token plus explicit client creds is rejected
+                # as mutually exclusive auth.
+                env_vars=not (client_id or client_secret or bearer_token),
+            ),
+        )
 
     @property
     def name(self) -> str | None:

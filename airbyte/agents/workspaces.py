@@ -53,6 +53,9 @@ class AgentWorkspace:
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
+            # Mirrors `CloudWorkspace.__init__`: any explicit credential disables env
+            # fallback, since an env bearer token plus explicit client creds is rejected
+            # as mutually exclusive auth.
             env_vars=not (client_id or client_secret or bearer_token),
         )
         if not credentials.workspace_id:

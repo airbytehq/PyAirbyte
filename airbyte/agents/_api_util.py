@@ -32,6 +32,13 @@ This is deliberately private and not configurable: the Agents API is a hosted Ai
 service with a single root, so there is nothing for callers to override.
 """
 
+_REQUEST_TIMEOUT_SECONDS = 300
+"""Timeout for a single Agents API request.
+
+Generous, because a connector action runs a live third-party API call behind the Agents
+API, but finite, so a stalled request cannot hang the caller forever.
+"""
+
 _MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
 """Fragment of the Agents API error returned when credentials span several organizations."""
 
@@ -85,6 +92,7 @@ def make_agents_api_request(
         headers=headers,
         params=params,
         json=json,
+        timeout=_REQUEST_TIMEOUT_SECONDS,
     )
     if not status_ok(response.status_code):
         raise AirbyteError(
@@ -109,7 +117,14 @@ def make_agents_api_request(
             context={"full_url": full_url, "content_type": content_type},
         )
 
-    parsed: Any = response.json()
+    try:
+        parsed: Any = response.json()
+    except requests.exceptions.JSONDecodeError as ex:
+        raise AirbyteError(
+            message="The Airbyte Agents API returned malformed JSON.",
+            context={"full_url": full_url},
+        ) from ex
+
     if not isinstance(parsed, dict):
         raise AirbyteError(
             message="Unexpected response payload from the Airbyte Agents API.",
@@ -234,7 +249,7 @@ def execute_agent_connector_action(
 
 def _records_from_response(*, response: dict[str, Any], path: str) -> list[dict[str, Any]]:
     """Return the `data` array from a list response, validating its shape."""
-    records: Any = response.get("data", [])
+    records: Any = response.get("data")
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
         raise AirbyteError(
             message="Unexpected list payload from the Airbyte Agents API.",
