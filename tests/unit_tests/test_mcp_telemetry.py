@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 from fastmcp_extensions import ToolCallTelemetryMiddleware
@@ -13,6 +17,7 @@ from segment import analytics
 
 from airbyte import constants
 from airbyte.constants import set_hosted_mcp_mode
+from airbyte.mcp import _telemetry_attribution as attribution
 from airbyte.mcp import server
 
 
@@ -23,6 +28,9 @@ _DUMMY_SEGMENT_WRITE_KEY = "dummy-segment-write-key"
 def force_online_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep in-process telemetry tests independent of the runner environment."""
     monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", False)
+    attribution._get_telemetry_salt.cache_clear()
+    yield
+    attribution._get_telemetry_salt.cache_clear()
 
 
 def test_segment_write_key_defaults_to_app_tracking_key(
@@ -150,6 +158,249 @@ def test_hosted_attribution_is_resolved_per_call(
     set_hosted_mcp_mode()
 
     assert extra_properties() == {"is_hosted_mcp": True}
+
+
+def _http_request(
+    *,
+    host: str = "mcp.airbyte.ai",
+    path: str = "/",
+    forwarded_for: str | None = None,
+) -> SimpleNamespace:
+    headers = {"host": host}
+    if forwarded_for is not None:
+        headers["x-forwarded-for"] = forwarded_for
+    return SimpleNamespace(
+        headers=headers,
+        client=SimpleNamespace(host="127.0.0.1"),
+        url=SimpleNamespace(path=path),
+    )
+
+
+def _context(
+    *,
+    session_id: str = "session-id",
+    client_name: str | None = None,
+    client_version: str | None = None,
+) -> SimpleNamespace:
+    client_info = (
+        SimpleNamespace(name=client_name, version=client_version)
+        if client_name is not None and client_version is not None
+        else None
+    )
+    return SimpleNamespace(
+        session_id=session_id,
+        session=SimpleNamespace(
+            client_params=(
+                SimpleNamespace(clientInfo=client_info)
+                if client_info is not None
+                else None
+            )
+        ),
+    )
+
+
+def test_stdio_attribution_only_preserves_hosted_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stdio calls do not expose request-scoped attribution."""
+    monkeypatch.setattr(attribution, "is_hosted_mcp_mode", lambda: True)
+    monkeypatch.setattr(
+        attribution,
+        "get_http_request",
+        lambda: (_ for _ in ()).throw(RuntimeError("no HTTP request")),
+    )
+
+    assert attribution.get_telemetry_attribution() == {"is_hosted_mcp": True}
+
+
+def test_attribution_uses_first_forwarded_ip_and_airbyte_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HTTP attribution uses the original forwarded client and owned endpoint."""
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "test-salt")
+    request = _http_request(
+        host="preview.airbyte.ai",
+        path="/cloud-mcp",
+        forwarded_for="198.51.100.23, 192.0.2.10",
+    )
+    monkeypatch.setattr(attribution, "get_http_request", lambda: request)
+    monkeypatch.setattr(
+        attribution,
+        "get_context",
+        lambda: _context(
+            session_id="session-secret",
+            client_name="Test Client",
+            client_version="1.2.3",
+        ),
+    )
+    monkeypatch.setattr(
+        attribution,
+        "get_access_token",
+        lambda: SimpleNamespace(
+            claims={"sub": "subject-secret"}, client_id="client-id"
+        ),
+    )
+
+    payload = attribution.get_telemetry_attribution()
+
+    assert payload["caller_hash"] == attribution._hash_value(
+        "198.51.100.23", "ip", "preview.airbyte.ai"
+    )
+    assert payload["mcp_endpoint"] == "preview.airbyte.ai/cloud-mcp"
+    assert payload["mcp_endpoint_hash"] == attribution._hash_value(
+        "preview.airbyte.ai", "endpoint", "preview.airbyte.ai"
+    )
+    assert payload["session_id_hash"] == attribution._hash_value(
+        "session-secret", "session", "preview.airbyte.ai"
+    )
+    assert payload["auth_subject_hash"] == attribution._hash_value(
+        "subject-secret", "subject", "preview.airbyte.ai"
+    )
+    assert (
+        payload["caller_hash"]
+        == hmac.new(
+            b"test-salt",
+            b"ip|preview.airbyte.ai|198.51.100.23",
+            hashlib.sha256,
+        ).hexdigest()[:16]
+    )
+    assert payload["mcp_client_name"] == "Test Client"
+    assert payload["mcp_client_version"] == "1.2.3"
+
+
+def test_non_airbyte_endpoint_is_hashed_but_not_emitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Third-party deployment hostnames are never emitted in plaintext."""
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "test-salt")
+    host = "customer.example.com"
+    request = _http_request(host=host)
+    monkeypatch.setattr(attribution, "get_http_request", lambda: request)
+    monkeypatch.setattr(attribution, "get_context", lambda: _context())
+    monkeypatch.setattr(attribution, "get_access_token", lambda: None)
+
+    payload = attribution.get_telemetry_attribution()
+
+    assert "mcp_endpoint" not in payload
+    assert payload["mcp_endpoint_hash"] == attribution._hash_value(
+        host, "endpoint", host
+    )
+
+
+def test_hashes_are_stable_and_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Attribution hashes are stable but scoped to their field."""
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "test-salt")
+
+    session_hash = attribution._hash_value("same-value", "session")
+    assert session_hash == attribution._hash_value("same-value", "session")
+    assert session_hash != attribution._hash_value("same-value", "ip")
+    assert (
+        session_hash
+        == hmac.new(
+            b"test-salt",
+            b"session|local|same-value",
+            hashlib.sha256,
+        ).hexdigest()[:16]
+    )
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "different-salt")
+    attribution._get_telemetry_salt.cache_clear()
+    assert session_hash != attribution._hash_value("same-value", "session")
+
+
+def test_caller_hash_is_bound_to_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same caller has different surrogates on different deployments."""
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "test-salt")
+    current_request = [
+        _http_request(host="prod.airbyte.ai", forwarded_for="198.51.100.23")
+    ]
+    monkeypatch.setattr(attribution, "get_http_request", lambda: current_request[0])
+    monkeypatch.setattr(attribution, "get_context", lambda: _context())
+    monkeypatch.setattr(attribution, "get_access_token", lambda: None)
+
+    first = attribution.get_telemetry_attribution()["caller_hash"]
+    current_request[0] = _http_request(
+        host="preview.airbyte.ai", forwarded_for="198.51.100.23"
+    )
+    second = attribution.get_telemetry_attribution()["caller_hash"]
+
+    assert first != second
+
+
+def test_attribution_payload_contains_no_raw_identifiers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw request identifiers are absent from the emitted properties."""
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "test-salt")
+    raw_ip = "198.51.100.42"
+    raw_session = "session-secret"
+    raw_subject = "subject-secret"
+    request = _http_request(host="customer.example.com", forwarded_for=raw_ip)
+    monkeypatch.setattr(attribution, "get_http_request", lambda: request)
+    monkeypatch.setattr(
+        attribution, "get_context", lambda: _context(session_id=raw_session)
+    )
+    monkeypatch.setattr(
+        attribution,
+        "get_access_token",
+        lambda: SimpleNamespace(claims={"sub": raw_subject}, client_id=None),
+    )
+
+    payload_text = json.dumps(attribution.get_telemetry_attribution())
+
+    assert raw_ip not in payload_text
+    assert raw_session not in payload_text
+    assert raw_subject not in payload_text
+    assert "customer.example.com" not in payload_text
+
+
+def test_salt_prefers_environment_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit deployment salt is used before the analytics ID."""
+    monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_SALT", "environment-salt")
+    monkeypatch.setattr(
+        attribution,
+        "_get_analytics_id",
+        lambda: pytest.fail("analytics ID should not be read when salt is configured"),
+    )
+
+    assert (
+        attribution._hash_value("value", "session")
+        == hmac.new(
+            b"environment-salt",
+            b"session|local|value",
+            hashlib.sha256,
+        ).hexdigest()[:16]
+    )
+
+
+def test_salt_falls_back_to_analytics_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The persisted anonymous analytics ID provides the fallback salt."""
+    monkeypatch.delenv("AIRBYTE_MCP_TELEMETRY_SALT", raising=False)
+    monkeypatch.setattr(attribution, "_get_analytics_id", lambda: "analytics-id")
+
+    assert (
+        attribution._hash_value("value", "session")
+        == hmac.new(
+            b"analytics-id",
+            b"session|local|value",
+            hashlib.sha256,
+        ).hexdigest()[:16]
+    )
+
+
+def test_opted_out_analytics_omits_attribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Opting out of analytics also omits attribution properties."""
+    monkeypatch.delenv("AIRBYTE_MCP_TELEMETRY_SALT", raising=False)
+    monkeypatch.setattr(attribution, "_get_analytics_id", lambda: None)
+    monkeypatch.setattr(
+        attribution,
+        "get_http_request",
+        lambda: _http_request(host="preview.airbyte.ai", forwarded_for="198.51.100.23"),
+    )
+    monkeypatch.setattr(attribution, "get_context", lambda: _context())
+
+    assert attribution.get_telemetry_attribution() == {"is_hosted_mcp": False}
 
 
 @pytest.mark.parametrize(

@@ -71,8 +71,9 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool
 from airbyte.mcp._config import load_secrets_to_env_vars
+from airbyte.mcp._telemetry_attribution import get_telemetry_attribution
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -360,7 +361,7 @@ app = mcp_server(
         package_name="airbyte",
         segment_write_key=segment_write_key,
         segment_user_id=SEGMENT_USER_ID,
-        extra_properties=lambda: {"is_hosted_mcp": is_hosted_mcp_mode()},
+        extra_properties=get_telemetry_attribution,
     ),
 )
 """The Airbyte MCP Server application instance."""
