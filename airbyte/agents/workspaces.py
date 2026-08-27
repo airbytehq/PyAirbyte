@@ -6,8 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.agents import _api_util
-from airbyte.agents._lookup import resolve_id_or_name
-from airbyte.agents.connectors import AgentConnector
+from airbyte.agents.connectors import AgentConnector, _resolve_connector_id_or_name
 from airbyte.agents.models import AgentConnectorInfo, AgentWorkspaceInfo
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -141,8 +140,9 @@ class AgentWorkspace:
         `name="GitHub"` finds a connector named `GitHub - <workspace_id>`. Both tiers are
         case-insensitive.
         """
-        resolved_id = resolve_id_or_name(
-            id_args={"id": id, "connector_id": connector_id},
+        resolved_id = _resolve_connector_id_or_name(
+            id=id,
+            connector_id=connector_id,
             name=name,
         )
 

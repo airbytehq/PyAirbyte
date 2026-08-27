@@ -27,6 +27,49 @@ _PAGINATION_ARGS: tuple[str, ...] = ("limit", "cursor")
 """Convenience arguments that PyAirbyte merges into the connector's `params`."""
 
 
+def _resolve_connector_id_or_name(
+    *,
+    id: str | None,  # noqa: A002  # Mirrors the public `id` alias it validates.
+    connector_id: str | None,
+    name: str | None,
+) -> str | None:
+    """Return the connector ID to look up, or `None` when the lookup is by name.
+
+    `id` and `connector_id` are synonyms, so exactly one of them or `name` is required.
+    Conflicting synonym values are rejected, as is a blank value, which would otherwise be
+    treated as an omitted argument.
+    """
+    blank_args = sorted(
+        key
+        for key, value in {"id": id, "connector_id": connector_id, "name": name}.items()
+        if value is not None and not value.strip()
+    )
+    if blank_args:
+        raise PyAirbyteInputError(
+            message="Connector lookup arguments cannot be blank.",
+            guidance="Omit the argument entirely, or pass a non-blank value.",
+            context={"blank_args": blank_args},
+        )
+
+    provided = {
+        key: value for key, value in {"id": id, "connector_id": connector_id}.items() if value
+    }
+    if len(set(provided.values())) > 1:
+        raise PyAirbyteInputError(
+            message="`id` and `connector_id` were given conflicting values.",
+            guidance="These arguments are synonyms, so pass only one of them.",
+            context={"provided": sorted(provided)},
+        )
+
+    if bool(provided) == bool(name):
+        raise PyAirbyteInputError(
+            message="Exactly one of `id`, `connector_id`, or `name` is required.",
+            guidance="Provide either a connector ID or `name`, but not both.",
+        )
+
+    return next(iter(provided.values()), None)
+
+
 class AgentConnector:
     """A connector in an Airbyte Agents workspace.
 
