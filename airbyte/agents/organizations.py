@@ -169,13 +169,13 @@ class AgentOrganization:
             raise AirbyteError(
                 message="No workspace found with the given ID or name.",
                 guidance="Use `list_workspaces()` to see the available workspaces.",
-                context={"name": name},
+                context={"name": lookup.name},
             )
         if len(matches) > 1:
             raise AirbyteError(
                 message="Multiple workspaces matched the given name.",
                 guidance="Pass `workspace_id` instead of `name`.",
-                context={"name": name, "match_count": len(matches)},
+                context={"name": lookup.name, "match_count": len(matches)},
             )
         return matches[0]
 
