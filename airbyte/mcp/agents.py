@@ -207,18 +207,18 @@ def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] |
     return parsed
 
 
-def _agents_access_message(error: AirbyteError) -> str:
+def _agents_access_message(error: AirbyteError) -> str | None:
     """Return a concise explanation of an Agents API authorization failure.
 
-    Re-raises anything that is not an authorization failure, so unrelated errors keep their
-    original context instead of being reported as an access problem.
+    Returns `None` when the failure is not an authorization failure, so the caller can
+    re-raise it with a bare `raise` and keep the original traceback.
     """
     status_code = (error.context or {}).get("status_code")
     if status_code == HTTPStatus.UNAUTHORIZED:
         return AGENTS_UNAUTHORIZED_MESSAGE
     if status_code == HTTPStatus.FORBIDDEN:
         return AGENTS_FORBIDDEN_MESSAGE
-    raise error
+    return None
 
 
 def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentOrganization:
@@ -293,9 +293,12 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             intent=intent,
         )
     except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
         return AgentExecuteToolResult(
             status=AGENTS_ACCESS_DENIED_STATUS,
-            message=_agents_access_message(error),
+            message=message,
         )
 
     return AgentExecuteToolResult(
@@ -330,7 +333,10 @@ def list_agent_workspaces(
     try:
         workspaces = organization.list_workspaces()
     except AirbyteError as error:
-        return AgentWorkspaceListResult(workspaces=[], message=_agents_access_message(error))
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentWorkspaceListResult(workspaces=[], message=message)
 
     return AgentWorkspaceListResult(
         workspaces=[
@@ -366,7 +372,10 @@ def list_agent_connectors(
     try:
         connectors = workspace.list_connectors()
     except AirbyteError as error:
-        return AgentConnectorListResult(connectors=[], message=_agents_access_message(error))
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentConnectorListResult(connectors=[], message=message)
 
     return AgentConnectorListResult(
         connectors=[
@@ -408,11 +417,14 @@ def describe_agent_connector(
     try:
         details = _get_agent_connector(ctx, connector_id, workspace_id).describe()
     except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
         return AgentConnectorDetailsResult(
             connector_id=connector_id,
             context_store_entities=[],
             warnings=[],
-            message=_agents_access_message(error),
+            message=message,
         )
 
     return AgentConnectorDetailsResult(
