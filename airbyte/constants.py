@@ -312,6 +312,44 @@ MCP_WORKSPACE_ID_HEADER: str = "X-Airbyte-Workspace-Id"
 This allows per-request workspace ID configuration when using HTTP transport.
 """
 
+MCP_ORGANIZATION_ID_HEADER: str = "X-Airbyte-Organization-Id"
+"""HTTP header key for passing organization ID to the MCP server.
+
+This allows per-request organization ID configuration when using HTTP transport, for the
+tools that scope a listing to an organization rather than a workspace.
+"""
+
+MCP_INSIDERS_MODULES: frozenset[str] = frozenset({"agents"})
+"""MCP tool modules that are hidden unless insiders mode is enabled.
+
+Tools in these modules are not advertised by default, because they depend on a
+subscription that most callers do not have; advertising them spends context on tools
+that cannot be used. Two things enable them: insiders mode (`AIRBYTE_MCP_INSIDERS` or
+`X-MCP-Insiders`), which adds them to the normal surface, or naming the module in the
+include list, which asks for exactly that module and nothing else.
+"""
+
+MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
+"""Environment variable that advertises insiders MCP tools.
+
+When set to `1`/`true`/`yes`, tools in `MCP_INSIDERS_MODULES` join the normal tool
+surface. It defaults to off, so no caller pays context for tools that are still in
+preview or that require a subscription.
+
+The name follows the GitHub MCP server's `GITHUB_INSIDERS` / `X-MCP-Insiders` pair, which
+is the closest thing to a convention for this setting:
+https://github.com/github/github-mcp-server/blob/HEAD/docs/server-configuration.md
+"""
+
+MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
+"""HTTP header key that advertises insiders MCP tools.
+
+Unlike `AIRBYTE_MCP_TRUSTED_EXECUTION`, this gate *widens* the tool surface and is still
+caller-settable, which is a deliberate exception: it changes only which tools are
+advertised, and every insiders tool independently enforces its own authorization against
+the Airbyte API. It is not an access-control boundary.
+"""
+
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
@@ -325,6 +363,12 @@ MCP_CONFIG_INCLUDE_MODULES: str = "airbyte_include_modules"
 
 MCP_CONFIG_WORKSPACE_ID: str = "workspace_id"
 """Config arg name for the workspace ID setting."""
+
+MCP_CONFIG_ORGANIZATION_ID: str = "organization_id"
+"""Config arg name for the organization ID setting."""
+
+MCP_CONFIG_INSIDERS: str = "insiders"
+"""Config arg name for the insiders tools gate."""
 
 MCP_CONFIG_BEARER_TOKEN: str = "bearer_token"
 """Config arg name for the bearer token setting."""
