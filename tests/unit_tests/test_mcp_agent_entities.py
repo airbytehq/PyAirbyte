@@ -126,6 +126,7 @@ def test_search_entities_selects_action(
         api_args='{"query": "flaky"}',
         use_api_search=use_api_search,
         select_fields=None,
+        exclude_fields=None,
         page_size=None,
         cursor=None,
         intent=None,
@@ -163,6 +164,7 @@ def test_get_entity_coerces_payload(
             entity_type="issues",
             api_args={"number": 1127},
             select_fields=None,
+            exclude_fields=None,
             intent=None,
             workspace_id="workspace-id",
         )

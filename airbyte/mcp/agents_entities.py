@@ -302,6 +302,13 @@ def search_agent_entities(  # noqa: PLR0913  # Explicit args are the point of th
             default=None,
         ),
     ],
+    exclude_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to drop from the returned entities, as a list or a CSV string.",
+            default=None,
+        ),
+    ],
     page_size: Annotated[
         int | None,
         Field(description="Maximum number of entities to return in this page.", default=None),
@@ -335,7 +342,7 @@ def search_agent_entities(  # noqa: PLR0913  # Explicit args are the point of th
         action="api_search" if use_api_search else "search",
         api_args=api_args,
         select_fields=select_fields,
-        exclude_fields=None,
+        exclude_fields=exclude_fields,
         page_size=page_size,
         cursor=cursor,
         intent=intent,
@@ -369,6 +376,13 @@ def get_agent_entity(
             default=None,
         ),
     ],
+    exclude_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to drop from the returned entity, as a list or a CSV string.",
+            default=None,
+        ),
+    ],
     intent: Annotated[
         str | None,
         Field(description="A short description of why the action is being run.", default=None),
@@ -393,7 +407,7 @@ def get_agent_entity(
         action="get",
         api_args=api_args,
         select_fields=select_fields,
-        exclude_fields=None,
+        exclude_fields=exclude_fields,
         page_size=None,
         cursor=None,
         intent=intent,
