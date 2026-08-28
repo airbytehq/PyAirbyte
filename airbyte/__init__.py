@@ -97,6 +97,8 @@ Each module
 has its own documentation and code samples related to effectively using the related capabilities.
 
 - **`airbyte.cloud`** - Working with Airbyte Cloud, including running jobs remotely.
+- **`airbyte.agents`** - Working with the Airbyte Agents platform, including executing single
+    read and write actions on Agents connectors.
 - **`airbyte.caches`** - Working with caches, including how to inspect a cache and get data from it.
 - **`airbyte.datasets`** - Working with datasets, including how to read from datasets and convert to
     other formats, such as Pandas, Arrow, and LLM Document formats.
@@ -144,6 +146,7 @@ from airbyte.sources.util import get_source
 if TYPE_CHECKING:
     # ruff: noqa: TC004  # imports used for more than type checking
     from airbyte import (
+        agents,
         caches,
         callbacks,
         cli,
@@ -165,6 +168,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     # Modules
+    "agents",
     "caches",
     "callbacks",
     "cli",
