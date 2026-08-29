@@ -175,6 +175,7 @@ def test_form_blocks_prototype_pollution_paths() -> None:
     html = form.connector_config_form_resource()
 
     assert '["__proto__", "constructor", "prototype"]' in html
+    assert "Array.isArray(target[key])" in html
 
 
 def test_form_handles_one_of_schema_without_plaintext_input(
@@ -220,7 +221,7 @@ def test_connector_form_resource_includes_csp_metadata(
 
     from airbyte.mcp import interactive
 
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080")
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://late.example.com/cloud-mcp")
     app = mcp_server(name="test")
     interactive.register_interactive_tools(app)
 
@@ -231,4 +232,9 @@ def test_connector_form_resource_includes_csp_metadata(
     )
 
     assert resource.meta is not None
-    assert resource.meta["ui"]["csp"]["connectDomains"] == ["http://localhost:8080"]
+    assert resource.meta["ui"]["csp"]["connectDomains"] == ["https://late.example.com"]
+
+    provider = getattr(app, "_local_provider")
+    tool = provider._components["tool:show_connector_config_form@"]  # noqa: SLF001
+    assert tool.meta is not None
+    assert tool.meta["ui"]["csp"]["connectDomains"] == ["https://late.example.com"]

@@ -67,7 +67,11 @@ padding:9px 14px;font:inherit;cursor:pointer}
     const keys = path.split(".");
     if (keys.some((key) => ["__proto__", "constructor", "prototype"].includes(key))) return;
     let target = object;
-    keys.slice(0, -1).forEach((key) => target = target[key] ||= {});
+    keys.slice(0, -1).forEach((key) => {
+      if (typeof target[key] !== "object" || target[key] === null || Array.isArray(target[key]))
+        target[key] = {};
+      target = target[key];
+    });
     target[keys[keys.length - 1]] = value;
   };
   const fields = (schema, prefix = "") => {
@@ -298,6 +302,13 @@ def connector_config_form_resource() -> str:
     return _HTML_RESOURCE
 
 
+def _connector_form_app_config() -> AppConfig:
+    return AppConfig(
+        resource_uri=CONNECTOR_FORM_RESOURCE_URI,
+        csp=ResourceCSP(connect_domains=[_server_origin()]),
+    )
+
+
 def register_connector_config_form_resource(app: FastMCP) -> None:
     """Register the connector form resource with its CSP metadata."""
     app.resource(
@@ -313,10 +324,7 @@ def register_connector_config_form_resource(app: FastMCP) -> None:
     idempotent=True,
     open_world=True,
     annotations={INTERACTIVE_UI_ANNOTATION: True},
-    app=AppConfig(
-        resource_uri=CONNECTOR_FORM_RESOURCE_URI,
-        csp=ResourceCSP(connect_domains=[_server_origin()]),
-    ),
+    app=_connector_form_app_config,
 )
 def show_connector_config_form(
     connector_name: Annotated[

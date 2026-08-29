@@ -197,15 +197,24 @@ def decrypt_action_token(token: str) -> dict[str, Any]:
 
 def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str]:
     paths: set[str] = set()
+    if prefix and any(
+        (
+            schema.get("airbyte_secret") is True,
+            schema.get("writeOnly") is True,
+            schema.get("format") == "password",
+        )
+    ):
+        paths.add(prefix)
     properties = schema.get("properties", {})
     if isinstance(properties, Mapping):
         for name, child in properties.items():
             if not isinstance(name, str) or not isinstance(child, Mapping):
                 continue
             path = f"{prefix}.{name}" if prefix else name
-            if child.get("airbyte_secret") is True:
-                paths.add(path)
             paths.update(_schema_secret_paths(child, path))
+    items = schema.get("items")
+    if isinstance(items, Mapping):
+        paths.update(_schema_secret_paths(items, prefix))
     for branch_key in ("oneOf", "anyOf", "allOf"):
         branches = schema.get(branch_key, [])
         if not isinstance(branches, list):

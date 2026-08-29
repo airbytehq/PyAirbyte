@@ -103,6 +103,31 @@ def test_schema_secret_paths_include_nested_branches() -> None:
     }
 
 
+def test_schema_secret_paths_include_hydration_markers_and_items() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "write_only": {"type": "string", "writeOnly": True},
+            "password": {"type": "string", "format": "password"},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "token": {"type": "string", "format": "password"},
+                    },
+                },
+            },
+        },
+    }
+
+    assert _schema_secret_paths(schema) == {
+        "write_only",
+        "password",
+        "items.token",
+    }
+
+
 class _SourceStub:
     def __init__(self) -> None:
         self.config: dict[str, object] | None = None
