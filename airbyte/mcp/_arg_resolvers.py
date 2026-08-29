@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, overload
+from typing import Any, cast, overload
 
 import yaml
 
@@ -190,7 +190,10 @@ def resolve_connector_config(  # noqa: PLR0912, PLR0915
         )
 
     if config_dict and config_spec_jsonschema is not None:
-        detection_config = _mask_secret_intake_references(config_dict)
+        detection_config = cast(
+            "dict[str, Any]",
+            _mask_secret_intake_references(config_dict),
+        )
         hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
             config=detection_config,
             spec_json_schema=config_spec_jsonschema,
