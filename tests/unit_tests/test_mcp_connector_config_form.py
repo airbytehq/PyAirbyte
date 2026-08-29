@@ -124,6 +124,8 @@ def test_form_selects_create_action_with_cloud_credentials(
 def test_form_selects_update_action_with_source_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-token")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
     monkeypatch.setattr(
         form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
     )
@@ -131,6 +133,25 @@ def test_form_selects_update_action_with_source_id(
     result = form.show_connector_config_form("source-example", source_id="source-id")
 
     assert result.structured_content["action"] == "update"
+
+
+def test_form_rejects_update_without_cloud_credentials_or_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_SECRET_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, raising=False)
+    monkeypatch.setattr(form, "_resolve_transport_bearer_token", lambda: "")
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    with pytest.raises(
+        PyAirbyteInputError,
+        match="Cloud credentials and a workspace ID are required",
+    ):
+        form.show_connector_config_form("source-example", source_id="source-id")
 
 
 def test_form_selects_validate_without_cloud_credentials(

@@ -214,6 +214,10 @@ def _mint_form_token(
     has_credentials = bool(bearer_token or (client_id and client_secret))
     action: Literal["create", "update", "validate"]
     if source_id:
+        if not (has_credentials and resolved_workspace_id):
+            raise exc.PyAirbyteInputError(
+                message="Cloud credentials and a workspace ID are required to update a source."
+            )
         action = "update"
     elif has_credentials and resolved_workspace_id:
         action = "create"
