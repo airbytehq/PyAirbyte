@@ -57,6 +57,8 @@ padding:9px 14px;font:inherit;cursor:pointer}
     const properties = schema && schema.properties || {};
     return Object.entries(properties).flatMap(([name, child]) => {
       const path = prefix ? `${prefix}.${name}` : name;
+      if (child && ["oneOf", "anyOf", "allOf"].some((key) => Array.isArray(child[key])))
+        return [{ path, schema: child }];
       if (child && child.type === "object" && child.properties)
         return fields(child, path);
       return [{ path, schema: child || {} }];
@@ -74,6 +76,13 @@ padding:9px 14px;font:inherit;cursor:pointer}
     ).forEach(({path, schema}) => {
       const label = document.createElement("label");
       label.textContent = `${schema.title || path}${required.has(path) ? " *" : ""}`;
+      if (["oneOf", "anyOf", "allOf"].some((key) => Array.isArray(schema[key]))) {
+        const notice = document.createElement("span");
+        notice.textContent = "Complex authentication objects are not supported by this form.";
+        notice.setAttribute("aria-disabled", "true");
+        label.appendChild(notice); form.appendChild(label);
+        return;
+      }
       const input = document.createElement("input");
       input.name = path;
       input.type = result.secret_fields.includes(path) ? "password" : "text";
@@ -111,9 +120,16 @@ padding:9px 14px;font:inherit;cursor:pointer}
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent) return;
     const message = event.data || {};
+    if (message.method === "ui/notifications/tool-result" && message.params) {
+      render(
+        message.params.structuredContent ||
+        message.params.structured_content ||
+        message.params
+      );
+      return;
+    }
     const result = message.params && (message.params.tool_result || message.params.result);
     if (result) render(result.structuredContent || result.structured_content || result);
-    if (message.method === "ui/notifications/tool-result" && message.params) render(message.params);
   });
   post({jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {
     protocolVersion: "2025-06-18", capabilities: {},

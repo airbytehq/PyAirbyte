@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 from airbyte.mcp import _secret_intake
 from airbyte.mcp._secret_intake import (
     SecretIntakeError,
+    _schema_secret_paths,
     mint_intake_token,
     resolve_intake_secrets,
     secret_intake_routes,
@@ -120,6 +121,40 @@ def test_resolve_intake_secrets_enforces_tenant(
 def test_unknown_reference_fails(local_tenant: None) -> None:
     with pytest.raises(SecretIntakeError, match="Invalid secret intake reference"):
         resolve_intake_secrets({"password": "secret_intake::unknown/password"})
+
+
+def test_schema_secret_paths_include_one_of_branches() -> None:
+    schema = {
+        "oneOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "credentials": {
+                        "type": "object",
+                        "properties": {
+                            "api_key": {"type": "string", "airbyte_secret": True},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "credentials": {
+                        "type": "object",
+                        "properties": {
+                            "password": {"type": "string", "airbyte_secret": True},
+                        },
+                    },
+                },
+            },
+        ]
+    }
+
+    assert _schema_secret_paths(schema) == {
+        "credentials.api_key",
+        "credentials.password",
+    }
 
 
 def test_resolve_intake_secrets_rejects_wrong_field_path(local_tenant: None) -> None:

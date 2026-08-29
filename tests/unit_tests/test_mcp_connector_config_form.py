@@ -102,3 +102,33 @@ def test_form_blocks_prototype_pollution_paths() -> None:
     html = form.connector_config_form_resource()
 
     assert '["__proto__", "constructor", "prototype"]' in html
+
+
+def test_form_handles_one_of_schema_without_plaintext_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "credentials": {
+                "type": "object",
+                "oneOf": [
+                    {
+                        "properties": {
+                            "api_key": {"type": "string", "airbyte_secret": True},
+                        }
+                    }
+                ],
+            }
+        },
+    }
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: schema
+    )
+
+    result = form.show_connector_config_form("source-example")
+
+    assert result.structured_content["secret_fields"] == ["credentials.api_key"]
+    html = form.connector_config_form_resource()
+    assert "Complex authentication objects are not supported by this form." in html
+    assert "Array.isArray(child[key])" in html
