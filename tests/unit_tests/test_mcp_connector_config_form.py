@@ -26,7 +26,7 @@ SCHEMA = {
 }
 
 
-def test_form_result_contains_schema_and_opaque_intake_data(
+def test_form_result_contains_schema_and_submit_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -43,8 +43,10 @@ def test_form_result_contains_schema_and_opaque_intake_data(
     assert "source-example" in content
     assert "api_key" in content
     assert structured["spec_schema"] == SCHEMA
-    assert structured["intake_endpoint"].endswith("/secret-intake")
-    assert structured["intake_token"]
+    assert structured["submit_endpoint"].endswith("/connector-config-submit")
+    assert structured["submit_token"]
+    assert "intake_token" not in structured
+    assert "intake_endpoint" not in structured
     assert "secret-value" not in content
     assert "secret-value" not in json.dumps(structured)
 
@@ -61,10 +63,13 @@ def test_form_rejects_secret_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
-def test_intake_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://example.com/cloud-mcp/")
 
-    assert form._intake_endpoint() == "https://example.com/cloud-mcp/secret-intake"
+    assert (
+        form._submit_endpoint()
+        == "https://example.com/cloud-mcp/connector-config-submit"
+    )
     assert form._server_origin() == "https://example.com"
 
 
@@ -95,7 +100,53 @@ def test_server_origin_allows_local_http_url(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080/cloud-mcp")
 
     assert form._server_origin() == "http://localhost:8080"
-    assert form._intake_endpoint() == "http://localhost:8080/cloud-mcp/secret-intake"
+    assert (
+        form._submit_endpoint()
+        == "http://localhost:8080/cloud-mcp/connector-config-submit"
+    )
+
+
+def test_form_selects_create_action_with_cloud_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-secret")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form("source-example")
+
+    assert result.structured_content["action"] == "create"
+    assert "cloud-secret" not in json.dumps(result.structured_content)
+
+
+def test_form_selects_update_action_with_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form("source-example", source_id="source-id")
+
+    assert result.structured_content["action"] == "update"
+
+
+def test_form_selects_validate_without_cloud_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_SECRET_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form("source-example")
+
+    assert result.structured_content["action"] == "validate"
 
 
 def test_form_blocks_prototype_pollution_paths() -> None:
@@ -132,3 +183,5 @@ def test_form_handles_one_of_schema_without_plaintext_input(
     html = form.connector_config_form_resource()
     assert "Complex authentication objects are not supported by this form." in html
     assert "Array.isArray(child[key])" in html
+    assert "state.result.submit_endpoint" in html
+    assert "JSON.stringify({config})" in html

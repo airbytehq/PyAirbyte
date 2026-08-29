@@ -6,18 +6,31 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
+from fastmcp import Context  # noqa: TC002
 from fastmcp.apps import UI_MIME_TYPE, AppConfig, ResourceCSP
 from fastmcp.tools.base import ToolResult
-from fastmcp_extensions import mcp_resource
+from fastmcp_extensions import get_mcp_config, mcp_resource
 from pydantic import Field
 
 from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
-from airbyte.mcp._secret_intake import _schema_secret_paths, mint_intake_token
-from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
+from airbyte.constants import (
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+)
+from airbyte.mcp._config_submit import _schema_secret_paths, mint_action_token
+from airbyte.mcp._tool_utils import (
+    INTERACTIVE_UI_ANNOTATION,
+    _resolve_transport_bearer_token,
+    mcp_tool,
+)
 
 
 CONNECTOR_FORM_RESOURCE_URI = "ui://airbyte/connector-config-form"
@@ -96,26 +109,29 @@ padding:9px 14px;font:inherit;cursor:pointer}
   };
   form.addEventListener("submit", async (event) => {
     event.preventDefault(); status.className = ""; status.textContent = "Saving…";
-    const visible = {}, secrets = {};
+    const config = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
+    const visible = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
     form.querySelectorAll("input").forEach((input) => {
       if (!input.value) return;
-      if (state.result.secret_fields.includes(input.name)) secrets[input.name] = input.value;
-      else setPath(visible, input.name, input.value);
+      setPath(config, input.name, input.value);
+      if (!state.result.secret_fields.includes(input.name))
+        setPath(visible, input.name, input.value);
     });
     try {
-      let body = {secret_refs: {}};
-      if (Object.keys(secrets).length) {
-        const response = await fetch(state.result.intake_endpoint, {
-          method: "POST", headers: {"Authorization": `Bearer ${state.result.intake_token}`,
-          "Content-Type": "application/json"}, body: JSON.stringify({secrets})
-        });
-        if (!response.ok) throw new Error("The server rejected the secret submission.");
-        body = await response.json();
-      }
-      const payload = {status: "submitted", visible_config: visible, secret_refs: body.secret_refs};
+      const response = await fetch(state.result.submit_endpoint, {
+        method: "POST", headers: {"Authorization": `Bearer ${state.result.submit_token}`,
+        "Content-Type": "application/json"}, body: JSON.stringify({config})
+      });
+      if (!response.ok) throw new Error("The server rejected the configuration.");
+      const body = await response.json();
+      const payload = {status: body.status, action: body.action, visible_config: visible};
+      if (typeof body.connector_id === "string") payload.connector_id = body.connector_id;
+      if (typeof body.connector_url === "string") payload.connector_url = body.connector_url;
       post({jsonrpc: "2.0", method: "ui/updateModelContext", params: {content: payload}});
       status.className = "success"; status.textContent = "Configuration submitted.";
-    } catch (error) { status.className = "error"; status.textContent = error.message; }
+    } catch (error) {
+      status.className = "error"; status.textContent = "The configuration could not be submitted.";
+    }
   });
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent) return;
@@ -158,8 +174,66 @@ def _server_origin() -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def _intake_endpoint() -> str:
-    return f"{_server_url()}/secret-intake"
+def _submit_endpoint() -> str:
+    return f"{_server_url()}/connector-config-submit"
+
+
+def _cloud_config_value(env_name: str) -> str | None:
+    value = os.getenv(env_name, "").strip()
+    return value or None
+
+
+def _resolved_cloud_config_value(
+    ctx: Context | None,
+    config_name: str,
+    env_name: str,
+) -> str | None:
+    if ctx is not None:
+        configured = get_mcp_config(ctx, config_name)
+        if configured:
+            return configured
+    return _cloud_config_value(env_name)
+
+
+def _mint_form_token(
+    connector_name: str,
+    *,
+    ctx: Context | None,
+    source_id: str | None,
+    workspace_id: str | None,
+    source_name: str | None,
+) -> tuple[str, str]:
+    resolved_workspace_id = workspace_id or _resolved_cloud_config_value(
+        ctx, "workspace_id", CLOUD_WORKSPACE_ID_ENV_VAR
+    )
+    bearer_token = _resolve_transport_bearer_token() or _resolved_cloud_config_value(
+        ctx, "bearer_token", CLOUD_BEARER_TOKEN_ENV_VAR
+    )
+    client_id = _resolved_cloud_config_value(ctx, "client_id", CLOUD_CLIENT_ID_ENV_VAR)
+    client_secret = _resolved_cloud_config_value(ctx, "client_secret", CLOUD_CLIENT_SECRET_ENV_VAR)
+    has_credentials = bool(bearer_token or (client_id and client_secret))
+    action: Literal["create", "update", "validate"]
+    if source_id:
+        action = "update"
+    elif has_credentials and resolved_workspace_id:
+        action = "create"
+    else:
+        action = "validate"
+    token = mint_action_token(
+        action,
+        connector_name,
+        workspace_id=resolved_workspace_id,
+        source_id=source_id,
+        source_name=source_name,
+        bearer_token=bearer_token,
+        client_id=client_id if not bearer_token else None,
+        client_secret=client_secret if not bearer_token else None,
+        api_url=_resolved_cloud_config_value(ctx, "api_url", CLOUD_API_ROOT_ENV_VAR),
+        config_api_url=_resolved_cloud_config_value(
+            ctx, "config_api_url", CLOUD_CONFIG_API_ROOT_ENV_VAR
+        ),
+    )
+    return action, token
 
 
 def _paths_present(value: object, prefix: str = "") -> set[str]:
@@ -183,7 +257,7 @@ def _agent_content(
     """Build bounded text for agents that cannot render the form."""
     note = (
         "The user will enter secrets in the form. The model will only receive "
-        "opaque secret_intake:: references."
+        "a confirmation and non-secret configuration."
     )
     payload: dict[str, Any] = {
         "connector_name": connector_name,
@@ -241,6 +315,20 @@ def show_connector_config_form(
             ),
         ),
     ] = None,
+    *,
+    ctx: Context | None = None,
+    source_id: Annotated[
+        str | None,
+        Field(description="Existing Cloud source ID to update.", default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(description="Cloud workspace ID for creating the source.", default=None),
+    ] = None,
+    source_name: Annotated[
+        str | None,
+        Field(description="Name to use when creating the source.", default=None),
+    ] = None,
 ) -> ToolResult:
     """Show a hosted-safe connector configuration form."""
     if config_defaults is None:
@@ -279,7 +367,13 @@ def show_connector_config_form(
             context={"secret_fields": supplied_secrets},
         )
 
-    intake_token = mint_intake_token(secret_fields)
+    action, submit_token = _mint_form_token(
+        connector_name,
+        ctx=ctx,
+        source_id=source_id,
+        workspace_id=workspace_id,
+        source_name=source_name,
+    )
     content = _agent_content(connector_name, config_defaults, secret_fields)
     structured_content = {
         "connector_name": connector_name,
@@ -287,8 +381,9 @@ def show_connector_config_form(
         "spec_schema": spec_schema,
         "non_secret_defaults": config_defaults,
         "secret_fields": secret_fields,
-        "intake_token": intake_token,
-        "intake_endpoint": _intake_endpoint(),
+        "action": action,
+        "submit_token": submit_token,
+        "submit_endpoint": _submit_endpoint(),
     }
     return ToolResult(content=content, structured_content=structured_content)
 

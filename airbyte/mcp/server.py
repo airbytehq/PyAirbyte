@@ -73,7 +73,7 @@ from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
-from airbyte.mcp._secret_intake import secret_intake_endpoint
+from airbyte.mcp._config_submit import connector_config_submit_endpoint
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -384,10 +384,10 @@ async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF02
     return JSONResponse({"status": "ok"})
 
 
-@app.custom_route("/secret-intake", methods=["POST", "OPTIONS"])
-async def secret_intake(request: Request) -> JSONResponse:
-    """Accept connector secrets out of band from the MCP tool call."""
-    return await secret_intake_endpoint(request)
+@app.custom_route("/connector-config-submit", methods=["POST", "OPTIONS"])
+async def connector_config_submit(request: Request) -> JSONResponse:
+    """Execute a connector configuration action from the MCP App form."""
+    return await connector_config_submit_endpoint(request)
 
 
 def main() -> None:

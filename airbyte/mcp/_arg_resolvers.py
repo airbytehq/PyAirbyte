@@ -9,17 +9,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast, overload
+from typing import Any, overload
 
 import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
-from airbyte.mcp._secret_intake import (
-    SECRET_INTAKE_PREFIX,
-    _schema_secret_paths,
-    resolve_intake_secrets,
-)
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret
 
@@ -33,28 +28,6 @@ def _contains_secret_reference(value: object) -> bool:
     if isinstance(value, list):
         return any(_contains_secret_reference(item) for item in value)
     return False
-
-
-def _contains_secret_intake_reference(value: object) -> bool:
-    """Return whether `value` contains an out-of-band secret reference."""
-    if isinstance(value, str):
-        return value.startswith(SECRET_INTAKE_PREFIX)
-    if isinstance(value, dict):
-        return any(_contains_secret_intake_reference(item) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_secret_intake_reference(item) for item in value)
-    return False
-
-
-def _mask_secret_intake_references(value: object) -> object:
-    """Mask intake references as hydration references during secret detection."""
-    if isinstance(value, str) and value.startswith(SECRET_INTAKE_PREFIX):
-        return SECRETS_HYDRATION_PREFIX + value[len(SECRET_INTAKE_PREFIX) :]
-    if isinstance(value, dict):
-        return {key: _mask_secret_intake_references(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_mask_secret_intake_references(item) for item in value]
-    return value
 
 
 # Hint: Null result if input is Null
@@ -113,7 +86,7 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def resolve_connector_config(  # noqa: PLR0912, PLR0915
+def resolve_connector_config(  # noqa: PLR0912
     config: dict | str | None = None,
     config_file: str | Path | None = None,
     config_secret_name: str | None = None,
@@ -194,12 +167,8 @@ def resolve_connector_config(  # noqa: PLR0912, PLR0915
         )
 
     if config_dict and config_spec_jsonschema is not None:
-        detection_config = cast(
-            "dict[str, Any]",
-            _mask_secret_intake_references(config_dict),
-        )
         hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
-            config=detection_config,
+            config=config_dict,
             spec_json_schema=config_spec_jsonschema,
         )
         if hardcoded_secrets:
@@ -214,17 +183,6 @@ def resolve_connector_config(  # noqa: PLR0912, PLR0915
                 "`secret_reference::ENV_VAR_NAME`.\n"
             )
             raise ValueError(error_msg)
-
-    if _contains_secret_intake_reference(config_dict):
-        allowed_paths = (
-            _schema_secret_paths(config_spec_jsonschema)
-            if config_spec_jsonschema is not None
-            else None
-        )
-        config_dict = resolve_intake_secrets(
-            config_dict,
-            allowed_paths=allowed_paths,
-        )
 
     if config_secret_name is not None:
         raise_if_untrusted_execution_context(
