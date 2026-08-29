@@ -206,3 +206,7 @@ def test_form_handles_one_of_schema_without_plaintext_input(
     assert "Array.isArray(child[key])" in html
     assert "state.result.submit_endpoint" in html
     assert "JSON.stringify({config})" in html
+    assert "appCapabilities: {}" in html
+    assert 'appInfo: {name: "airbyte-form", version: "0.1"}' in html
+    assert "message.id === 1 && message.result" in html
+    assert 'method: "ui/notifications/initialized"' in html

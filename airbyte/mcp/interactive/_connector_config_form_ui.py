@@ -136,6 +136,10 @@ padding:9px 14px;font:inherit;cursor:pointer}
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent) return;
     const message = event.data || {};
+    if (message.id === 1 && message.result) {
+      post({jsonrpc: "2.0", method: "ui/notifications/initialized"});
+      return;
+    }
     if (message.method === "ui/notifications/tool-result" && message.params) {
       render(
         message.params.structuredContent ||
@@ -148,8 +152,8 @@ padding:9px 14px;font:inherit;cursor:pointer}
     if (result) render(result.structuredContent || result.structured_content || result);
   });
   post({jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {
-    protocolVersion: "2025-06-18", capabilities: {},
-    clientInfo: {name: "airbyte-form", version: "0.1"}
+    protocolVersion: "2025-06-18", appCapabilities: {},
+    appInfo: {name: "airbyte-form", version: "0.1"}
   }});
 })();
 </script></body></html>"""
