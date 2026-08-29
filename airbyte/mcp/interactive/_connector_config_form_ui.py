@@ -24,6 +24,7 @@ CONNECTOR_FORM_RESOURCE_URI = "ui://airbyte/connector-config-form"
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 DEFAULT_HTTP_PORT = 8080
 DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
+_MAX_AGENT_CONTENT_LENGTH = 12_000
 
 _HTML_RESOURCE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>Connector configuration</title>
@@ -158,6 +159,38 @@ def _paths_present(value: object, prefix: str = "") -> set[str]:
     return paths
 
 
+def _agent_content(
+    connector_name: str,
+    config_defaults: dict[str, Any],
+    secret_fields: list[str],
+) -> str:
+    """Build bounded text for agents that cannot render the form."""
+    note = (
+        "The user will enter secrets in the form. The model will only receive "
+        "opaque secret_intake:: references."
+    )
+    payload: dict[str, Any] = {
+        "connector_name": connector_name,
+        "non_secret_defaults": config_defaults,
+        "secret_fields": secret_fields,
+        "note": note,
+        "agent_preview_max_chars": _MAX_AGENT_CONTENT_LENGTH,
+    }
+    content = json.dumps(payload, separators=(",", ":"))
+    if len(content) <= _MAX_AGENT_CONTENT_LENGTH:
+        return content
+
+    payload["non_secret_defaults"] = {}
+    payload["agent_preview_truncated"] = True
+    content = json.dumps(payload, separators=(",", ":"))
+    if len(content) <= _MAX_AGENT_CONTENT_LENGTH:
+        return content
+
+    payload["secret_fields"] = []
+    payload["connector_name"] = connector_name[:256]
+    return json.dumps(payload, separators=(",", ":"))
+
+
 @mcp_resource(
     CONNECTOR_FORM_RESOURCE_URI,
     "Self-contained Airbyte connector configuration form.",
@@ -231,18 +264,7 @@ def show_connector_config_form(
         )
 
     intake_token = mint_intake_token(secret_fields)
-    content = json.dumps(
-        {
-            "connector_name": connector_name,
-            "non_secret_defaults": config_defaults,
-            "secret_fields": secret_fields,
-            "note": (
-                "The user will enter secrets in the form. The model will only "
-                "receive opaque secret_intake:: references."
-            ),
-        },
-        separators=(",", ":"),
-    )
+    content = _agent_content(connector_name, config_defaults, secret_fields)
     structured_content = {
         "connector_name": connector_name,
         "schema": spec_schema,
