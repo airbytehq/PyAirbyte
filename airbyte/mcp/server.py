@@ -73,6 +73,7 @@ from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
+from airbyte.mcp._secret_intake import secret_intake_endpoint
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -381,6 +382,12 @@ validate_airbyte_domains(app)
 async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF029
     """Health check endpoint for load balancer probes."""
     return JSONResponse({"status": "ok"})
+
+
+@app.custom_route("/secret-intake", methods=["POST", "OPTIONS"])
+async def secret_intake(request: Request) -> JSONResponse:
+    """Accept connector secrets out of band from the MCP tool call."""
+    return await secret_intake_endpoint(request)
 
 
 def main() -> None:

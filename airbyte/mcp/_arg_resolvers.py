@@ -15,6 +15,7 @@ import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
+from airbyte.mcp._secret_intake import SECRET_INTAKE_PREFIX, resolve_intake_secrets
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret
 
@@ -27,6 +28,17 @@ def _contains_secret_reference(value: object) -> bool:
         return any(_contains_secret_reference(item) for item in value.values())
     if isinstance(value, list):
         return any(_contains_secret_reference(item) for item in value)
+    return False
+
+
+def _contains_secret_intake_reference(value: object) -> bool:
+    """Return whether `value` contains an out-of-band secret reference."""
+    if isinstance(value, str):
+        return value.startswith(SECRET_INTAKE_PREFIX)
+    if isinstance(value, dict):
+        return any(_contains_secret_intake_reference(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_secret_intake_reference(item) for item in value)
     return False
 
 
@@ -165,6 +177,8 @@ def resolve_connector_config(  # noqa: PLR0912
         raise_if_untrusted_execution_context(
             "Resolving inline secret references (`secret_reference::`) in connector config"
         )
+    if _contains_secret_intake_reference(config_dict):
+        config_dict = resolve_intake_secrets(config_dict)
 
     if config_dict and config_spec_jsonschema is not None:
         hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(

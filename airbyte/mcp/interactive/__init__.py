@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fastmcp_extensions import register_mcp_resources
+
 from airbyte.mcp._tool_utils import register_mcp_tools
+from airbyte.mcp.interactive._connector_config_form_ui import show_connector_config_form
 from airbyte.mcp.interactive._registry_ui import show_connectors_list
 from airbyte.mcp.interactive._sync_history_ui import show_connection_sync_history
 from airbyte.mcp.interactive._workspace_sync_status_ui import show_workspace_sync_status
@@ -18,10 +21,12 @@ if TYPE_CHECKING:
 def register_interactive_tools(app: FastMCP) -> None:
     """Register UI-presenting tools."""
     register_mcp_tools(app, mcp_module="interactive")
+    register_mcp_resources(app, mcp_module="_connector_config_form_ui")
 
 
 __all__ = [
     "register_interactive_tools",
+    "show_connector_config_form",
     "show_connectors_list",
     "show_connection_sync_history",
     "show_workspace_sync_status",

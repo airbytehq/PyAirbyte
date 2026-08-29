@@ -12,7 +12,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -83,8 +83,8 @@ def mint_intake_token(
     single-process spike.
     """
     fields = frozenset(allowed_secret_fields)
-    if not fields or any(not field for field in fields):
-        raise SecretIntakeError("At least one non-empty secret field is required.")
+    if any(not field for field in fields):
+        raise SecretIntakeError("Secret field names must be non-empty.")
     if ttl_seconds <= 0:
         raise SecretIntakeError("The intake token TTL must be positive.")
 
@@ -104,13 +104,13 @@ def mint_intake_token(
         hashlib.sha256,
     ).digest()
     with _INTAKES_LOCK:
+        _prune_expired_locked()
         _INTAKES[intake_id] = _IntakeRecord(
             allowed_fields=fields,
             expires_at=expires_at,
             tenant_claim=claim,
             secrets={},
         )
-        _prune_expired_locked(now=expires_at)
     return f"{encoded_payload}.{_encode(signature)}"
 
 
@@ -206,10 +206,10 @@ def resolve_intake_secrets(config: dict[str, Any]) -> dict[str, Any]:
                 raise SecretIntakeError("Invalid secret intake reference.")
             return record.secrets[field]
 
-    return resolve(config)
+    return cast(dict[str, Any], resolve(config))
 
 
-async def _secret_intake_endpoint(request: Request) -> JSONResponse:
+async def secret_intake_endpoint(request: Request) -> JSONResponse:
     """Accept secret values without returning them to the caller."""
     if request.method == "OPTIONS":
         return _cors_response({}, status_code=204)
@@ -243,7 +243,7 @@ def secret_intake_routes() -> list[Route]:
     return [
         Route(
             "/secret-intake",
-            _secret_intake_endpoint,
+            secret_intake_endpoint,
             methods=["POST", "OPTIONS"],
         ),
     ]
@@ -255,6 +255,7 @@ __all__ = [
     "SecretIntakeError",
     "mint_intake_token",
     "resolve_intake_secrets",
+    "secret_intake_endpoint",
     "secret_intake_routes",
     "store_intake_secrets",
 ]
