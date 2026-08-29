@@ -183,3 +183,25 @@ def test_endpoint_rejects_missing_config_without_echoing_secrets() -> None:
 
     assert response.status_code == 400
     assert "secret-value" not in response.text
+
+
+def test_options_response_is_bodyless_and_keeps_cors_headers() -> None:
+    app = Starlette(routes=connector_config_submit_routes())
+
+    with TestClient(app) as client:
+        response = client.options(
+            "/connector-config-submit",
+            headers={
+                "Origin": "https://example.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert (
+        response.headers["access-control-allow-headers"]
+        == "Authorization, Content-Type"
+    )
+    assert response.headers["access-control-allow-methods"] == "POST, OPTIONS"

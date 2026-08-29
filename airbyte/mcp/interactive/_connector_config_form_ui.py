@@ -6,13 +6,13 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import urlparse
 
 from fastmcp import Context  # noqa: TC002
 from fastmcp.apps import UI_MIME_TYPE, AppConfig, ResourceCSP
 from fastmcp.tools.base import ToolResult
-from fastmcp_extensions import get_mcp_config, mcp_resource
+from fastmcp_extensions import get_mcp_config
 from pydantic import Field
 
 from airbyte import exceptions as exc
@@ -31,6 +31,10 @@ from airbyte.mcp._tool_utils import (
     _resolve_transport_bearer_token,
     mcp_tool,
 )
+
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
 
 
 CONNECTOR_FORM_RESOURCE_URI = "ui://airbyte/connector-config-form"
@@ -289,14 +293,19 @@ def _agent_content(
     return json.dumps(payload, separators=(",", ":"))
 
 
-@mcp_resource(
-    CONNECTOR_FORM_RESOURCE_URI,
-    "Self-contained Airbyte connector configuration form.",
-    UI_MIME_TYPE,
-)
 def connector_config_form_resource() -> str:
     """Return the raw HTML connector configuration form."""
     return _HTML_RESOURCE
+
+
+def register_connector_config_form_resource(app: FastMCP) -> None:
+    """Register the connector form resource with its CSP metadata."""
+    app.resource(
+        CONNECTOR_FORM_RESOURCE_URI,
+        description="Self-contained Airbyte connector configuration form.",
+        mime_type=UI_MIME_TYPE,
+        app=AppConfig(csp=ResourceCSP(connect_domains=[_server_origin()])),
+    )(connector_config_form_resource)
 
 
 @mcp_tool(

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 import jsonschema
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from airbyte import get_source
@@ -267,10 +267,10 @@ def _execute_action(claims: Mapping[str, Any], config: dict[str, Any]) -> dict[s
     }
 
 
-async def connector_config_submit_endpoint(request: Request) -> JSONResponse:  # noqa: PLR0911
+async def connector_config_submit_endpoint(request: Request) -> Response:  # noqa: PLR0911
     """Execute a one-shot connector configuration action without echoing config."""
     if request.method == "OPTIONS":
-        return _cors_response({}, status_code=204)
+        return Response(status_code=204, headers=_cors_headers())
     authorization = request.headers.get("authorization", "")
     if not authorization.lower().startswith("bearer "):
         return _cors_response({"error": "Unauthorized."}, status_code=401)
@@ -308,12 +308,16 @@ def _cors_response(body: dict[str, Any], *, status_code: int = 200) -> JSONRespo
     return JSONResponse(
         body,
         status_code=status_code,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Authorization, Content-Type",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-        },
+        headers=_cors_headers(),
     )
+
+
+def _cors_headers() -> dict[str, str]:
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+    }
 
 
 def connector_config_submit_routes() -> list[Route]:

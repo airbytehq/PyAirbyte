@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -210,3 +211,24 @@ def test_form_handles_one_of_schema_without_plaintext_input(
     assert 'appInfo: {name: "airbyte-form", version: "0.1"}' in html
     assert "message.id === 1 && message.result" in html
     assert 'method: "ui/notifications/initialized"' in html
+
+
+def test_connector_form_resource_includes_csp_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080")
+    app = mcp_server(name="test")
+    interactive.register_interactive_tools(app)
+
+    resource = next(
+        item
+        for item in asyncio.run(app.list_resources())
+        if str(item.uri) == form.CONNECTOR_FORM_RESOURCE_URI
+    )
+
+    assert resource.meta is not None
+    assert resource.meta["ui"]["csp"]["connectDomains"] == ["http://localhost:8080"]
