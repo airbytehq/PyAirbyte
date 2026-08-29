@@ -220,6 +220,8 @@ async def secret_intake_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
         secret_values = body.get("secrets") if isinstance(body, dict) else None
+        if not isinstance(secret_values, dict):
+            secret_values = {}
         secret_refs = store_intake_secrets(token, secret_values)
     except (SecretIntakeError, ValueError, TypeError):
         return _cors_response({"error": "Invalid secret intake request."}, status_code=403)
