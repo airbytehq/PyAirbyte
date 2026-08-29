@@ -61,7 +61,7 @@ from fastmcp_extensions import (
     build_mcp_auth,
     mcp_server,
 )
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 
 if TYPE_CHECKING:
@@ -385,7 +385,7 @@ async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF02
 
 
 @app.custom_route("/connector-config-submit", methods=["POST", "OPTIONS"])
-async def connector_config_submit(request: Request) -> JSONResponse:
+async def connector_config_submit(request: Request) -> Response:
     """Execute a connector configuration action from the MCP App form."""
     return await connector_config_submit_endpoint(request)
 
