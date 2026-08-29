@@ -42,6 +42,17 @@ def _contains_secret_intake_reference(value: object) -> bool:
     return False
 
 
+def _mask_secret_intake_references(value: object) -> object:
+    """Mask intake references as hydration references during secret detection."""
+    if isinstance(value, str) and value.startswith(SECRET_INTAKE_PREFIX):
+        return SECRETS_HYDRATION_PREFIX + value[len(SECRET_INTAKE_PREFIX) :]
+    if isinstance(value, dict):
+        return {key: _mask_secret_intake_references(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_mask_secret_intake_references(item) for item in value]
+    return value
+
+
 # Hint: Null result if input is Null
 @overload
 def resolve_list_of_strings(value: None) -> None: ...
@@ -98,7 +109,7 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def resolve_connector_config(  # noqa: PLR0912
+def resolve_connector_config(  # noqa: PLR0912, PLR0915
     config: dict | str | None = None,
     config_file: str | Path | None = None,
     config_secret_name: str | None = None,
@@ -177,12 +188,11 @@ def resolve_connector_config(  # noqa: PLR0912
         raise_if_untrusted_execution_context(
             "Resolving inline secret references (`secret_reference::`) in connector config"
         )
-    if _contains_secret_intake_reference(config_dict):
-        config_dict = resolve_intake_secrets(config_dict)
 
     if config_dict and config_spec_jsonschema is not None:
+        detection_config = _mask_secret_intake_references(config_dict)
         hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
-            config=config_dict,
+            config=detection_config,
             spec_json_schema=config_spec_jsonschema,
         )
         if hardcoded_secrets:
@@ -197,6 +207,9 @@ def resolve_connector_config(  # noqa: PLR0912
                 "`secret_reference::ENV_VAR_NAME`.\n"
             )
             raise ValueError(error_msg)
+
+    if _contains_secret_intake_reference(config_dict):
+        config_dict = resolve_intake_secrets(config_dict)
 
     if config_secret_name is not None:
         raise_if_untrusted_execution_context(

@@ -48,6 +48,7 @@ padding:9px 14px;font:inherit;cursor:pointer}
     value && typeof value === "object" ? value[key] : undefined, object);
   const setPath = (object, path, value) => {
     const keys = path.split(".");
+    if (keys.some((key) => ["__proto__", "constructor", "prototype"].includes(key))) return;
     let target = object;
     keys.slice(0, -1).forEach((key) => target = target[key] ||= {});
     target[keys[keys.length - 1]] = value;
@@ -108,6 +109,7 @@ padding:9px 14px;font:inherit;cursor:pointer}
     } catch (error) { status.className = "error"; status.textContent = error.message; }
   });
   window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
     const message = event.data || {};
     const result = message.params && (message.params.tool_result || message.params.result);
     if (result) render(result.structuredContent || result.structured_content || result);
@@ -121,14 +123,23 @@ padding:9px 14px;font:inherit;cursor:pointer}
 </script></body></html>"""
 
 
-def _server_origin() -> str:
+def _server_url() -> str:
     server_url = os.getenv(MCP_SERVER_URL_ENV, "").strip() or DEFAULT_MCP_SERVER_URL
     parsed = urlparse(server_url)
+    if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1"}:
+        raise exc.PyAirbyteInputError(
+            message="MCP_SERVER_URL must use HTTPS outside localhost.",
+        )
+    return server_url.rstrip("/")
+
+
+def _server_origin() -> str:
+    parsed = urlparse(_server_url())
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def _intake_endpoint() -> str:
-    return f"{_server_origin()}/secret-intake"
+    return f"{_server_url()}/secret-intake"
 
 
 def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str]:

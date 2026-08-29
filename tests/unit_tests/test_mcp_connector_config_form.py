@@ -59,3 +59,32 @@ def test_form_rejects_secret_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
             "source-example",
             {"credentials": {"api_key": "secret-value"}},
         )
+
+
+def test_intake_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://example.com/cloud-mcp/")
+
+    assert form._intake_endpoint() == "https://example.com/cloud-mcp/secret-intake"
+    assert form._server_origin() == "https://example.com"
+
+
+def test_server_origin_rejects_insecure_nonlocal_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://example.com/cloud-mcp")
+
+    with pytest.raises(PyAirbyteInputError, match="HTTPS"):
+        form._server_origin()
+
+
+def test_server_origin_allows_local_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080/cloud-mcp")
+
+    assert form._server_origin() == "http://localhost:8080"
+    assert form._intake_endpoint() == "http://localhost:8080/cloud-mcp/secret-intake"
+
+
+def test_form_blocks_prototype_pollution_paths() -> None:
+    html = form.connector_config_form_resource()
+
+    assert '["__proto__", "constructor", "prototype"]' in html

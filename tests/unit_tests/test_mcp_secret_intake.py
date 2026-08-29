@@ -131,3 +131,21 @@ def test_connector_config_resolves_intake_references(
     assert resolve_connector_config({"password": refs["password"]}) == {
         "password": "secret-value"
     }
+
+
+def test_connector_config_resolves_intake_references_before_secret_check(
+    local_tenant: None,
+) -> None:
+    token = mint_intake_token(["password"])
+    refs = store_intake_secrets(token, {"password": "secret-value"})
+    schema = {
+        "type": "object",
+        "properties": {
+            "password": {"type": "string", "airbyte_secret": True},
+        },
+    }
+
+    assert resolve_connector_config(
+        {"password": refs["password"]},
+        config_spec_jsonschema=schema,
+    ) == {"password": "secret-value"}

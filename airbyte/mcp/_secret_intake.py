@@ -55,10 +55,7 @@ def _signing_key() -> bytes:
 
 def _tenant_claim(token: str | None = None) -> str:
     if token is None:
-        try:
-            token = _resolve_transport_bearer_token()
-        except Exception:
-            token = ""
+        token = _resolve_transport_bearer_token()
     return hashlib.sha256(token.encode()).hexdigest() if token else ""
 
 
