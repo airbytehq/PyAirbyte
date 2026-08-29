@@ -77,6 +77,20 @@ def test_server_origin_rejects_insecure_nonlocal_url(
         form._server_origin()
 
 
+@pytest.mark.parametrize(
+    "server_url",
+    ["//attacker.example", "ftp://example.com", "example.com"],
+)
+def test_server_origin_rejects_invalid_url(
+    monkeypatch: pytest.MonkeyPatch,
+    server_url: str,
+) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, server_url)
+
+    with pytest.raises(PyAirbyteInputError, match="valid HTTP"):
+        form._server_origin()
+
+
 def test_server_origin_allows_local_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080/cloud-mcp")
 

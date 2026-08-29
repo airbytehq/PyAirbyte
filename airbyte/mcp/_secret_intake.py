@@ -11,6 +11,7 @@ import os
 import secrets
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -174,23 +175,49 @@ def store_intake_secrets(token: str, values: dict[str, str]) -> dict[str, str]:
         return {field: f"{SECRET_INTAKE_PREFIX}{intake_id}/{field}" for field in values}
 
 
-def resolve_intake_secrets(config: dict[str, Any]) -> dict[str, Any]:
+def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str]:
+    paths: set[str] = set()
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        return paths
+    for name, child in properties.items():
+        if not isinstance(name, str) or not isinstance(child, Mapping):
+            continue
+        path = f"{prefix}.{name}" if prefix else name
+        if child.get("airbyte_secret") is True:
+            paths.add(path)
+        paths.update(_schema_secret_paths(child, path))
+    return paths
+
+
+def resolve_intake_secrets(
+    config: dict[str, Any],
+    *,
+    allowed_paths: set[str] | None = None,
+) -> dict[str, Any]:
     """Resolve `secret_intake::` references for the current transport tenant."""
     caller_claim = _tenant_claim()
 
-    def resolve(value: object) -> object:
+    def resolve(value: object, path: tuple[str, ...] = ()) -> object:
         if isinstance(value, dict):
-            return {key: resolve(item) for key, item in value.items()}
+            return {key: resolve(item, (*path, key)) for key, item in value.items()}
         if isinstance(value, list):
-            return [resolve(item) for item in value]
+            return [resolve(item, path) for item in value]
         if not isinstance(value, str) or not value.startswith(SECRET_INTAKE_PREFIX):
             return value
 
+        field_path = ".".join(path)
         reference = value[len(SECRET_INTAKE_PREFIX) :]
         try:
             intake_id, field = reference.split("/", 1)
         except ValueError as error:
             raise SecretIntakeError("Invalid secret intake reference.") from error
+        if (
+            not path
+            or field != path[-1]
+            or (allowed_paths is not None and field_path not in allowed_paths)
+        ):
+            raise SecretIntakeError("Invalid secret intake reference.")
         with _INTAKES_LOCK:
             record = _INTAKES.get(intake_id)
             if (

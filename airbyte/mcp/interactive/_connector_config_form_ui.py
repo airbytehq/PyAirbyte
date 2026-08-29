@@ -16,7 +16,7 @@ from pydantic import Field
 
 from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
-from airbyte.mcp._secret_intake import mint_intake_token
+from airbyte.mcp._secret_intake import _schema_secret_paths, mint_intake_token
 from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
 
 
@@ -126,6 +126,10 @@ padding:9px 14px;font:inherit;cursor:pointer}
 def _server_url() -> str:
     server_url = os.getenv(MCP_SERVER_URL_ENV, "").strip() or DEFAULT_MCP_SERVER_URL
     parsed = urlparse(server_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise exc.PyAirbyteInputError(
+            message="MCP_SERVER_URL must be a valid HTTP(S) URL.",
+        )
     if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1"}:
         raise exc.PyAirbyteInputError(
             message="MCP_SERVER_URL must use HTTPS outside localhost.",
@@ -140,21 +144,6 @@ def _server_origin() -> str:
 
 def _intake_endpoint() -> str:
     return f"{_server_url()}/secret-intake"
-
-
-def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str]:
-    paths: set[str] = set()
-    properties = schema.get("properties", {})
-    if not isinstance(properties, Mapping):
-        return paths
-    for name, child in properties.items():
-        if not isinstance(name, str) or not isinstance(child, Mapping):
-            continue
-        path = f"{prefix}.{name}" if prefix else name
-        if child.get("airbyte_secret") is True:
-            paths.add(path)
-        paths.update(_schema_secret_paths(child, path))
-    return paths
 
 
 def _paths_present(value: object, prefix: str = "") -> set[str]:

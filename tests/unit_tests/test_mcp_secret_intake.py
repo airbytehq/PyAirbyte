@@ -122,6 +122,14 @@ def test_unknown_reference_fails(local_tenant: None) -> None:
         resolve_intake_secrets({"password": "secret_intake::unknown/password"})
 
 
+def test_resolve_intake_secrets_rejects_wrong_field_path(local_tenant: None) -> None:
+    token = mint_intake_token(["password"])
+    refs = store_intake_secrets(token, {"password": "secret-value"})
+
+    with pytest.raises(SecretIntakeError, match="Invalid secret intake reference"):
+        resolve_intake_secrets({"username": refs["password"]})
+
+
 def test_connector_config_resolves_intake_references(
     local_tenant: None,
 ) -> None:
@@ -141,11 +149,41 @@ def test_connector_config_resolves_intake_references_before_secret_check(
     schema = {
         "type": "object",
         "properties": {
-            "password": {"type": "string", "airbyte_secret": True},
+            "credentials": {
+                "type": "object",
+                "properties": {
+                    "password": {"type": "string", "airbyte_secret": True},
+                },
+            },
         },
     }
 
     assert resolve_connector_config(
-        {"password": refs["password"]},
+        {"credentials": {"password": refs["password"]}},
         config_spec_jsonschema=schema,
-    ) == {"password": "secret-value"}
+    ) == {"credentials": {"password": "secret-value"}}
+
+
+def test_connector_config_rejects_intake_reference_at_nonsecret_path(
+    local_tenant: None,
+) -> None:
+    token = mint_intake_token(["password"])
+    refs = store_intake_secrets(token, {"password": "secret-value"})
+    schema = {
+        "type": "object",
+        "properties": {
+            "credentials": {
+                "type": "object",
+                "properties": {
+                    "password": {"type": "string", "airbyte_secret": True},
+                    "username": {"type": "string"},
+                },
+            },
+        },
+    }
+
+    with pytest.raises(SecretIntakeError, match="Invalid secret intake reference"):
+        resolve_connector_config(
+            {"credentials": {"username": refs["password"]}},
+            config_spec_jsonschema=schema,
+        )

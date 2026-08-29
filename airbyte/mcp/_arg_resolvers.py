@@ -15,7 +15,11 @@ import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
-from airbyte.mcp._secret_intake import SECRET_INTAKE_PREFIX, resolve_intake_secrets
+from airbyte.mcp._secret_intake import (
+    SECRET_INTAKE_PREFIX,
+    _schema_secret_paths,
+    resolve_intake_secrets,
+)
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret
 
@@ -212,7 +216,15 @@ def resolve_connector_config(  # noqa: PLR0912, PLR0915
             raise ValueError(error_msg)
 
     if _contains_secret_intake_reference(config_dict):
-        config_dict = resolve_intake_secrets(config_dict)
+        allowed_paths = (
+            _schema_secret_paths(config_spec_jsonschema)
+            if config_spec_jsonschema is not None
+            else None
+        )
+        config_dict = resolve_intake_secrets(
+            config_dict,
+            allowed_paths=allowed_paths,
+        )
 
     if config_secret_name is not None:
         raise_if_untrusted_execution_context(
