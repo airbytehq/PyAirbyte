@@ -305,6 +305,11 @@ def _mint_form_token(
 
 
 def _paths_present(value: object, prefix: str = "") -> set[str]:
+    if isinstance(value, (list, tuple)):
+        paths: set[str] = set()
+        for item in value:
+            paths.update(_paths_present(item, prefix))
+        return paths
     if not isinstance(value, Mapping):
         return set()
     paths: set[str] = set()

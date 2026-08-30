@@ -73,6 +73,34 @@ def test_form_rejects_secret_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
+def test_form_rejects_secrets_in_array_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "streams": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "token": {"type": "string", "airbyte_secret": True},
+                    },
+                },
+            },
+        },
+    }
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: schema
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="Secret values cannot"):
+        form.show_connector_config_form(
+            "source-example",
+            {"streams": [{"token": "secret-value"}]},
+        )
+
+
 def test_submit_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://example.com/cloud-mcp/")
 
