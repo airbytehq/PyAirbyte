@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import jsonschema
+from airbyte_api.errors import SDKError
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from starlette.responses import JSONResponse, Response
@@ -304,6 +305,7 @@ async def connector_config_submit_endpoint(request: Request) -> Response:  # noq
         KeyError,
         PyAirbyteInputError,
         SafeModeError,
+        SDKError,
         TypeError,
         ValueError,
         jsonschema.ValidationError,

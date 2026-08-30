@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import base64
 import time
+from typing import Any, cast
 
 import pytest
+from airbyte_api.errors import SDKError
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
@@ -156,6 +158,30 @@ def test_validate_endpoint_executes_full_config_without_echo(
     assert response.status_code == 200
     assert response.json() == {"status": "success", "action": "validated"}
     assert source.config == config
+    assert "secret-value" not in response.text
+
+
+def test_endpoint_returns_safe_422_for_cloud_sdk_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_sdk_error(*args: Any, **kwargs: Any) -> dict[str, str]:
+        raise SDKError("Cloud rejected the configuration.", 422, "", cast(Any, None))
+
+    monkeypatch.setattr(_config_submit, "_execute_action", raise_sdk_error)
+    app = Starlette(routes=connector_config_submit_routes())
+    token = mint_action_token("validate", "source-example")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/connector-config-submit",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"config": {"api_key": "secret-value"}},
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": "Connector configuration could not be submitted.",
+    }
     assert "secret-value" not in response.text
 
 
