@@ -83,6 +83,7 @@ def mint_action_token(  # noqa: PLR0913
     action: Literal["create", "update", "validate"],
     connector_name: str,
     *,
+    non_secret_defaults: Mapping[str, Any] | None = None,
     workspace_id: str | None = None,
     source_id: str | None = None,
     source_name: str | None = None,
@@ -112,6 +113,9 @@ def mint_action_token(  # noqa: PLR0913
         "jti": secrets.token_urlsafe(18),
     }
     optional_claims = {
+        "non_secret_defaults": dict(non_secret_defaults)
+        if non_secret_defaults is not None
+        else None,
         "workspace_id": workspace_id,
         "source_id": source_id,
         "source_name": source_name,
@@ -146,6 +150,7 @@ def _validate_claims(payload: object) -> dict[str, Any]:
     if not valid_types:
         raise ConfigSubmitError("Invalid configuration submit token.")
     for key in (
+        "non_secret_defaults",
         "workspace_id",
         "source_id",
         "source_name",
@@ -155,6 +160,10 @@ def _validate_claims(payload: object) -> dict[str, Any]:
         "api_url",
         "config_api_url",
     ):
+        if key == "non_secret_defaults":
+            if key in payload and not isinstance(payload[key], dict):
+                raise ConfigSubmitError("Invalid configuration submit token.")
+            continue
         if key in payload and not isinstance(payload[key], str):
             raise ConfigSubmitError("Invalid configuration submit token.")
     if ("client_id" in payload) != ("client_secret" in payload):
@@ -168,8 +177,8 @@ def _prune_seen_jtis_locked(now: int) -> None:
             del _SEEN_JTIS[jti]
 
 
-def decrypt_action_token(token: str) -> dict[str, Any]:
-    """Decrypt, validate, and consume a one-shot action capability."""
+def decrypt_action_token(token: str, *, consume: bool = True) -> dict[str, Any]:
+    """Decrypt and validate a one-shot action capability, optionally consuming it."""
     try:
         encoded = _decode(token)
         if len(encoded) <= _AES_GCM_NONCE_SIZE:
@@ -188,11 +197,12 @@ def decrypt_action_token(token: str) -> dict[str, Any]:
     now = int(time.time())
     if claims["exp"] <= now:
         raise ConfigSubmitError("Configuration submit token expired.")
-    with _SEEN_JTIS_LOCK:
-        _prune_seen_jtis_locked(now)
-        if claims["jti"] in _SEEN_JTIS:
-            raise ConfigSubmitError("Configuration submit token already used.")
-        _SEEN_JTIS[claims["jti"]] = claims["exp"]
+    if consume:
+        with _SEEN_JTIS_LOCK:
+            _prune_seen_jtis_locked(now)
+            if claims["jti"] in _SEEN_JTIS:
+                raise ConfigSubmitError("Configuration submit token already used.")
+            _SEEN_JTIS[claims["jti"]] = claims["exp"]
     return claims
 
 

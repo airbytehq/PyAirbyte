@@ -7,13 +7,14 @@ import json
 import os
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from fastmcp import Context  # noqa: TC002
 from fastmcp.apps import UI_MIME_TYPE, AppConfig, ResourceCSP
 from fastmcp.tools.base import ToolResult
 from fastmcp_extensions import get_mcp_config
 from pydantic import Field
+from starlette.responses import HTMLResponse
 
 from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
@@ -25,7 +26,12 @@ from airbyte.constants import (
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
 )
-from airbyte.mcp._config_submit import _schema_secret_paths, mint_action_token
+from airbyte.mcp._config_submit import (
+    ConfigSubmitError,
+    _schema_secret_paths,
+    decrypt_action_token,
+    mint_action_token,
+)
 from airbyte.mcp._tool_utils import (
     INTERACTIVE_UI_ANNOTATION,
     _resolve_transport_bearer_token,
@@ -35,6 +41,7 @@ from airbyte.mcp._tool_utils import (
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from starlette.requests import Request
 
 
 CONNECTOR_FORM_RESOURCE_URI = "ui://airbyte/connector-config-form"
@@ -55,13 +62,35 @@ padding:9px 14px;font:inherit;cursor:pointer}
 </style></head>
 <body><h2 id="title">Connector configuration</h2><form id="form"></form><p id="status"></p>
 <script>
+window.__AIRBYTE_FORM_PAYLOAD__ = null;
 (() => {
   const state = { result: null };
+  const standalonePayload = window.__AIRBYTE_FORM_PAYLOAD__;
+  const standalone = standalonePayload !== null;
   const form = document.getElementById("form");
   const status = document.getElementById("status");
   const title = document.getElementById("title");
   const post = (message) => window.parent.postMessage(message, "*");
+  const setStatus = (className, message, resultStatus) => {
+    status.className = className;
+    status.textContent = message;
+    if (standalone || resultStatus === "pending") return;
+    const notify = document.createElement("button");
+    notify.type = "button";
+    notify.textContent = "Notify agent";
+    notify.addEventListener("click", () => post({
+      jsonrpc: "2.0",
+      method: "ui/message",
+      params: {content: [{
+        type: "text",
+        text: `Connector configuration ${state.result.action} result: ${resultStatus}`
+      }]}
+    }));
+    status.appendChild(document.createTextNode(" "));
+    status.appendChild(notify);
+  };
   const requestResize = () => {
+    if (standalone) return;
     const contentHeight = Math.max(
       document.documentElement.scrollHeight,
       document.body.scrollHeight
@@ -125,7 +154,7 @@ padding:9px 14px;font:inherit;cursor:pointer}
     requestResize();
   };
   form.addEventListener("submit", async (event) => {
-    event.preventDefault(); status.className = ""; status.textContent = "Saving…";
+    event.preventDefault(); setStatus("", "Saving…", "pending");
     requestResize();
     const config = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
     const visible = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
@@ -145,36 +174,41 @@ padding:9px 14px;font:inherit;cursor:pointer}
       const payload = {status: body.status, action: body.action, visible_config: visible};
       if (typeof body.connector_id === "string") payload.connector_id = body.connector_id;
       if (typeof body.connector_url === "string") payload.connector_url = body.connector_url;
-      post({jsonrpc: "2.0", method: "ui/updateModelContext", params: {content: payload}});
-      status.className = "success"; status.textContent = "Configuration submitted.";
+      if (!standalone)
+        post({jsonrpc: "2.0", method: "ui/updateModelContext", params: {content: payload}});
+      setStatus("success", "Configuration submitted.", "success");
       requestResize();
     } catch (error) {
-      status.className = "error"; status.textContent = "The configuration could not be submitted.";
+      setStatus("error", "The configuration could not be submitted.", "error");
       requestResize();
     }
   });
-  window.addEventListener("message", (event) => {
-    if (event.source !== window.parent) return;
-    const message = event.data || {};
-    if (message.id === 1 && message.result) {
-      post({jsonrpc: "2.0", method: "ui/notifications/initialized"});
-      return;
-    }
-    if (message.method === "ui/notifications/tool-result" && message.params) {
-      render(
-        message.params.structuredContent ||
-        message.params.structured_content ||
-        message.params
-      );
-      return;
-    }
-    const result = message.params && (message.params.tool_result || message.params.result);
-    if (result) render(result.structuredContent || result.structured_content || result);
-  });
-  post({jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {
-    protocolVersion: "2025-06-18", appCapabilities: {},
-    appInfo: {name: "airbyte-form", version: "0.1"}
-  }});
+  if (standalonePayload) {
+    render(standalonePayload);
+  } else {
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data || {};
+      if (message.id === 1 && message.result) {
+        post({jsonrpc: "2.0", method: "ui/notifications/initialized"});
+        return;
+      }
+      if (message.method === "ui/notifications/tool-result" && message.params) {
+        render(
+          message.params.structuredContent ||
+          message.params.structured_content ||
+          message.params
+        );
+        return;
+      }
+      const result = message.params && (message.params.tool_result || message.params.result);
+      if (result) render(result.structuredContent || result.structured_content || result);
+    });
+    post({jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {
+      protocolVersion: "2025-06-18", appCapabilities: {},
+      appInfo: {name: "airbyte-form", version: "0.1"}
+    }});
+  }
 })();
 </script></body></html>"""
 
@@ -202,6 +236,10 @@ def _submit_endpoint() -> str:
     return f"{_server_url()}/connector-config-submit"
 
 
+def _standalone_endpoint(token: str) -> str:
+    return f"{_server_url()}/connector-config-form?{urlencode({'token': token})}"
+
+
 def _cloud_config_value(env_name: str) -> str | None:
     value = os.getenv(env_name, "").strip()
     return value or None
@@ -222,6 +260,7 @@ def _resolved_cloud_config_value(
 def _mint_form_token(
     connector_name: str,
     *,
+    config_defaults: dict[str, Any],
     ctx: Context | None,
     source_id: str | None,
     workspace_id: str | None,
@@ -250,6 +289,7 @@ def _mint_form_token(
     token = mint_action_token(
         action,
         connector_name,
+        non_secret_defaults=config_defaults,
         workspace_id=resolved_workspace_id,
         source_id=source_id,
         source_name=source_name,
@@ -281,6 +321,7 @@ def _agent_content(
     connector_name: str,
     config_defaults: dict[str, Any],
     secret_fields: list[str],
+    standalone_url: str,
 ) -> str:
     """Build bounded text for agents that cannot render the form."""
     note = (
@@ -291,6 +332,7 @@ def _agent_content(
         "connector_name": connector_name,
         "non_secret_defaults": config_defaults,
         "secret_fields": secret_fields,
+        "standalone_url": standalone_url,
         "note": note,
         "agent_preview_max_chars": _MAX_AGENT_CONTENT_LENGTH,
     }
@@ -307,6 +349,82 @@ def _agent_content(
     payload["secret_fields"] = []
     payload["connector_name"] = connector_name[:256]
     return json.dumps(payload, separators=(",", ":"))
+
+
+def _connector_spec_schema(connector_name: str) -> dict[str, Any] | None:
+    spec_schema = get_connector_spec_from_registry(connector_name, platform="cloud")
+    if spec_schema is None:
+        spec_schema = get_connector_spec_from_registry(connector_name, platform="oss")
+    return spec_schema
+
+
+def _form_payload(
+    connector_name: str,
+    spec_schema: dict[str, Any],
+    config_defaults: dict[str, Any],
+    secret_fields: list[str],
+    action: str,
+    submit_token: str,
+) -> dict[str, Any]:
+    return {
+        "connector_name": connector_name,
+        "schema": spec_schema,
+        "spec_schema": spec_schema,
+        "non_secret_defaults": config_defaults,
+        "secret_fields": secret_fields,
+        "action": action,
+        "submit_token": submit_token,
+        "submit_endpoint": _submit_endpoint(),
+    }
+
+
+def connector_config_form_page(payload: Mapping[str, Any]) -> str:
+    """Render the connector configuration form as a standalone browser page."""
+    encoded_payload = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).replace(
+        "</", "<\\/"
+    )
+    assignment = f"window.__AIRBYTE_FORM_PAYLOAD__ = {encoded_payload};"
+    return _HTML_RESOURCE.replace(
+        "window.__AIRBYTE_FORM_PAYLOAD__ = null;",
+        assignment,
+        1,
+    )
+
+
+_INVALID_FORM_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Invalid form link</title></head>
+<body><p>This link is invalid or has expired.</p></body></html>"""
+
+
+async def connector_config_form_endpoint(request: Request) -> HTMLResponse:  # noqa: RUF029
+    """Render a connector configuration form from a one-shot action capability."""
+    token = request.query_params.get("token", "")
+    if not token:
+        return HTMLResponse(_INVALID_FORM_PAGE, status_code=403)
+    try:
+        claims = decrypt_action_token(token, consume=False)
+        connector_name = claims["connector_name"]
+        config_defaults = claims.get("non_secret_defaults", {})
+        if not isinstance(config_defaults, dict):
+            return HTMLResponse(_INVALID_FORM_PAGE, status_code=403)
+        spec_schema = _connector_spec_schema(connector_name)
+        if not spec_schema:
+            return HTMLResponse(_INVALID_FORM_PAGE, status_code=403)
+        secret_fields = sorted(_schema_secret_paths(spec_schema))
+        payload = _form_payload(
+            connector_name,
+            spec_schema,
+            config_defaults,
+            secret_fields,
+            claims["action"],
+            token,
+        )
+    except (ConfigSubmitError, exc.PyAirbyteError, KeyError, TypeError, ValueError):
+        return HTMLResponse(_INVALID_FORM_PAGE, status_code=403)
+    try:
+        return HTMLResponse(connector_config_form_page(payload))
+    except (TypeError, ValueError):
+        return HTMLResponse(_INVALID_FORM_PAGE, status_code=403)
 
 
 def connector_config_form_resource() -> str:
@@ -384,9 +502,7 @@ def show_connector_config_form(
             context={"connector_name": connector_name},
         )
 
-    spec_schema = get_connector_spec_from_registry(connector_name, platform="cloud")
-    if spec_schema is None:
-        spec_schema = get_connector_spec_from_registry(connector_name, platform="oss")
+    spec_schema = _connector_spec_schema(connector_name)
     if not spec_schema:
         raise exc.PyAirbyteInputError(
             message=f"Could not fetch a configuration schema for '{connector_name}'.",
@@ -406,23 +522,32 @@ def show_connector_config_form(
 
     action, submit_token = _mint_form_token(
         connector_name,
+        config_defaults=config_defaults,
         ctx=ctx,
         source_id=source_id,
         workspace_id=workspace_id,
         source_name=source_name,
     )
-    content = _agent_content(connector_name, config_defaults, secret_fields)
-    structured_content = {
-        "connector_name": connector_name,
-        "schema": spec_schema,
-        "spec_schema": spec_schema,
-        "non_secret_defaults": config_defaults,
-        "secret_fields": secret_fields,
-        "action": action,
-        "submit_token": submit_token,
-        "submit_endpoint": _submit_endpoint(),
-    }
+    standalone_url = _standalone_endpoint(submit_token)
+    content = _agent_content(
+        connector_name,
+        config_defaults,
+        secret_fields,
+        standalone_url,
+    )
+    structured_content = _form_payload(
+        connector_name,
+        spec_schema,
+        config_defaults,
+        secret_fields,
+        action,
+        submit_token,
+    )
+    structured_content["standalone_url"] = standalone_url
     return ToolResult(content=content, structured_content=structured_content)
 
 
-__all__ = ["show_connector_config_form"]
+__all__ = [
+    "connector_config_form_endpoint",
+    "show_connector_config_form",
+]

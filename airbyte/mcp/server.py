@@ -92,6 +92,9 @@ from airbyte.mcp._tool_utils import (
 from airbyte.mcp.agents import register_agents_tools
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
+from airbyte.mcp.interactive._connector_config_form_ui import (
+    connector_config_form_endpoint,
+)
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
@@ -388,6 +391,12 @@ async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF02
 async def connector_config_submit(request: Request) -> Response:
     """Execute a connector configuration action from the MCP App form."""
     return await connector_config_submit_endpoint(request)
+
+
+@app.custom_route("/connector-config-form", methods=["GET"])
+async def connector_config_form(request: Request) -> Response:
+    """Render the connector configuration form as a standalone browser page."""
+    return await connector_config_form_endpoint(request)
 
 
 def main() -> None:

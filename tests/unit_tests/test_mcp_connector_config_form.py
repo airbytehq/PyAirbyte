@@ -7,8 +7,13 @@ import asyncio
 import json
 
 import pytest
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.testclient import TestClient
 
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.mcp import _config_submit
+from airbyte.mcp._config_submit import connector_config_submit_routes, mint_action_token
 from airbyte.mcp.interactive import _connector_config_form_ui as form
 
 
@@ -46,6 +51,10 @@ def test_form_result_contains_schema_and_submit_data(
     assert structured["spec_schema"] == SCHEMA
     assert structured["submit_endpoint"].endswith("/connector-config-submit")
     assert structured["submit_token"]
+    assert structured["standalone_url"].endswith(
+        f"/connector-config-form?token={structured['submit_token']}"
+    )
+    assert structured["standalone_url"] in content
     assert "intake_token" not in structured
     assert "intake_endpoint" not in structured
     assert "secret-value" not in content
@@ -70,6 +79,10 @@ def test_submit_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) 
     assert (
         form._submit_endpoint()
         == "https://example.com/cloud-mcp/connector-config-submit"
+    )
+    assert (
+        form._standalone_endpoint("token")
+        == "https://example.com/cloud-mcp/connector-config-form?token=token"
     )
     assert form._server_origin() == "https://example.com"
 
@@ -213,6 +226,8 @@ def test_form_handles_one_of_schema_without_plaintext_input(
     assert "message.id === 1 && message.result" in html
     assert 'method: "ui/notifications/initialized"' in html
     assert 'method: "ui/notifications/size-changed"' in html
+    assert 'method: "ui/message"' in html
+    assert "Notify agent" in html
     assert "Math.min(contentHeight + 20, 600)" in html
 
 
@@ -240,3 +255,99 @@ def test_connector_form_resource_includes_csp_metadata(
     tool = provider._components["tool:show_connector_config_form@"]  # noqa: SLF001
     assert tool.meta is not None
     assert tool.meta["ui"]["csp"]["connectDomains"] == ["https://late.example.com"]
+
+
+class _StandaloneSource:
+    def set_config(self, config: dict[str, object], *, validate: bool = True) -> None:
+        assert validate
+
+
+def _standalone_test_app() -> Starlette:
+    return Starlette(
+        routes=[
+            Route(
+                "/connector-config-form",
+                form.connector_config_form_endpoint,
+                methods=["GET"],
+            ),
+            *connector_config_submit_routes(),
+        ]
+    )
+
+
+def test_standalone_form_renders_and_get_does_not_consume_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    monkeypatch.setattr(
+        _config_submit, "get_source", lambda *args, **kwargs: _StandaloneSource()
+    )
+    token = mint_action_token(
+        "validate",
+        "source-example",
+        non_secret_defaults={"region": "us-east-1"},
+        bearer_token="bearer-secret",
+        client_id="client-id",
+        client_secret="client-secret",
+    )
+
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form?token={token}")
+        again = client.get(f"/connector-config-form?token={token}")
+        submitted = client.post(
+            "/connector-config-submit",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"config": {"region": "us-east-1"}},
+        )
+
+    assert response.status_code == 200
+    assert again.status_code == 200
+    assert "source-example" in response.text
+    assert '"region":"us-east-1"' in response.text
+    assert "bearer-secret" not in response.text
+    assert "client-secret" not in response.text
+    assert submitted.status_code == 200
+
+
+@pytest.mark.parametrize("query", ["", "?token=invalid"])
+def test_standalone_form_rejects_invalid_or_missing_token(query: str) -> None:
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form{query}")
+
+    assert response.status_code == 403
+    assert "This link is invalid or has expired." in response.text
+
+
+def test_standalone_form_rejects_expired_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = mint_action_token("validate", "source-example", ttl_seconds=1)
+    monkeypatch.setattr(_config_submit.time, "time", lambda: 2_000_000_000)
+
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form?token={token}")
+
+    assert response.status_code == 403
+    assert "This link is invalid or has expired." in response.text
+
+
+def test_standalone_form_escapes_script_terminators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    token = mint_action_token(
+        "validate",
+        "source-example",
+        non_secret_defaults={"region": "</script><script>alert(1)</script>"},
+    )
+
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form?token={token}")
+
+    assert response.status_code == 200
+    assert "</script><script>alert(1)</script>" not in response.text
+    assert "<\\/script>" in response.text
