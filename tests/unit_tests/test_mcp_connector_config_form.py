@@ -212,6 +212,8 @@ def test_form_handles_one_of_schema_without_plaintext_input(
     assert 'appInfo: {name: "airbyte-form", version: "0.1"}' in html
     assert "message.id === 1 && message.result" in html
     assert 'method: "ui/notifications/initialized"' in html
+    assert 'method: "ui/notifications/size-changed"' in html
+    assert "Math.min(contentHeight + 20, 600)" in html
 
 
 def test_connector_form_resource_includes_csp_metadata(

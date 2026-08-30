@@ -61,6 +61,14 @@ padding:9px 14px;font:inherit;cursor:pointer}
   const status = document.getElementById("status");
   const title = document.getElementById("title");
   const post = (message) => window.parent.postMessage(message, "*");
+  const requestResize = () => {
+    const contentHeight = Math.max(
+      document.documentElement.scrollHeight,
+      document.body.scrollHeight
+    );
+    post({jsonrpc: "2.0", method: "ui/notifications/size-changed",
+      params: {height: Math.min(contentHeight + 20, 600)}});
+  };
   const pathValue = (object, path) => path.split(".").reduce((value, key) =>
     value && typeof value === "object" ? value[key] : undefined, object);
   const setPath = (object, path, value) => {
@@ -114,9 +122,11 @@ padding:9px 14px;font:inherit;cursor:pointer}
     });
     const button = document.createElement("button");
     button.type = "submit"; button.textContent = "Save configuration"; form.appendChild(button);
+    requestResize();
   };
   form.addEventListener("submit", async (event) => {
     event.preventDefault(); status.className = ""; status.textContent = "Saving…";
+    requestResize();
     const config = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
     const visible = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
     form.querySelectorAll("input").forEach((input) => {
@@ -137,8 +147,10 @@ padding:9px 14px;font:inherit;cursor:pointer}
       if (typeof body.connector_url === "string") payload.connector_url = body.connector_url;
       post({jsonrpc: "2.0", method: "ui/updateModelContext", params: {content: payload}});
       status.className = "success"; status.textContent = "Configuration submitted.";
+      requestResize();
     } catch (error) {
       status.className = "error"; status.textContent = "The configuration could not be submitted.";
+      requestResize();
     }
   });
   window.addEventListener("message", (event) => {
