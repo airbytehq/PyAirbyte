@@ -48,82 +48,72 @@ def _visible(module: str) -> bool:
     return _tool_utils.airbyte_module_filter(_tool(module), APP)
 
 
-def test_insiders_module_is_hidden_by_default(mcp_config: dict[str, str]) -> None:
-    """Agents tools are not advertised unless something asks for them."""
-    assert not _visible("agents")
-    assert _visible("cloud")
-
-
-@pytest.mark.parametrize("config_value", ["1", "true", "TRUE", "yes"])
-def test_insiders_gate_advertises_agents(
+@pytest.mark.parametrize(
+    ("config", "expected_visibility"),
+    [
+        pytest.param({}, {"agents": False, "cloud": True}, id="hidden_by_default"),
+        *(
+            pytest.param(
+                {MCP_CONFIG_INSIDERS: config_value},
+                {"agents": True, "cloud": True},
+                id=f"insiders_on_{config_value}",
+            )
+            for config_value in ("1", "true", "TRUE", "yes")
+        ),
+        *(
+            pytest.param(
+                {MCP_CONFIG_INSIDERS: config_value},
+                {"agents": False, "cloud": True},
+                id=f"insiders_off_{config_value or 'empty'}",
+            )
+            for config_value in ("0", "false", "no", "")
+        ),
+        pytest.param(
+            {MCP_CONFIG_INCLUDE_MODULES: "agents"},
+            {"agents": True, "cloud": False},
+            id="include_agents_only",
+        ),
+        pytest.param(
+            {MCP_CONFIG_INCLUDE_MODULES: "cloud,local"},
+            {"agents": False, "cloud": True, "local": True},
+            id="include_without_agents",
+        ),
+        pytest.param(
+            {MCP_CONFIG_INCLUDE_MODULES: "cloud,agents"},
+            {"agents": True, "cloud": True, "local": False},
+            id="include_agents_with_others",
+        ),
+        pytest.param(
+            {MCP_CONFIG_INSIDERS: "1", MCP_CONFIG_EXCLUDE_MODULES: "agents"},
+            {"agents": False, "cloud": True},
+            id="exclude_beats_insiders",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INCLUDE_MODULES: "agents",
+                MCP_CONFIG_EXCLUDE_MODULES: "agents",
+            },
+            {"agents": False},
+            id="exclude_beats_include",
+        ),
+        pytest.param(
+            {MCP_CONFIG_EXCLUDE_MODULES: "local"},
+            {"agents": False, "cloud": True, "local": False},
+            id="exclude_other_module",
+        ),
+    ],
+)
+def test_module_visibility(
     mcp_config: dict[str, str],
-    config_value: str,
+    config: dict[str, str],
+    expected_visibility: dict[str, bool],
 ) -> None:
-    """Insiders mode adds Agents tools to the normal surface."""
-    mcp_config[MCP_CONFIG_INSIDERS] = config_value
+    """Verify which modules are advertised for each combination of module config."""
+    mcp_config.update(config)
 
-    assert _visible("agents")
-    assert _visible("cloud")
-
-
-@pytest.mark.parametrize("config_value", ["0", "false", "no", ""])
-def test_insiders_gate_off_values_keep_agents_hidden(
-    mcp_config: dict[str, str],
-    config_value: str,
-) -> None:
-    """Only affirmative values open the gate."""
-    mcp_config[MCP_CONFIG_INSIDERS] = config_value
-
-    assert not _visible("agents")
-
-
-def test_explicit_include_advertises_agents_without_the_gate(
-    mcp_config: dict[str, str],
-) -> None:
-    """Naming the module is itself an opt-in, and it stays exclusive."""
-    mcp_config[MCP_CONFIG_INCLUDE_MODULES] = "agents"
-
-    assert _visible("agents")
-    assert not _visible("cloud")
-
-
-def test_include_list_without_agents_keeps_agents_hidden(
-    mcp_config: dict[str, str],
-) -> None:
-    """An include list that omits Agents does not accidentally opt in."""
-    mcp_config[MCP_CONFIG_INCLUDE_MODULES] = "cloud,local"
-
-    assert not _visible("agents")
-    assert _visible("cloud")
-
-
-def test_include_list_can_mix_agents_with_other_modules(
-    mcp_config: dict[str, str],
-) -> None:
-    """Agents can be requested alongside other modules by naming them all."""
-    mcp_config[MCP_CONFIG_INCLUDE_MODULES] = "cloud,agents"
-
-    assert _visible("agents")
-    assert _visible("cloud")
-    assert not _visible("local")
-
-
-def test_exclude_list_hides_agents_despite_the_gate(mcp_config: dict[str, str]) -> None:
-    """Excluding a module wins over insiders mode."""
-    mcp_config[MCP_CONFIG_INSIDERS] = "1"
-    mcp_config[MCP_CONFIG_EXCLUDE_MODULES] = "agents"
-
-    assert not _visible("agents")
-    assert _visible("cloud")
-
-
-def test_exclude_list_leaves_other_modules_visible(mcp_config: dict[str, str]) -> None:
-    """An exclude list does not implicitly opt Agents in."""
-    mcp_config[MCP_CONFIG_EXCLUDE_MODULES] = "local"
-
-    assert not _visible("agents")
-    assert _visible("cloud")
-    assert not _visible("local")
+    assert {
+        module: _visible(module) for module in expected_visibility
+    } == expected_visibility
 
 
 def test_unannotated_tools_are_always_visible(mcp_config: dict[str, str]) -> None:
@@ -133,15 +123,11 @@ def test_unannotated_tools_are_always_visible(mcp_config: dict[str, str]) -> Non
     assert _tool_utils.airbyte_module_filter(tool, APP)
 
 
-def test_insiders_modules_lists_only_agents() -> None:
-    """Guards against a module becoming hidden by default unintentionally."""
-    assert set(MCP_INSIDERS_MODULES) == {"agents"}
-
-
-def test_insiders_config_arg_defaults_to_off() -> None:
-    """The gate is off unless the header or env var says otherwise."""
+def test_insiders_gate_is_off_by_default() -> None:
+    """Guards the hidden-module list and the config arg that opens the gate."""
     config_arg: Any = _tool_utils.INSIDERS_CONFIG_ARG
 
+    assert set(MCP_INSIDERS_MODULES) == {"agents"}
     assert config_arg.default == "0"
     assert not config_arg.required
     assert config_arg.http_header_key == MCP_INSIDERS_HEADER
