@@ -1,6 +1,14 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Airbyte Agents MCP operations.
 
+> ## ⚠️ Experimental Tools — Insiders Only
+>
+> **The Airbyte Agents MCP tools are experimental and hidden by default.** They are advertised
+> only when insiders mode is enabled (`AIRBYTE_MCP_INSIDERS` for stdio servers, `X-MCP-Insiders`
+> for hosted servers) or when the include-modules setting explicitly names `agents`. Tool names,
+> arguments, and result shapes may change or be removed without notice between minor versions of
+> PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
+
 .. include:: ../../docs/mcp-generated/agents.md
 """
 

@@ -1,5 +1,12 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Airbyte Agents connectors, and the single-action `execute` interface."""
+"""Airbyte Agents connectors, and the single-action `execute` interface.
+
+> ## ⚠️ Experimental Interface
+>
+> **The Airbyte Agents Python interfaces are experimental.** Class names, method signatures,
+> and result models may change or be removed without notice between minor versions of
+> PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
+"""
 
 from __future__ import annotations
 

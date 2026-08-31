@@ -1,10 +1,11 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """PyAirbyte classes and methods for the Airbyte Agents platform.
 
-> **WARNING:**
-> The Airbyte Agents interfaces in this module are experimental and may change without notice
-> between minor versions of PyAirbyte, including breaking changes to class names, method
-> signatures, and result models. Pin an exact PyAirbyte version if you depend on them.
+> ## ⚠️ Experimental Interface
+>
+> **The Airbyte Agents Python interfaces are experimental.** Class names, method signatures,
+> and result models may change or be removed without notice between minor versions of
+> PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
 
 Airbyte Agents connectors expose read and write actions on individual entities, executed
 one action at a time, rather than the batch record replication that `airbyte.cloud`
