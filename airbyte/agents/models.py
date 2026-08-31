@@ -1,6 +1,12 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Response models for the Airbyte Agents API.
 
+> ## ⚠️ Experimental Interface
+>
+> **The Airbyte Agents Python interfaces are experimental.** Class names, method signatures,
+> and result models may change or be removed without notice between minor versions of
+> PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
+
 All models allow extra fields, because the Agents API returns rich connector-specific
 payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 """
