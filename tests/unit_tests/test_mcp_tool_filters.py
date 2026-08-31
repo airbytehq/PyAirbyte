@@ -127,7 +127,7 @@ def test_module_visibility(
                 True,
                 id=f"hosted_on_beats_header_off_{env_value}",
             )
-            for env_value in ("1", "true", "YES")
+            for env_value in ("1", "true", "TRUE", " Yes ", "on")
         ),
         *(
             pytest.param(
@@ -136,7 +136,7 @@ def test_module_visibility(
                 False,
                 id=f"hosted_off_beats_header_on_{env_value}",
             )
-            for env_value in ("0", "false", "NO")
+            for env_value in ("0", "false", "FALSE", " No ", "off")
         ),
         pytest.param(
             "0",

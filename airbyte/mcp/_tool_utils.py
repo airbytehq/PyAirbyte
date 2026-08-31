@@ -464,11 +464,16 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
 
 
 def _parse_bool_config(value: str | None) -> bool | None:
-    """Parse a boolean config value, returning `None` when it is unset."""
+    """Parse a boolean config value, returning `None` when it says neither yes nor no.
+
+    Matching is case-insensitive and ignores surrounding whitespace. The accepted spellings
+    mirror `airbyte.constants._str_to_bool`, but an unrecognized value is `None` here rather
+    than true, so that a caller-controlled fallback can still apply.
+    """
     normalized = (value or "").strip().lower()
-    if normalized in {"1", "true", "yes"}:
+    if normalized in {"1", "true", "t", "yes", "y", "on"}:
         return True
-    if normalized in {"0", "false", "no"}:
+    if normalized in {"0", "false", "f", "no", "n", "off"}:
         return False
     return None
 
