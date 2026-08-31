@@ -132,10 +132,19 @@ def test_module_visibility(
             pytest.param(
                 env_value,
                 {MCP_CONFIG_INSIDERS: "0"},
-                True,
-                id=f"hosted_on_beats_header_off_{env_value}",
+                False,
+                id=f"header_off_narrows_hosted_on_{env_value.strip()}",
             )
             for env_value in ("1", "true", "TRUE", " Yes ", "on")
+        ),
+        *(
+            pytest.param(
+                env_value,
+                {},
+                True,
+                id=f"hosted_on_without_header_{env_value.strip()}",
+            )
+            for env_value in ("1", "true", " Yes ")
         ),
         *(
             pytest.param(
@@ -178,14 +187,14 @@ def test_module_visibility(
         ),
     ],
 )
-def test_hosted_insiders_env_var_overrides_header(
+def test_hosted_insiders_env_var_sets_the_default(
     monkeypatch: pytest.MonkeyPatch,
     mcp_config: dict[str, str],
     env_value: str,
     config: dict[str, str],
     expected_agents_visibility: bool,
 ) -> None:
-    """Verify an explicit hosted env var wins over the caller's header, and only then."""
+    """Verify the hosted env var sets the default and callers can only narrow it."""
     monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, env_value)
     mcp_config.update(config)
 

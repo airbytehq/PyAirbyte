@@ -467,14 +467,19 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
 def _insiders_mode(app: FastMCP) -> bool | None:
     """Return whether insiders tool modules are advertised for this request.
 
-    An explicit `AIRBYTE_MCP_INSIDERS` value overrides the `X-MCP-Insiders` header in
-    either direction. Returns `None` when neither is set to a recognized value.
+    `AIRBYTE_MCP_INSIDERS` sets the deployment default and callers may only narrow it: a
+    falsy host value denies insiders tools outright, while a truthy one still honors an
+    explicit `X-MCP-Insiders: 0`. Returns `None` when neither is set to a recognized value.
     """
     hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
-    if hosted_mode is not None:
-        return hosted_mode
+    caller_mode = _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
 
-    return _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
+    if hosted_mode is False:
+        return False
+    if hosted_mode is True:
+        return caller_mode is not False
+
+    return caller_mode
 
 
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
