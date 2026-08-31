@@ -16,6 +16,7 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    _str_to_bool,
 )
 from airbyte.mcp import _tool_utils
 from fastmcp import FastMCP
@@ -203,7 +204,7 @@ def test_insiders_gate_is_off_by_default() -> None:
     config_arg: Any = _tool_utils.INSIDERS_CONFIG_ARG
 
     assert set(MCP_INSIDERS_MODULES) == {"agents"}
-    assert _tool_utils._parse_bool_config(config_arg.default) is None
+    assert _str_to_bool(config_arg.default) is None
     assert not config_arg.required
     assert config_arg.http_header_key == MCP_INSIDERS_HEADER
     assert config_arg.env_var == MCP_INSIDERS_ENV_VAR

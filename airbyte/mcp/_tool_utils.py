@@ -64,6 +64,7 @@ from airbyte.constants import (
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
+    _str_to_bool,
 )
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -463,30 +464,17 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     return True
 
 
-def _parse_bool_config(value: str | None) -> bool | None:
-    """Parse a boolean config value, returning `None` when it says neither yes nor no.
-
-    Matching is case-insensitive and ignores surrounding whitespace.
-    """
-    normalized = (value or "").strip().lower()
-    if normalized in {"1", "true", "t", "yes", "y", "on"}:
-        return True
-    if normalized in {"0", "false", "f", "no", "n", "off"}:
-        return False
-    return None
-
-
 def _insiders_mode(app: FastMCP) -> bool | None:
     """Return whether insiders tool modules are advertised for this request.
 
     An explicit `AIRBYTE_MCP_INSIDERS` value overrides the `X-MCP-Insiders` header in
     either direction. Returns `None` when neither is set to a recognized value.
     """
-    hosted_mode = _parse_bool_config(os.environ.get(MCP_INSIDERS_ENV_VAR))
+    hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
     if hosted_mode is not None:
         return hosted_mode
 
-    return _parse_bool_config(get_mcp_config(app, MCP_CONFIG_INSIDERS))
+    return _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
 
 
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:

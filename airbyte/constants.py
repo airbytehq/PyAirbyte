@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import overload
 
 
 logger = logging.getLogger("airbyte")
@@ -115,9 +116,34 @@ DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
 
 
-def _str_to_bool(value: str) -> bool:
-    """Convert a string value of an environment values to a boolean value."""
-    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+_TRUE_STR_VALUES: frozenset[str] = frozenset({"1", "true", "t", "yes", "y", "on"})
+"""String values that mean `True` in environment variables and config values."""
+
+_FALSE_STR_VALUES: frozenset[str] = frozenset({"0", "false", "f", "no", "n", "off"})
+"""String values that mean `False` in environment variables and config values."""
+
+
+@overload
+def _str_to_bool(value: str | None, *, default: bool) -> bool: ...
+
+
+@overload
+def _str_to_bool(value: str | None, *, default: None = None) -> bool | None: ...
+
+
+def _str_to_bool(value: str | None, *, default: bool | None = None) -> bool | None:
+    """Convert an environment variable or config value to a boolean.
+
+    Matching is case-insensitive and ignores surrounding whitespace. A value that is
+    unset, blank, or unrecognized yields `default`, which is `None` unless the caller
+    says otherwise, so "no value" stays distinguishable from `False`.
+    """
+    normalized = (value or "").strip().lower()
+    if normalized in _TRUE_STR_VALUES:
+        return True
+    if normalized in _FALSE_STR_VALUES:
+        return False
+    return default
 
 
 TEMP_DIR_OVERRIDE: Path | None = (
@@ -134,10 +160,8 @@ directories for permissions reasons.
 """
 
 TEMP_FILE_CLEANUP = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_TEMP_FILE_CLEANUP",
-        default="true",
-    )
+    os.getenv(key="AIRBYTE_TEMP_FILE_CLEANUP"),
+    default=True,
 )
 """Whether to clean up temporary files after use.
 
@@ -146,10 +170,8 @@ not set, the default value is `True`.
 """
 
 AIRBYTE_OFFLINE_MODE = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_OFFLINE_MODE",
-        default="false",
-    )
+    os.getenv(key="AIRBYTE_OFFLINE_MODE"),
+    default=False,
 )
 """Enable or disable offline mode.
 
@@ -166,10 +188,8 @@ air-gapped environments.
 """
 
 AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_PRINT_FULL_ERROR_LOGS",
-        default=os.getenv("CI", "false"),
-    )
+    os.getenv(key="AIRBYTE_PRINT_FULL_ERROR_LOGS", default=os.getenv("CI")),
+    default=False,
 )
 """Whether to print full error logs when an error occurs.
 This setting helps in debugging by providing detailed logs when errors occur. This is especially

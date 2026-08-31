@@ -321,9 +321,7 @@ def _segment_write_key() -> str | None:
     """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
     offline_mode_from_env = os.environ.get("AIRBYTE_OFFLINE_MODE")
     # Dotenv secrets load after constants are imported, so check the environment at call time.
-    offline_mode = AIRBYTE_OFFLINE_MODE or (
-        _str_to_bool(offline_mode_from_env) if offline_mode_from_env is not None else False
-    )
+    offline_mode = AIRBYTE_OFFLINE_MODE or _str_to_bool(offline_mode_from_env, default=False)
     if os.environ.get(DO_NOT_TRACK) or offline_mode:
         return None
 
