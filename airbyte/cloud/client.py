@@ -3,48 +3,65 @@
 
 ## Organization and workspace resolution
 
-Most discovery operations need an organization context. `CloudClient` derives that
-context from whatever the caller supplies, falling back to the credentials' own
-configuration and finally to the authenticated user's memberships.
+Most operations need an organization and/or a workspace context. `CloudClient` derives
+that context from what the caller supplies, falling back to the credentials' own scope
+and finally to the authenticated user's organization memberships.
 
-### Resolving the organization
+Two rules govern the whole protocol: an explicitly passed ID always beats an ambient
+one, and within each of those tiers an organization ID beats a workspace ID.
 
-`CloudClient.list_workspaces` resolves an organization in this order, stopping at the
-first step that yields one:
+### Where a workspace ID comes from
 
-1. The explicit `organization_id` argument.
-2. The explicit `organization_name` argument, resolved by exact name via
-   `CloudClient.get_organization`. This scans every visible organization, so it is
-   never used to infer a default.
-3. The parent organization of an explicit `workspace_id` argument.
-4. The organization configured on the credentials (`CloudClient.organization_id`, from
-   the constructor or `AIRBYTE_CLOUD_ORGANIZATION_ID`).
-5. The parent organization of the configured default workspace
-   (`CloudClient.default_workspace_id`, from the constructor or
-   `AIRBYTE_CLOUD_WORKSPACE_ID`).
-6. The sole organization the authenticated user belongs to, read from that user's
-   permissions and cached for the life of the client.
+A workspace ID reaches the client from one of three places, in order:
 
-If step 6 finds several memberships, discovery stops with a `PyAirbyteInputError`
-carrying the candidate organization IDs and names, so the caller can retry with one of
-them instead of having to list organizations first. If it finds none — which happens
-for credentials whose grants are not organization-scoped — resolution yields no
-organization and listing falls back to the cross-organization path below. Passing
-`all_organizations=True` selects that path deliberately and cannot be combined with an
-organization or workspace argument.
+1. The `workspace_id` argument on the operation, such as `CloudClient.get_workspace`.
+2. The `X-Airbyte-Workspace-Id` header, when running as an MCP server over HTTP.
+3. The `AIRBYTE_CLOUD_WORKSPACE_ID` (or `AIRBYTE_WORKSPACE_ID`) environment variable,
+   read when the client is built with `CloudClient.from_auth(env_vars=True)`.
 
-### Resolving the workspace
+The last two become `CloudClient.default_workspace_id`, the ambient workspace context
+for the client. Workspace-scoped operations use it whenever no `workspace_id` argument
+is passed; `CloudClient.get_workspace` raises when neither is available, since an
+organization can hold many workspaces and there is nothing to guess from.
 
-`CloudClient.get_workspace` takes the explicit `workspace_id` argument if given, and
-otherwise the configured `CloudClient.default_workspace_id`. It raises when neither is
-available; it never guesses a workspace from the organization, since an organization
-can hold many.
+### If a workspace ID is known
+
+The workspace determines the organization: its parent organization is fetched in a
+single call and used as the organization context. That covers the common case, and
+nothing below applies.
+
+The one exception is an explicit `organization_id` or `organization_name` argument,
+which always wins over a workspace-derived organization — as does a configured
+`CloudClient.organization_id` over an *ambient* workspace.
+
+### If an organization ID is known but no workspace ID
+
+The organization is used as-is, whether it came from the `organization_id` argument,
+from `organization_name` (an exact-name lookup that scans every visible organization,
+so it is never used to infer a default), or from the credentials as
+`CloudClient.organization_id`.
+
+### If neither is known
+
+`CloudClient.list_workspaces` falls back to the authenticated user's memberships: the
+organizations that user holds permissions on, read once and cached for the life of the
+client.
+
+- Exactly one membership — that organization is the context.
+- Several memberships — discovery stops with a `PyAirbyteInputError` carrying the
+  candidate organization IDs and names, so the caller can retry with one of them
+  instead of having to list organizations first.
+- No memberships — which happens for credentials whose grants are not
+  organization-scoped — listing falls back to the cross-organization path below.
+
+Passing `all_organizations=True` selects that path deliberately and cannot be combined
+with an organization or workspace argument.
 
 ### Why the path matters
 
 The two listing paths differ in completeness, not just speed:
 
-- **Organization-scoped** (an organization resolved above) uses the Config API, which
+- **Organization-scoped** (an organization was resolved) uses the Config API, which
   filters by name server-side and paginates, so results are complete and each workspace
   carries its organization attribution.
 - **Cross-organization** (no organization resolved, or `all_organizations=True`) uses

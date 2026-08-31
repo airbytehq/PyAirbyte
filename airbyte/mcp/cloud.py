@@ -366,6 +366,7 @@ def _get_cloud_client(
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
     config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
+    workspace_id = get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
 
     return CloudClient(
         client_id=client_id,
@@ -373,6 +374,7 @@ def _get_cloud_client(
         bearer_token=bearer_token,
         public_api_root=api_url,
         config_api_root=config_api_url,
+        workspace_id=workspace_id,
         organization_id=organization_id,
     )
 

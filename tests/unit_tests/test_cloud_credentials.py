@@ -1061,6 +1061,24 @@ def test_mcp_list_cloud_workspaces_reports_available_organizations(
         assert result.message == "No organization membership was found."
 
 
+def test_mcp_get_cloud_client_uses_configured_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = {
+        mcp_cloud.MCP_CONFIG_BEARER_TOKEN: "token",
+        mcp_cloud.MCP_CONFIG_WORKSPACE_ID: "workspace-id",
+    }
+    monkeypatch.setattr(
+        mcp_cloud,
+        "get_mcp_config",
+        lambda _, key: config.get(key),
+    )
+
+    client = mcp_cloud._get_cloud_client(None)
+
+    assert client.default_workspace_id == "workspace-id"
+
+
 def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
