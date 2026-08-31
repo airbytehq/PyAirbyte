@@ -463,10 +463,31 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     return True
 
 
-def _insiders_enabled(app: FastMCP) -> bool:
-    """Return whether insiders tool modules are advertised for this request."""
-    config_value = (get_mcp_config(app, MCP_CONFIG_INSIDERS) or "").strip().lower()
-    return config_value in {"1", "true", "yes"}
+def _parse_bool_config(value: str | None) -> bool | None:
+    """Parse a boolean config value, returning `None` when it is unset."""
+    normalized = (value or "").strip().lower()
+    if normalized in {"1", "true", "yes"}:
+        return True
+    if normalized in {"0", "false", "no"}:
+        return False
+    return None
+
+
+def _insiders_mode(app: FastMCP) -> bool | None:
+    """Return whether insiders tool modules are advertised for this request.
+
+    An explicit `AIRBYTE_MCP_INSIDERS` value wins over the `X-MCP-Insiders` header, which
+    inverts the usual header-first precedence: the env var belongs to whoever hosts the
+    server, and a hosted deployment decides whether callers may reach insiders tools at
+    all. `1` advertises them to every caller, `0` denies them to every caller, and leaving
+    it unset lets each request opt in with the header. Returns `None` when nothing asks
+    either way, so a caller can still opt in by naming the module.
+    """
+    hosted_mode = _parse_bool_config(os.environ.get(MCP_INSIDERS_ENV_VAR))
+    if hosted_mode is not None:
+        return hosted_mode
+
+    return _parse_bool_config(get_mcp_config(app, MCP_CONFIG_INSIDERS))
 
 
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
@@ -477,7 +498,9 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
 
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them, so the default surface never advertises tools that most callers are
-    not entitled to use.
+    not entitled to use. A hosted deployment that sets `AIRBYTE_MCP_INSIDERS=0` hides them
+    outright, including from an include list, since both of the ways to opt in are
+    caller-controlled headers.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
@@ -489,8 +512,12 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     if exclude_modules and tool_module and tool_module in exclude_modules:
         return False
 
-    if tool_module in MCP_INSIDERS_MODULES and not _insiders_enabled(app):
-        return tool_module in include_modules
+    if tool_module in MCP_INSIDERS_MODULES:
+        insiders_mode = _insiders_mode(app)
+        if insiders_mode is False:
+            return False
+        if insiders_mode is None:
+            return tool_module in include_modules
 
     if include_modules:
         # Only show tools from included modules

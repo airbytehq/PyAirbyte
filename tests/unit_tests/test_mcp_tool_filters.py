@@ -34,6 +34,7 @@ def _tool(mcp_module: str) -> Tool:
 @pytest.fixture
 def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
+    monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
     config: dict[str, str] = {}
     monkeypatch.setattr(
         _tool_utils,
@@ -114,6 +115,73 @@ def test_module_visibility(
     assert {
         module: _visible(module) for module in expected_visibility
     } == expected_visibility
+
+
+@pytest.mark.parametrize(
+    ("env_value", "config", "expected_agents_visibility"),
+    [
+        *(
+            pytest.param(
+                env_value,
+                {MCP_CONFIG_INSIDERS: "0"},
+                True,
+                id=f"hosted_on_beats_header_off_{env_value}",
+            )
+            for env_value in ("1", "true", "YES")
+        ),
+        *(
+            pytest.param(
+                env_value,
+                {MCP_CONFIG_INSIDERS: "1"},
+                False,
+                id=f"hosted_off_beats_header_on_{env_value}",
+            )
+            for env_value in ("0", "false", "NO")
+        ),
+        pytest.param(
+            "0",
+            {MCP_CONFIG_INCLUDE_MODULES: "agents"},
+            False,
+            id="hosted_off_beats_include_list",
+        ),
+        pytest.param(
+            "1",
+            {MCP_CONFIG_EXCLUDE_MODULES: "agents"},
+            False,
+            id="exclude_still_narrows_hosted_on",
+        ),
+        *(
+            pytest.param(
+                env_value,
+                {MCP_CONFIG_INSIDERS: "1"},
+                True,
+                id=f"unrecognized_defers_to_header_on_{env_value.strip() or 'blank'}",
+            )
+            for env_value in ("", "  ", "maybe")
+        ),
+        *(
+            pytest.param(
+                env_value,
+                {},
+                False,
+                id=f"unrecognized_defers_to_header_off_{env_value.strip() or 'blank'}",
+            )
+            for env_value in ("", "  ", "maybe")
+        ),
+    ],
+)
+def test_hosted_insiders_env_var_overrides_header(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    env_value: str,
+    config: dict[str, str],
+    expected_agents_visibility: bool,
+) -> None:
+    """Verify an explicit hosted env var wins over the caller's header, and only then."""
+    monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, env_value)
+    mcp_config.update(config)
+
+    assert _visible("agents") is expected_agents_visibility
 
 
 def test_unannotated_tools_are_always_visible(mcp_config: dict[str, str]) -> None:

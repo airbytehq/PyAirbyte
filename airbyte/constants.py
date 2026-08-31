@@ -336,6 +336,11 @@ When set to `1`/`true`/`yes`, tools in `MCP_INSIDERS_MODULES` join the normal to
 surface. It defaults to off, so no caller pays context for tools that are still in
 preview or that require a subscription.
 
+An explicit value here wins over `MCP_INSIDERS_HEADER`, inverting the usual header-first
+precedence: this variable belongs to whoever hosts the server, so `1` advertises insiders
+tools to every caller and `0`/`false`/`no` denies them to every caller. Any other value,
+including an empty string, leaves the decision to the caller's header.
+
 The name follows the GitHub MCP server's `GITHUB_INSIDERS` / `X-MCP-Insiders` pair, which
 is the closest thing to a convention for this setting:
 https://github.com/github/github-mcp-server/blob/HEAD/docs/server-configuration.md
@@ -347,7 +352,8 @@ MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
 Unlike `AIRBYTE_MCP_TRUSTED_EXECUTION`, this gate *widens* the tool surface and is still
 caller-settable, which is a deliberate exception: it changes only which tools are
 advertised, and every insiders tool independently enforces its own authorization against
-the Airbyte API. It is not an access-control boundary.
+the Airbyte API. It is not an access-control boundary. A hosted deployment that sets
+`MCP_INSIDERS_ENV_VAR` explicitly overrides this header in either direction.
 """
 
 # MCP Config Arg Names (used with get_mcp_config)
