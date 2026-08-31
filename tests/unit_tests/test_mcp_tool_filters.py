@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
+
 from airbyte.constants import (
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
@@ -102,6 +104,11 @@ def _visible(module: str) -> bool:
             {"agents": False, "cloud": True, "local": False},
             id="exclude_other_module",
         ),
+        pytest.param(
+            {CONFIG_INCLUDE_MODULES: "agents"},
+            {"agents": True},
+            id="include_agents_via_library_config",
+        ),
     ],
 )
 def test_module_visibility(
@@ -196,7 +203,7 @@ def test_insiders_gate_is_off_by_default() -> None:
     config_arg: Any = _tool_utils.INSIDERS_CONFIG_ARG
 
     assert set(MCP_INSIDERS_MODULES) == {"agents"}
-    assert config_arg.default == "0"
+    assert _tool_utils._parse_bool_config(config_arg.default) is None
     assert not config_arg.required
     assert config_arg.http_header_key == MCP_INSIDERS_HEADER
     assert config_arg.env_var == MCP_INSIDERS_ENV_VAR

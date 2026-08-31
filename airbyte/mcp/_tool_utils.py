@@ -30,6 +30,7 @@ from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PL
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,
+    CONFIG_INCLUDE_MODULES,
     CONFIG_TRUSTED_EXECUTION,
     get_annotation,
 )
@@ -168,14 +169,13 @@ INSIDERS_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_INSIDERS,
     http_header_key=MCP_INSIDERS_HEADER,
     env_var=MCP_INSIDERS_ENV_VAR,
-    default="0",
+    default="",
     required=False,
 )
 """Config arg for the insiders tools gate.
 
-Unusually for a gate that widens the tool surface, this one accepts an HTTP header: it
-changes only which tools are advertised, and each insiders tool still authorizes every
-call against the Airbyte API. See `MCP_INSIDERS_HEADER`.
+The default is empty rather than `0`, because `0` is an explicit denial that also refuses
+the include-list opt-in.
 """
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
@@ -466,9 +466,7 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
 def _parse_bool_config(value: str | None) -> bool | None:
     """Parse a boolean config value, returning `None` when it says neither yes nor no.
 
-    Matching is case-insensitive and ignores surrounding whitespace. The accepted spellings
-    mirror `airbyte.constants._str_to_bool`, but an unrecognized value is `None` here rather
-    than true, so that a caller-controlled fallback can still apply.
+    Matching is case-insensitive and ignores surrounding whitespace.
     """
     normalized = (value or "").strip().lower()
     if normalized in {"1", "true", "t", "yes", "y", "on"}:
@@ -481,12 +479,8 @@ def _parse_bool_config(value: str | None) -> bool | None:
 def _insiders_mode(app: FastMCP) -> bool | None:
     """Return whether insiders tool modules are advertised for this request.
 
-    An explicit `AIRBYTE_MCP_INSIDERS` value wins over the `X-MCP-Insiders` header, which
-    inverts the usual header-first precedence: the env var belongs to whoever hosts the
-    server, and a hosted deployment decides whether callers may reach insiders tools at
-    all. `1` advertises them to every caller, `0` denies them to every caller, and leaving
-    it unset lets each request opt in with the header. Returns `None` when nothing asks
-    either way, so a caller can still opt in by naming the module.
+    An explicit `AIRBYTE_MCP_INSIDERS` value overrides the `X-MCP-Insiders` header in
+    either direction. Returns `None` when neither is set to a recognized value.
     """
     hosted_mode = _parse_bool_config(os.environ.get(MCP_INSIDERS_ENV_VAR))
     if hosted_mode is not None:
@@ -502,13 +496,14 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
 
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
-    list names them, so the default surface never advertises tools that most callers are
-    not entitled to use. A hosted deployment that sets `AIRBYTE_MCP_INSIDERS=0` hides them
-    outright, including from an include list, since both of the ways to opt in are
-    caller-controlled headers.
+    list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
+    include list.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
-    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
+    include_modules = [
+        *_parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or ""),
+        *_parse_csv_config(get_mcp_config(app, CONFIG_INCLUDE_MODULES) or ""),
+    ]
 
     # Get the tool's mcp_module from annotations
     tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)

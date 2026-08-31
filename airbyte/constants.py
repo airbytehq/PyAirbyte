@@ -322,38 +322,26 @@ tools that scope a listing to an organization rather than a workspace.
 MCP_INSIDERS_MODULES: frozenset[str] = frozenset({"agents"})
 """MCP tool modules that are hidden unless insiders mode is enabled.
 
-Tools in these modules are not advertised by default, because they depend on a
-subscription that most callers do not have; advertising them spends context on tools
-that cannot be used. Two things enable them: insiders mode (`AIRBYTE_MCP_INSIDERS` or
-`X-MCP-Insiders`), which adds them to the normal surface, or naming the module in the
-include list, which asks for exactly that module and nothing else.
+Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the module in
+the include list.
 """
 
 MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
-"""Environment variable that advertises insiders MCP tools.
+"""Environment variable that advertises insiders MCP tools. Off by default.
 
-When set to `1`/`true`/`yes`, tools in `MCP_INSIDERS_MODULES` join the normal tool
-surface. It defaults to off, so no caller pays context for tools that are still in
-preview or that require a subscription.
-
-An explicit value here wins over `MCP_INSIDERS_HEADER`, inverting the usual header-first
-precedence: this variable belongs to whoever hosts the server, so `1` advertises insiders
-tools to every caller and `0`/`false`/`no` denies them to every caller. Any other value,
-including an empty string, leaves the decision to the caller's header.
-
-The name follows the GitHub MCP server's `GITHUB_INSIDERS` / `X-MCP-Insiders` pair, which
-is the closest thing to a convention for this setting:
-https://github.com/github/github-mcp-server/blob/HEAD/docs/server-configuration.md
+Set to `1`/`true`/`yes` to advertise the tools in `MCP_INSIDERS_MODULES` to every
+caller, or to `0`/`false`/`no` to hide them from every caller. Either value overrides
+`MCP_INSIDERS_HEADER`; any other value, including an empty string, leaves the decision
+to that header.
 """
 
 MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
-"""HTTP header key that advertises insiders MCP tools.
+"""HTTP header key that advertises insiders MCP tools, per request.
 
-Unlike `AIRBYTE_MCP_TRUSTED_EXECUTION`, this gate *widens* the tool surface and is still
-caller-settable, which is a deliberate exception: it changes only which tools are
-advertised, and every insiders tool independently enforces its own authorization against
-the Airbyte API. It is not an access-control boundary. A hosted deployment that sets
-`MCP_INSIDERS_ENV_VAR` explicitly overrides this header in either direction.
+Set to `1`/`true`/`yes` to add the tools in `MCP_INSIDERS_MODULES` to the advertised
+tool surface. This selects which tools are advertised and is not an access-control
+boundary: every insiders tool authorizes each call against the Airbyte API.
+`MCP_INSIDERS_ENV_VAR` overrides this header when explicitly set.
 """
 
 # MCP Config Arg Names (used with get_mcp_config)
