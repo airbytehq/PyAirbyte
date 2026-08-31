@@ -491,3 +491,25 @@ def test_explicit_organization_id_wins_over_mcp_config(
     )
 
     assert organization.organization_id == "org-from-argument"
+
+
+def test_workspace_organization_id_comes_from_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify workspace-scoped tools send the configured organization ID too."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: {
+            MCP_CONFIG_BEARER_TOKEN: "fake-token",
+            MCP_CONFIG_ORGANIZATION_ID: "org-from-config",
+        }.get(key),
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        "workspace-1",
+    )
+
+    assert workspace.organization_id == "org-from-config"
+    assert workspace._credentials.organization_id == "org-from-config"  # noqa: SLF001

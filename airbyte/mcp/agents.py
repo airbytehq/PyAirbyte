@@ -235,6 +235,7 @@ def _get_agent_workspace(ctx: Context, workspace_id: str | None) -> AgentWorkspa
     """Build an `AgentWorkspace` from MCP config."""
     return AgentWorkspace(
         workspace_id=workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID),
+        organization_id=get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
