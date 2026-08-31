@@ -1,5 +1,57 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""PyAirbyte Cloud client."""
+"""PyAirbyte Cloud client.
+
+## Organization and workspace resolution
+
+Most discovery operations need an organization context. `CloudClient` derives that
+context from whatever the caller supplies, falling back to the credentials' own
+configuration and finally to the authenticated user's memberships.
+
+### Resolving the organization
+
+`CloudClient.list_workspaces` resolves an organization in this order, stopping at the
+first step that yields one:
+
+1. The explicit `organization_id` argument.
+2. The explicit `organization_name` argument, resolved by exact name via
+   `CloudClient.get_organization`. This scans every visible organization, so it is
+   never used to infer a default.
+3. The parent organization of an explicit `workspace_id` argument.
+4. The organization configured on the credentials (`CloudClient.organization_id`, from
+   the constructor or `AIRBYTE_CLOUD_ORGANIZATION_ID`).
+5. The parent organization of the configured default workspace
+   (`CloudClient.default_workspace_id`, from the constructor or
+   `AIRBYTE_CLOUD_WORKSPACE_ID`).
+6. The sole organization the authenticated user belongs to, read from that user's
+   permissions and cached for the life of the client.
+
+If step 6 finds several memberships, discovery stops with a `PyAirbyteInputError`
+carrying the candidate organization IDs and names, so the caller can retry with one of
+them instead of having to list organizations first. If it finds none — which happens
+for credentials whose grants are not organization-scoped — resolution yields no
+organization and listing falls back to the cross-organization path below. Passing
+`all_organizations=True` selects that path deliberately and cannot be combined with an
+organization or workspace argument.
+
+### Resolving the workspace
+
+`CloudClient.get_workspace` takes the explicit `workspace_id` argument if given, and
+otherwise the configured `CloudClient.default_workspace_id`. It raises when neither is
+available; it never guesses a workspace from the organization, since an organization
+can hold many.
+
+### Why the path matters
+
+The two listing paths differ in completeness, not just speed:
+
+- **Organization-scoped** (an organization resolved above) uses the Config API, which
+  filters by name server-side and paginates, so results are complete and each workspace
+  carries its organization attribution.
+- **Cross-organization** (no organization resolved, or `all_organizations=True`) uses
+  the public API, which has neither an organization filter nor a name filter. Name
+  matching happens client-side over every visible workspace, and the responses carry no
+  organization attribution.
+"""
 
 from __future__ import annotations
 
@@ -129,7 +181,10 @@ class CloudClient:
         )
 
     def get_workspace(self, workspace_id: str | None = None) -> CloudWorkspace:
-        """Create a `CloudWorkspace` using this client's credentials."""
+        """Create a `CloudWorkspace` using this client's credentials.
+
+        See the module docstring for how the workspace is resolved.
+        """
         resolved_workspace_id = workspace_id or self._credentials.workspace_id
         if not resolved_workspace_id:
             raise exc.PyAirbyteInputError(
@@ -249,7 +304,10 @@ class CloudClient:
         limit: int | None = None,
         all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
-        """List workspaces available to this client."""
+        """List workspaces available to this client.
+
+        See the module docstring for how the organization context is resolved.
+        """
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
         if organization_id is not None and organization_name is not None:
