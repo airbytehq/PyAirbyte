@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
@@ -16,7 +17,7 @@ from airbyte.agents.models import (
     AgentExecutionMetadata,
 )
 from airbyte.agents.connectors import AgentConnector
-from airbyte.constants import MCP_CONFIG_BEARER_TOKEN
+from airbyte.constants import MCP_CONFIG_BEARER_TOKEN, MCP_CONFIG_ORGANIZATION_ID
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
@@ -54,6 +55,43 @@ class _AgentConnectorLike:
                 execution_time_ms=42,
             ),
         )
+
+
+class _RaisingOrganization:
+    """Stands in for `AgentOrganization` and fails the way the Agents API does."""
+
+    def __init__(self, error: AirbyteError) -> None:
+        self._error = error
+
+    def list_workspaces(self) -> list[Any]:
+        """Raise the configured error."""
+        raise self._error
+
+
+class _RaisingWorkspace:
+    """Stands in for `AgentWorkspace` and fails the way the Agents API does."""
+
+    def __init__(self, error: AirbyteError) -> None:
+        self._error = error
+
+    def list_connectors(self) -> list[Any]:
+        """Raise the configured error."""
+        raise self._error
+
+
+class _RaisingConnector:
+    """Stands in for `AgentConnector` and fails the way the Agents API does."""
+
+    def __init__(self, error: AirbyteError) -> None:
+        self._error = error
+
+    def execute(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def describe(self) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
 
 
 @pytest.fixture
@@ -302,3 +340,160 @@ def test_connector_resolution_validates_workspace_scope(
         requested_workspace_id,
     )
     assert connector.connector_id == "connector-id"
+
+
+def _agents_error(status_code: int | None) -> AirbyteError:
+    """Return an Agents API error carrying the given HTTP status code."""
+    return AirbyteError(
+        message="Agents API request failed.",
+        context={"status_code": status_code} if status_code is not None else {},
+    )
+
+
+def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch `get_mcp_config` with a token and a configured organization ID."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: {
+            MCP_CONFIG_BEARER_TOKEN: "fake-token",
+            MCP_CONFIG_ORGANIZATION_ID: "org-from-config",
+        }.get(key),
+    )
+
+
+_ACCESS_FAILURE_CASES = [
+    pytest.param(
+        "_get_agent_organization",
+        _RaisingOrganization,
+        lambda: agents_mcp.list_agent_workspaces(
+            ctx=cast(Context, object()),
+            organization_id=None,
+        ),
+        {"workspaces": []},
+        id="list_workspaces",
+    ),
+    pytest.param(
+        "_get_agent_workspace",
+        _RaisingWorkspace,
+        lambda: agents_mcp.list_agent_connectors(
+            ctx=cast(Context, object()),
+            workspace_id="workspace-1",
+        ),
+        {"connectors": []},
+        id="list_connectors",
+    ),
+    pytest.param(
+        "_get_agent_connector",
+        _RaisingConnector,
+        _execute_ro,
+        {"result": None, "status": agents_mcp.AGENTS_ACCESS_DENIED_STATUS},
+        id="execute",
+    ),
+    pytest.param(
+        "_get_agent_connector",
+        _RaisingConnector,
+        lambda: agents_mcp.describe_agent_connector(
+            ctx=cast(Context, object()),
+            connector_id="connector-id",
+            workspace_id="workspace-1",
+        ),
+        {"context_store_entities": [], "connector_id": "connector-id"},
+        id="describe",
+    ),
+]
+"""Each Agents tool, the resolver it fails in, how to call it, and its empty payload."""
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_message"),
+    [
+        pytest.param(401, agents_mcp.AGENTS_UNAUTHORIZED_MESSAGE, id="unauthorized"),
+        pytest.param(403, agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="forbidden"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("resolver_name", "raising_stub", "call_tool", "expected_result_fields"),
+    _ACCESS_FAILURE_CASES,
+)
+def test_agents_tools_report_access_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    resolver_name: str,
+    raising_stub: Callable[[AirbyteError], Any],
+    call_tool: Callable[[], Any],
+    expected_result_fields: dict[str, Any],
+    status_code: int,
+    expected_message: str,
+) -> None:
+    """Verify an unentitled caller gets a concise message instead of an exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        resolver_name,
+        lambda *args, **kwargs: raising_stub(_agents_error(status_code)),  # noqa: ARG005
+    )
+
+    result = call_tool()
+
+    assert result.message == expected_message
+    for field, expected_value in expected_result_fields.items():
+        assert getattr(result, field) == expected_value
+
+
+@pytest.mark.parametrize(
+    ("resolver_name", "raising_stub", "call_tool", "expected_result_fields"),
+    _ACCESS_FAILURE_CASES,
+)
+def test_agents_tools_reraise_unrelated_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    resolver_name: str,
+    raising_stub: Callable[[AirbyteError], Any],
+    call_tool: Callable[[], Any],
+    expected_result_fields: dict[str, Any],  # noqa: ARG001  # Shared case list.
+) -> None:
+    """Verify a non-authorization failure keeps its original error."""
+    monkeypatch.setattr(
+        agents_mcp,
+        resolver_name,
+        lambda *args, **kwargs: raising_stub(_agents_error(500)),  # noqa: ARG005
+    )
+
+    with pytest.raises(AirbyteError):
+        call_tool()
+
+
+@pytest.mark.parametrize(
+    ("explicit_organization_id", "expected_organization_id"),
+    [
+        pytest.param(None, "org-from-config", id="falls_back_to_config"),
+        pytest.param("org-from-argument", "org-from-argument", id="explicit_wins"),
+    ],
+)
+def test_organization_id_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_organization_id: str | None,
+    expected_organization_id: str,
+) -> None:
+    """Verify the org ID comes from the tool argument first, then the header or env var."""
+    _patch_mcp_config(monkeypatch)
+
+    organization = agents_mcp._get_agent_organization(  # noqa: SLF001
+        cast(Context, object()),
+        explicit_organization_id,
+    )
+
+    assert organization.organization_id == expected_organization_id
+
+
+def test_workspace_organization_id_comes_from_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify workspace-scoped tools send the configured organization ID too."""
+    _patch_mcp_config(monkeypatch)
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        "workspace-1",
+    )
+
+    assert workspace.organization_id == "org-from-config"
+    assert workspace._credentials.organization_id == "org-from-config"  # noqa: SLF001

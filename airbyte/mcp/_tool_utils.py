@@ -30,6 +30,7 @@ from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PL
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,
+    CONFIG_INCLUDE_MODULES,
     CONFIG_TRUSTED_EXECUTION,
     get_annotation,
 )
@@ -40,6 +41,7 @@ from airbyte.constants import (
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
     MCP_CONFIG_API_URL,
@@ -49,13 +51,20 @@ from airbyte.constants import (
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
+    MCP_CONFIG_INSIDERS,
+    MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_READONLY_MODE,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
+    MCP_INSIDERS_ENV_VAR,
+    MCP_INSIDERS_HEADER,
+    MCP_INSIDERS_MODULES,
+    MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
+    _str_to_bool,
 )
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -157,6 +166,19 @@ AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 )
 """Config arg for legacy AIRBYTE_MCP_DOMAINS env var."""
 
+INSIDERS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_INSIDERS,
+    http_header_key=MCP_INSIDERS_HEADER,
+    env_var=MCP_INSIDERS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for the insiders tools gate.
+
+The default is empty rather than `0`, because `0` is an explicit denial that also refuses
+the include-list opt-in.
+"""
+
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
     env_var=MCP_TRUSTED_EXECUTION_ENV_VAR,
@@ -179,6 +201,19 @@ WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
     sensitive=False,
 )
 """Config arg for workspace ID, supporting both HTTP header and env var."""
+
+ORGANIZATION_ID_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ORGANIZATION_ID,
+    http_header_key=MCP_ORGANIZATION_ID_HEADER,
+    env_var=CLOUD_ORGANIZATION_ID_ENV_VAR,
+    required=False,
+    sensitive=False,
+)
+"""Config arg for organization ID, supporting both HTTP header and env var.
+
+Only the tools that scope a listing to an organization use it; a workspace-scoped tool
+resolves its organization from the workspace.
+"""
 
 
 def _normalize_bearer_token(value: str) -> str | None:
@@ -429,21 +464,53 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     return True
 
 
+def _insiders_mode(app: FastMCP) -> bool | None:
+    """Return whether insiders tool modules are advertised for this request.
+
+    `AIRBYTE_MCP_INSIDERS` sets the deployment default and callers may only narrow it: a
+    falsy host value denies insiders tools outright, while a truthy one still honors an
+    explicit `X-MCP-Insiders: 0`. Returns `None` when neither is set to a recognized value.
+    """
+    hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
+    caller_mode = _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
+
+    if hosted_mode is False:
+        return False
+    if hosted_mode is True:
+        return caller_mode is not False
+
+    return caller_mode
+
+
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
     When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
     When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
+
+    Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
+    list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
+    include list.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
-    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
+    include_modules = [
+        *_parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or ""),
+        *_parse_csv_config(get_mcp_config(app, CONFIG_INCLUDE_MODULES) or ""),
+    ]
 
     # Get the tool's mcp_module from annotations
     tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
 
-    if exclude_modules:
-        # Hide tools from excluded modules
-        return not (tool_module and tool_module in exclude_modules)
+    # Hide tools from excluded modules
+    if exclude_modules and tool_module and tool_module in exclude_modules:
+        return False
+
+    if tool_module in MCP_INSIDERS_MODULES:
+        insiders_mode = _insiders_mode(app)
+        if insiders_mode is False:
+            return False
+        if insiders_mode is None:
+            return tool_module in include_modules
 
     if include_modules:
         # Only show tools from included modules

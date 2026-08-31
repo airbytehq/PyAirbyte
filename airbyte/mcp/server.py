@@ -82,6 +82,8 @@ from airbyte.mcp._tool_utils import (
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
+    INSIDERS_CONFIG_ARG,
+    ORGANIZATION_ID_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
     WORKSPACE_ID_CONFIG_ARG,
     airbyte_module_filter,
@@ -319,9 +321,7 @@ def _segment_write_key() -> str | None:
     """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
     offline_mode_from_env = os.environ.get("AIRBYTE_OFFLINE_MODE")
     # Dotenv secrets load after constants are imported, so check the environment at call time.
-    offline_mode = AIRBYTE_OFFLINE_MODE or (
-        _str_to_bool(offline_mode_from_env) if offline_mode_from_env is not None else False
-    )
+    offline_mode = AIRBYTE_OFFLINE_MODE or _str_to_bool(offline_mode_from_env, default=False)
     if os.environ.get(DO_NOT_TRACK) or offline_mode:
         return None
 
@@ -344,7 +344,9 @@ app = mcp_server(
         AIRBYTE_READONLY_MODE_CONFIG_ARG,
         AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
         AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
+        INSIDERS_CONFIG_ARG,
         WORKSPACE_ID_CONFIG_ARG,
+        ORGANIZATION_ID_CONFIG_ARG,
         BEARER_TOKEN_CONFIG_ARG,
         CLIENT_ID_CONFIG_ARG,
         CLIENT_SECRET_CONFIG_ARG,

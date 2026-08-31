@@ -11,6 +11,7 @@
 __all__: list[str] = []
 
 import json
+from http import HTTPStatus
 from typing import Annotated, Any, Literal, get_args
 
 from fastmcp import Context, FastMCP
@@ -24,15 +25,18 @@ from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_ORGANIZATION_ID_HEADER,
     MCP_WORKSPACE_ID_HEADER,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import _add_defaults_for_exclude_args
@@ -63,6 +67,25 @@ WORKSPACE_ID_TIP_TEXT = (
     f"header; local or stdio connections use the `{CLOUD_WORKSPACE_ID_ENV_VAR}` "
     f"environment variable."
 )
+ORGANIZATION_ID_TIP_TEXT = (
+    f"Organization ID to scope the listing to. Omit it when the credentials belong to "
+    f"exactly one organization, or when it is already configured via the "
+    f"`{MCP_ORGANIZATION_ID_HEADER}` header or the `{CLOUD_ORGANIZATION_ID_ENV_VAR}` "
+    f"environment variable."
+)
+
+AGENTS_ACCESS_DENIED_STATUS = "access_denied"
+"""The `status` reported when the Agents API refused the request."""
+
+AGENTS_UNAUTHORIZED_MESSAGE = (
+    "The Airbyte Agents API rejected these credentials. Verify the Airbyte Cloud "
+    "credentials, or ask the user for valid ones."
+)
+AGENTS_FORBIDDEN_MESSAGE = (
+    "The Airbyte Agents API authenticated these credentials but denied access. Either the "
+    "organization does not have an Airbyte Agents subscription, or these credentials lack "
+    "access to this workspace. Ask the user to confirm which applies rather than retrying."
+)
 
 
 class AgentWorkspaceResult(BaseModel):
@@ -84,6 +107,9 @@ class AgentWorkspaceListResult(BaseModel):
     workspaces: list[AgentWorkspaceResult]
     """Workspaces reachable through the Agents API with these credentials."""
 
+    message: str | None = None
+    """Why the listing is empty, when the Agents API denied the request."""
+
 
 class AgentConnectorResult(BaseModel):
     """Information about a connector configured on the Airbyte Agents platform."""
@@ -100,6 +126,9 @@ class AgentConnectorListResult(BaseModel):
 
     connectors: list[AgentConnectorResult]
     """Connectors configured in the workspace."""
+
+    message: str | None = None
+    """Why the listing is empty, when the Agents API denied the request."""
 
 
 class AgentConnectorDetailsResult(BaseModel):
@@ -127,6 +156,9 @@ class AgentConnectorDetailsResult(BaseModel):
     warnings: list[str]
     """Warnings the Agents API reported about this connector."""
 
+    message: str | None = None
+    """Why the details are empty, when the Agents API denied the request."""
+
 
 class AgentExecuteToolResult(BaseModel):
     """Result of executing a single action against an Airbyte Agents connector."""
@@ -148,6 +180,9 @@ class AgentExecuteToolResult(BaseModel):
 
     warning: dict[str, Any] | None = None
     """A warning reported alongside an otherwise successful result."""
+
+    message: str | None = None
+    """Why the action did not run, when the Agents API denied the request."""
 
 
 def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
@@ -172,10 +207,24 @@ def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] |
     return parsed
 
 
+def _agents_access_message(error: AirbyteError) -> str | None:
+    """Return a concise explanation of an Agents API authorization failure.
+
+    Returns `None` when the failure is not an authorization failure, so the caller can
+    re-raise it with a bare `raise` and keep the original traceback.
+    """
+    status_code = (error.context or {}).get("status_code")
+    if status_code == HTTPStatus.UNAUTHORIZED:
+        return AGENTS_UNAUTHORIZED_MESSAGE
+    if status_code == HTTPStatus.FORBIDDEN:
+        return AGENTS_FORBIDDEN_MESSAGE
+    return None
+
+
 def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentOrganization:
     """Build an `AgentOrganization` from MCP config."""
     return AgentOrganization(
-        organization_id=organization_id,
+        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
@@ -186,6 +235,7 @@ def _get_agent_workspace(ctx: Context, workspace_id: str | None) -> AgentWorkspa
     """Build an `AgentWorkspace` from MCP config."""
     return AgentWorkspace(
         workspace_id=workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID),
+        organization_id=get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
@@ -232,16 +282,26 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             context={"action": action},
         )
 
-    result = _get_agent_connector(ctx, connector_id, workspace_id).execute(
-        entity_type,
-        action,
-        _resolve_api_args(api_args),
-        select_fields=resolve_list_of_strings(select_fields),
-        exclude_fields=resolve_list_of_strings(exclude_fields),
-        page_size=page_size,
-        cursor=cursor,
-        intent=intent,
-    )
+    try:
+        result = _get_agent_connector(ctx, connector_id, workspace_id).execute(
+            entity_type,
+            action,
+            _resolve_api_args(api_args),
+            select_fields=resolve_list_of_strings(select_fields),
+            exclude_fields=resolve_list_of_strings(exclude_fields),
+            page_size=page_size,
+            cursor=cursor,
+            intent=intent,
+        )
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentExecuteToolResult(
+            status=AGENTS_ACCESS_DENIED_STATUS,
+            message=message,
+        )
+
     return AgentExecuteToolResult(
         status=result.status,
         result=result.result,
@@ -264,16 +324,21 @@ def list_agent_workspaces(
     organization_id: Annotated[
         str | None,
         Field(
-            description=(
-                "Organization ID to scope the listing to. Omit it when the credentials "
-                "belong to exactly one organization."
-            ),
+            description=ORGANIZATION_ID_TIP_TEXT,
             default=None,
         ),
     ],
 ) -> AgentWorkspaceListResult:
     """List the workspaces reachable through the Airbyte Agents API."""
     organization = _get_agent_organization(ctx, organization_id)
+    try:
+        workspaces = organization.list_workspaces()
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentWorkspaceListResult(workspaces=[], message=message)
+
     return AgentWorkspaceListResult(
         workspaces=[
             AgentWorkspaceResult(
@@ -281,7 +346,7 @@ def list_agent_workspaces(
                 workspace_name=workspace.name,
                 organization_id=workspace.organization_id,
             )
-            for workspace in organization.list_workspaces()
+            for workspace in workspaces
         ]
     )
 
@@ -305,13 +370,21 @@ def list_agent_connectors(
 ) -> AgentConnectorListResult:
     """List the connectors configured in an Airbyte Agents workspace."""
     workspace = _get_agent_workspace(ctx, workspace_id)
+    try:
+        connectors = workspace.list_connectors()
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentConnectorListResult(connectors=[], message=message)
+
     return AgentConnectorListResult(
         connectors=[
             AgentConnectorResult(
                 connector_id=connector.connector_id,
                 connector_name=connector.name,
             )
-            for connector in workspace.list_connectors()
+            for connector in connectors
         ]
     )
 
@@ -342,7 +415,19 @@ def describe_agent_connector(
     Call this before `execute_agent_connector` to learn what the connector exposes. The
     connector must belong to the given workspace.
     """
-    details = _get_agent_connector(ctx, connector_id, workspace_id).describe()
+    try:
+        details = _get_agent_connector(ctx, connector_id, workspace_id).describe()
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentConnectorDetailsResult(
+            connector_id=connector_id,
+            context_store_entities=[],
+            warnings=[],
+            message=message,
+        )
+
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,
         connector_name=details.name,
