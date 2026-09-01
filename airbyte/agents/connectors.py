@@ -151,10 +151,10 @@ class AgentConnector:
     def name(self) -> str | None:
         """The connector name, fetched from the Agents API if not already known."""
         if self._name is None:
-            self._name = self.describe().name
+            self._name = self.inspect().name
         return self._name
 
-    def describe(self, *, force_refresh: bool = False) -> AgentConnectorDetails:
+    def inspect(self, *, force_refresh: bool = False) -> AgentConnectorDetails:
         """Return connector metadata from the Agents API `inspect` endpoint.
 
         The result is cached; pass `force_refresh=True` to fetch it again.
@@ -186,7 +186,7 @@ class AgentConnector:
         """Execute a single action against one entity type on this connector.
 
         `entity_type` and `action` are connector-specific, for example `issues` and `list`.
-        Use `describe()` to see what a connector supports.
+        Use `inspect()` to see what a connector supports.
 
         `api_args` holds connector-specific arguments passed through to the connector, for
         example `{"repository": "airbytehq/PyAirbyte"}`. All other arguments are interpreted

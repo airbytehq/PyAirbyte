@@ -97,6 +97,9 @@ class AgentConnectorDetails(BaseModel):
     source_definition_name: str | None = None
     """The name of the underlying Airbyte source definition, for example `GitHub`."""
 
+    docs_skill_id: str | None = None
+    """Skill ID to pass to `read_skill_docs` for this connector's usage docs."""
+
     context_store_readiness: AgentContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
 

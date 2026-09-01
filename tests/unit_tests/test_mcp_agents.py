@@ -89,7 +89,7 @@ class _RaisingConnector:
         """Raise the configured error."""
         raise self._error
 
-    def describe(self) -> Any:  # noqa: ANN401
+    def inspect(self) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
@@ -234,18 +234,19 @@ def test_read_only_tool_action_type_excludes_writes() -> None:
     assert "download" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
 
 
-def test_describe_tool_reports_context_store_entities(
+def test_inspect_tool_reports_context_store_entities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `describe_agent_connector` surfaces entities and warnings."""
+    """Verify `inspect_agent_connector` surfaces entities, docs, and warnings."""
 
-    class _DescribableConnector:
-        def describe(self) -> AgentConnectorDetails:
+    class _InspectableConnector:
+        def inspect(self) -> AgentConnectorDetails:
             return AgentConnectorDetails(
                 connector_id="connector-id",
                 name="GitHub",
                 workspace_id="workspace-id",
                 source_definition_name="GitHub",
+                docs_skill_id="connector:github",
                 context_store_readiness=AgentContextStoreReadiness(
                     supported_context_store_entities=[
                         AgentContextStoreEntity(entity="issues")
@@ -257,16 +258,17 @@ def test_describe_tool_reports_context_store_entities(
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None: _DescribableConnector(),
+        lambda ctx, connector_id, workspace_id=None: _InspectableConnector(),
     )
 
-    result = agents_mcp.describe_agent_connector(
+    result = agents_mcp.inspect_agent_connector(
         ctx=cast(Context, object()),
         connector_id="connector-id",
         workspace_id="workspace-id",
     )
 
     assert result.context_store_entities == ["issues"]
+    assert result.docs_skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
 
 
@@ -393,13 +395,13 @@ _ACCESS_FAILURE_CASES = [
     pytest.param(
         "_get_agent_connector",
         _RaisingConnector,
-        lambda: agents_mcp.describe_agent_connector(
+        lambda: agents_mcp.inspect_agent_connector(
             ctx=cast(Context, object()),
             connector_id="connector-id",
             workspace_id="workspace-1",
         ),
         {"context_store_entities": [], "connector_id": "connector-id"},
-        id="describe",
+        id="inspect",
     ),
 ]
 """Each Agents tool, the resolver it fails in, how to call it, and its empty payload."""

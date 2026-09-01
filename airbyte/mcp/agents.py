@@ -67,7 +67,7 @@ AGENTS_AUTH_TIP_TEXT = (
     f"headers. For local or stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` "
     f"environment variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. Call `list_agent_connectors` to discover connector "
-    f"IDs, then `describe_agent_connector` to learn which entities a connector supports, "
+    f"IDs, then `inspect_agent_connector` to learn which entities a connector supports, "
     f"before calling `execute_agent_connector`."
 )
 WORKSPACE_ID_TIP_TEXT = (
@@ -153,6 +153,9 @@ class AgentConnectorDetailsResult(BaseModel):
 
     source_definition_name: str | None = None
     """The name of the underlying source definition, for example `GitHub`."""
+
+    docs_skill_id: str | None = None
+    """Skill ID for this connector's usage docs, when reported by the Agents API."""
 
     context_store_entities: list[str]
     """Entities this connector can cache in the Context Store.
@@ -403,7 +406,7 @@ def list_agent_connectors(
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
 )
-def describe_agent_connector(
+def inspect_agent_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -418,13 +421,13 @@ def describe_agent_connector(
         ),
     ],
 ) -> AgentConnectorDetailsResult:
-    """Describe an Airbyte Agents connector, including its Context Store entities.
+    """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
 
     Call this before `execute_agent_connector` to learn what the connector exposes. The
     connector must belong to the given workspace.
     """
     try:
-        details = _get_agent_connector(ctx, connector_id, workspace_id).describe()
+        details = _get_agent_connector(ctx, connector_id, workspace_id).inspect()
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:
@@ -441,6 +444,7 @@ def describe_agent_connector(
         connector_name=details.name,
         workspace_id=details.workspace_id,
         source_definition_name=details.source_definition_name,
+        docs_skill_id=details.docs_skill_id,
         context_store_entities=details.context_store_entities,
         warnings=[str(warning) for warning in details.warnings],
     )
@@ -463,7 +467,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         Field(
             description=(
                 "The type of entity to act on, for example 'issues'. Call "
-                "`describe_agent_connector` to see the entity types a connector supports."
+                "`inspect_agent_connector` to see the entity types a connector supports."
             ),
         ),
     ],
@@ -526,7 +530,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
 
     This tool only accepts read actions, so it stays available in read-only mode. Use
     `execute_agent_connector` for actions that create, update, or delete data. Entity types
-    are connector-specific, so call `describe_agent_connector` first. The connector must
+    are connector-specific, so call `inspect_agent_connector` first. The connector must
     belong to the given workspace.
     """
     return _execute(
@@ -560,7 +564,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         Field(
             description=(
                 "The type of entity to act on, for example 'issues'. Call "
-                "`describe_agent_connector` to see the entity types a connector supports."
+                "`inspect_agent_connector` to see the entity types a connector supports."
             ),
         ),
     ],
@@ -633,7 +637,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
 
     Prefer `execute_agent_connector_ro` when only reading, since it is available in
     read-only mode. Entity types and actions are connector-specific, so call
-    `describe_agent_connector` first. The connector must belong to the given workspace.
+    `inspect_agent_connector` first. The connector must belong to the given workspace.
     """
     return _execute(
         ctx,
