@@ -2424,6 +2424,83 @@ def list_organizations_for_user(
     )
 
 
+def list_organizations_for_user_id(
+    user_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    name_contains: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """List organizations the given user is a member of.
+
+    Uses the Config API endpoint: POST /v1/organizations/list_by_user_id
+
+    Unlike the public `GET /organizations` endpoint, this endpoint supports
+    server-side name filtering and pagination.
+
+    Args:
+        user_id: The Airbyte user ID to list organizations for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
+        name_contains: Optional substring filter for organization names (server-side)
+        limit: Optional maximum number of organizations to return
+
+    Returns:
+        List of organization dictionaries containing organizationId, organizationName, email, etc.
+    """
+    _validate_pagination_params(limit=limit)
+    result: list[dict[str, Any]] = []
+    page_size = PAGE_SIZE
+
+    payload: dict[str, Any] = {
+        "userId": user_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains is not None:
+        payload["nameContains"] = name_contains
+
+    while True:
+        json_result = _make_config_api_request(
+            path="/organizations/list_by_user_id",
+            json={
+                **payload,
+                "pagination": payload["pagination"].copy(),
+            },
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+
+        organizations = json_result.get("organizations", [])
+
+        if not organizations:
+            break
+
+        result.extend(organizations)
+
+        if limit is not None and len(result) >= limit:
+            return result[:limit]
+
+        if len(organizations) < page_size:
+            break
+
+        payload["pagination"]["rowOffset"] += page_size
+
+    return result
+
+
 def list_workspaces_in_organization(
     organization_id: str,
     *,

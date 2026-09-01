@@ -109,16 +109,20 @@ def test_cloud_credentials_error_guidance(
     [
         pytest.param(
             True,
-            "Call `list_cloud_organizations` and `list_cloud_workspaces` first. If "
-            "discovery returns exactly one workspace, provide its ID via the "
+            "Call `list_cloud_workspaces` first, which resolves the organization "
+            "automatically; only call `list_cloud_organizations` to search "
+            "organizations by name. If discovery returns exactly one workspace, "
+            "provide its ID via the "
             "`X-Airbyte-Workspace-Id` header or the `workspace_id` parameter; "
             "otherwise ask the user to choose.",
             id="hosted",
         ),
         pytest.param(
             False,
-            "Call `list_cloud_organizations` and `list_cloud_workspaces` first. If "
-            "discovery returns exactly one workspace, set its ID in "
+            "Call `list_cloud_workspaces` first, which resolves the organization "
+            "automatically; only call `list_cloud_organizations` to search "
+            "organizations by name. If discovery returns exactly one workspace, "
+            "set its ID in "
             "`AIRBYTE_CLOUD_WORKSPACE_ID` or pass the `workspace_id` parameter; "
             "otherwise ask the user to choose.",
             id="local",

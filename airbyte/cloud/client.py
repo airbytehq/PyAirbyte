@@ -37,20 +37,21 @@ which always wins over a workspace-derived organization — as does a configured
 ### If an organization ID is known but no workspace ID
 
 The organization is used as-is, whether it came from the `organization_id` argument,
-from `organization_name` (an exact-name lookup that scans every visible organization,
-so it is never used to infer a default), or from the credentials as
-`CloudClient.organization_id`.
+from `organization_name` (an exact-name lookup, so it is never used to infer a
+default), or from the credentials as `CloudClient.organization_id`.
 
 ### If neither is known
 
 `CloudClient.list_workspaces` falls back to the authenticated user's memberships: the
 organizations that user holds permissions on, read once and cached for the life of the
-client.
+client. `CloudClient.get_organization` called with no arguments resolves the same way:
+configured `CloudClient.organization_id` first, then the parent organization of
+`CloudClient.default_workspace_id`, then the memberships below.
 
 - Exactly one membership — that organization is the context.
-- Several memberships — discovery stops with a `PyAirbyteInputError` carrying the
-  candidate organization IDs and names, so the caller can retry with one of them
-  instead of having to list organizations first.
+- Several memberships — discovery stops with a `PyAirbyteInputError` that both carries
+  and enumerates in its message the first ten candidate organization IDs and names, so
+  the caller can retry with one of them instead of having to list organizations first.
 - No memberships — which happens for credentials whose grants are not
   organization-scoped — listing falls back to the cross-organization path below.
 
@@ -68,12 +69,22 @@ The two listing paths differ in completeness, not just speed:
   the public API, which has neither an organization filter nor a name filter. Name
   matching happens client-side over every visible workspace, and the responses carry no
   organization attribution.
+
+### Searching organizations
+
+Organization search and limits are also server-side. `CloudClient.list_organizations`
+uses the Config API whenever `name_contains` or `limit` is passed, which filters and
+paginates on the server; with neither argument it uses the public API, which returns
+every visible organization in a single request. `CloudClient.get_organization` fetches
+one organization by ID directly, and searches by name through the Config API. These
+organization lookup paths fall back to the public listing when the Config API is
+unavailable, so self-managed deployments keep working.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Any, NoReturn, overload
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util
@@ -85,9 +96,12 @@ from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from airbyte.secrets.base import SecretString
+
+
+MAX_ORGANIZATION_CANDIDATES = 10
 
 
 @dataclass(init=False, kw_only=True)
@@ -96,6 +110,8 @@ class CloudClient:
 
     _credentials: _AirbyteCredentials
     _membership_organization_ids: tuple[str, ...] | None
+    _authenticated_user_id: str | None
+    _authenticated_bearer_token: SecretString | None
 
     def __init__(
         self,
@@ -120,6 +136,8 @@ class CloudClient:
             env_vars=False,
         )
         self._membership_organization_ids = None
+        self._authenticated_user_id = None
+        self._authenticated_bearer_token = None
 
     @property
     def client_id(self) -> SecretString | None:
@@ -405,10 +423,10 @@ class CloudClient:
         workspace_id: str | None,
     ) -> str | None:
         """Resolve the organization for a workspace listing."""
-        if organization_id is not None:
-            return organization_id
-        if organization_name is not None:
-            # Explicit name lookup scans all visible organizations; do not use it for defaults.
+        if organization_id is not None or organization_name is not None:
+            if organization_id is not None:
+                return organization_id
+            # Do not use explicit name lookup to infer a default organization.
             return self.get_organization(organization_name=organization_name).organization_id
 
         if workspace_id is not None:
@@ -423,20 +441,9 @@ class CloudClient:
             return configured_organization_id
 
         organization_ids = self._get_membership_organization_ids()
-        if len(organization_ids) == 1:
-            return organization_ids[0]
-        if not organization_ids:
-            return None
-        raise exc.PyAirbyteInputError(
-            message=(
-                "Multiple organization memberships were found for these credentials. "
-                "Pass one of the candidate organization IDs to list workspaces."
-            ),
-            context={
-                "organization_ids": list(organization_ids),
-                "organization_candidates": self._get_organization_candidates(organization_ids),
-            },
-        )
+        if len(organization_ids) > 1:
+            self._raise_ambiguous_organization_error(organization_ids)
+        return organization_ids[0] if organization_ids else None
 
     def _get_workspace_parent_organization_id(self, workspace_id: str) -> str:
         """Resolve a workspace's parent organization ID."""
@@ -456,10 +463,10 @@ class CloudClient:
             context={"workspace_id": workspace_id, "response": organization},
         )
 
-    def _get_membership_organization_ids(self) -> tuple[str, ...]:
-        """Get and cache organization IDs from the caller's permissions."""
-        if self._membership_organization_ids is not None:
-            return self._membership_organization_ids
+    def _get_authenticated_user_id(self) -> str:
+        """Get and cache the Airbyte user ID for the current credentials."""
+        if self._authenticated_user_id is not None:
+            return self._authenticated_user_id
 
         bearer_token = self.bearer_token
         if bearer_token is None:
@@ -473,6 +480,7 @@ class CloudClient:
                 client_secret=self.client_secret,
                 api_root=self.public_api_root,
             )
+        self._authenticated_bearer_token = bearer_token
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
         user = api_util.get_user_by_auth_id(
             auth_user_id,
@@ -488,13 +496,21 @@ class CloudClient:
                 message="The Airbyte user response did not include a user ID.",
                 context={"response": user},
             )
+        self._authenticated_user_id = user_id
+        return self._authenticated_user_id
+
+    def _get_membership_organization_ids(self) -> tuple[str, ...]:
+        """Get and cache organization IDs from the caller's permissions."""
+        if self._membership_organization_ids is not None:
+            return self._membership_organization_ids
+
         permissions = api_util.list_permissions_for_user(
-            user_id,
+            self._get_authenticated_user_id(),
             api_root=self.public_api_root,
             config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            bearer_token=bearer_token,
+            bearer_token=self._authenticated_bearer_token,
         )
         organization_ids: list[str] = []
         for permission in permissions:
@@ -539,15 +555,53 @@ class CloudClient:
             )
         return candidates
 
+    def _raise_ambiguous_organization_error(
+        self,
+        organization_ids: tuple[str, ...],
+    ) -> NoReturn:
+        """Raise an error enumerating the caller's candidate organizations."""
+        candidates = self._get_organization_candidates(
+            organization_ids[:MAX_ORGANIZATION_CANDIDATES]
+        )
+        candidate_details = ", ".join(
+            f"{candidate['organization_id']} "
+            f"({candidate['organization_name'] or 'name unavailable'})"
+            for candidate in candidates
+        )
+        raise exc.PyAirbyteInputError(
+            message=(
+                "Multiple organization memberships were found for these credentials. "
+                "Retry with one of these organization IDs "
+                f"(showing {len(candidates)} of {len(organization_ids)}): {candidate_details}"
+            ),
+            context={
+                "organization_ids": list(organization_ids),
+                "organization_candidates": candidates,
+                "total_candidates": len(organization_ids),
+            },
+        )
+
     def list_organizations(
         self,
         *,
         name_contains: str | None = None,
         limit: int | None = None,
     ) -> list[CloudOrganization]:
-        """List organizations available to this client."""
+        """List organizations available to this client.
+
+        See the module docstring for how organization search and limits are resolved.
+        """
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+
+        if name_contains is not None or limit is not None:
+            try:
+                return self._list_organizations_by_user_id(
+                    name_contains=name_contains,
+                    limit=limit,
+                )
+            except AirbyteError:
+                pass
 
         organizations = self._fetch_organizations()
         if name_contains is not None:
@@ -558,6 +612,43 @@ class CloudClient:
                 if name_substring in (organization.organization_name or "").casefold()
             ]
         return organizations if limit is None else organizations[:limit]
+
+    def _list_organizations_by_user_id(
+        self,
+        *,
+        name_contains: str | None = None,
+        limit: int | None = None,
+    ) -> list[CloudOrganization]:
+        """List organizations via the Config API, with server-side search and paging."""
+        return [
+            self._organization_from_mapping(organization)
+            for organization in api_util.list_organizations_for_user_id(
+                user_id=self._get_authenticated_user_id(),
+                api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                name_contains=name_contains,
+                limit=limit,
+            )
+        ]
+
+    def _organization_from_mapping(
+        self,
+        organization: Mapping[str, Any],
+    ) -> CloudOrganization:
+        """Build a `CloudOrganization` from a Config API organization mapping."""
+        return CloudOrganization(
+            organization_id=organization["organizationId"],
+            organization_name=organization.get("organizationName"),
+            email=organization.get("email"),
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            public_api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+        )
 
     def _fetch_organizations(self) -> list[CloudOrganization]:
         """Fetch all organizations available to this client."""
@@ -580,37 +671,86 @@ class CloudClient:
             )
         ]
 
+    def _resolve_default_organization_id(self) -> str | None:
+        """Resolve the organization to use when no organization argument is given."""
+        if self.organization_id is not None:
+            return self.organization_id
+        if self.default_workspace_id is not None:
+            return self._get_workspace_parent_organization_id(self.default_workspace_id)
+
+        organization_ids = self._get_membership_organization_ids()
+        if len(organization_ids) == 1:
+            return organization_ids[0]
+        if len(organization_ids) > 1:
+            self._raise_ambiguous_organization_error(organization_ids)
+        return None
+
+    def _get_organization_by_id(self, organization_id: str) -> CloudOrganization | None:
+        """Look up a single organization via the Config API, if available."""
+        try:
+            organization_info = api_util.get_organization_info(
+                organization_id=organization_id,
+                api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            )
+        except AirbyteError:
+            return None
+        if not isinstance(organization_info.get("organizationId"), str):
+            return None
+        return self._organization_from_mapping(organization_info)
+
+    def _search_organizations_by_name(
+        self,
+        organization_name: str | None,
+    ) -> list[CloudOrganization]:
+        """Get organizations whose names contain `organization_name`, if available."""
+        if organization_name is not None:
+            try:
+                return self._list_organizations_by_user_id(name_contains=organization_name)
+            except AirbyteError:
+                pass
+        return self._fetch_organizations()
+
     def get_organization(
         self,
         organization_id: str | None = None,
         *,
         organization_name: str | None = None,
     ) -> CloudOrganization:
-        """Resolve an organization by ID or exact name."""
+        """Resolve an organization by ID or exact name.
+
+        See the module docstring for how the organization is resolved when no
+        argument is given.
+        """
         resolved_organization_id = organization_id
         if resolved_organization_id and organization_name:
             raise exc.PyAirbyteInputError(
                 message="Provide either organization ID or organization name."
             )
         if resolved_organization_id is None and organization_name is None:
-            resolved_organization_id = self.organization_id
+            resolved_organization_id = self._resolve_default_organization_id()
         if not resolved_organization_id and not organization_name:
             raise exc.PyAirbyteInputError(
                 message="Organization ID or organization name is required."
             )
 
-        organizations = self._fetch_organizations()
         if resolved_organization_id:
+            organization = self._get_organization_by_id(resolved_organization_id)
+            if organization is not None:
+                return organization
             matching_organizations = [
-                organization
-                for organization in organizations
-                if organization.organization_id == resolved_organization_id
+                candidate
+                for candidate in self._fetch_organizations()
+                if candidate.organization_id == resolved_organization_id
             ]
         else:
             matching_organizations = [
-                organization
-                for organization in organizations
-                if organization.organization_name == organization_name
+                candidate
+                for candidate in self._search_organizations_by_name(organization_name)
+                if candidate.organization_name == organization_name
             ]
 
         if not matching_organizations:

@@ -60,9 +60,10 @@ from airbyte.mcp._tool_utils import (
 CLOUD_AUTH_TIP_TEXT = (
     f"When connecting to a hosted MCP server, provide a bearer token via the "
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
-    f"`Client-Id` and `Client-Secret` headers. To discover available organizations "
-    f"and workspaces, call `list_cloud_organizations` and `list_cloud_workspaces` "
-    f"before asking the user for an ID. For local or "
+    f"`Client-Id` and `Client-Secret` headers. To discover your organization and "
+    f"workspaces, call `list_cloud_workspaces`, which resolves your organization "
+    f"automatically. Only call `list_cloud_organizations` when you need to search "
+    f"organizations by name, passing `name_contains`. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
@@ -1583,14 +1584,32 @@ def list_cloud_workspaces(
         )
         for ws in workspaces
     ]
+    organization_ids = {
+        result.organization_id for result in results if result.organization_id is not None
+    }
+    message = (
+        "No workspaces were returned for these credentials. Verify the "
+        "credentials or ask the user to provide a workspace ID."
+        if not results
+        else None
+    )
+    if len(organization_ids) == 1:
+        resolved_organization_id = next(iter(organization_ids))
+        try:
+            organization = client.get_organization(organization_id=resolved_organization_id)
+        except AirbyteError:
+            pass
+        else:
+            for result in results:
+                result.organization_name = organization.organization_name
+            if organization_id is None and organization_name is None:
+                message = (
+                    f"Resolved organization {organization.organization_name} "
+                    f"({resolved_organization_id}) for these credentials."
+                )
     return CloudWorkspaceListResult(
         workspaces=results,
-        message=(
-            "No workspaces were returned for these credentials. Verify the "
-            "credentials or ask the user to provide a workspace ID."
-            if not results
-            else None
-        ),
+        message=message,
     )
 
 
@@ -1612,16 +1631,17 @@ def list_cloud_organizations(
     limit: Annotated[
         int | None,
         Field(
-            description="Optional maximum number of organizations to return.",
+            description="Optional maximum number of organizations to return (default: 100).",
             default=None,
         ),
     ] = None,
 ) -> CloudOrganizationListResult:
     """List organizations visible to the authenticated Airbyte Cloud credentials."""
+    effective_limit = 100 if limit is None else limit
     try:
         organizations = _get_cloud_client(ctx).list_organizations(
             name_contains=name_contains,
-            limit=limit,
+            limit=effective_limit,
         )
     except AirbyteError as error:
         return _handle_discovery_permission_error(
@@ -1651,9 +1671,9 @@ def list_cloud_organizations(
             for organization in organizations
         ],
         message=(
-            f"Results are capped at {limit} organizations and may be truncated. "
-            "Use name_contains to narrow the search."
-            if len(organizations) == limit
+            f"Showing the first {effective_limit} organizations; more may exist. "
+            "Pass `name_contains` to narrow the search, or a larger `limit`."
+            if len(organizations) == effective_limit
             else None
         ),
     )
@@ -1671,7 +1691,10 @@ def describe_cloud_organization(
     organization_id: Annotated[
         str | None,
         Field(
-            description="Organization ID. Required if organization_name is not provided.",
+            description=(
+                "Organization ID. With no arguments, resolves from the configured "
+                "default or the authenticated user's sole membership."
+            ),
             default=None,
         ),
     ],
@@ -1679,7 +1702,9 @@ def describe_cloud_organization(
         str | None,
         Field(
             description=(
-                "Organization name (exact match). " "Required if organization_id is not provided."
+                "Organization name (exact match). With no arguments, resolves from the "
+                "configured default or the authenticated user's sole membership. With "
+                "multiple memberships, the error lists candidate organization IDs."
             ),
             default=None,
         ),
@@ -1687,8 +1712,10 @@ def describe_cloud_organization(
 ) -> CloudOrganizationResult:
     """Get details about a specific organization including billing status.
 
-    Requires either organization_id OR organization_name (exact match) to be provided.
-    This tool is useful for looking up an organization's ID from its name, or vice versa.
+    With no arguments, resolves the organization from the configured default or the
+    authenticated user's sole membership. With multiple memberships, the error lists
+    candidate organization IDs. Use organization_id or organization_name (exact match)
+    to look up a specific organization.
     """
     org = _get_cloud_client(ctx).get_organization(
         organization_id=organization_id,

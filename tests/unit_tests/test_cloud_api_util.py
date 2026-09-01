@@ -215,6 +215,81 @@ def test_list_permissions_for_user_rejects_unexpected_response(
         )
 
 
+@pytest.mark.parametrize(
+    ("name_contains", "limit", "expected_count", "expected_last", "request_count"),
+    [
+        pytest.param(
+            None,
+            150,
+            150,
+            "organization-149",
+            2,
+            id="without-name-filter",
+        ),
+        pytest.param(
+            "Airbyte",
+            None,
+            200,
+            "organization-199",
+            3,
+            id="with-name-filter",
+        ),
+    ],
+)
+def test_list_organizations_for_user_id_paginates_and_forwards_filters(
+    monkeypatch: pytest.MonkeyPatch,
+    name_contains: str | None,
+    limit: int | None,
+    expected_count: int,
+    expected_last: str,
+    request_count: int,
+) -> None:
+    requests: list[dict[str, object]] = []
+    pages = [
+        {
+            "organizations": [
+                {"organizationId": f"organization-{index}"} for index in range(100)
+            ]
+        },
+        {
+            "organizations": [
+                {"organizationId": f"organization-{index}"} for index in range(100, 200)
+            ]
+        },
+        {"organizations": []},
+    ]
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        request = kwargs["json"]
+        assert isinstance(request, dict)
+        requests.append(request)
+        return pages.pop(0)
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_organizations_for_user_id(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        name_contains=name_contains,
+        limit=limit,
+    )
+
+    result_ids = [organization["organizationId"] for organization in result]
+    assert len(result_ids) == expected_count
+    assert result_ids[0] == "organization-0"
+    assert result_ids[-1] == expected_last
+    assert requests[0] == {
+        "userId": "user-id",
+        "pagination": {"pageSize": 100, "rowOffset": 0},
+        **({"nameContains": name_contains} if name_contains is not None else {}),
+    }
+    assert requests[1]["pagination"] == {"pageSize": 100, "rowOffset": 100}
+    assert len(requests) == request_count
+
+
 def test_create_workspace_forwards_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
