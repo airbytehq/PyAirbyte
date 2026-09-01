@@ -155,6 +155,8 @@ class AgentConnectorDetailsResult(BaseModel):
     """The name of the underlying source definition, for example `GitHub`."""
 
     docs_skill_id: str | None = None
+    """Skill ID for this connector's usage docs, when reported by the Agents API."""
+
     context_store_entities: list[str]
     """Entities this connector can cache in the Context Store.
 
@@ -421,8 +423,7 @@ def inspect_agent_connector(
 ) -> AgentConnectorDetailsResult:
     """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
 
-    Includes Context Store readiness. Call this before `execute_agent_connector` to learn
-    what the connector exposes. The
+    Call this before `execute_agent_connector` to learn what the connector exposes. The
     connector must belong to the given workspace.
     """
     try:
@@ -529,8 +530,8 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
 
     This tool only accepts read actions, so it stays available in read-only mode. Use
     `execute_agent_connector` for actions that create, update, or delete data. Entity types
-    are connector-specific, so call `inspect_agent_connector`. The connector must belong
-    to the given workspace.
+    are connector-specific, so call `inspect_agent_connector` first. The connector must
+    belong to the given workspace.
     """
     return _execute(
         ctx,
@@ -636,7 +637,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
 
     Prefer `execute_agent_connector_ro` when only reading, since it is available in
     read-only mode. Entity types and actions are connector-specific, so call
-    `inspect_agent_connector`. The connector must belong to the given workspace.
+    `inspect_agent_connector` first. The connector must belong to the given workspace.
     """
     return _execute(
         ctx,
