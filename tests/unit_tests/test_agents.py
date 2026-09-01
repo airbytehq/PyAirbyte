@@ -33,6 +33,7 @@ INSPECT_RESPONSE: dict[str, Any] = {
     "name": "GitHub",
     "workspace_id": "workspace-id",
     "source_definition_name": "GitHub",
+    "docs_skill_id": "connector:github",
     "context_store_readiness": {
         "supported_context_store_entities": [
             {"entity": "issues", "suggested": True},
@@ -333,20 +334,21 @@ def test_entities(
         assert result.entities == expectation
 
 
-def test_describe(captured_requests: list[dict[str, Any]]) -> None:
-    """`describe()` parses the inspect response and caches it."""
+def test_inspect(captured_requests: list[dict[str, Any]]) -> None:
+    """`inspect()` parses the inspect response and caches it."""
     connector = _connector()
-    details = connector.describe()
+    details = connector.inspect()
 
     assert details.name == "GitHub"
     assert details.source_definition_name == "GitHub"
+    assert details.docs_skill_id == "connector:github"
     assert details.context_store_entities == ["issues", "repositories"]
     assert connector.name == "GitHub"
 
-    connector.describe()
+    connector.inspect()
     assert len(captured_requests) == 1
 
-    connector.describe(force_refresh=True)
+    connector.inspect(force_refresh=True)
     assert len(captured_requests) == 2
 
 
