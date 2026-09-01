@@ -620,15 +620,16 @@ class CloudClient:
         limit: int | None = None,
     ) -> list[CloudOrganization]:
         """List organizations via the Config API, with server-side search and paging."""
+        user_id = self._get_authenticated_user_id()
         return [
             self._organization_from_mapping(organization)
             for organization in api_util.list_organizations_for_user_id(
-                user_id=self._get_authenticated_user_id(),
+                user_id=user_id,
                 api_root=self.public_api_root,
                 config_api_root=self.config_api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
+                bearer_token=self._authenticated_bearer_token,
                 name_contains=name_contains,
                 limit=limit,
             )

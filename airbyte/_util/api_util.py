@@ -2483,7 +2483,17 @@ def list_organizations_for_user_id(
             bearer_token=bearer_token,
         )
 
+        if not isinstance(json_result, dict):
+            raise AirbyteError(
+                message="The organizations API returned an unexpected response.",
+                context={"response": json_result},
+            )
         organizations = json_result.get("organizations", [])
+        if not isinstance(organizations, list):
+            raise AirbyteError(
+                message="The organizations API returned an unexpected response.",
+                context={"response": json_result},
+            )
 
         if not organizations:
             break
@@ -2885,7 +2895,7 @@ def get_user_by_auth_id(
     bearer_token: SecretString | None,
 ) -> dict[str, Any]:
     """Get an Airbyte user by the authentication provider user ID."""
-    return _make_config_api_request(
+    result = _make_config_api_request(
         path="/users/get_by_auth_id",
         json={
             "authUserId": auth_user_id,
@@ -2896,6 +2906,13 @@ def get_user_by_auth_id(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+
+    raise AirbyteError(
+        message="The user API returned an unexpected response.",
+        context={"response": result},
     )
 
 

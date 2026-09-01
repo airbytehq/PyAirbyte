@@ -889,6 +889,54 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     ]
 
 
+def test_cloud_client_config_org_listing_reuses_authenticated_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    issued_token = SecretString("issued-token")
+    token_calls = 0
+    captured_bearer_token: object = None
+
+    def fake_get_bearer_token(**_: object) -> SecretString:
+        nonlocal token_calls
+        token_calls += 1
+        return issued_token
+
+    def fake_list_organizations_for_user_id(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        nonlocal captured_bearer_token
+        captured_bearer_token = kwargs["bearer_token"]
+        return [{"organizationId": "organization-id"}]
+
+    monkeypatch.setattr(api_util, "get_bearer_token", fake_get_bearer_token)
+    monkeypatch.setattr(
+        api_util,
+        "get_user_id_from_bearer_token",
+        lambda _: "auth-user-id",
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": "user-id"},
+    )
+    monkeypatch.setattr(
+        api_util,
+        "list_organizations_for_user_id",
+        fake_list_organizations_for_user_id,
+    )
+
+    result = CloudClient(
+        client_id="client-id",
+        client_secret="client-secret",
+    ).list_organizations(limit=1)
+
+    assert [organization.organization_id for organization in result] == [
+        "organization-id"
+    ]
+    assert captured_bearer_token is issued_token
+    assert token_calls == 1
+
+
 def test_cloud_client_get_organization_requires_context_without_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1526,6 +1574,8 @@ def test_mcp_list_cloud_workspaces_discovery(
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
         assert result.workspaces[1].organization_id is None
+        assert result.workspaces[0].organization_name == "Organization"
+        assert result.workspaces[1].organization_name is None
         assert (
             result.message
             == "Resolved organization Organization (organization-id) for these credentials."

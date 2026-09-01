@@ -169,6 +169,38 @@ def test_get_user_by_auth_id_forwards_config_api_request(
     assert captured["config_api_root"] == "https://config.example"
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param([], id="list"),
+        pytest.param("unexpected", id="string"),
+    ],
+)
+def test_get_user_by_auth_id_rejects_unexpected_response(
+    monkeypatch: pytest.MonkeyPatch,
+    response: object,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: response,
+    )
+
+    with pytest.raises(
+        AirbyteError,
+        match="user API returned an unexpected response",
+    ) as exc_info:
+        api_util.get_user_by_auth_id(
+            "auth-user-id",
+            api_root="https://api.example",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.context == {"response": response}
+
+
 def test_list_permissions_for_user_accepts_direct_list_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -288,6 +320,38 @@ def test_list_organizations_for_user_id_paginates_and_forwards_filters(
     }
     assert requests[1]["pagination"] == {"pageSize": 100, "rowOffset": 100}
     assert len(requests) == request_count
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param([], id="list"),
+        pytest.param({"organizations": {}}, id="non-list-organizations"),
+    ],
+)
+def test_list_organizations_for_user_id_rejects_unexpected_response(
+    monkeypatch: pytest.MonkeyPatch,
+    response: object,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: response,
+    )
+
+    with pytest.raises(
+        AirbyteError,
+        match="organizations API returned an unexpected response",
+    ) as exc_info:
+        api_util.list_organizations_for_user_id(
+            "user-id",
+            api_root="https://api.example",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.context == {"response": response}
 
 
 def test_create_workspace_forwards_request(

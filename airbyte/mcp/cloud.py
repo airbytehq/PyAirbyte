@@ -1601,7 +1601,8 @@ def list_cloud_workspaces(
             pass
         else:
             for result in results:
-                result.organization_name = organization.organization_name
+                if result.organization_id == resolved_organization_id:
+                    result.organization_name = organization.organization_name
             if organization_id is None and organization_name is None:
                 message = (
                     f"Resolved organization {organization.organization_name} "
