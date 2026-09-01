@@ -419,9 +419,10 @@ def inspect_agent_connector(
         ),
     ],
 ) -> AgentConnectorDetailsResult:
-    """Inspect an Airbyte Agents connector: metadata, Context Store readiness, warnings, and its `docs_skill_id`.
+    """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
 
-    Call this before `execute_agent_connector` to learn what the connector exposes. The
+    Includes Context Store readiness. Call this before `execute_agent_connector` to learn
+    what the connector exposes. The
     connector must belong to the given workspace.
     """
     try:
