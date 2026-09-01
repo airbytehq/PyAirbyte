@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import requests
@@ -345,6 +347,55 @@ def test_list_organizations_for_user_id_rejects_unexpected_response(
     ) as exc_info:
         api_util.list_organizations_for_user_id(
             "user-id",
+            api_root="https://api.example",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.context == {"response": response}
+
+
+@pytest.mark.parametrize(
+    ("helper", "payload", "message"),
+    [
+        pytest.param(
+            api_util.get_organization_info,
+            {"organization_id": "organization-id"},
+            "organization API returned an unexpected response",
+            id="organization",
+        ),
+        pytest.param(
+            api_util.get_workspace_organization_info,
+            {"workspace_id": "workspace-id"},
+            "workspace API returned an unexpected response",
+            id="workspace",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param([], id="list"),
+        pytest.param("unexpected", id="string"),
+    ],
+)
+def test_config_info_helpers_reject_unexpected_response(
+    monkeypatch: pytest.MonkeyPatch,
+    helper: Callable[..., dict[str, Any]],
+    payload: dict[str, str],
+    message: str,
+    response: object,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: response,
+    )
+
+    with pytest.raises(AirbyteError, match=message) as exc_info:
+        helper(
+            **payload,
             api_root="https://api.example",
             client_id=None,
             client_secret=None,

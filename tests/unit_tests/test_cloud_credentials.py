@@ -937,6 +937,36 @@ def test_cloud_client_config_org_listing_reuses_authenticated_bearer_token(
     assert token_calls == 1
 
 
+def test_cloud_client_config_lookups_reuse_authenticated_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    issued_token = SecretString("issued-token")
+    token_calls = 0
+    captured_bearer_tokens: list[object] = []
+
+    def fake_get_bearer_token(**_: object) -> SecretString:
+        nonlocal token_calls
+        token_calls += 1
+        return issued_token
+
+    def fake_get_organization_info(**kwargs: object) -> dict[str, object]:
+        captured_bearer_tokens.append(kwargs["bearer_token"])
+        return {
+            "organizationId": "organization-id",
+            "organizationName": "Organization",
+        }
+
+    monkeypatch.setattr(api_util, "get_bearer_token", fake_get_bearer_token)
+    monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
+
+    client = CloudClient(client_id="client-id", client_secret="client-secret")
+    client.get_organization(organization_id="organization-id")
+    client.get_organization(organization_id="organization-id")
+
+    assert captured_bearer_tokens == [issued_token, issued_token]
+    assert token_calls == 1
+
+
 def test_cloud_client_get_organization_requires_context_without_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

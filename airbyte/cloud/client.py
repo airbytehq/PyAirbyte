@@ -400,7 +400,7 @@ class CloudClient:
             config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
+            bearer_token=self._get_config_api_bearer_token(),
             name_contains=name_contains or name,
             limit=None if name is not None or name_filter is not None else limit,
         )
@@ -445,6 +445,20 @@ class CloudClient:
             self._raise_ambiguous_organization_error(organization_ids)
         return organization_ids[0] if organization_ids else None
 
+    def _get_config_api_bearer_token(self) -> SecretString | None:
+        """Get and cache a bearer token for Config API requests."""
+        if self._authenticated_bearer_token is not None:
+            return self._authenticated_bearer_token
+        if self.bearer_token is not None:
+            self._authenticated_bearer_token = self.bearer_token
+        elif self.client_id is not None and self.client_secret is not None:
+            self._authenticated_bearer_token = api_util.get_bearer_token(
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                api_root=self.public_api_root,
+            )
+        return self._authenticated_bearer_token
+
     def _get_workspace_parent_organization_id(self, workspace_id: str) -> str:
         """Resolve a workspace's parent organization ID."""
         organization = api_util.get_workspace_organization_info(
@@ -453,7 +467,7 @@ class CloudClient:
             config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
+            bearer_token=self._get_config_api_bearer_token(),
         )
         resolved_organization_id = organization.get("organizationId")
         if isinstance(resolved_organization_id, str) and resolved_organization_id:
@@ -468,19 +482,12 @@ class CloudClient:
         if self._authenticated_user_id is not None:
             return self._authenticated_user_id
 
-        bearer_token = self.bearer_token
+        bearer_token = self._get_config_api_bearer_token()
         if bearer_token is None:
-            if self.client_id is None or self.client_secret is None:
-                raise exc.PyAirbyteInputError(
-                    message="No authentication credentials provided.",
-                    guidance="Provide either client credentials or a bearer token.",
-                )
-            bearer_token = api_util.get_bearer_token(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                api_root=self.public_api_root,
+            raise exc.PyAirbyteInputError(
+                message="No authentication credentials provided.",
+                guidance="Provide either client credentials or a bearer token.",
             )
-        self._authenticated_bearer_token = bearer_token
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
         user = api_util.get_user_by_auth_id(
             auth_user_id,
@@ -510,7 +517,7 @@ class CloudClient:
             config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            bearer_token=self._authenticated_bearer_token,
+            bearer_token=self._get_config_api_bearer_token(),
         )
         organization_ids: list[str] = []
         for permission in permissions:
@@ -539,7 +546,7 @@ class CloudClient:
                     config_api_root=self.config_api_root,
                     client_id=self.client_id,
                     client_secret=self.client_secret,
-                    bearer_token=self.bearer_token,
+                    bearer_token=self._get_config_api_bearer_token(),
                 )
             except AirbyteError:
                 pass
@@ -695,7 +702,7 @@ class CloudClient:
                 config_api_root=self.config_api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
+                bearer_token=self._get_config_api_bearer_token(),
             )
         except AirbyteError:
             return None

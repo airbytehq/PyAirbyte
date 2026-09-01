@@ -2619,7 +2619,7 @@ def get_workspace_organization_info(
         - sso: Whether SSO is enabled
         - billing: Billing information (optional)
     """
-    return _make_config_api_request(
+    result = _make_config_api_request(
         path="/workspaces/get_organization_info",
         json={"workspaceId": workspace_id},
         api_root=api_root,
@@ -2627,6 +2627,12 @@ def get_workspace_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+    raise AirbyteError(
+        message="The workspace API returned an unexpected response.",
+        context={"response": result},
     )
 
 
@@ -2844,7 +2850,7 @@ def get_organization_info(
         - sso: Whether SSO is enabled
         - billing: Billing information (optional, contains paymentStatus, subscriptionStatus, etc.)
     """
-    return _make_config_api_request(
+    result = _make_config_api_request(
         path="/organizations/get_organization_info",
         json={"organizationId": organization_id},
         api_root=api_root,
@@ -2852,6 +2858,12 @@ def get_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+    raise AirbyteError(
+        message="The organization API returned an unexpected response.",
+        context={"response": result},
     )
 
 
