@@ -1,6 +1,9 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import NoReturn
+
 import pytest
 from airbyte_api import models
 
@@ -18,6 +21,13 @@ from airbyte.exceptions import (
 )
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
+
+
+def _raise(error: Exception) -> Callable[..., NoReturn]:
+    def _raiser(*_args: object, **_kwargs: object) -> NoReturn:
+        raise error
+
+    return _raiser
 
 
 def _patch_workspace_discovery(
@@ -267,15 +277,13 @@ def test_cloud_client_list_workspaces_handles_ambient_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_membership_organization_ids",
-            lambda: (_ for _ in ()).throw(AirbyteError(message="membership failed")),
+            _raise(AirbyteError(message="membership failed")),
         )
     else:
         monkeypatch.setattr(
             client,
             "_get_workspace_parent_organization_id",
-            lambda _: (_ for _ in ()).throw(
-                PyAirbyteInputError(message="workspace lookup failed")
-            ),
+            _raise(PyAirbyteInputError(message="workspace lookup failed")),
         )
         monkeypatch.setattr(client, "_get_membership_organization_ids", lambda: ())
     monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
@@ -840,9 +848,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_workspace_parent_organization_id",
-            lambda _: (_ for _ in ()).throw(
-                PyAirbyteInputError(message="workspace lookup failed")
-            ),
+            _raise(PyAirbyteInputError(message="workspace lookup failed")),
         )
         monkeypatch.setattr(
             client,
@@ -853,7 +859,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_membership_organization_ids",
-            lambda: (_ for _ in ()).throw(AirbyteError(message="membership failed")),
+            _raise(AirbyteError(message="membership failed")),
         )
 
     assert client._resolve_default_organization_id() == expected_id
