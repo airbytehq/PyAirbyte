@@ -224,6 +224,72 @@ def test_cloud_client_list_workspaces_forwards_limit(
 
 
 @pytest.mark.parametrize(
+    ("client_kwargs", "request_kwargs", "failure", "expected_message"),
+    [
+        pytest.param(
+            {},
+            {},
+            "membership",
+            None,
+            id="membership-failure-falls-back",
+        ),
+        pytest.param(
+            {"workspace_id": "configured-workspace-id"},
+            {},
+            "workspace-parent",
+            None,
+            id="configured-workspace-parent-failure-falls-back",
+        ),
+        pytest.param(
+            {},
+            {"workspace_id": "explicit-workspace-id"},
+            "workspace-parent",
+            "workspace lookup failed",
+            id="explicit-workspace-failure-propagates",
+        ),
+    ],
+)
+def test_cloud_client_list_workspaces_handles_ambient_resolution_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    client_kwargs: dict[str, str],
+    request_kwargs: dict[str, str],
+    failure: str,
+    expected_message: str | None,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_list_workspaces(**kwargs: object) -> list[object]:
+        captured.update(kwargs)
+        return []
+
+    client = CloudClient(bearer_token="token", **client_kwargs)
+    if failure == "membership":
+        monkeypatch.setattr(
+            client,
+            "_get_membership_organization_ids",
+            lambda: (_ for _ in ()).throw(AirbyteError(message="membership failed")),
+        )
+    else:
+        monkeypatch.setattr(
+            client,
+            "_get_workspace_parent_organization_id",
+            lambda _: (_ for _ in ()).throw(
+                PyAirbyteInputError(message="workspace lookup failed")
+            ),
+        )
+        monkeypatch.setattr(client, "_get_membership_organization_ids", lambda: ())
+    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+
+    if expected_message is None:
+        assert client.list_workspaces(**request_kwargs) == []
+        assert captured["workspace_id"] == ""
+    else:
+        with pytest.raises(PyAirbyteInputError, match=expected_message):
+            client.list_workspaces(**request_kwargs)
+        assert captured == {}
+
+
+@pytest.mark.parametrize(
     ("request_kwargs", "expected_message"),
     [
         pytest.param(
@@ -743,6 +809,56 @@ def test_cloud_client_get_organization_rejects_ambiguous_default_context(
     assert error.context["total_candidates"] == 12
 
 
+@pytest.mark.parametrize(
+    ("client_kwargs", "failure", "membership_ids", "expected_id"),
+    [
+        pytest.param(
+            {"workspace_id": "configured-workspace"},
+            "workspace-parent",
+            ("membership-org",),
+            "membership-org",
+            id="workspace-parent-failure-falls-back-to-membership",
+        ),
+        pytest.param(
+            {},
+            "membership",
+            (),
+            None,
+            id="membership-failure-falls-back-to-no-organization",
+        ),
+    ],
+)
+def test_cloud_client_default_organization_handles_resolution_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    client_kwargs: dict[str, str],
+    failure: str,
+    membership_ids: tuple[str, ...],
+    expected_id: str | None,
+) -> None:
+    client = CloudClient(bearer_token="token", **client_kwargs)
+    if failure == "workspace-parent":
+        monkeypatch.setattr(
+            client,
+            "_get_workspace_parent_organization_id",
+            lambda _: (_ for _ in ()).throw(
+                PyAirbyteInputError(message="workspace lookup failed")
+            ),
+        )
+        monkeypatch.setattr(
+            client,
+            "_get_membership_organization_ids",
+            lambda: membership_ids,
+        )
+    else:
+        monkeypatch.setattr(
+            client,
+            "_get_membership_organization_ids",
+            lambda: (_ for _ in ()).throw(AirbyteError(message="membership failed")),
+        )
+
+    assert client._resolve_default_organization_id() == expected_id
+
+
 def test_cloud_client_get_organization_uses_single_config_lookup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -832,6 +948,7 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
     name_contains: str | None,
     expected_ids: list[str],
 ) -> None:
+    captured: dict[str, object] = {}
     organizations = [
         models.OrganizationResponse(
             organization_id="organization-id-1",
@@ -849,17 +966,33 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
             email="three@example.com",
         ),
     ]
-    monkeypatch.setattr(
-        api_util,
-        "list_organizations_for_user_id",
-        lambda **kwargs: [
+
+    def fake_list_organizations_for_user_id(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        filtered = organizations
+        if kwargs["name_contains"] is not None:
+            name_substring = str(kwargs["name_contains"]).casefold()
+            filtered = [
+                organization
+                for organization in filtered
+                if name_substring in (organization.organization_name or "").casefold()
+            ]
+        limit = kwargs["limit"]
+        return [
             {
                 "organizationId": organization.organization_id,
                 "organizationName": organization.organization_name,
                 "email": organization.email,
             }
-            for organization in organizations[: kwargs["limit"]]
-        ],
+            for organization in filtered[: limit if isinstance(limit, int) else None]
+        ]
+
+    monkeypatch.setattr(
+        api_util,
+        "list_organizations_for_user_id",
+        fake_list_organizations_for_user_id,
     )
     monkeypatch.setattr(
         api_util, "get_user_id_from_bearer_token", lambda _: "auth-user-id"
@@ -874,6 +1007,8 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
     )
 
     assert [organization.organization_id for organization in result] == expected_ids
+    assert captured["name_contains"] == name_contains
+    assert captured["limit"] == 1
 
 
 def test_cloud_client_list_organizations_falls_back_to_public_listing(
@@ -1091,8 +1226,8 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     ),
     [
         pytest.param(
-            {"workspace_id": "workspace-id"},
-            {"limit": 3},
+            {},
+            {"limit": 3, "workspace_id": "workspace-id"},
             None,
             "parent-organization-id",
             "parent-organization-id",
@@ -1560,7 +1695,7 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
 
 
 @pytest.mark.parametrize(
-    ("workspaces_or_error", "expect_message"),
+    ("workspaces_or_error", "expect_message", "organization_name"),
     [
         pytest.param(
             [
@@ -1576,16 +1711,36 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
                 ),
             ],
             False,
+            "Organization",
             id="org-less-public-api",
+        ),
+        pytest.param(
+            [
+                CloudWorkspaceInfo(
+                    workspaceId="workspace-id",
+                    name="Workspace",
+                    organizationId="organization-id",
+                ),
+                CloudWorkspaceInfo(
+                    workspaceId="workspace-without-org",
+                    name="Workspace without organization",
+                    organizationId=None,
+                ),
+            ],
+            False,
+            None,
+            id="org-less-public-api-without-organization-name",
         ),
         pytest.param(
             AirbyteError(context={"status_code": 401}),
             True,
+            None,
             id="unauthorized",
         ),
         pytest.param(
             AirbyteError(context={"status_code": 403}),
             True,
+            None,
             id="forbidden",
         ),
     ],
@@ -1594,6 +1749,7 @@ def test_mcp_list_cloud_workspaces_discovery(
     monkeypatch: pytest.MonkeyPatch,
     workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteError,
     expect_message: bool,
+    organization_name: str | None,
 ) -> None:
     captured_organization_id: str | None = "unset"
 
@@ -1612,7 +1768,7 @@ def test_mcp_list_cloud_workspaces_discovery(
         def get_organization(self, *, organization_id: str) -> CloudOrganization:
             return CloudOrganization(
                 organization_id=organization_id,
-                organization_name="Organization",
+                organization_name=organization_name,
             )
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
@@ -1632,11 +1788,12 @@ def test_mcp_list_cloud_workspaces_discovery(
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
         assert result.workspaces[1].organization_id is None
-        assert result.workspaces[0].organization_name == "Organization"
+        assert result.workspaces[0].organization_name == organization_name
         assert result.workspaces[1].organization_name is None
-        assert (
-            result.message
-            == "Resolved organization Organization (organization-id) for these credentials."
+        assert result.message == (
+            "Resolved organization Organization (organization-id) for these credentials."
+            if organization_name is not None
+            else "Resolved organization organization-id for these credentials."
         )
 
 

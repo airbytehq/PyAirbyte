@@ -1604,10 +1604,12 @@ def list_cloud_workspaces(
                 if result.organization_id == resolved_organization_id:
                     result.organization_name = organization.organization_name
             if organization_id is None and organization_name is None:
-                message = (
-                    f"Resolved organization {organization.organization_name} "
-                    f"({resolved_organization_id}) for these credentials."
+                resolved_organization = (
+                    f"{organization.organization_name} ({resolved_organization_id})"
+                    if organization.organization_name is not None
+                    else resolved_organization_id
                 )
+                message = f"Resolved organization {resolved_organization} for these credentials."
     return CloudWorkspaceListResult(
         workspaces=results,
         message=message,

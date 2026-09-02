@@ -436,15 +436,22 @@ class CloudClient:
         if workspace_id is not None:
             return self._get_workspace_parent_organization_id(workspace_id)
 
-        configured_organization_id = self.organization_id
-        if configured_organization_id is None and self.default_workspace_id is not None:
-            configured_organization_id = self._get_workspace_parent_organization_id(
-                self.default_workspace_id
-            )
-        if configured_organization_id is not None:
-            return configured_organization_id
+        return self._resolve_ambient_organization_id()
 
-        organization_ids = self._get_membership_organization_ids()
+    def _resolve_ambient_organization_id(self) -> str | None:
+        """Resolve an organization from configured client context or memberships."""
+        if self.organization_id is not None:
+            return self.organization_id
+        if self.default_workspace_id is not None:
+            try:
+                return self._get_workspace_parent_organization_id(self.default_workspace_id)
+            except (exc.AirbyteError, exc.PyAirbyteInputError):
+                pass
+
+        try:
+            organization_ids = self._get_membership_organization_ids()
+        except (exc.AirbyteError, exc.PyAirbyteInputError):
+            return None
         if len(organization_ids) > 1:
             self._raise_ambiguous_organization_error(organization_ids)
         return organization_ids[0] if organization_ids else None
@@ -640,7 +647,7 @@ class CloudClient:
                 config_api_root=self.config_api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
-                bearer_token=self._authenticated_bearer_token,
+                bearer_token=self._get_config_api_bearer_token(),
                 name_contains=name_contains,
                 limit=limit,
             )
@@ -685,17 +692,7 @@ class CloudClient:
 
     def _resolve_default_organization_id(self) -> str | None:
         """Resolve the organization to use when no organization argument is given."""
-        if self.organization_id is not None:
-            return self.organization_id
-        if self.default_workspace_id is not None:
-            return self._get_workspace_parent_organization_id(self.default_workspace_id)
-
-        organization_ids = self._get_membership_organization_ids()
-        if len(organization_ids) == 1:
-            return organization_ids[0]
-        if len(organization_ids) > 1:
-            self._raise_ambiguous_organization_error(organization_ids)
-        return None
+        return self._resolve_ambient_organization_id()
 
     def _get_organization_by_id(self, organization_id: str) -> CloudOrganization | None:
         """Look up a single organization via the Config API, if available."""
