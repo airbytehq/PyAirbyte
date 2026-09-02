@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 import requests
@@ -124,37 +123,98 @@ def test_get_user_id_from_bearer_token() -> None:
 
 
 @pytest.mark.parametrize(
-    "token",
+    ("token", "expected_message"),
     [
-        "not-a-jwt",
-        "header.not-json.signature",
+        pytest.param(
+            "not-a-jwt",
+            "not a valid JWT",
+            id="invalid-jwt",
+        ),
+        pytest.param(
+            "header.not-json.signature",
+            "could not be decoded",
+            id="undecodable-payload",
+        ),
+        pytest.param(
+            "header.e30.signature",
+            "does not contain a user ID",
+            id="missing-user-id",
+        ),
     ],
 )
-def test_get_user_id_from_bearer_token_rejects_invalid_tokens(token: str) -> None:
-    with pytest.raises(PyAirbyteInputError):
+def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
+    token: str,
+    expected_message: str,
+) -> None:
+    with pytest.raises(PyAirbyteInputError, match=expected_message):
         api_util.get_user_id_from_bearer_token(SecretString(token))
 
 
-def test_get_user_id_from_bearer_token_requires_user_id() -> None:
-    with pytest.raises(PyAirbyteInputError, match="does not contain a user ID"):
-        api_util.get_user_id_from_bearer_token(
-            SecretString("header.e30.signature"),
-        )
-
-
-def test_get_user_by_auth_id_forwards_config_api_request(
+@pytest.mark.parametrize(
+    (
+        "helper",
+        "kwargs",
+        "expected_path",
+        "expected_json",
+        "fake_response",
+        "expected_result",
+    ),
+    [
+        pytest.param(
+            api_util.get_user_by_auth_id,
+            {"auth_user_id": "auth-user-id"},
+            "/users/get_by_auth_id",
+            {"authUserId": "auth-user-id", "authProvider": "keycloak"},
+            {"userId": "user-id"},
+            {"userId": "user-id"},
+            id="user-by-auth-id",
+        ),
+        pytest.param(
+            api_util.list_permissions_for_user,
+            {"user_id": "user-id"},
+            "/permissions/list_by_user",
+            {"userId": "user-id"},
+            [{"permissionType": "organization_member", "organizationId": "org-id"}],
+            [{"permissionType": "organization_member", "organizationId": "org-id"}],
+            id="permissions-list",
+        ),
+        pytest.param(
+            api_util.list_permissions_for_user,
+            {"user_id": "user-id"},
+            "/permissions/list_by_user",
+            {"userId": "user-id"},
+            {
+                "permissions": [
+                    {
+                        "permissionType": "organization_member",
+                        "organizationId": "org-id",
+                    }
+                ]
+            },
+            [{"permissionType": "organization_member", "organizationId": "org-id"}],
+            id="permissions-envelope",
+        ),
+    ],
+)
+def test_config_api_helpers_forward_requests(
     monkeypatch: pytest.MonkeyPatch,
+    helper: Callable[..., object],
+    kwargs: dict[str, str],
+    expected_path: str,
+    expected_json: dict[str, str],
+    fake_response: object,
+    expected_result: object,
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_config_request(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        return {"userId": "user-id"}
+    def fake_config_request(**request_kwargs: object) -> object:
+        captured.update(request_kwargs)
+        return fake_response
 
     monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
 
-    result = api_util.get_user_by_auth_id(
-        "auth-user-id",
+    result = helper(
+        **kwargs,
         api_root="https://api.example",
         config_api_root="https://config.example",
         client_id=None,
@@ -162,25 +222,93 @@ def test_get_user_by_auth_id_forwards_config_api_request(
         bearer_token=SecretString("token"),
     )
 
-    assert result == {"userId": "user-id"}
-    assert captured["path"] == "/users/get_by_auth_id"
-    assert captured["json"] == {
-        "authUserId": "auth-user-id",
-        "authProvider": "keycloak",
-    }
+    assert result == expected_result
+    assert captured["path"] == expected_path
+    assert captured["json"] == expected_json
     assert captured["config_api_root"] == "https://config.example"
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("helper", "kwargs", "response", "expected_message"),
     [
-        pytest.param([], id="list"),
-        pytest.param("unexpected", id="string"),
+        pytest.param(
+            api_util.get_user_by_auth_id,
+            {"auth_user_id": "auth-user-id"},
+            [],
+            "user API returned an unexpected response",
+            id="user-list",
+        ),
+        pytest.param(
+            api_util.get_user_by_auth_id,
+            {"auth_user_id": "auth-user-id"},
+            "unexpected",
+            "user API returned an unexpected response",
+            id="user-string",
+        ),
+        pytest.param(
+            api_util.list_permissions_for_user,
+            {"user_id": "user-id"},
+            "unexpected",
+            "permissions API returned an unexpected response",
+            id="permissions-string",
+        ),
+        pytest.param(
+            api_util.list_permissions_for_user,
+            {"user_id": "user-id"},
+            {"permissions": {}},
+            "permissions API returned an unexpected response",
+            id="permissions-non-list-envelope",
+        ),
+        pytest.param(
+            api_util.list_organizations_for_user_id,
+            {"user_id": "user-id"},
+            [],
+            "organizations API returned an unexpected response",
+            id="organizations-list",
+        ),
+        pytest.param(
+            api_util.list_organizations_for_user_id,
+            {"user_id": "user-id"},
+            {"organizations": {}},
+            "organizations API returned an unexpected response",
+            id="organizations-non-list-envelope",
+        ),
+        pytest.param(
+            api_util.get_organization_info,
+            {"organization_id": "organization-id"},
+            [],
+            "organization API returned an unexpected response",
+            id="organization-list",
+        ),
+        pytest.param(
+            api_util.get_organization_info,
+            {"organization_id": "organization-id"},
+            "unexpected",
+            "organization API returned an unexpected response",
+            id="organization-string",
+        ),
+        pytest.param(
+            api_util.get_workspace_organization_info,
+            {"workspace_id": "workspace-id"},
+            [],
+            "workspace API returned an unexpected response",
+            id="workspace-list",
+        ),
+        pytest.param(
+            api_util.get_workspace_organization_info,
+            {"workspace_id": "workspace-id"},
+            "unexpected",
+            "workspace API returned an unexpected response",
+            id="workspace-string",
+        ),
     ],
 )
-def test_get_user_by_auth_id_rejects_unexpected_response(
+def test_config_api_helpers_reject_unexpected_response(
     monkeypatch: pytest.MonkeyPatch,
+    helper: Callable[..., object],
+    kwargs: dict[str, str],
     response: object,
+    expected_message: str,
 ) -> None:
     monkeypatch.setattr(
         api_util,
@@ -188,12 +316,9 @@ def test_get_user_by_auth_id_rejects_unexpected_response(
         lambda **_: response,
     )
 
-    with pytest.raises(
-        AirbyteError,
-        match="user API returned an unexpected response",
-    ) as exc_info:
-        api_util.get_user_by_auth_id(
-            "auth-user-id",
+    with pytest.raises(AirbyteError, match=expected_message) as exc_info:
+        helper(
+            **kwargs,
             api_root="https://api.example",
             client_id=None,
             client_secret=None,
@@ -201,52 +326,6 @@ def test_get_user_by_auth_id_rejects_unexpected_response(
         )
 
     assert exc_info.value.context == {"response": response}
-
-
-def test_list_permissions_for_user_accepts_direct_list_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-    permissions = [
-        {"permissionType": "organization_member", "organizationId": "org-id"}
-    ]
-
-    def fake_config_request(**kwargs: object) -> list[dict[str, object]]:
-        captured.update(kwargs)
-        return permissions
-
-    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
-
-    result = api_util.list_permissions_for_user(
-        "user-id",
-        api_root="https://api.example",
-        client_id=None,
-        client_secret=None,
-        bearer_token=SecretString("token"),
-    )
-
-    assert result == permissions
-    assert captured["path"] == "/permissions/list_by_user"
-    assert captured["json"] == {"userId": "user-id"}
-
-
-def test_list_permissions_for_user_rejects_unexpected_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        api_util,
-        "_make_config_api_request",
-        lambda **_: "unexpected",
-    )
-
-    with pytest.raises(AirbyteError):
-        api_util.list_permissions_for_user(
-            "user-id",
-            api_root="https://api.example",
-            client_id=None,
-            client_secret=None,
-            bearer_token=SecretString("token"),
-        )
 
 
 @pytest.mark.parametrize(
@@ -322,87 +401,6 @@ def test_list_organizations_for_user_id_paginates_and_forwards_filters(
     }
     assert requests[1]["pagination"] == {"pageSize": 100, "rowOffset": 100}
     assert len(requests) == request_count
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        pytest.param([], id="list"),
-        pytest.param({"organizations": {}}, id="non-list-organizations"),
-    ],
-)
-def test_list_organizations_for_user_id_rejects_unexpected_response(
-    monkeypatch: pytest.MonkeyPatch,
-    response: object,
-) -> None:
-    monkeypatch.setattr(
-        api_util,
-        "_make_config_api_request",
-        lambda **_: response,
-    )
-
-    with pytest.raises(
-        AirbyteError,
-        match="organizations API returned an unexpected response",
-    ) as exc_info:
-        api_util.list_organizations_for_user_id(
-            "user-id",
-            api_root="https://api.example",
-            client_id=None,
-            client_secret=None,
-            bearer_token=SecretString("token"),
-        )
-
-    assert exc_info.value.context == {"response": response}
-
-
-@pytest.mark.parametrize(
-    ("helper", "payload", "message"),
-    [
-        pytest.param(
-            api_util.get_organization_info,
-            {"organization_id": "organization-id"},
-            "organization API returned an unexpected response",
-            id="organization",
-        ),
-        pytest.param(
-            api_util.get_workspace_organization_info,
-            {"workspace_id": "workspace-id"},
-            "workspace API returned an unexpected response",
-            id="workspace",
-        ),
-    ],
-)
-@pytest.mark.parametrize(
-    "response",
-    [
-        pytest.param([], id="list"),
-        pytest.param("unexpected", id="string"),
-    ],
-)
-def test_config_info_helpers_reject_unexpected_response(
-    monkeypatch: pytest.MonkeyPatch,
-    helper: Callable[..., dict[str, Any]],
-    payload: dict[str, str],
-    message: str,
-    response: object,
-) -> None:
-    monkeypatch.setattr(
-        api_util,
-        "_make_config_api_request",
-        lambda **_: response,
-    )
-
-    with pytest.raises(AirbyteError, match=message) as exc_info:
-        helper(
-            **payload,
-            api_root="https://api.example",
-            client_id=None,
-            client_secret=None,
-            bearer_token=SecretString("token"),
-        )
-
-    assert exc_info.value.context == {"response": response}
 
 
 def test_create_workspace_forwards_request(
