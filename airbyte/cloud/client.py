@@ -363,6 +363,10 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="You can provide name_contains or name_filter, but not both."
             )
+        if name is not None and name_contains is not None:
+            raise exc.PyAirbyteInputError(
+                message="You can provide name or name_contains, but not both."
+            )
         resolved_organization_id = (
             None
             if all_organizations

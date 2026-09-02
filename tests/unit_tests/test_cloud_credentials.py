@@ -223,6 +223,34 @@ def test_cloud_client_list_workspaces_forwards_limit(
     assert captured_limit == 3
 
 
+@pytest.mark.parametrize(
+    ("request_kwargs", "expected_message"),
+    [
+        pytest.param(
+            {"all_organizations": True, "organization_id": "organization-id"},
+            "all_organizations option cannot be combined",
+            id="all-organizations-with-organization",
+        ),
+        pytest.param(
+            {"name_contains": "target", "name_filter": lambda _: True},
+            "provide name_contains or name_filter, but not both",
+            id="name-contains-with-name-filter",
+        ),
+        pytest.param(
+            {"name": "target", "name_contains": "target"},
+            "provide name or name_contains, but not both",
+            id="name-with-name-contains",
+        ),
+    ],
+)
+def test_cloud_client_list_workspaces_rejects_invalid_argument_combinations(
+    request_kwargs: dict[str, object],
+    expected_message: str,
+) -> None:
+    with pytest.raises(PyAirbyteInputError, match=expected_message):
+        CloudClient(bearer_token="token").list_workspaces(**request_kwargs)
+
+
 def test_cloud_client_list_workspaces_applies_name_contains_to_all_org_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
