@@ -880,7 +880,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 is ambiguous (multiple matches without a namespace), or incremental mode
                 is requested without a usable cursor field.
         """
-        catalog = self.dump_raw_catalog()
+        catalog = self.dump_raw_catalog(normalize=False)
         if not catalog or "streams" not in catalog:
             raise PyAirbyteInputError(
                 message="Connection catalog is empty or missing.",
