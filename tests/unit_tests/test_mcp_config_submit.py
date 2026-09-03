@@ -333,6 +333,7 @@ def test_oauth_callback_rejects_non_oauth_token() -> None:
 def test_oauth_start_strips_secrets_and_merges_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("MCP_SERVER_URL", "https://example.com/cloud-mcp-preview")
     schema = {
         "type": "object",
         "properties": {
@@ -383,6 +384,9 @@ def test_oauth_start_strips_secrets_and_merges_defaults(
 
     assert response.status_code == 200
     assert response.json() == {"consent_url": "https://idp.example/consent"}
+    assert captured["redirect_url"].startswith(
+        "https://example.com/cloud-mcp-preview/connector-config-oauth-callback?"
+    )
     state = parse_qs(urlparse(captured["redirect_url"]).query)["state"][0]
     claims = decrypt_action_token(state, consume=False)
     assert claims["oauth"] is True

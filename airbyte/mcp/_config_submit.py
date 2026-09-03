@@ -21,7 +21,7 @@ import threading
 import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import jsonschema
 from cryptography.exceptions import InvalidTag
@@ -47,6 +47,9 @@ if TYPE_CHECKING:
 
 
 DEFAULT_FORM_TOKEN_TTL_SECONDS = 600
+MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
+DEFAULT_HTTP_PORT = 8080
+DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
 _FORM_SIGNING_KEY_ENV = "AIRBYTE_MCP_FORM_SIGNING_KEY"
 _PROCESS_SIGNING_KEY = secrets.token_bytes(32)
 _ACTION_NAMES = frozenset({"create", "update", "validate"})
@@ -68,6 +71,16 @@ _OAUTH_INVALID_HTML = (
 
 class ConfigSubmitError(ValueError):
     """Raised when an encrypted configuration-submit capability is invalid."""
+
+
+def _server_url() -> str:
+    server_url = os.getenv(MCP_SERVER_URL_ENV, "").strip() or DEFAULT_MCP_SERVER_URL
+    parsed = urlparse(server_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise PyAirbyteInputError(message="MCP_SERVER_URL must be a valid HTTP(S) URL.")
+    if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1"}:
+        raise PyAirbyteInputError(message="MCP_SERVER_URL must use HTTPS outside localhost.")
+    return server_url.rstrip("/")
 
 
 def _signing_key() -> bytes:
@@ -446,7 +459,7 @@ async def connector_config_oauth_start_endpoint(request: Request) -> Response:  
         consent_url, _ = initiate_oauth_flow(
             claims,
             submitted,
-            server_url=_server_url_from_request(request),
+            server_url=_server_url(),
         )
         return _cors_response({"consent_url": consent_url})
     except (
@@ -465,7 +478,7 @@ def connector_config_oauth_callback_endpoint(request: Request) -> HTMLResponse:
     """Complete an OAuth flow and create or update the Cloud source."""
     state = request.query_params.get("state", "")
     secret_id = request.query_params.get("secret_id", "")
-    if not state or not secret_id or not _safe_request_url(request):
+    if not state or not secret_id:
         return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
     try:
         claims = decrypt_action_token(state)
@@ -499,7 +512,7 @@ def connector_config_oauth_callback_endpoint(request: Request) -> HTMLResponse:
                 **api_kwargs,
             )
         action = "created" if claims["action"] == "create" else "updated"
-        connector_id = getattr(source, "source_id", None) or getattr(source, "connector_id", "")
+        connector_id = source.source_id
         html = _OAUTH_SUCCESS_HTML.format(
             connector_name=claims["connector_name"],
             action=action,
@@ -525,16 +538,6 @@ def _merge_config(base: dict[str, Any], update: Mapping[str, Any]) -> dict[str, 
         else:
             result[key] = value
     return result
-
-
-def _server_url_from_request(request: Request) -> str:
-    if not _safe_request_url(request):
-        raise ConfigSubmitError("OAuth callback requires HTTPS.")
-    return f"{request.url.scheme}://{request.url.netloc}"
-
-
-def _safe_request_url(request: Request) -> bool:
-    return request.url.scheme == "https" or request.url.hostname in {"localhost", "127.0.0.1"}
 
 
 def _cors_response(body: dict[str, Any], *, status_code: int = 200) -> JSONResponse:

@@ -30,6 +30,7 @@ from airbyte.constants import (
 from airbyte.mcp._config_submit import (
     ConfigSubmitError,
     _schema_secret_paths,
+    _server_url,
     decrypt_action_token,
     initiate_oauth_flow,
     mint_action_token,
@@ -48,8 +49,6 @@ if TYPE_CHECKING:
 
 CONNECTOR_FORM_RESOURCE_URI = "ui://airbyte/connector-config-form"
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
-DEFAULT_HTTP_PORT = 8080
-DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
 _MAX_AGENT_CONTENT_LENGTH = 12_000
 
 _HTML_RESOURCE = """<!doctype html>
@@ -347,20 +346,6 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
   }
 })();
 </script></body></html>"""
-
-
-def _server_url() -> str:
-    server_url = os.getenv(MCP_SERVER_URL_ENV, "").strip() or DEFAULT_MCP_SERVER_URL
-    parsed = urlparse(server_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise exc.PyAirbyteInputError(
-            message="MCP_SERVER_URL must be a valid HTTP(S) URL.",
-        )
-    if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1"}:
-        raise exc.PyAirbyteInputError(
-            message="MCP_SERVER_URL must use HTTPS outside localhost.",
-        )
-    return server_url.rstrip("/")
 
 
 def _server_origin() -> str:
@@ -705,7 +690,7 @@ def show_connector_config_form(
 
 
 @mcp_tool(
-    read_only=True,
+    read_only=False,
     idempotent=False,
     open_world=True,
     annotations={INTERACTIVE_UI_ANNOTATION: False},
