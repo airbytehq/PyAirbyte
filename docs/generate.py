@@ -22,7 +22,7 @@ import pdoc.render_helpers
 def _regenerate_mcp_markdown() -> None:
     """Regenerate `docs/mcp-generated/` before pdoc runs.
 
-    The `airbyte.mcp.{cloud,local,interactive,registry,prompts}` modules pull the
+    The `airbyte.mcp.{agents,cloud,local,interactive,registry,prompts}` modules pull the
     per-module Markdown files from `docs/mcp-generated/` via pdoc's
     `.. include::` directive. That directory is git-ignored, so on a clean
     checkout pdoc would fail to resolve the include unless we regenerate it

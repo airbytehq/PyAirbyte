@@ -401,7 +401,8 @@ def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
         lines.append(
             "**Availability:** experimental, insiders only "
             f"(`{MCP_INSIDERS_ENV_VAR}=1` for stdio, `{MCP_INSIDERS_HEADER}: 1` for hosted "
-            "servers, or name the module in the include-modules setting)."
+            "servers, or name the module in the include-modules setting; "
+            f"`{MCP_INSIDERS_ENV_VAR}=0` disables it regardless)."
         )
     if title := annotations.get("title"):
         lines.append(f"**Title:** {title}")
