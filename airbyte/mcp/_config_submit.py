@@ -40,6 +40,7 @@ from airbyte.mcp._tool_utils import (
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
 )
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
@@ -307,7 +308,10 @@ def initiate_oauth_flow(
         schema = get_connector_spec_from_registry(claims["connector_name"], platform="oss")
     if not schema:
         raise ConfigSubmitError("Invalid OAuth request.")
-    clean_config = _strip_secret_values(submitted_config, _schema_secret_paths(schema))
+    clean_config = cast(
+        dict[str, Any],
+        _strip_secret_values(submitted_config, _schema_secret_paths(schema)),
+    )
     defaults = dict(claims.get("non_secret_defaults", {}))
     derived_token = mint_action_token(
         claims["action"],
@@ -354,6 +358,11 @@ def _cloud_client_from_claims(claims: Mapping[str, Any]) -> CloudClient:
         public_api_root=claims.get("api_url"),
         config_api_root=claims.get("config_api_url"),
     )
+
+
+def _secret_claim(claims: Mapping[str, Any], name: str) -> SecretString | None:
+    value = claims.get(name)
+    return SecretString(value) if isinstance(value, str) else None
 
 
 def _execute_action(claims: Mapping[str, Any], config: dict[str, Any]) -> dict[str, str]:
@@ -490,26 +499,31 @@ def connector_config_oauth_callback_endpoint(request: Request) -> HTMLResponse:
         config = claims.get("non_secret_defaults", {})
         if not isinstance(config, dict):
             return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
-        api_kwargs = {
-            "api_root": claims.get("api_url") or "",
-            "client_id": claims.get("client_id"),
-            "client_secret": claims.get("client_secret"),
-            "bearer_token": claims.get("bearer_token"),
-        }
+        api_root_claim = claims.get("api_url")
+        api_root = api_root_claim if isinstance(api_root_claim, str) else ""
+        client_id = _secret_claim(claims, "client_id")
+        client_secret = _secret_claim(claims, "client_secret")
+        bearer_token = _secret_claim(claims, "bearer_token")
         if claims["action"] == "create":
             source = api_util.create_source(
                 claims.get("source_name") or claims["connector_name"],
                 workspace_id=claims["workspace_id"],
                 config=config,
                 secret_id=secret_id,
-                **api_kwargs,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
             )
         else:
             source = api_util.patch_source(
                 claims["source_id"],
                 config=config,
                 secret_id=secret_id,
-                **api_kwargs,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
             )
         action = "created" if claims["action"] == "create" else "updated"
         connector_id = source.source_id
