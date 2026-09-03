@@ -122,6 +122,16 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
       return [{ path, schema: child || {} }];
     });
   };
+  const discriminatorEntries = (schema) =>
+    Object.entries(schema && schema.properties || {}).filter(([, property]) =>
+      property && typeof property === "object" &&
+      (Object.prototype.hasOwnProperty.call(property, "const") ||
+        (Array.isArray(property.enum) && property.enum.length === 1))
+    );
+  const discriminatorValue = (property) =>
+    Object.prototype.hasOwnProperty.call(property, "const")
+      ? property.const
+      : property.enum[0];
   const render = (result) => {
     state.result = result;
     title.textContent = `${result.connector_name} configuration`;
@@ -131,27 +141,96 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
       (required.has(b.path.split(".").pop()) ? 1 : 0) -
       (required.has(a.path.split(".").pop()) ? 1 : 0) ||
       (a.schema.order || 999) - (b.schema.order || 999)
-    ).forEach(({path, schema}) => {
+    ).forEach(({path, schema}) => renderField(
+      form, path, schema, required.has(path.split(".").pop())
+    ));
+    const button = document.createElement("button");
+    button.type = "submit"; button.textContent = "Save configuration"; form.appendChild(button);
+    requestResize();
+  };
+  const renderField = (container, path, schema, required) => {
       const label = document.createElement("label");
-      label.textContent = `${schema.title || path}${required.has(path) ? " *" : ""}`;
+      label.textContent = `${schema.title || path}${required ? " *" : ""}`;
+      const branches = Array.isArray(schema.oneOf) && schema.oneOf.length
+        ? schema.oneOf
+        : Array.isArray(schema.anyOf) && schema.anyOf.length
+          ? schema.anyOf
+          : null;
+      if (branches && branches.every((branch) =>
+        branch && typeof branch === "object" && !Array.isArray(branch)
+      )) {
+        const select = document.createElement("select");
+        branches.forEach((branch, index) => {
+          const option = document.createElement("option");
+          option.value = String(index);
+          option.textContent = branch.title || `Option ${index + 1}`;
+          select.appendChild(option);
+        });
+        const branchContainer = document.createElement("div");
+        const defaults = state.result.non_secret_defaults || {};
+        const selectedBranch = branches.findIndex((branch) =>
+          discriminatorEntries(branch).some(([name, property]) => {
+            const branchPath = path ? `${path}.${name}` : name;
+            return pathValue(defaults, branchPath) === discriminatorValue(property);
+          })
+        );
+        select.value = String(selectedBranch < 0 ? 0 : selectedBranch);
+        const renderBranch = (index) => {
+          branchContainer.replaceChildren();
+          const branch = branches[index];
+          const discriminators = discriminatorEntries(branch);
+          discriminators.forEach(([name, property]) => {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = path ? `${path}.${name}` : name;
+            const value = discriminatorValue(property);
+            input.value = typeof value === "string" ? value : JSON.stringify(value);
+            branchContainer.appendChild(input);
+          });
+          const discriminatorPaths = new Set(discriminators.map(([name]) =>
+            path ? `${path}.${name}` : name
+          ));
+          const branchRequired = new Set(branch.required || []);
+          fields(branch, path)
+            .filter(({path: fieldPath}) => !discriminatorPaths.has(fieldPath))
+            .sort((a, b) =>
+              (branchRequired.has(b.path.split(".").pop()) ? 1 : 0) -
+              (branchRequired.has(a.path.split(".").pop()) ? 1 : 0) ||
+              (a.schema.order || 999) - (b.schema.order || 999)
+            )
+            .forEach(({path: fieldPath, schema: fieldSchema}) =>
+              renderField(
+                branchContainer,
+                fieldPath,
+                fieldSchema,
+                branchRequired.has(fieldPath.split(".").pop())
+              )
+            );
+        };
+        select.addEventListener("change", () => {
+          renderBranch(Number(select.value));
+          requestResize();
+        });
+        label.appendChild(select);
+        label.appendChild(branchContainer);
+        container.appendChild(label);
+        renderBranch(Number(select.value));
+        return;
+      }
       if (["oneOf", "anyOf", "allOf"].some((key) => Array.isArray(schema[key]))) {
         const notice = document.createElement("span");
         notice.textContent = "Complex authentication objects are not supported by this form.";
         notice.setAttribute("aria-disabled", "true");
-        label.appendChild(notice); form.appendChild(label);
+        label.appendChild(notice); container.appendChild(label);
         return;
       }
       const input = document.createElement("input");
       input.name = path;
-      input.type = result.secret_fields.includes(path) ? "password" : "text";
-      const value = pathValue(result.non_secret_defaults || {}, path);
+      input.type = state.result.secret_fields.includes(path) ? "password" : "text";
+      const value = pathValue(state.result.non_secret_defaults || {}, path);
       if (value !== undefined)
         input.value = typeof value === "string" ? value : JSON.stringify(value);
-      label.appendChild(input); form.appendChild(label);
-    });
-    const button = document.createElement("button");
-    button.type = "submit"; button.textContent = "Save configuration"; form.appendChild(button);
-    requestResize();
+      label.appendChild(input); container.appendChild(label);
   };
   form.addEventListener("submit", async (event) => {
     event.preventDefault(); setStatus("", "Saving…", "pending");
@@ -159,7 +238,7 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
     const config = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
     const visible = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
     form.querySelectorAll("input").forEach((input) => {
-      if (!input.value) return;
+      if (!input.value && input.type !== "hidden") return;
       setPath(config, input.name, input.value);
       if (!state.result.secret_fields.includes(input.name))
         setPath(visible, input.name, input.value);

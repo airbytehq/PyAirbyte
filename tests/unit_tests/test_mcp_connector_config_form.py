@@ -31,6 +31,34 @@ SCHEMA = {
     },
 }
 
+GITHUB_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "credentials": {
+            "type": "object",
+            "oneOf": [
+                {
+                    "title": "Personal Access Token",
+                    "properties": {
+                        "option_title": {"const": "personal_access_token"},
+                        "personal_access_token": {
+                            "type": "string",
+                            "airbyte_secret": True,
+                        },
+                    },
+                },
+                {
+                    "title": "OAuth Access Token",
+                    "properties": {
+                        "option_title": {"const": "access_token"},
+                        "access_token": {"type": "string", "airbyte_secret": True},
+                    },
+                },
+            ],
+        }
+    },
+}
+
 
 def test_form_result_contains_schema_and_submit_data(
     monkeypatch: pytest.MonkeyPatch,
@@ -245,7 +273,7 @@ def test_form_handles_one_of_schema_without_plaintext_input(
 
     assert result.structured_content["secret_fields"] == ["credentials.api_key"]
     html = form.connector_config_form_resource()
-    assert "Complex authentication objects are not supported by this form." in html
+    assert "renderField = (container, path, schema, required)" in html
     assert "Array.isArray(child[key])" in html
     assert "state.result.submit_endpoint" in html
     assert "JSON.stringify({config})" in html
@@ -257,6 +285,34 @@ def test_form_handles_one_of_schema_without_plaintext_input(
     assert 'method: "ui/message"' in html
     assert "Notify agent" in html
     assert "Math.min(contentHeight + 20, 600)" in html
+
+
+def test_standalone_form_embeds_one_of_schema_and_branch_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: GITHUB_SCHEMA
+    )
+
+    result = form.show_connector_config_form(
+        "source-github",
+        {"credentials": {"option_title": "access_token"}},
+    )
+    html = form.connector_config_form_page(result.structured_content)
+
+    assert "window.__AIRBYTE_FORM_PAYLOAD__ =" in html
+    assert "Personal Access Token" in html
+    assert "OAuth Access Token" in html
+    assert result.structured_content["secret_fields"] == [
+        "credentials.access_token",
+        "credentials.personal_access_token",
+    ]
+    assert (
+        '"secret_fields":["credentials.access_token","credentials.personal_access_token"]'
+        in html
+    )
+    assert '"option_title":{"const":"personal_access_token"}' in html
+    assert '"option_title":{"const":"access_token"}' in html
 
 
 def test_connector_form_resource_includes_csp_metadata(
