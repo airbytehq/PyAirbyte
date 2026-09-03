@@ -6,7 +6,8 @@ Runs a two-pass inspect against the default `airbyte/mcp/server.py:app` spec
 (override with `--server-spec`) to obtain the full FastMCP protocol surface
 (tools, resources, resource templates, prompts) as a JSON report, then renders
 it into one Markdown file **per MCP module** under `docs/mcp-generated/`, plus
-an `index.md` overview. The trusted-execution and interactive-UI gates cannot
+an `index.md` overview. The child inspect process enables trusted execution and
+insiders mode via env vars; the trusted-execution and interactive-UI gates cannot
 both be open in one request, so the passes are merged to document every
 registered tool.
 
@@ -94,7 +95,12 @@ from fastmcp_extensions.capability_tokens import DEFAULT_EXTENSIONS_HEADER
 from fastmcp_extensions.tool_filters import ANNOTATION_REQUIRES_CLIENT_FILESYSTEM
 from starlette.requests import Request
 
-from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
+from airbyte.constants import (
+    MCP_INSIDERS_ENV_VAR,
+    MCP_INSIDERS_HEADER,
+    MCP_INSIDERS_MODULES,
+    MCP_TRUSTED_EXECUTION_ENV_VAR,
+)
 
 
 DEFAULT_OUTPUT = Path("docs/mcp-generated")
@@ -125,7 +131,7 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
         "--emit-inspect-json",
         str(report_path),
     ]
-    env = {**os.environ, MCP_TRUSTED_EXECUTION_ENV_VAR: "1"}
+    env = {**os.environ, MCP_TRUSTED_EXECUTION_ENV_VAR: "1", MCP_INSIDERS_ENV_VAR: "1"}
     try:
         subprocess.run(
             command,
@@ -390,6 +396,12 @@ def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
         lines.append(
             "**Availability:** requires an MCP Apps UI-capable client "
             f"(declares the `{UI_EXTENSION_ID}` extension)."
+        )
+    if annotations.get("mcp_module") in MCP_INSIDERS_MODULES:
+        lines.append(
+            "**Availability:** experimental, insiders only "
+            f"(`{MCP_INSIDERS_ENV_VAR}=1` for stdio, `{MCP_INSIDERS_HEADER}: 1` for hosted "
+            "servers, or name the module in the include-modules setting)."
         )
     if title := annotations.get("title"):
         lines.append(f"**Title:** {title}")
