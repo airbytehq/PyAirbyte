@@ -312,15 +312,16 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import agents, cloud, local, registry, server
+from airbyte.mcp import agents, cloud, interactive, local, prompts, registry
 
 
 __all__: list[str] = [
     "agents",
     "cloud",
+    "interactive",
     "local",
+    "prompts",
     "registry",
-    "server",
 ]
 
 __docformat__ = "google"

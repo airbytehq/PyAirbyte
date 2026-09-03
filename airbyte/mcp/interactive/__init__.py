@@ -1,5 +1,8 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Interactive MCP tools for UI-capable clients."""
+"""Interactive MCP tools for UI-capable clients.
+
+.. include:: ../../../docs/mcp-generated/interactive.md
+"""
 
 from __future__ import annotations
 
