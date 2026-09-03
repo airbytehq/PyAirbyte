@@ -9,6 +9,7 @@ from airbyte.mcp._tool_utils import register_mcp_tools
 from airbyte.mcp.interactive._connector_config_form_ui import (
     register_connector_config_form_resource,
     show_connector_config_form,
+    start_connector_oauth,
 )
 from airbyte.mcp.interactive._registry_ui import show_connectors_list
 from airbyte.mcp.interactive._sync_history_ui import show_connection_sync_history
@@ -27,6 +28,7 @@ def register_interactive_tools(app: FastMCP) -> None:
 
 __all__ = [
     "register_interactive_tools",
+    "start_connector_oauth",
     "show_connector_config_form",
     "show_connectors_list",
     "show_connection_sync_history",

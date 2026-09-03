@@ -21,6 +21,7 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
+from airbyte_api.models import OAuthActorNames
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
@@ -56,6 +57,41 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
+
+
+def is_oauth_source_type(source_type: str) -> bool:
+    """Return whether a source type supports the public OAuth flow."""
+    try:
+        OAuthActorNames(source_type)
+    except ValueError:
+        return False
+    return True
+
+
+def initiate_oauth(
+    *,
+    redirect_url: str,
+    source_type: str,
+    workspace_id: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> api.InitiateOAuthResponse:
+    """Initiate an OAuth flow for a source type."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    return airbyte_instance.sources.initiate_o_auth(
+        models.InitiateOauthRequest(
+            redirect_url=redirect_url,
+            source_type=OAuthActorNames(source_type),
+            workspace_id=workspace_id,
+        )
+    )
 
 
 def _validate_pagination_params(
@@ -1058,7 +1094,7 @@ def cancel_job(
 # Create, get, and delete sources
 
 
-def create_source(
+def create_source(  # noqa: PLR0913
     name: str,
     *,
     workspace_id: str,
@@ -1068,6 +1104,7 @@ def create_source(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    secret_id: str | None = None,
 ) -> models.SourceResponse:
     """Create a source connector instance.
 
@@ -1085,7 +1122,7 @@ def create_source(
             workspace_id=workspace_id,
             configuration=config,  # Speakeasy API wants a dataclass, not a dict
             definition_id=definition_id or None,  # Only used for custom sources
-            secret_id=None,  # For OAuth, not yet supported
+            secret_id=secret_id,
         ),
     )
     if status_ok(response.status_code) and response.source_response:
@@ -1222,6 +1259,7 @@ def patch_source(
     bearer_token: SecretString | None,
     name: str | None = None,
     config: models.SourceConfiguration | dict[str, Any] | None = None,
+    secret_id: str | None = None,
 ) -> models.SourceResponse:
     """Update/patch a source configuration.
 
@@ -1236,6 +1274,7 @@ def patch_source(
         bearer_token: Bearer token for authentication (alternative to client credentials).
         name: Optional new name for the source
         config: Optional new configuration for the source
+        secret_id: Optional OAuth secret ID obtained through the redirect flow
 
     Returns:
         Updated SourceResponse object
@@ -1252,6 +1291,7 @@ def patch_source(
             source_patch_request=models.SourcePatchRequest(
                 name=name,
                 configuration=config,
+                secret_id=secret_id,
             ),
         ),
     )

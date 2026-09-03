@@ -73,7 +73,11 @@ from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
-from airbyte.mcp._config_submit import connector_config_submit_endpoint
+from airbyte.mcp._config_submit import (
+    connector_config_oauth_callback_endpoint,
+    connector_config_oauth_start_endpoint,
+    connector_config_submit_endpoint,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -391,6 +395,18 @@ async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF02
 async def connector_config_submit(request: Request) -> Response:
     """Execute a connector configuration action from the MCP App form."""
     return await connector_config_submit_endpoint(request)
+
+
+@app.custom_route("/connector-config-oauth-start", methods=["POST", "OPTIONS"])
+async def connector_config_oauth_start(request: Request) -> Response:
+    """Start the connector configuration OAuth flow."""
+    return await connector_config_oauth_start_endpoint(request)
+
+
+@app.custom_route("/connector-config-oauth-callback", methods=["GET"])
+async def connector_config_oauth_callback(request: Request) -> Response:  # noqa: RUF029
+    """Complete the connector configuration OAuth flow."""
+    return connector_config_oauth_callback_endpoint(request)
 
 
 @app.custom_route("/connector-config-form", methods=["GET"])

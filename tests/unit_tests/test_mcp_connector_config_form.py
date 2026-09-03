@@ -189,6 +189,28 @@ def test_form_selects_create_action_with_cloud_credentials(
 
     assert result.structured_content["action"] == "create"
     assert "cloud-secret" not in json.dumps(result.structured_content)
+    assert result.structured_content["oauth_supported"] is False
+
+
+def test_form_marks_oauth_capability_only_for_cloud_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-token")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    create = form.show_connector_config_form("source-github")
+    assert create.structured_content["oauth_supported"] is True
+
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR)
+    validate = form.show_connector_config_form("source-github")
+    assert validate.structured_content["oauth_supported"] is False
+
+    non_oauth = form.show_connector_config_form("source-pokeapi")
+    assert non_oauth.structured_content["oauth_supported"] is False
 
 
 def test_form_selects_update_action_with_source_id(
@@ -240,11 +262,94 @@ def test_form_selects_validate_without_cloud_credentials(
     assert result.structured_content["action"] == "validate"
 
 
+def test_start_connector_oauth_rejects_secret_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="Secret values cannot"):
+        form.start_connector_oauth(
+            "source-github",
+            {"credentials": {"api_key": "secret-value"}},
+            source_name="GitHub",
+        )
+
+
+def test_start_connector_oauth_rejects_validate_only_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_SECRET_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, raising=False)
+    monkeypatch.setattr(form, "_resolve_transport_bearer_token", lambda: "")
+
+    with pytest.raises(PyAirbyteInputError, match="required to start OAuth"):
+        form.start_connector_oauth("source-github", {}, source_name="GitHub")
+
+
+def test_start_connector_oauth_rejects_non_oauth_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-token")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+
+    with pytest.raises(PyAirbyteInputError, match="does not support OAuth"):
+        form.start_connector_oauth("source-pokeapi", {}, source_name="PokeAPI")
+
+
+def test_start_connector_oauth_returns_safe_consent_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-token")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+    monkeypatch.setattr(
+        form,
+        "initiate_oauth_flow",
+        lambda claims, config, server_url: (
+            "https://idp.example/consent",
+            "derived-secret-token",
+        ),
+    )
+
+    result = form.start_connector_oauth(
+        "source-github",
+        {"credentials": {"username": "user"}, "region": "us-east-1"},
+        source_name="GitHub",
+    )
+
+    assert result.structured_content["consent_url"] == "https://idp.example/consent"
+    assert result.structured_content["connector_name"] == "source-github"
+    assert result.structured_content["action"] == "create"
+    assert result.structured_content["non_secret_config"] == {
+        "credentials": {"username": "user"},
+        "region": "us-east-1",
+    }
+    assert "derived-secret-token" not in result.content[0].text
+    assert "cloud-token" not in result.content[0].text
+    assert "secret-value" not in result.content[0].text
+    assert "derived-secret-token" not in json.dumps(result.structured_content)
+    assert "cloud-token" not in json.dumps(result.structured_content)
+
+
 def test_form_blocks_prototype_pollution_paths() -> None:
     html = form.connector_config_form_resource()
 
     assert '["__proto__", "constructor", "prototype"]' in html
     assert "Array.isArray(target[key])" in html
+    assert "Comma-separated values" in html
+    assert "oauth_start_endpoint" in html
 
 
 def test_form_handles_one_of_schema_without_plaintext_input(

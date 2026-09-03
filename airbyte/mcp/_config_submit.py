@@ -21,15 +21,18 @@ import threading
 import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import urlencode
 
 import jsonschema
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from airbyte import get_source
+from airbyte._util import api_util
 from airbyte._util.api_util import SDKError
+from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud.client import CloudClient
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._tool_utils import (
@@ -50,6 +53,17 @@ _ACTION_NAMES = frozenset({"create", "update", "validate"})
 _AES_GCM_NONCE_SIZE = 12
 _SEEN_JTIS: dict[str, int] = {}
 _SEEN_JTIS_LOCK = threading.Lock()
+_OAUTH_SUCCESS_HTML = (
+    "<!doctype html><html><body><p>Authentication complete. Your "
+    "{connector_name} source was {action}. You can close this tab and return to your agent."
+    "</p><p>Connector ID: {connector_id}</p></body></html>"
+)
+_OAUTH_FAILURE_HTML = (
+    "<!doctype html><html><body><p>Could not complete authentication.</p></body></html>"
+)
+_OAUTH_INVALID_HTML = (
+    "<!doctype html><html><body><p>This link is invalid or has expired.</p></body></html>"
+)
 
 
 class ConfigSubmitError(ValueError):
@@ -93,6 +107,7 @@ def mint_action_token(  # noqa: PLR0913
     api_url: str | None = None,
     config_api_url: str | None = None,
     tenant_claim: str | None = None,
+    oauth: bool | None = None,
     ttl_seconds: int = DEFAULT_FORM_TOKEN_TTL_SECONDS,
 ) -> str:
     """Mint an encrypted, one-shot action capability for the connector form."""
@@ -124,6 +139,7 @@ def mint_action_token(  # noqa: PLR0913
         "client_secret": client_secret,
         "api_url": api_url,
         "config_api_url": config_api_url,
+        "oauth": oauth,
     }
     claims.update({key: value for key, value in optional_claims.items() if value is not None})
     plaintext = json.dumps(claims, separators=(",", ":")).encode()
@@ -159,9 +175,14 @@ def _validate_claims(payload: object) -> dict[str, Any]:
         "client_secret",
         "api_url",
         "config_api_url",
+        "oauth",
     ):
         if key == "non_secret_defaults":
             if key in payload and not isinstance(payload[key], dict):
+                raise ConfigSubmitError("Invalid configuration submit token.")
+            continue
+        if key == "oauth":
+            if key in payload and not isinstance(payload[key], bool):
                 raise ConfigSubmitError("Invalid configuration submit token.")
             continue
         if key in payload and not isinstance(payload[key], str):
@@ -234,6 +255,82 @@ def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str
             if isinstance(branch, Mapping):
                 paths.update(_schema_secret_paths(branch, prefix))
     return paths
+
+
+def _strip_secret_values(
+    value: object,
+    secret_paths: set[str],
+    prefix: str = "",
+) -> object:
+    if isinstance(value, list):
+        return [_strip_secret_values(item, secret_paths, prefix) for item in value]
+    if not isinstance(value, Mapping):
+        return value
+    result: dict[str, object] = {}
+    for name, child in value.items():
+        if not isinstance(name, str):
+            continue
+        path = f"{prefix}.{name}" if prefix else name
+        if path in secret_paths:
+            continue
+        result[name] = _strip_secret_values(child, secret_paths, path)
+    return result
+
+
+def initiate_oauth_flow(
+    claims: Mapping[str, Any],
+    submitted_config: Mapping[str, Any],
+    *,
+    server_url: str,
+) -> tuple[str, str]:
+    """Mint a derived OAuth capability and obtain the Cloud consent URL."""
+    if claims["action"] not in {"create", "update"} or not claims.get("workspace_id"):
+        raise ConfigSubmitError("Invalid OAuth request.")
+    source_type = claims["connector_name"].removeprefix("source-")
+    if not api_util.is_oauth_source_type(source_type):
+        raise ConfigSubmitError("Invalid OAuth request.")
+    schema = get_connector_spec_from_registry(claims["connector_name"], platform="cloud")
+    if schema is None:
+        schema = get_connector_spec_from_registry(claims["connector_name"], platform="oss")
+    if not schema:
+        raise ConfigSubmitError("Invalid OAuth request.")
+    clean_config = _strip_secret_values(submitted_config, _schema_secret_paths(schema))
+    defaults = dict(claims.get("non_secret_defaults", {}))
+    derived_token = mint_action_token(
+        claims["action"],
+        claims["connector_name"],
+        non_secret_defaults=_merge_config(defaults, clean_config),
+        workspace_id=claims.get("workspace_id"),
+        source_id=claims.get("source_id"),
+        source_name=claims.get("source_name"),
+        bearer_token=claims.get("bearer_token"),
+        client_id=claims.get("client_id"),
+        client_secret=claims.get("client_secret"),
+        api_url=claims.get("api_url"),
+        config_api_url=claims.get("config_api_url"),
+        tenant_claim=claims["tenant_claim"],
+        oauth=True,
+    )
+    response = api_util.initiate_oauth(
+        redirect_url=(
+            f"{server_url.rstrip('/')}/connector-config-oauth-callback?"
+            f"{urlencode({'state': derived_token})}"
+        ),
+        source_type=source_type,
+        workspace_id=claims["workspace_id"],
+        api_root=claims.get("api_url") or "",
+        client_id=claims.get("client_id"),
+        client_secret=claims.get("client_secret"),
+        bearer_token=claims.get("bearer_token"),
+    )
+    raw = response.raw_response.json()
+    consent_url = next(
+        (raw.get(key) for key in ("consentUrl", "consent_url", "redirectUrl") if raw.get(key)),
+        None,
+    )
+    if not isinstance(consent_url, str):
+        raise ConfigSubmitError("OAuth consent URL is unavailable.")
+    return consent_url, derived_token
 
 
 def _cloud_client_from_claims(claims: Mapping[str, Any]) -> CloudClient:
@@ -325,6 +422,121 @@ async def connector_config_submit_endpoint(request: Request) -> Response:  # noq
         )
 
 
+async def connector_config_oauth_start_endpoint(request: Request) -> Response:  # noqa: PLR0911
+    """Start an OAuth consent flow without consuming the form capability."""
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=_cors_headers())
+    authorization = request.headers.get("authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        return _cors_response({"error": "Unauthorized."}, status_code=401)
+    token = authorization[7:].strip()
+    try:
+        claims = decrypt_action_token(token, consume=False)
+    except ConfigSubmitError:
+        return _cors_response({"error": "Invalid OAuth request."}, status_code=403)
+    if claims["action"] not in {"create", "update"} or not claims.get("workspace_id"):
+        return _cors_response({"error": "Invalid OAuth request."}, status_code=403)
+    if not api_util.is_oauth_source_type(claims["connector_name"].removeprefix("source-")):
+        return _cors_response({"error": "Invalid OAuth request."}, status_code=403)
+    try:
+        body = await request.json()
+        submitted = body.get("config") if isinstance(body, dict) else None
+        if not isinstance(submitted, dict):
+            return _cors_response({"error": "Invalid OAuth request."}, status_code=400)
+        consent_url, _ = initiate_oauth_flow(
+            claims,
+            submitted,
+            server_url=_server_url_from_request(request),
+        )
+        return _cors_response({"consent_url": consent_url})
+    except (
+        AirbyteError,
+        ConfigSubmitError,
+        KeyError,
+        SDKError,
+        TypeError,
+        ValueError,
+        jsonschema.ValidationError,
+    ):
+        return _cors_response({"error": "Could not start authentication."}, status_code=422)
+
+
+def connector_config_oauth_callback_endpoint(request: Request) -> HTMLResponse:
+    """Complete an OAuth flow and create or update the Cloud source."""
+    state = request.query_params.get("state", "")
+    secret_id = request.query_params.get("secret_id", "")
+    if not state or not secret_id or not _safe_request_url(request):
+        return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
+    try:
+        claims = decrypt_action_token(state)
+    except ConfigSubmitError:
+        return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
+    try:
+        if claims.get("oauth") is not True or claims["action"] not in {"create", "update"}:
+            return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
+        config = claims.get("non_secret_defaults", {})
+        if not isinstance(config, dict):
+            return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
+        api_kwargs = {
+            "api_root": claims.get("api_url") or "",
+            "client_id": claims.get("client_id"),
+            "client_secret": claims.get("client_secret"),
+            "bearer_token": claims.get("bearer_token"),
+        }
+        if claims["action"] == "create":
+            source = api_util.create_source(
+                claims.get("source_name") or claims["connector_name"],
+                workspace_id=claims["workspace_id"],
+                config=config,
+                secret_id=secret_id,
+                **api_kwargs,
+            )
+        else:
+            source = api_util.patch_source(
+                claims["source_id"],
+                config=config,
+                secret_id=secret_id,
+                **api_kwargs,
+            )
+        action = "created" if claims["action"] == "create" else "updated"
+        connector_id = getattr(source, "source_id", None) or getattr(source, "connector_id", "")
+        html = _OAUTH_SUCCESS_HTML.format(
+            connector_name=claims["connector_name"],
+            action=action,
+            connector_id=connector_id,
+        )
+        return HTMLResponse(html)
+    except (
+        AirbyteError,
+        ConfigSubmitError,
+        KeyError,
+        SDKError,
+        TypeError,
+        ValueError,
+    ):
+        return HTMLResponse(_OAUTH_FAILURE_HTML, status_code=422)
+
+
+def _merge_config(base: dict[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in update.items():
+        if isinstance(value, Mapping) and isinstance(result.get(key), dict):
+            result[key] = _merge_config(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _server_url_from_request(request: Request) -> str:
+    if not _safe_request_url(request):
+        raise ConfigSubmitError("OAuth callback requires HTTPS.")
+    return f"{request.url.scheme}://{request.url.netloc}"
+
+
+def _safe_request_url(request: Request) -> bool:
+    return request.url.scheme == "https" or request.url.hostname in {"localhost", "127.0.0.1"}
+
+
 def _cors_response(body: dict[str, Any], *, status_code: int = 200) -> JSONResponse:
     return JSONResponse(
         body,
@@ -349,6 +561,16 @@ def connector_config_submit_routes() -> list[Route]:
             connector_config_submit_endpoint,
             methods=["POST", "OPTIONS"],
         ),
+        Route(
+            "/connector-config-oauth-start",
+            connector_config_oauth_start_endpoint,
+            methods=["POST", "OPTIONS"],
+        ),
+        Route(
+            "/connector-config-oauth-callback",
+            connector_config_oauth_callback_endpoint,
+            methods=["GET"],
+        ),
     ]
 
 
@@ -359,5 +581,6 @@ __all__ = [
     "connector_config_submit_endpoint",
     "connector_config_submit_routes",
     "decrypt_action_token",
+    "initiate_oauth_flow",
     "mint_action_token",
 ]

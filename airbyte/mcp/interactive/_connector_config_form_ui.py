@@ -17,6 +17,7 @@ from pydantic import Field
 from starlette.responses import HTMLResponse
 
 from airbyte import exceptions as exc
+from airbyte._util import api_util
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
@@ -30,6 +31,7 @@ from airbyte.mcp._config_submit import (
     ConfigSubmitError,
     _schema_secret_paths,
     decrypt_action_token,
+    initiate_oauth_flow,
     mint_action_token,
 )
 from airbyte.mcp._tool_utils import (
@@ -111,6 +113,21 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
     });
     target[keys[keys.length - 1]] = value;
   };
+  const setInputPath = (target, input) => {
+    if (!input.value && input.type !== "hidden") return;
+    const value = input.dataset.arrayField === "1"
+      ? input.value.split(",").map((item) => item.trim()).filter(Boolean)
+      : input.value;
+    setPath(target, input.name, value);
+  };
+  const collectConfig = (includeSecrets) => {
+    const config = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
+    form.querySelectorAll("input").forEach((input) => {
+      if (!includeSecrets && state.result.secret_fields.includes(input.name)) return;
+      setInputPath(config, input);
+    });
+    return config;
+  };
   const fields = (schema, prefix = "") => {
     const properties = schema && schema.properties || {};
     return Object.entries(properties).flatMap(([name, child]) => {
@@ -144,6 +161,7 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
     ).forEach(({path, schema}) => renderField(
       form, path, schema, required.has(path.split(".").pop())
     ));
+    renderOAuthButton();
     const button = document.createElement("button");
     button.type = "submit"; button.textContent = "Save configuration"; form.appendChild(button);
     requestResize();
@@ -227,22 +245,61 @@ window.__AIRBYTE_FORM_PAYLOAD__ = null;
       const input = document.createElement("input");
       input.name = path;
       input.type = state.result.secret_fields.includes(path) ? "password" : "text";
+      if (schema.type === "array") {
+        input.dataset.arrayField = "1";
+        input.placeholder = "Comma-separated values";
+      }
       const value = pathValue(state.result.non_secret_defaults || {}, path);
       if (value !== undefined)
-        input.value = typeof value === "string" ? value : JSON.stringify(value);
+        input.value = schema.type === "array" && Array.isArray(value)
+          ? value.join(", ")
+          : typeof value === "string" ? value : JSON.stringify(value);
       label.appendChild(input); container.appendChild(label);
+  };
+  const renderOAuthButton = () => {
+    if (!state.result.oauth_supported) return;
+    const wrapper = document.createElement("div");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Sign in with OAuth (via Airbyte Cloud)";
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      setStatus("", "Starting OAuth sign-in…", "pending");
+      try {
+        const response = await fetch(state.result.oauth_start_endpoint, {
+          method: "POST",
+          headers: {"Authorization": `Bearer ${state.result.submit_token}`,
+            "Content-Type": "application/json"},
+          body: JSON.stringify({config: collectConfig(false)})
+        });
+        if (!response.ok) throw new Error("OAuth sign-in could not be started.");
+        const body = await response.json();
+        const consentUrl = body.consent_url;
+        window.open(consentUrl, "_blank");
+        const link = document.createElement("a");
+        link.href = consentUrl;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = "Open consent page";
+        status.textContent = (
+          "Complete sign-in in the new tab; the source will be created automatically. "
+        );
+        status.appendChild(link);
+      } catch (error) {
+        setStatus("error", "OAuth sign-in could not be started.", "error");
+      } finally {
+        button.disabled = false;
+        requestResize();
+      }
+    });
+    wrapper.appendChild(button);
+    form.appendChild(wrapper);
   };
   form.addEventListener("submit", async (event) => {
     event.preventDefault(); setStatus("", "Saving…", "pending");
     requestResize();
-    const config = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
-    const visible = JSON.parse(JSON.stringify(state.result.non_secret_defaults || {}));
-    form.querySelectorAll("input").forEach((input) => {
-      if (!input.value && input.type !== "hidden") return;
-      setPath(config, input.name, input.value);
-      if (!state.result.secret_fields.includes(input.name))
-        setPath(visible, input.name, input.value);
-    });
+    const config = collectConfig(true);
+    const visible = collectConfig(false);
     try {
       const response = await fetch(state.result.submit_endpoint, {
         method: "POST", headers: {"Authorization": `Bearer ${state.result.submit_token}`,
@@ -313,6 +370,10 @@ def _server_origin() -> str:
 
 def _submit_endpoint() -> str:
     return f"{_server_url()}/connector-config-submit"
+
+
+def _oauth_start_endpoint() -> str:
+    return f"{_server_url()}/connector-config-oauth-start"
 
 
 def _standalone_endpoint(token: str) -> str:
@@ -406,12 +467,16 @@ def _agent_content(
     config_defaults: dict[str, Any],
     secret_fields: list[str],
     standalone_url: str,
+    *,
+    oauth_supported: bool,
 ) -> str:
     """Build bounded text for agents that cannot render the form."""
     note = (
         "The user will enter secrets in the form. The model will only receive "
         "a confirmation and non-secret configuration."
     )
+    if oauth_supported:
+        note += " The user may complete OAuth out-of-band; only safe confirmation returns."
     payload: dict[str, Any] = {
         "connector_name": connector_name,
         "non_secret_defaults": config_defaults,
@@ -419,6 +484,7 @@ def _agent_content(
         "standalone_url": standalone_url,
         "note": note,
         "agent_preview_max_chars": _MAX_AGENT_CONTENT_LENGTH,
+        "oauth_supported": oauth_supported,
     }
     content = json.dumps(payload, separators=(",", ":"))
     if len(content) <= _MAX_AGENT_CONTENT_LENGTH:
@@ -450,6 +516,9 @@ def _form_payload(
     action: str,
     submit_token: str,
 ) -> dict[str, Any]:
+    oauth_supported = action in {"create", "update"} and api_util.is_oauth_source_type(
+        connector_name.removeprefix("source-")
+    )
     return {
         "connector_name": connector_name,
         "schema": spec_schema,
@@ -459,6 +528,8 @@ def _form_payload(
         "action": action,
         "submit_token": submit_token,
         "submit_endpoint": _submit_endpoint(),
+        "oauth_start_endpoint": _oauth_start_endpoint(),
+        "oauth_supported": oauth_supported,
     }
 
 
@@ -618,6 +689,8 @@ def show_connector_config_form(
         config_defaults,
         secret_fields,
         standalone_url,
+        oauth_supported=action in {"create", "update"}
+        and api_util.is_oauth_source_type(connector_name.removeprefix("source-")),
     )
     structured_content = _form_payload(
         connector_name,
@@ -631,7 +704,106 @@ def show_connector_config_form(
     return ToolResult(content=content, structured_content=structured_content)
 
 
+@mcp_tool(
+    read_only=True,
+    idempotent=False,
+    open_world=True,
+    annotations={INTERACTIVE_UI_ANNOTATION: False},
+)
+def start_connector_oauth(
+    connector_name: Annotated[
+        str,
+        Field(description="Connector name, such as `source-github`."),
+    ],
+    config: Annotated[
+        dict[str, Any] | str | None,
+        Field(description="Non-secret connector configuration."),
+    ] = None,
+    *,
+    source_name: Annotated[
+        str,
+        Field(description="Name to use when creating the source."),
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(description="Cloud workspace ID for creating the source.", default=None),
+    ] = None,
+    source_id: Annotated[
+        str | None,
+        Field(description="Existing Cloud source ID to update.", default=None),
+    ] = None,
+    ctx: Context | None = None,
+) -> ToolResult:
+    """Start connector OAuth in a browser without rendering a form."""
+    if config is None:
+        config = {}
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError as error:
+            raise exc.PyAirbyteInputError(
+                message="config must be a JSON object.",
+                context={"connector_name": connector_name},
+            ) from error
+    if not isinstance(config, dict):
+        raise exc.PyAirbyteInputError(
+            message="config must be an object.",
+            context={"connector_name": connector_name},
+        )
+    spec_schema = _connector_spec_schema(connector_name)
+    if not spec_schema:
+        raise exc.PyAirbyteInputError(
+            message=f"Could not fetch a configuration schema for '{connector_name}'.",
+            context={"connector_name": connector_name},
+        )
+    secret_fields = sorted(_schema_secret_paths(spec_schema))
+    supplied_secrets = sorted(_paths_present(config).intersection(secret_fields))
+    if supplied_secrets:
+        raise exc.PyAirbyteInputError(
+            message="Secret values cannot be provided in config.",
+            context={"secret_fields": supplied_secrets},
+        )
+    action, token = _mint_form_token(
+        connector_name,
+        config_defaults=config,
+        ctx=ctx,
+        source_id=source_id,
+        workspace_id=workspace_id,
+        source_name=source_name,
+    )
+    if action == "validate":
+        raise exc.PyAirbyteInputError(
+            message="Cloud credentials and a workspace ID are required to start OAuth."
+        )
+    if not api_util.is_oauth_source_type(connector_name.removeprefix("source-")):
+        raise exc.PyAirbyteInputError(
+            message=f"Connector '{connector_name}' does not support OAuth."
+        )
+    claims = decrypt_action_token(token, consume=False)
+    consent_url, _ = initiate_oauth_flow(
+        claims,
+        config,
+        server_url=_server_url(),
+    )
+    safe_config = claims.get("non_secret_defaults", {})
+    result = {
+        "consent_url": consent_url,
+        "connector_name": connector_name,
+        "action": action,
+        "non_secret_config": safe_config,
+        "note": (
+            "Complete authentication in the browser. The agent will only receive "
+            "safe confirmation and will not receive the OAuth secret."
+        ),
+    }
+    return ToolResult(
+        content=json.dumps(result, separators=(",", ":")),
+        structured_content=result,
+    )
+
+
 __all__ = [
     "connector_config_form_endpoint",
+    "start_connector_oauth",
     "show_connector_config_form",
 ]
