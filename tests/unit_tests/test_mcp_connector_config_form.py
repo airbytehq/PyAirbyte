@@ -13,7 +13,11 @@ from starlette.testclient import TestClient
 
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.mcp import _config_submit
-from airbyte.mcp._config_submit import connector_config_submit_routes, mint_action_token
+from airbyte.mcp._config_submit import (
+    MCP_SERVER_URL_ENV,
+    connector_config_submit_routes,
+    mint_action_token,
+)
 from airbyte.mcp.interactive import _connector_config_form_ui as form
 
 
@@ -130,7 +134,7 @@ def test_form_rejects_secrets_in_array_defaults(
 
 
 def test_submit_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://example.com/cloud-mcp/")
+    monkeypatch.setenv(MCP_SERVER_URL_ENV, "https://example.com/cloud-mcp/")
 
     assert (
         form._submit_endpoint()
@@ -146,7 +150,7 @@ def test_submit_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) 
 def test_server_origin_rejects_insecure_nonlocal_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://example.com/cloud-mcp")
+    monkeypatch.setenv(MCP_SERVER_URL_ENV, "http://example.com/cloud-mcp")
 
     with pytest.raises(PyAirbyteInputError, match="HTTPS"):
         form._server_origin()
@@ -164,7 +168,7 @@ def test_server_origin_rejects_url_components(
     monkeypatch: pytest.MonkeyPatch,
     server_url: str,
 ) -> None:
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, server_url)
+    monkeypatch.setenv(MCP_SERVER_URL_ENV, server_url)
 
     with pytest.raises(PyAirbyteInputError, match="must not contain"):
         form._server_origin()
@@ -178,14 +182,14 @@ def test_server_origin_rejects_invalid_url(
     monkeypatch: pytest.MonkeyPatch,
     server_url: str,
 ) -> None:
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, server_url)
+    monkeypatch.setenv(MCP_SERVER_URL_ENV, server_url)
 
     with pytest.raises(PyAirbyteInputError, match="valid HTTP"):
         form._server_origin()
 
 
 def test_server_origin_allows_local_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080/cloud-mcp")
+    monkeypatch.setenv(MCP_SERVER_URL_ENV, "http://localhost:8080/cloud-mcp")
 
     assert form._server_origin() == "http://localhost:8080"
     assert (
@@ -445,7 +449,7 @@ def test_connector_form_resource_includes_csp_metadata(
 
     from airbyte.mcp import interactive
 
-    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://late.example.com/cloud-mcp")
+    monkeypatch.setenv(MCP_SERVER_URL_ENV, "https://late.example.com/cloud-mcp")
     app = mcp_server(name="test")
     interactive.register_interactive_tools(app)
 

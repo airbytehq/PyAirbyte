@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 
 
 CONNECTOR_FORM_RESOURCE_URI = "ui://airbyte/connector-config-form"
-MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 _MAX_AGENT_CONTENT_LENGTH = 12_000
 
 _HTML_RESOURCE = """<!doctype html>
