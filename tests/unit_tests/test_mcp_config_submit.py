@@ -18,7 +18,9 @@ from starlette.testclient import TestClient
 from airbyte.mcp import _config_submit
 from airbyte.mcp._config_submit import (
     ConfigSubmitError,
+    OAUTH_SECRET_PLACEHOLDER,
     _schema_secret_paths,
+    _stub_missing_secrets,
     connector_config_submit_routes,
     decrypt_action_token,
     mint_action_token,
@@ -140,6 +142,83 @@ def test_schema_secret_paths_include_hydration_markers_and_items() -> None:
         "password",
         "items.token",
     }
+
+
+def _google_sheets_oauth_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "spreadsheet_id": {"type": "string"},
+            "credentials": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "auth_type": {"const": "Client"},
+                            "client_id": {
+                                "type": "string",
+                                "airbyte_secret": True,
+                            },
+                            "client_secret": {
+                                "type": "string",
+                                "airbyte_secret": True,
+                            },
+                            "refresh_token": {
+                                "type": "string",
+                                "airbyte_secret": True,
+                            },
+                        },
+                    }
+                ]
+            },
+        },
+    }
+
+
+def test_stub_missing_secrets_for_oauth_branch() -> None:
+    schema = _google_sheets_oauth_schema()
+
+    result = _stub_missing_secrets(
+        {"spreadsheet_id": "x", "credentials": {"auth_type": "Client"}},
+        schema,
+    )
+
+    assert result == {
+        "spreadsheet_id": "x",
+        "credentials": {
+            "auth_type": "Client",
+            "client_id": OAUTH_SECRET_PLACEHOLDER,
+            "client_secret": OAUTH_SECRET_PLACEHOLDER,
+            "refresh_token": OAUTH_SECRET_PLACEHOLDER,
+        },
+    }
+
+
+def test_stub_missing_secrets_preserves_present_secret() -> None:
+    schema = _google_sheets_oauth_schema()
+
+    result = _stub_missing_secrets(
+        {
+            "spreadsheet_id": "x",
+            "credentials": {
+                "auth_type": "Client",
+                "client_id": "already-present",
+            },
+        },
+        schema,
+    )
+
+    assert isinstance(result, dict)
+    assert result["credentials"]["client_id"] == "already-present"
+    assert result["credentials"]["client_secret"] == OAUTH_SECRET_PLACEHOLDER
+    assert result["credentials"]["refresh_token"] == OAUTH_SECRET_PLACEHOLDER
+
+
+def test_stub_missing_secrets_leaves_unknown_branch_unchanged() -> None:
+    schema = _google_sheets_oauth_schema()
+    value = {"spreadsheet_id": "x", "credentials": {"auth_type": "Service"}}
+
+    assert _stub_missing_secrets(value, schema) == value
 
 
 class _SourceStub:
@@ -403,21 +482,30 @@ def test_oauth_callback_creates_source_and_rejects_replay(
 ) -> None:
     created = SimpleNamespace(source_id="source-id")
     captured: dict[str, Any] = {}
+    schema = _google_sheets_oauth_schema()
 
     def create_source(*args: Any, **kwargs: Any) -> SimpleNamespace:
         captured.update(kwargs)
         return created
 
+    monkeypatch.setattr(
+        _config_submit,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: schema,
+    )
     monkeypatch.setattr(_config_submit.api_util, "create_source", create_source)
     token = mint_action_token(
         "create",
-        "source-github",
+        "source-google-sheets",
         workspace_id="workspace",
-        source_name="GitHub",
+        source_name="Google Sheets",
         bearer_token="cloud-token",
         api_url="https://api.example",
         oauth=True,
-        non_secret_defaults={"repositories": ["airbyte"]},
+        non_secret_defaults={
+            "spreadsheet_id": "x",
+            "credentials": {"auth_type": "Client"},
+        },
     )
     app = Starlette(routes=connector_config_submit_routes())
 
@@ -433,4 +521,13 @@ def test_oauth_callback_creates_source_and_rejects_replay(
     assert "Authentication complete" in response.text
     assert "secret-id" not in response.text
     assert captured["secret_id"] == "secret-id"
+    assert captured["config"] == {
+        "spreadsheet_id": "x",
+        "credentials": {
+            "auth_type": "Client",
+            "client_id": OAUTH_SECRET_PLACEHOLDER,
+            "client_secret": OAUTH_SECRET_PLACEHOLDER,
+            "refresh_token": OAUTH_SECRET_PLACEHOLDER,
+        },
+    }
     assert replay.status_code == 403

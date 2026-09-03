@@ -51,6 +51,7 @@ DEFAULT_FORM_TOKEN_TTL_SECONDS = 600
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 DEFAULT_HTTP_PORT = 8080
 DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
+OAUTH_SECRET_PLACEHOLDER = "__airbyte_oauth_placeholder__"
 _FORM_SIGNING_KEY_ENV = "AIRBYTE_MCP_FORM_SIGNING_KEY"
 _PROCESS_SIGNING_KEY = secrets.token_bytes(32)
 _ACTION_NAMES = frozenset({"create", "update", "validate"})
@@ -300,6 +301,59 @@ def _strip_secret_values(
     return result
 
 
+def _select_branch(
+    branches: list[Any],
+    value: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    for branch in branches:
+        if not isinstance(branch, Mapping):
+            continue
+        properties = branch.get("properties", {})
+        if not isinstance(properties, Mapping):
+            continue
+        consts = {
+            name: child.get("const")
+            for name, child in properties.items()
+            if isinstance(child, Mapping) and child.get("const") is not None
+        }
+        if consts and all(value.get(name) == const for name, const in consts.items()):
+            return branch
+    return None
+
+
+def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
+    """Fill missing secret fields with placeholder values.
+
+    Cloud validates the configuration against the connector spec before merging
+    the OAuth `secret_id` payload, so required secret properties must be present
+    at create/update time; the hydrated secret overwrites the placeholders.
+    """
+    for branch_key in ("oneOf", "anyOf"):
+        branches = schema.get(branch_key)
+        if isinstance(branches, list) and isinstance(value, Mapping):
+            branch = _select_branch(branches, value)
+            if branch is not None:
+                return _stub_missing_secrets(value, branch)
+    properties = schema.get("properties")
+    if not isinstance(properties, Mapping) or not isinstance(value, Mapping):
+        return value
+    result: dict[str, Any] = dict(value)
+    for name, child in properties.items():
+        if not isinstance(name, str) or not isinstance(child, Mapping):
+            continue
+        is_secret = (
+            child.get("airbyte_secret") is True
+            or child.get("writeOnly") is True
+            or child.get("format") == "password"
+        )
+        if is_secret:
+            if not result.get(name):
+                result[name] = OAUTH_SECRET_PLACEHOLDER
+        elif name in result:
+            result[name] = _stub_missing_secrets(result[name], child)
+    return result
+
+
 def initiate_oauth_flow(
     claims: Mapping[str, Any],
     submitted_config: Mapping[str, Any],
@@ -508,6 +562,11 @@ def connector_config_oauth_callback_endpoint(request: Request) -> HTMLResponse:
         config = claims.get("non_secret_defaults", {})
         if not isinstance(config, dict):
             return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
+        schema = get_connector_spec_from_registry(claims["connector_name"], platform="cloud")
+        if schema is None:
+            schema = get_connector_spec_from_registry(claims["connector_name"], platform="oss")
+        if schema:
+            config = cast(dict[str, Any], _stub_missing_secrets(config, schema))
         api_root_claim = claims.get("api_url")
         api_root = api_root_claim if isinstance(api_root_claim, str) else ""
         client_id = _secret_claim(claims, "client_id")
