@@ -288,6 +288,7 @@ def test_oauth_start_rejects_validate_tokens() -> None:
     "path",
     [
         "/connector-config-oauth-start",
+        "/connector-config-oauth-callback?token=invalid&secret_id=secret",
         "/connector-config-oauth-callback?state=invalid&secret_id=secret",
     ],
 )
@@ -313,7 +314,7 @@ def test_oauth_callback_requires_secret_id() -> None:
     app = Starlette(routes=connector_config_submit_routes())
 
     with TestClient(app, base_url="http://localhost") as client:
-        response = client.get(f"/connector-config-oauth-callback?state={token}")
+        response = client.get(f"/connector-config-oauth-callback?token={token}")
 
     assert response.status_code == 403
 
@@ -324,7 +325,7 @@ def test_oauth_callback_rejects_non_oauth_token() -> None:
 
     with TestClient(app, base_url="http://localhost") as client:
         response = client.get(
-            f"/connector-config-oauth-callback?state={token}&secret_id=secret-id"
+            f"/connector-config-oauth-callback?token={token}&secret_id=secret-id"
         )
 
     assert response.status_code == 403
@@ -387,8 +388,8 @@ def test_oauth_start_strips_secrets_and_merges_defaults(
     assert captured["redirect_url"].startswith(
         "https://example.com/cloud-mcp-preview/connector-config-oauth-callback?"
     )
-    state = parse_qs(urlparse(captured["redirect_url"]).query)["state"][0]
-    claims = decrypt_action_token(state, consume=False)
+    callback_token = parse_qs(urlparse(captured["redirect_url"]).query)["token"][0]
+    claims = decrypt_action_token(callback_token, consume=False)
     assert claims["oauth"] is True
     assert claims["non_secret_defaults"] == {
         "repositories": ["airbyte", "pyairbyte"],
@@ -422,10 +423,10 @@ def test_oauth_callback_creates_source_and_rejects_replay(
 
     with TestClient(app, base_url="http://localhost") as client:
         response = client.get(
-            f"/connector-config-oauth-callback?state={token}&secret_id=secret-id"
+            f"/connector-config-oauth-callback?token={token}&secret_id=secret-id"
         )
         replay = client.get(
-            f"/connector-config-oauth-callback?state={token}&secret_id=secret-id"
+            f"/connector-config-oauth-callback?token={token}&secret_id=secret-id"
         )
 
     assert response.status_code == 200

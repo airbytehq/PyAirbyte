@@ -340,7 +340,7 @@ def initiate_oauth_flow(
     response = api_util.initiate_oauth(
         redirect_url=(
             f"{server_url.rstrip('/')}/connector-config-oauth-callback?"
-            f"{urlencode({'state': derived_token})}"
+            f"{urlencode({'token': derived_token})}"
         ),
         source_type=source_type,
         workspace_id=claims["workspace_id"],
@@ -494,12 +494,12 @@ async def connector_config_oauth_start_endpoint(request: Request) -> Response:  
 
 def connector_config_oauth_callback_endpoint(request: Request) -> HTMLResponse:
     """Complete an OAuth flow and create or update the Cloud source."""
-    state = request.query_params.get("state", "")
+    token = request.query_params.get("token", "")
     secret_id = request.query_params.get("secret_id", "")
-    if not state or not secret_id:
+    if not token or not secret_id:
         return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
     try:
-        claims = decrypt_action_token(state)
+        claims = decrypt_action_token(token)
     except ConfigSubmitError:
         return HTMLResponse(_OAUTH_INVALID_HTML, status_code=403)
     try:
