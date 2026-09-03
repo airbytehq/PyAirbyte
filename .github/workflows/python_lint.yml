@@ -69,8 +69,8 @@ jobs:
       run: uv sync --group dev
 
     # Job-specific step(s):
-    - name: Run Pyrefly Check
-      run: uv run pyrefly check
+    - name: Run ty Check
+      run: uv run ty check
 
   public-api-import-guard:
     name: Public API Import Guard
