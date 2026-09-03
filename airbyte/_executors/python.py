@@ -69,6 +69,7 @@ class VenvExecutor(Executor):
         with suppress(Exception):
             self.install_root.mkdir(parents=True, exist_ok=True)
         self.use_python = use_python
+        self._console_script_name: str | None = None
 
     def _get_venv_name(self) -> str:
         return f".venv-{self.name}"
@@ -76,9 +77,73 @@ class VenvExecutor(Executor):
     def _get_venv_path(self) -> Path:
         return self.install_root / self._get_venv_name()
 
+    def _get_pypi_package_name(self) -> str:
+        if self.metadata and self.metadata.pypi_package_name:
+            return self.metadata.pypi_package_name
+        return f"airbyte-{self.name}"
+
+    def _discover_console_script_name(self) -> str | None:
+        """Return the installed package's console script name, if discoverable."""
+        if not self.interpreter_path.exists():
+            return None
+
+        package_name = self._get_pypi_package_name()
+        connector_name = self.name
+        discovery_script = f"""
+import importlib.metadata as metadata
+
+package_name = {package_name!r}
+connector_name = {connector_name!r}
+entry_points = [
+    ep
+    for ep in metadata.entry_points(group="console_scripts")
+    if ep.dist.name == package_name
+]
+if connector_name in {{ep.name for ep in entry_points}}:
+    print(connector_name)
+elif len(entry_points) == 1:
+    print(entry_points[0].name)
+elif entry_points:
+    print(entry_points[0].name)
+else:
+    print("")
+""".strip()
+        try:
+            result = subprocess.check_output(
+                [str(self.interpreter_path), "-c", discovery_script],
+                universal_newlines=True,
+                stderr=subprocess.PIPE,
+            ).strip()
+        except Exception:
+            return None
+
+        return result or None
+
+    def _resolve_console_script_name(self) -> str | None:
+        """Resolve the connector CLI executable name within the virtual environment."""
+        if self._console_script_name:
+            return self._console_script_name
+
+        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
+        default_name = self.name + suffix
+        default_path = get_bin_dir(self._get_venv_path()) / default_name
+        if default_path.exists():
+            self._console_script_name = self.name
+            return self._console_script_name
+
+        discovered_name = self._discover_console_script_name()
+        if discovered_name:
+            discovered_path = get_bin_dir(self._get_venv_path()) / (discovered_name + suffix)
+            if discovered_path.exists():
+                self._console_script_name = discovered_name
+                return self._console_script_name
+
+        return None
+
     def _get_connector_path(self) -> Path:
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
-        return get_bin_dir(self._get_venv_path()) / (self.name + suffix)
+        script_name = self._resolve_console_script_name() or self.name
+        return get_bin_dir(self._get_venv_path()) / (script_name + suffix)
 
     @property
     def interpreter_path(self) -> Path:
@@ -103,6 +168,7 @@ class VenvExecutor(Executor):
             rmtree(str(self._get_venv_path()))
 
         self.reported_version = None  # Reset the reported version from the previous installation
+        self._console_script_name = None
 
     @property
     def docs_url(self) -> str:
@@ -182,6 +248,7 @@ class VenvExecutor(Executor):
             raise exc.AirbyteConnectorInstallationError from ex
 
         # Assuming the installation succeeded, store the installed version
+        self._console_script_name = None
         self.reported_version = self.get_installed_version(raise_on_error=False, recheck=True)
         log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
@@ -212,7 +279,6 @@ class VenvExecutor(Executor):
         if not recheck and self.reported_version:
             return self.reported_version
 
-        connector_name = self.name
         if not self.interpreter_path.exists():
             # No point in trying to detect the version if the interpreter does not exist
             if raise_on_error:
@@ -225,11 +291,7 @@ class VenvExecutor(Executor):
             return None
 
         try:
-            package_name = (
-                self.metadata.pypi_package_name
-                if self.metadata and self.metadata.pypi_package_name
-                else f"airbyte-{connector_name}"
-            )
+            package_name = self._get_pypi_package_name()
             return subprocess.check_output(
                 [
                     self.interpreter_path,
@@ -281,7 +343,7 @@ class VenvExecutor(Executor):
             self.install()
             reinstalled = True
 
-        elif not self._get_connector_path().exists():
+        elif not self._resolve_console_script_name():
             if not auto_fix:
                 raise exc.AirbyteConnectorInstallationError(
                     message="Could not locate connector executable within the virtual environment.",
@@ -295,7 +357,7 @@ class VenvExecutor(Executor):
             # This is sometimes caused by a failed or partial installation.
             print(
                 "Connector executable not found within the virtual environment "
-                f"at {self._get_connector_path()!s}.\nReinstalling...",
+                f"at {get_bin_dir(self._get_venv_path()) / self.name!s}.\nReinstalling...",
                 file=sys.stderr,
             )
             self.uninstall()
@@ -304,15 +366,15 @@ class VenvExecutor(Executor):
 
         # By now, everything should be installed. Raise an exception if not.
 
-        connector_path = self._get_connector_path()
-        if not connector_path.exists():
+        if not self._resolve_console_script_name():
             raise exc.AirbyteConnectorInstallationError(
                 message="Connector's executable could not be found within the virtual environment.",
                 connector_name=self.name,
                 context={
                     "connector_path": self._get_connector_path(),
+                    "discovered_console_scripts": self._discover_console_script_name(),
                 },
-            ) from FileNotFoundError(connector_path)
+            ) from FileNotFoundError(self._get_connector_path())
 
         if self.enforce_version:
             version_after_reinstall: str | None = None
