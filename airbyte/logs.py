@@ -25,17 +25,12 @@ import ulid
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
-
-def _str_to_bool(value: str) -> bool:
-    """Convert a string value of an environment values to a boolean value."""
-    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+from airbyte.constants import _str_to_bool
 
 
 AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_STRUCTURED_LOGGING",
-        default="false",
-    )
+    os.getenv(key="AIRBYTE_STRUCTURED_LOGGING"),
+    default=False,
 )
 """Whether to enable structured logging.
 

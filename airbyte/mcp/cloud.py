@@ -21,7 +21,9 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.client import (
+    CloudClient,
+)
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import JobTypeEnum
@@ -58,9 +60,10 @@ from airbyte.mcp._tool_utils import (
 CLOUD_AUTH_TIP_TEXT = (
     f"When connecting to a hosted MCP server, provide a bearer token via the "
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
-    f"`Client-Id` and `Client-Secret` headers. To discover available organizations "
-    f"and workspaces, call `list_cloud_organizations` and `list_cloud_workspaces` "
-    f"before asking the user for an ID. For local or "
+    f"`Client-Id` and `Client-Secret` headers. To discover your organization and "
+    f"workspaces, call `list_cloud_workspaces`, which resolves your organization "
+    f"automatically. Only call `list_cloud_organizations` when you need to search "
+    f"organizations by name, passing `name_contains`. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
@@ -208,10 +211,10 @@ class CloudOrganizationResult(BaseModel):
 
     id: str
     """The organization ID."""
-    name: str
-    """Display name of the organization."""
-    email: str
-    """Email associated with the organization."""
+    name: str | None = None
+    """Display name of the organization, when available."""
+    email: str | None = None
+    """Email associated with the organization, when available."""
     payment_status: str | None = None
     """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
     When 'disabled', syncs are blocked due to unpaid invoices."""
@@ -269,6 +272,9 @@ class CloudWorkspaceListResult(BaseModel):
 
     message: str | None = None
     """Additional guidance when discovery returns no results."""
+
+    available_organizations: list[CloudOrganizationResult] | None = None
+    """Organizations to choose from when the credentials match multiple organizations."""
 
 
 class LogReadResult(BaseModel):
@@ -361,6 +367,7 @@ def _get_cloud_client(
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
     config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
+    workspace_id = get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
 
     return CloudClient(
         client_id=client_id,
@@ -368,6 +375,7 @@ def _get_cloud_client(
         bearer_token=bearer_token,
         public_api_root=api_url,
         config_api_root=config_api_url,
+        workspace_id=workspace_id,
         organization_id=organization_id,
     )
 
@@ -1477,23 +1485,6 @@ def list_deployed_cloud_connections(
     return results
 
 
-def _resolve_organization_id(
-    organization_id: str | None,
-    organization_name: str | None,
-    *,
-    client: CloudClient,
-) -> str:
-    """Resolve organization ID from either ID or exact name match."""
-    if organization_id is not None:
-        return organization_id
-
-    org = client.get_organization(
-        organization_id=organization_id,
-        organization_name=organization_name,
-    )
-    return org.organization_id
-
-
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -1534,27 +1525,47 @@ def list_cloud_workspaces(
 ) -> CloudWorkspaceListResult:
     """List all workspaces visible to the authenticated credentials.
 
-    When an organization ID or exact organization name is provided, the Config API
-    lists workspaces in that organization. When neither is provided and the client
-    has no default organization, the public API lists workspaces across organizations
-    visible to the current credentials. Otherwise, results are scoped to the client's
-    default organization.
+    The client resolves an organization from the provided IDs, workspace context, or
+    the authenticated user's organization memberships.
     """
     client = _get_cloud_client(ctx)
 
     try:
         workspaces = client.list_workspaces(
-            organization_id=(
-                _resolve_organization_id(
-                    organization_id=organization_id,
-                    organization_name=organization_name,
-                    client=client,
-                )
-                if organization_id is not None or organization_name is not None
-                else None
-            ),
+            organization_id=organization_id,
+            organization_name=organization_name,
             name_contains=name_contains,
             limit=limit,
+        )
+    except PyAirbyteInputError as error:
+        context = error.context or {}
+        candidates = context.get("organization_candidates")
+        if not isinstance(candidates, list):
+            raise
+        available_organizations: list[CloudOrganizationResult] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = candidate.get("organization_id")
+            if not isinstance(candidate_id, str):
+                continue
+            candidate_name = candidate.get("organization_name")
+            available_organizations.append(
+                CloudOrganizationResult(
+                    id=candidate_id,
+                    name=candidate_name if isinstance(candidate_name, str) else None,
+                )
+            )
+        message = error.get_message()
+        if available_organizations:
+            message += (
+                " Retry with an explicit organization ID from the provided list of the "
+                "available organizations."
+            )
+        return CloudWorkspaceListResult(
+            workspaces=[],
+            available_organizations=available_organizations,
+            message=message,
         )
     except AirbyteError as error:
         return _handle_discovery_permission_error(
@@ -1573,14 +1584,35 @@ def list_cloud_workspaces(
         )
         for ws in workspaces
     ]
+    organization_ids = {
+        result.organization_id for result in results if result.organization_id is not None
+    }
+    message = (
+        "No workspaces were returned for these credentials. Verify the "
+        "credentials or ask the user to provide a workspace ID."
+        if not results
+        else None
+    )
+    if len(organization_ids) == 1:
+        resolved_organization_id = next(iter(organization_ids))
+        try:
+            organization = client.get_organization(organization_id=resolved_organization_id)
+        except AirbyteError:
+            pass
+        else:
+            for result in results:
+                if result.organization_id == resolved_organization_id:
+                    result.organization_name = organization.organization_name
+            if organization_id is None and organization_name is None:
+                resolved_organization = (
+                    f"{organization.organization_name} ({resolved_organization_id})"
+                    if organization.organization_name is not None
+                    else resolved_organization_id
+                )
+                message = f"Resolved organization {resolved_organization} for these credentials."
     return CloudWorkspaceListResult(
         workspaces=results,
-        message=(
-            "No workspaces were returned for these credentials. Verify the "
-            "credentials or ask the user to provide a workspace ID."
-            if not results
-            else None
-        ),
+        message=message,
     )
 
 
@@ -1592,10 +1624,28 @@ def list_cloud_workspaces(
 )
 def list_cloud_organizations(
     ctx: Context,
+    name_contains: Annotated[
+        str | None,
+        Field(
+            description="Optional case-insensitive substring to filter organization names.",
+            default=None,
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Field(
+            description="Optional maximum number of organizations to return (default: 100).",
+            default=None,
+        ),
+    ] = None,
 ) -> CloudOrganizationListResult:
     """List organizations visible to the authenticated Airbyte Cloud credentials."""
+    effective_limit = 100 if limit is None else limit
     try:
-        organizations = _get_cloud_client(ctx).list_organizations()
+        organizations = _get_cloud_client(ctx).list_organizations(
+            name_contains=name_contains,
+            limit=effective_limit,
+        )
     except AirbyteError as error:
         return _handle_discovery_permission_error(
             error,
@@ -1618,11 +1668,17 @@ def list_cloud_organizations(
         organizations=[
             CloudOrganizationResult(
                 id=organization.organization_id,
-                name=organization.organization_name or "",
-                email=organization.email or "",
+                name=organization.organization_name,
+                email=organization.email,
             )
             for organization in organizations
-        ]
+        ],
+        message=(
+            f"Showing the first {effective_limit} organizations; more may exist. "
+            "Pass `name_contains` to narrow the search, or a larger `limit`."
+            if len(organizations) == effective_limit
+            else None
+        ),
     )
 
 
@@ -1638,7 +1694,10 @@ def describe_cloud_organization(
     organization_id: Annotated[
         str | None,
         Field(
-            description="Organization ID. Required if organization_name is not provided.",
+            description=(
+                "Organization ID. With no arguments, resolves from the configured "
+                "default or the authenticated user's sole membership."
+            ),
             default=None,
         ),
     ],
@@ -1646,7 +1705,9 @@ def describe_cloud_organization(
         str | None,
         Field(
             description=(
-                "Organization name (exact match). " "Required if organization_id is not provided."
+                "Organization name (exact match). With no arguments, resolves from the "
+                "configured default or the authenticated user's sole membership. With "
+                "multiple memberships, the error lists candidate organization IDs."
             ),
             default=None,
         ),
@@ -1654,8 +1715,10 @@ def describe_cloud_organization(
 ) -> CloudOrganizationResult:
     """Get details about a specific organization including billing status.
 
-    Requires either organization_id OR organization_name (exact match) to be provided.
-    This tool is useful for looking up an organization's ID from its name, or vice versa.
+    With no arguments, resolves the organization from the configured default or the
+    authenticated user's sole membership. With multiple memberships, the error lists
+    candidate organization IDs. Use organization_id or organization_name (exact match)
+    to look up a specific organization.
     """
     org = _get_cloud_client(ctx).get_organization(
         organization_id=organization_id,

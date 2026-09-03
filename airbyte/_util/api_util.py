@@ -13,6 +13,7 @@ directly. This will ensure a single source of truth when mapping between the `ai
 
 from __future__ import annotations
 
+import base64
 import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
+JWT_PART_COUNT = 3
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -555,7 +557,18 @@ def list_workspaces(
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
 ) -> list[models.WorkspaceResponse]:
-    """List workspaces."""
+    """List workspaces.
+
+    Args:
+        workspace_id: Workspace context for the request.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication.
+        name: Optional exact workspace name to match.
+        name_filter: Optional predicate to match workspace names.
+        limit: Optional maximum number of matching workspaces to return.
+    """
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
@@ -2411,6 +2424,93 @@ def list_organizations_for_user(
     )
 
 
+def list_organizations_for_user_id(
+    user_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    name_contains: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """List organizations the given user is a member of.
+
+    Uses the Config API endpoint: POST /v1/organizations/list_by_user_id
+
+    Unlike the public `GET /organizations` endpoint, this endpoint supports
+    server-side name filtering and pagination.
+
+    Args:
+        user_id: The Airbyte user ID to list organizations for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
+        name_contains: Optional substring filter for organization names (server-side)
+        limit: Optional maximum number of organizations to return
+
+    Returns:
+        List of organization dictionaries containing organizationId, organizationName, email, etc.
+    """
+    _validate_pagination_params(limit=limit)
+    result: list[dict[str, Any]] = []
+    page_size = PAGE_SIZE
+
+    payload: dict[str, Any] = {
+        "userId": user_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains is not None:
+        payload["nameContains"] = name_contains
+
+    while True:
+        json_result = _make_config_api_request(
+            path="/organizations/list_by_user_id",
+            json={
+                **payload,
+                "pagination": payload["pagination"].copy(),
+            },
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+
+        if not isinstance(json_result, dict):
+            raise AirbyteError(
+                message="The organizations API returned an unexpected response.",
+                context={"response": json_result},
+            )
+        organizations = json_result.get("organizations", [])
+        if not isinstance(organizations, list):
+            raise AirbyteError(
+                message="The organizations API returned an unexpected response.",
+                context={"response": json_result},
+            )
+
+        if not organizations:
+            break
+
+        result.extend(organizations)
+
+        if limit is not None and len(result) >= limit:
+            return result[:limit]
+
+        if len(organizations) < page_size:
+            break
+
+        payload["pagination"]["rowOffset"] += page_size
+
+    return result
+
+
 def list_workspaces_in_organization(
     organization_id: str,
     *,
@@ -2519,7 +2619,7 @@ def get_workspace_organization_info(
         - sso: Whether SSO is enabled
         - billing: Billing information (optional)
     """
-    return _make_config_api_request(
+    result = _make_config_api_request(
         path="/workspaces/get_organization_info",
         json={"workspaceId": workspace_id},
         api_root=api_root,
@@ -2527,6 +2627,12 @@ def get_workspace_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+    raise AirbyteError(
+        message="The workspace API returned an unexpected response.",
+        context={"response": result},
     )
 
 
@@ -2744,7 +2850,7 @@ def get_organization_info(
         - sso: Whether SSO is enabled
         - billing: Billing information (optional, contains paymentStatus, subscriptionStatus, etc.)
     """
-    return _make_config_api_request(
+    result = _make_config_api_request(
         path="/organizations/get_organization_info",
         json={"organizationId": organization_id},
         api_root=api_root,
@@ -2752,6 +2858,105 @@ def get_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+    raise AirbyteError(
+        message="The organization API returned an unexpected response.",
+        context={"response": result},
+    )
+
+
+def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
+    """Extract the authentication user ID from a bearer token."""
+    token_parts = str(bearer_token).split(".")
+    if len(token_parts) != JWT_PART_COUNT:
+        raise PyAirbyteInputError(
+            message="The bearer token is not a valid JWT.",
+            guidance="Provide a valid bearer token.",
+        )
+
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(
+                token_parts[1] + "=" * (-len(token_parts[1]) % 4),
+            ).decode("utf-8")
+        )
+    except (UnicodeDecodeError, ValueError) as error:
+        raise PyAirbyteInputError(
+            message="The bearer token payload could not be decoded.",
+            guidance="Provide a valid bearer token.",
+        ) from error
+
+    user_id = payload.get("user_id") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id:
+        raise PyAirbyteInputError(
+            message="The bearer token does not contain a user ID.",
+            guidance="Provide a bearer token issued for an Airbyte user.",
+        )
+    return user_id
+
+
+def get_user_by_auth_id(
+    auth_user_id: str,
+    *,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get an Airbyte user by the authentication provider user ID."""
+    result = _make_config_api_request(
+        path="/users/get_by_auth_id",
+        json={
+            "authUserId": auth_user_id,
+            "authProvider": "keycloak",
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+
+    raise AirbyteError(
+        message="The user API returned an unexpected response.",
+        context={"response": result},
+    )
+
+
+def list_permissions_for_user(
+    user_id: str,
+    *,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> list[dict[str, Any]]:
+    """List permissions granted to an Airbyte user."""
+    result = _make_config_api_request(
+        path="/permissions/list_by_user",
+        json={"userId": user_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    if isinstance(result, list):
+        return result
+
+    permissions = result.get("permissions") if isinstance(result, dict) else None
+    if isinstance(permissions, list):
+        return permissions
+
+    raise AirbyteError(
+        message="The permissions API returned an unexpected response.",
+        context={"response": result},
     )
 
 
