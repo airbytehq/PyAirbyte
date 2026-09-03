@@ -1,0 +1,381 @@
+# Copyright (c) 2026 Airbyte, Inc., all rights reserved.
+"""Tests for the connector configuration form MCP App."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import pytest
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.testclient import TestClient
+
+from airbyte.exceptions import PyAirbyteInputError
+from airbyte.mcp import _config_submit
+from airbyte.mcp._config_submit import connector_config_submit_routes, mint_action_token
+from airbyte.mcp.interactive import _connector_config_form_ui as form
+
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "credentials": {
+            "type": "object",
+            "properties": {
+                "api_key": {"type": "string", "airbyte_secret": True},
+                "username": {"type": "string"},
+            },
+        },
+        "region": {"type": "string"},
+    },
+}
+
+
+def test_form_result_contains_schema_and_submit_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form(
+        "source-example",
+        {"credentials": {"username": "user"}, "region": "us-east-1"},
+    )
+
+    content = result.content[0].text
+    structured = result.structured_content
+    assert "source-example" in content
+    assert "api_key" in content
+    assert structured["spec_schema"] == SCHEMA
+    assert structured["submit_endpoint"].endswith("/connector-config-submit")
+    assert structured["submit_token"]
+    assert structured["standalone_url"].endswith(
+        f"/connector-config-form?token={structured['submit_token']}"
+    )
+    assert structured["standalone_url"] in content
+    assert "intake_token" not in structured
+    assert "intake_endpoint" not in structured
+    assert "secret-value" not in content
+    assert "secret-value" not in json.dumps(structured)
+
+
+def test_form_rejects_secret_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="Secret values cannot"):
+        form.show_connector_config_form(
+            "source-example",
+            {"credentials": {"api_key": "secret-value"}},
+        )
+
+
+def test_form_rejects_secrets_in_array_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "streams": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "token": {"type": "string", "airbyte_secret": True},
+                    },
+                },
+            },
+        },
+    }
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: schema
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="Secret values cannot"):
+        form.show_connector_config_form(
+            "source-example",
+            {"streams": [{"token": "secret-value"}]},
+        )
+
+
+def test_submit_endpoint_preserves_server_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://example.com/cloud-mcp/")
+
+    assert (
+        form._submit_endpoint()
+        == "https://example.com/cloud-mcp/connector-config-submit"
+    )
+    assert (
+        form._standalone_endpoint("token")
+        == "https://example.com/cloud-mcp/connector-config-form?token=token"
+    )
+    assert form._server_origin() == "https://example.com"
+
+
+def test_server_origin_rejects_insecure_nonlocal_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://example.com/cloud-mcp")
+
+    with pytest.raises(PyAirbyteInputError, match="HTTPS"):
+        form._server_origin()
+
+
+@pytest.mark.parametrize(
+    "server_url",
+    ["//attacker.example", "ftp://example.com", "example.com"],
+)
+def test_server_origin_rejects_invalid_url(
+    monkeypatch: pytest.MonkeyPatch,
+    server_url: str,
+) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, server_url)
+
+    with pytest.raises(PyAirbyteInputError, match="valid HTTP"):
+        form._server_origin()
+
+
+def test_server_origin_allows_local_http_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "http://localhost:8080/cloud-mcp")
+
+    assert form._server_origin() == "http://localhost:8080"
+    assert (
+        form._submit_endpoint()
+        == "http://localhost:8080/cloud-mcp/connector-config-submit"
+    )
+
+
+def test_form_selects_create_action_with_cloud_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-secret")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form("source-example")
+
+    assert result.structured_content["action"] == "create"
+    assert "cloud-secret" not in json.dumps(result.structured_content)
+
+
+def test_form_selects_update_action_with_source_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-token")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form("source-example", source_id="source-id")
+
+    assert result.structured_content["action"] == "update"
+
+
+def test_form_rejects_update_without_cloud_credentials_or_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_SECRET_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, raising=False)
+    monkeypatch.setattr(form, "_resolve_transport_bearer_token", lambda: "")
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    with pytest.raises(
+        PyAirbyteInputError,
+        match="Cloud credentials and a workspace ID are required",
+    ):
+        form.show_connector_config_form("source-example", source_id="source-id")
+
+
+def test_form_selects_validate_without_cloud_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_SECRET_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    result = form.show_connector_config_form("source-example")
+
+    assert result.structured_content["action"] == "validate"
+
+
+def test_form_blocks_prototype_pollution_paths() -> None:
+    html = form.connector_config_form_resource()
+
+    assert '["__proto__", "constructor", "prototype"]' in html
+    assert "Array.isArray(target[key])" in html
+
+
+def test_form_handles_one_of_schema_without_plaintext_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "credentials": {
+                "type": "object",
+                "oneOf": [
+                    {
+                        "properties": {
+                            "api_key": {"type": "string", "airbyte_secret": True},
+                        }
+                    }
+                ],
+            }
+        },
+    }
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: schema
+    )
+
+    result = form.show_connector_config_form("source-example")
+
+    assert result.structured_content["secret_fields"] == ["credentials.api_key"]
+    html = form.connector_config_form_resource()
+    assert "Complex authentication objects are not supported by this form." in html
+    assert "Array.isArray(child[key])" in html
+    assert "state.result.submit_endpoint" in html
+    assert "JSON.stringify({config})" in html
+    assert "appCapabilities: {}" in html
+    assert 'appInfo: {name: "airbyte-form", version: "0.1"}' in html
+    assert "message.id === 1 && message.result" in html
+    assert 'method: "ui/notifications/initialized"' in html
+    assert 'method: "ui/notifications/size-changed"' in html
+    assert 'method: "ui/message"' in html
+    assert "Notify agent" in html
+    assert "Math.min(contentHeight + 20, 600)" in html
+
+
+def test_connector_form_resource_includes_csp_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, "https://late.example.com/cloud-mcp")
+    app = mcp_server(name="test")
+    interactive.register_interactive_tools(app)
+
+    resource = next(
+        item
+        for item in asyncio.run(app.list_resources())
+        if str(item.uri) == form.CONNECTOR_FORM_RESOURCE_URI
+    )
+
+    assert resource.meta is not None
+    assert resource.meta["ui"]["csp"]["connectDomains"] == ["https://late.example.com"]
+
+    provider = getattr(app, "_local_provider")
+    tool = provider._components["tool:show_connector_config_form@"]  # noqa: SLF001
+    assert tool.meta is not None
+    assert tool.meta["ui"]["csp"]["connectDomains"] == ["https://late.example.com"]
+
+
+class _StandaloneSource:
+    def set_config(self, config: dict[str, object], *, validate: bool = True) -> None:
+        assert validate
+
+
+def _standalone_test_app() -> Starlette:
+    return Starlette(
+        routes=[
+            Route(
+                "/connector-config-form",
+                form.connector_config_form_endpoint,
+                methods=["GET"],
+            ),
+            *connector_config_submit_routes(),
+        ]
+    )
+
+
+def test_standalone_form_renders_and_get_does_not_consume_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    monkeypatch.setattr(
+        _config_submit, "get_source", lambda *args, **kwargs: _StandaloneSource()
+    )
+    token = mint_action_token(
+        "validate",
+        "source-example",
+        non_secret_defaults={"region": "us-east-1"},
+        bearer_token="bearer-secret",
+        client_id="client-id",
+        client_secret="client-secret",
+    )
+
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form?token={token}")
+        again = client.get(f"/connector-config-form?token={token}")
+        submitted = client.post(
+            "/connector-config-submit",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"config": {"region": "us-east-1"}},
+        )
+
+    assert response.status_code == 200
+    assert again.status_code == 200
+    assert "source-example" in response.text
+    assert '"region":"us-east-1"' in response.text
+    assert "bearer-secret" not in response.text
+    assert "client-secret" not in response.text
+    assert submitted.status_code == 200
+
+
+@pytest.mark.parametrize("query", ["", "?token=invalid"])
+def test_standalone_form_rejects_invalid_or_missing_token(query: str) -> None:
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form{query}")
+
+    assert response.status_code == 403
+    assert "This link is invalid or has expired." in response.text
+
+
+def test_standalone_form_rejects_expired_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = mint_action_token("validate", "source-example", ttl_seconds=1)
+    monkeypatch.setattr(_config_submit.time, "time", lambda: 2_000_000_000)
+
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form?token={token}")
+
+    assert response.status_code == 403
+    assert "This link is invalid or has expired." in response.text
+
+
+def test_standalone_form_escapes_script_terminators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+    token = mint_action_token(
+        "validate",
+        "source-example",
+        non_secret_defaults={"region": "</script><script>alert(1)</script>"},
+    )
+
+    with TestClient(_standalone_test_app()) as client:
+        response = client.get(f"/connector-config-form?token={token}")
+
+    assert response.status_code == 200
+    assert "</script><script>alert(1)</script>" not in response.text
+    assert "<\\/script>" in response.text
