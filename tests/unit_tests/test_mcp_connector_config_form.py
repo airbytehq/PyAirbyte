@@ -154,6 +154,24 @@ def test_server_origin_rejects_insecure_nonlocal_url(
 
 @pytest.mark.parametrize(
     "server_url",
+    [
+        "https://user:password@example.com/cloud-mcp",
+        "https://example.com/cloud-mcp?tenant=preview",
+        "https://example.com/cloud-mcp#fragment",
+    ],
+)
+def test_server_origin_rejects_url_components(
+    monkeypatch: pytest.MonkeyPatch,
+    server_url: str,
+) -> None:
+    monkeypatch.setenv(form.MCP_SERVER_URL_ENV, server_url)
+
+    with pytest.raises(PyAirbyteInputError, match="must not contain"):
+        form._server_origin()
+
+
+@pytest.mark.parametrize(
+    "server_url",
     ["//attacker.example", "ftp://example.com", "example.com"],
 )
 def test_server_origin_rejects_invalid_url(

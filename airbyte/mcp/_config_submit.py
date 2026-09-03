@@ -79,6 +79,15 @@ def _server_url() -> str:
     parsed = urlparse(server_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise PyAirbyteInputError(message="MCP_SERVER_URL must be a valid HTTP(S) URL.")
+    if (
+        parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise PyAirbyteInputError(
+            message="MCP_SERVER_URL must not contain userinfo, query, or fragment."
+        )
     if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1"}:
         raise PyAirbyteInputError(message="MCP_SERVER_URL must use HTTPS outside localhost.")
     return server_url.rstrip("/")
