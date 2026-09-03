@@ -412,7 +412,7 @@ def _render_parameters_table(input_schema: dict[str, Any]) -> str:
     """Render a GFM parameters table for a tool's `input_schema`."""
     properties = input_schema.get("properties") or {}
     if not properties:
-        return "_No parameters._\n\n"
+        return "*No parameters.*\n\n"
     required = set(input_schema.get("required") or [])
     lines = [
         "| Name | Type | Required | Default | Description |",
