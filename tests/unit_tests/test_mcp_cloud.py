@@ -67,6 +67,9 @@ class _CheckableConnectorLike:
     connector_type: str
     result: CheckResult
     received_raise_on_error: bool | None = None
+    received_wait: bool | None = None
+    received_wait_timeout: int | None = None
+    received_command_id: str | None = None
 
     def check(
         self,
@@ -77,8 +80,10 @@ class _CheckableConnectorLike:
         command_id: str | None = None,
     ) -> CheckResult:
         """Capture the error handling option and return the configured result."""
-        _ = (wait, wait_timeout, command_id)
         self.received_raise_on_error = raise_on_error
+        self.received_wait = wait
+        self.received_wait_timeout = wait_timeout
+        self.received_command_id = command_id
         return self.result
 
 
@@ -431,7 +436,7 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
             CheckResult(success=False, command_id="cmd-1", _status="pending"),
             "pending",
             False,
-            "Connector check failed without a failure message.",
+            None,
             "cmd-1",
             None,
             False,
@@ -484,6 +489,9 @@ def test_mcp_cloud_connector_checks_map_results(
     assert result.command_id == expected_command_id
     assert result.failure_type == expected_failure_type
     assert connector.received_raise_on_error is False
+    assert connector.received_wait is wait
+    assert connector.received_wait_timeout == 300
+    assert connector.received_command_id == expected_command_id
 
 
 def test_cancel_cloud_sync_returns_cancelled_job(

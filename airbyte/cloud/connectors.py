@@ -94,7 +94,7 @@ class CheckResult:
 
     def get_status(self) -> str:
         """Return the latest command status."""
-        if self._status in {"completed", "cancelled"}:
+        if self._status is not None and self._status not in {"pending", "running"}:
             return self._status
         if self.connector is None or self.command_id is None:
             return self._status or "completed"
@@ -111,7 +111,7 @@ class CheckResult:
 
     def is_complete(self) -> bool:
         """Return whether the command has reached a final status."""
-        return self.get_status() in {"completed", "cancelled"}
+        return self.get_status() not in {"pending", "running"}
 
     def wait_for_completion(
         self,
@@ -124,7 +124,7 @@ class CheckResult:
         start_time = time.time()
         while True:
             if self.is_complete():
-                self._refresh_output()
+                self.refresh()
                 if raise_failure and not self:
                     raise ValueError(f"Check failed: {self}")
                 return self
@@ -172,11 +172,14 @@ class CheckResult:
         logs = response.get("logs") or {}
         return logs.get("logLines") or []
 
-    def _refresh_output(self) -> None:
-        """Refresh the check result from the command output."""
+    def refresh(self) -> None:
+        """Refresh success and error fields from the command output."""
         if self.connector is None or self.command_id is None:
             return
-        if self.get_status() == "cancelled":
+        status = self.get_status()
+        if status in {"pending", "running"}:
+            return
+        if status == "cancelled":
             self.success = False
             self.error_message = "Check command was cancelled."
             return
@@ -337,7 +340,7 @@ class CloudConnector(abc.ABC):
         else:
             check_result.get_status()
             if check_result.is_complete():
-                check_result._refresh_output()  # noqa: SLF001
+                check_result.refresh()
 
         if raise_on_error and check_result.is_complete() and not check_result:
             raise ValueError(f"Check failed: {check_result}")

@@ -222,16 +222,33 @@ def test_check_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @responses.activate
-def test_cancel_and_get_logs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify check cancellation and log retrieval."""
-    _register_check_endpoints(
-        ["pending"],
-    )
+def test_cancel_skips_log_retrieval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify cancelled checks do not request logs."""
+    _register_check_endpoints(["pending", "cancelled"])
     responses.add(
         responses.POST,
         f"{CONFIG_API_ROOT}/commands/cancel",
         json={"id": COMMAND_ID},
     )
+    monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
+    result = (
+        _workspace()
+        .get_source(CONNECTOR_ID)
+        .check(
+            raise_on_error=False,
+            wait=False,
+        )
+    )
+
+    result.cancel()
+    assert result.get_logs() == []
+    assert any("/commands/cancel" in call.request.url for call in responses.calls)
+
+
+@responses.activate
+def test_get_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify check logs are retrieved from command output."""
+    _register_check_endpoints(["completed"])
     responses.add(
         responses.POST,
         f"{CONFIG_API_ROOT}/commands/output/check",
@@ -244,6 +261,4 @@ def test_cancel_and_get_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("airbyte.cloud.connectors.time.sleep", lambda _: None)
     result = _workspace().get_source(CONNECTOR_ID).check(wait=False)
 
-    result.cancel()
     assert result.get_logs() == ["line 1", "line 2"]
-    assert any("/commands/cancel" in call.request.url for call in responses.calls)

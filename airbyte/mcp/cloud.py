@@ -95,9 +95,13 @@ def _handle_discovery_permission_error(
     )
 
 
-def _get_connector_check_message(check_result: CheckResult) -> str | None:
+def _get_connector_check_message(
+    check_result: CheckResult,
+    *,
+    status: str,
+) -> str | None:
     """Return the check failure message, if applicable."""
-    if check_result.success:
+    if status != "completed" or check_result.success:
         return None
     return (
         check_result.error_message
@@ -1169,12 +1173,13 @@ def check_cloud_source(
         wait_timeout=wait_timeout,
         command_id=command_id,
     )
+    status = check_result.get_status()
     return ConnectorCheckResult(
         connector_id=source_id,
         connector_type=source.connector_type,
-        status=check_result.get_status(),
+        status=status,
         succeeded=check_result.success,
-        message=_get_connector_check_message(check_result),
+        message=_get_connector_check_message(check_result, status=status),
         command_id=check_result.command_id,
         failure_type=check_result.failure_type,
     )
@@ -1233,12 +1238,13 @@ def check_cloud_destination(
         wait_timeout=wait_timeout,
         command_id=command_id,
     )
+    status = check_result.get_status()
     return ConnectorCheckResult(
         connector_id=destination_id,
         connector_type=destination.connector_type,
-        status=check_result.get_status(),
+        status=status,
         succeeded=check_result.success,
-        message=_get_connector_check_message(check_result),
+        message=_get_connector_check_message(check_result, status=status),
         command_id=check_result.command_id,
         failure_type=check_result.failure_type,
     )

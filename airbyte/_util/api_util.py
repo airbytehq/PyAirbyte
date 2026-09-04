@@ -1981,6 +1981,7 @@ def check_connector(  # noqa: PLR0913  # Explicit auth and timeout arguments are
         return False, failure_reason.get("externalMessage") or output.get("message")
 
     raise AirbyteError(
+        message="Check command returned an unexpected output status.",
         context={
             "actor_id": actor_id,
             "connector_type": connector_type,
