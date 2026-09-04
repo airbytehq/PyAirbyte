@@ -13,7 +13,7 @@ import inspect
 import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp_extensions import (
@@ -71,6 +71,7 @@ from airbyte.exceptions import PyAirbyteInputError
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from fastmcp.apps import AppConfig
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
@@ -423,6 +424,10 @@ def register_mcp_tools(
             excluded = [name for name in exclude_args if name in params]
             tool_exclude_args = excluded or None
 
+        tool_app = tool_annotations.get(_TOOL_APP_KEY)
+        if callable(tool_app):
+            tool_app = tool_app()
+        tool_app = cast("AppConfig | bool | dict[str, Any] | None", tool_app)
         app.tool(
             func,
             annotations={
@@ -432,7 +437,7 @@ def register_mcp_tools(
             },
             exclude_args=tool_exclude_args,
             meta=tool_annotations.get(_TOOL_META_KEY),
-            app=tool_annotations.get(_TOOL_APP_KEY),
+            app=tool_app,
         )
 
     matching_providers = [

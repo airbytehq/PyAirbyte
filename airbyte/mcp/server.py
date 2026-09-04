@@ -61,7 +61,7 @@ from fastmcp_extensions import (
     build_mcp_auth,
     mcp_server,
 )
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 
 if TYPE_CHECKING:
@@ -73,6 +73,11 @@ from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
+from airbyte.mcp._config_submit import (
+    connector_config_oauth_callback_endpoint,
+    connector_config_oauth_start_endpoint,
+    connector_config_submit_endpoint,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -93,6 +98,9 @@ from airbyte.mcp._tool_utils import (
 from airbyte.mcp.agents import register_agents_tools
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
+from airbyte.mcp.interactive._connector_config_form_ui import (
+    connector_config_form_endpoint,
+)
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
@@ -383,6 +391,30 @@ validate_airbyte_domains(app)
 async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF029
     """Health check endpoint for load balancer probes."""
     return JSONResponse({"status": "ok"})
+
+
+@app.custom_route("/connector-config-submit", methods=["POST", "OPTIONS"])
+async def connector_config_submit(request: Request) -> Response:
+    """Execute a connector configuration action from the MCP App form."""
+    return await connector_config_submit_endpoint(request)
+
+
+@app.custom_route("/connector-config-oauth-start", methods=["POST", "OPTIONS"])
+async def connector_config_oauth_start(request: Request) -> Response:
+    """Start the connector configuration OAuth flow."""
+    return await connector_config_oauth_start_endpoint(request)
+
+
+@app.custom_route("/connector-config-oauth-callback", methods=["GET"])
+async def connector_config_oauth_callback(request: Request) -> Response:  # noqa: RUF029
+    """Complete the connector configuration OAuth flow."""
+    return connector_config_oauth_callback_endpoint(request)
+
+
+@app.custom_route("/connector-config-form", methods=["GET"])
+async def connector_config_form(request: Request) -> Response:
+    """Render the connector configuration form as a standalone browser page."""
+    return await connector_config_form_endpoint(request)
 
 
 def main() -> None:
