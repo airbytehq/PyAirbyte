@@ -10,6 +10,7 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import json
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
@@ -21,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
+from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud.client import (
     CloudClient,
 )
@@ -50,6 +52,11 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._deferred_auth import (
+    _paths_present,
+    _schema_secret_paths,
+    _stub_missing_secrets,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
@@ -115,6 +122,21 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
+
+
+class DeferredAuthSourceResult(BaseModel):
+    """Information about a source awaiting authentication in Airbyte Cloud."""
+
+    id: str
+    """The source ID."""
+    name: str
+    """Display name of the source."""
+    url: str
+    """Web URL for managing this source in Airbyte Cloud."""
+    non_secret_config: dict[str, Any]
+    """The non-secret configuration supplied when creating the source."""
+    note: str
+    """Instructions for completing authentication in Airbyte Cloud."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -447,6 +469,108 @@ def deploy_source_to_cloud(
     return (
         f"Successfully deployed source '{source_name}' with ID '{deployed_source.connector_id}'"
         f" and URL: {deployed_source.connector_url}"
+    )
+
+
+@mcp_tool(
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def create_source_with_deferred_auth(
+    ctx: Context,
+    source_name: Annotated[
+        str,
+        Field(description="The name to use when creating the source."),
+    ],
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector (e.g., 'source-github')."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+    config: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "Non-secret connector configuration. Secret fields must NOT be "
+                "provided; they are stubbed with placeholders and completed by "
+                "the user in the Cloud UI."
+            ),
+            default=None,
+        ),
+    ] = None,
+) -> DeferredAuthSourceResult:
+    """Create a source for deferred authentication in the Cloud UI.
+
+    This create-only workflow never passes secrets through the agent. The user
+    finishes authentication directly in Airbyte Cloud.
+    """
+    if config is None:
+        config = {}
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError as error:
+            raise PyAirbyteInputError(
+                message="config must be a JSON object.",
+                context={"connector_name": source_connector_name},
+            ) from error
+    if not isinstance(config, dict):
+        raise PyAirbyteInputError(
+            message="config must be an object.",
+            context={"connector_name": source_connector_name},
+        )
+
+    spec_schema = get_connector_spec_from_registry(
+        source_connector_name,
+        platform="cloud",
+    )
+    if spec_schema is None:
+        spec_schema = get_connector_spec_from_registry(
+            source_connector_name,
+            platform="oss",
+        )
+    if spec_schema is None:
+        raise PyAirbyteInputError(
+            message=(f"Could not fetch a configuration schema for '{source_connector_name}'."),
+            context={"connector_name": source_connector_name},
+        )
+
+    secret_fields = sorted(_schema_secret_paths(spec_schema))
+    supplied_secrets = sorted(_paths_present(config).intersection(secret_fields))
+    if supplied_secrets:
+        raise PyAirbyteInputError(
+            message="Secret values cannot be provided in config.",
+            context={"secret_fields": supplied_secrets},
+        )
+
+    stubbed = cast(dict[str, Any], _stub_missing_secrets(config, spec_schema))
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    source = get_source(source_connector_name, no_executor=True)
+    source.set_config(stubbed, validate=False)
+    deployed_source = workspace.deploy_source(
+        name=source_name,
+        source=source,
+        unique=True,
+    )
+    register_guid_created_in_session(deployed_source.connector_id)
+    return DeferredAuthSourceResult(
+        id=deployed_source.connector_id,
+        name=source_name,
+        url=deployed_source.connector_url,
+        non_secret_config=config,
+        note=(
+            "Source created without working credentials. The user must open the URL "
+            "in Airbyte Cloud and complete authentication (enter secrets or use the "
+            "OAuth button). Ask the user to confirm when done, or poll the source's "
+            "check status."
+        ),
     )
 
 
