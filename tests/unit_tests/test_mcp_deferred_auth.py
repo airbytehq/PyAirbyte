@@ -174,6 +174,52 @@ def test_stub_missing_secrets_handles_all_of() -> None:
     assert _stub_missing_secrets({}, schema) == {"api_key": SECRET_PLACEHOLDER}
 
 
+def test_stub_missing_secrets_handles_arrays() -> None:
+    schema = {
+        "properties": {
+            "credentials": {
+                "type": "array",
+                "items": {
+                    "properties": {
+                        "api_key": {"airbyte_secret": True},
+                    }
+                },
+            }
+        }
+    }
+
+    assert _stub_missing_secrets({"credentials": [{}]}, schema) == {
+        "credentials": [{"api_key": SECRET_PLACEHOLDER}]
+    }
+
+
+def test_stub_missing_secrets_stubs_selected_branch_and_parent_properties() -> None:
+    schema = {
+        "properties": {
+            "api_key": {"airbyte_secret": True},
+            "credentials": {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "auth_type": {"const": "Client"},
+                            "client_id": {"airbyte_secret": True},
+                        }
+                    }
+                ]
+            },
+        }
+    }
+    value = {"credentials": {"auth_type": "Client"}}
+
+    assert _stub_missing_secrets(value, schema) == {
+        "api_key": SECRET_PLACEHOLDER,
+        "credentials": {
+            "auth_type": "Client",
+            "client_id": SECRET_PLACEHOLDER,
+        },
+    }
+
+
 def test_stub_missing_secrets_leaves_unknown_branch_unchanged() -> None:
     schema = _enum_auth_schema()
     value = {"auth_type": "Unknown"}

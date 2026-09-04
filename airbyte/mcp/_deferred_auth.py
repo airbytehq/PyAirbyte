@@ -92,12 +92,15 @@ def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
     fields are present in the configuration sent to the Cloud API at source
     create time.
     """
+    items = schema.get("items")
+    if isinstance(value, list) and isinstance(items, Mapping):
+        return [_stub_missing_secrets(item, items) for item in value]
     for branch_key in ("oneOf", "anyOf"):
         branches = schema.get(branch_key)
         if isinstance(branches, list) and isinstance(value, Mapping):
             branch = _select_branch(branches, value)
             if branch is not None:
-                return _stub_missing_secrets(value, branch)
+                value = _stub_missing_secrets(value, branch)
     all_of = schema.get("allOf")
     if isinstance(all_of, list):
         for branch in all_of:
