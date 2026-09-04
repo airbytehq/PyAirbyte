@@ -420,7 +420,10 @@ def test_deferred_auth_creates_destination_with_safe_confirmation(
             return type(
                 "DeployedDestination",
                 (),
-                {"connector_id": "destination-id"},
+                {
+                    "connector_id": "destination-id",
+                    "connector_url": "https://cloud.airbyte.com/destinations/destination-id",
+                },
             )()
 
     monkeypatch.setattr(
@@ -463,7 +466,8 @@ def test_deferred_auth_creates_destination_with_safe_confirmation(
     assert captured["name"] == "Postgres"
     assert captured["unique"] is True
     assert result.startswith(
-        "Successfully deployed destination 'Postgres' with ID: destination-id"
+        "Successfully deployed destination 'Postgres' with ID 'destination-id' "
+        "and URL: https://cloud.airbyte.com/destinations/destination-id"
     )
     assert "Destination created without working credentials (deferred auth)." in result
     assert SECRET_PLACEHOLDER not in result

@@ -644,7 +644,8 @@ def deploy_destination_to_cloud(
     register_guid_created_in_session(deployed_destination.connector_id)
     return (
         f"Successfully deployed destination '{destination_name}' "
-        f"with ID: {deployed_destination.connector_id}"
+        f"with ID '{deployed_destination.connector_id}' "
+        f"and URL: {deployed_destination.connector_url}"
         f"{deferred_note}"
     )
 
