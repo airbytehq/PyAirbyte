@@ -96,11 +96,17 @@ def test_deferred_auth_rejects_secret_config(
 def test_deferred_auth_accepts_json_config_and_rejects_invalid_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    class Source:
+        def set_config(self, value: dict[str, Any], *, validate: bool) -> None:
+            assert value == {"spreadsheet_id": "sheet-id"}
+            assert validate is False
+
     monkeypatch.setattr(
         cloud_mcp,
         "get_connector_spec_from_registry",
         lambda *args, **kwargs: _google_sheets_schema(),
     )
+    monkeypatch.setattr(cloud_mcp, "get_source", lambda *args, **kwargs: Source())
     monkeypatch.setattr(
         cloud_mcp,
         "_get_cloud_workspace",
@@ -248,6 +254,16 @@ def test_stub_missing_secrets_preserves_present_secret() -> None:
             "refresh_token": SECRET_PLACEHOLDER,
         },
     }
+
+
+def test_stub_missing_secrets_preserves_empty_secret_value() -> None:
+    schema = {
+        "properties": {
+            "api_key": {"airbyte_secret": True},
+        }
+    }
+
+    assert _stub_missing_secrets({"api_key": ""}, schema) == {"api_key": ""}
 
 
 def test_schema_secret_paths_include_nested_branch_secrets() -> None:

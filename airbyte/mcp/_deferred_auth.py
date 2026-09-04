@@ -119,7 +119,7 @@ def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
             or child.get("format") == "password"
         )
         if is_secret:
-            if not result.get(name):
+            if name not in result or result[name] is None:
                 result[name] = SECRET_PLACEHOLDER
         elif name in result:
             result[name] = _stub_missing_secrets(result[name], child)
