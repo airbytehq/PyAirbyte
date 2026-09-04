@@ -365,6 +365,94 @@ def test_start_connector_oauth_returns_safe_consent_result(
     assert "cloud-token" not in json.dumps(result.structured_content)
 
 
+def test_deferred_auth_rejects_secret_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: SCHEMA
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="Secret values cannot"):
+        form.create_source_with_deferred_auth(
+            "source-github",
+            {"credentials": {"api_key": "secret-value"}},
+            source_name="GitHub",
+        )
+
+
+def test_deferred_auth_rejects_validate_only_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: GITHUB_SCHEMA
+    )
+    monkeypatch.delenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_ID_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_CLIENT_SECRET_ENV_VAR, raising=False)
+    monkeypatch.delenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, raising=False)
+    monkeypatch.setattr(form, "_resolve_transport_bearer_token", lambda: "")
+
+    with pytest.raises(
+        PyAirbyteInputError,
+        match="Cloud credentials and a workspace ID are required to create a source",
+    ):
+        form.create_source_with_deferred_auth(
+            "source-github",
+            {},
+            source_name="GitHub",
+        )
+
+
+def test_deferred_auth_creates_source_with_safe_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        form, "get_connector_spec_from_registry", lambda *args, **kwargs: GITHUB_SCHEMA
+    )
+    monkeypatch.setenv(form.CLOUD_BEARER_TOKEN_ENV_VAR, "cloud-token")
+    monkeypatch.setenv(form.CLOUD_WORKSPACE_ID_ENV_VAR, "workspace-id")
+    created = type("CreatedSource", (), {"source_id": "source-id"})()
+    captured: dict[str, object] = {}
+
+    def create_source(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return created
+
+    monkeypatch.setattr(form.api_util, "create_source", create_source)
+    result = form.create_source_with_deferred_auth(
+        "source-github",
+        {"credentials": {"option_title": "personal_access_token"}},
+        source_name="GitHub",
+    )
+
+    content = result.content[0].text
+    structured = result.structured_content
+    assert structured["status"] == "created"
+    assert structured["source_id"] == "source-id"
+    assert (
+        structured["connector_url"]
+        == "https://cloud.airbyte.com/workspaces/workspace-id/source/source-id"
+    )
+    assert structured["non_secret_config"] == {
+        "credentials": {"option_title": "personal_access_token"}
+    }
+    assert "complete authentication" in structured["note"]
+    assert json.loads(content) == structured
+    assert captured["config"] == {
+        "credentials": {
+            "option_title": "personal_access_token",
+            "personal_access_token": "__airbyte_oauth_placeholder__",
+        }
+    }
+    assert "secret_id" not in captured
+    serialized = json.dumps(structured)
+    assert "__airbyte_oauth_placeholder__" not in serialized
+    assert "cloud-token" not in serialized
+    assert "derived-secret-token" not in serialized
+    assert "__airbyte_oauth_placeholder__" not in content
+    assert "cloud-token" not in content
+
+
 def test_form_blocks_prototype_pollution_paths() -> None:
     html = form.connector_config_form_resource()
 

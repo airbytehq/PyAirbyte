@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from airbyte.mcp._tool_utils import register_mcp_tools
 from airbyte.mcp.interactive._connector_config_form_ui import (
+    create_source_with_deferred_auth,
     register_connector_config_form_resource,
     show_connector_config_form,
     start_connector_oauth,
@@ -28,6 +29,7 @@ def register_interactive_tools(app: FastMCP) -> None:
 
 __all__ = [
     "register_interactive_tools",
+    "create_source_with_deferred_auth",
     "start_connector_oauth",
     "show_connector_config_form",
     "show_connectors_list",

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from urllib.parse import urlencode, urlparse
 
 from fastmcp import Context  # noqa: TC002
@@ -30,7 +30,9 @@ from airbyte.constants import (
 from airbyte.mcp._config_submit import (
     ConfigSubmitError,
     _schema_secret_paths,
+    _secret_claim,
     _server_url,
+    _stub_missing_secrets,
     decrypt_action_token,
     initiate_oauth_flow,
     mint_action_token,
@@ -786,8 +788,129 @@ def start_connector_oauth(
     )
 
 
+@mcp_tool(
+    read_only=False,
+    idempotent=False,
+    open_world=True,
+    annotations={INTERACTIVE_UI_ANNOTATION: False},
+)
+def create_source_with_deferred_auth(
+    connector_name: Annotated[
+        str,
+        Field(description="Connector name, such as `source-github`."),
+    ],
+    config: Annotated[
+        dict[str, Any] | str | None,
+        Field(description="Non-secret connector configuration."),
+    ] = None,
+    *,
+    source_name: Annotated[
+        str,
+        Field(description="Name to use when creating the source."),
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(description="Cloud workspace ID for creating the source.", default=None),
+    ] = None,
+    ctx: Context | None = None,
+) -> ToolResult:
+    """Create a source with placeholders for authentication in the Cloud UI.
+
+    The user completes authentication in Airbyte Cloud, and the agent receives
+    only safe confirmation.
+    """
+    if config is None:
+        config = {}
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError as error:
+            raise exc.PyAirbyteInputError(
+                message="config must be a JSON object.",
+                context={"connector_name": connector_name},
+            ) from error
+    if not isinstance(config, dict):
+        raise exc.PyAirbyteInputError(
+            message="config must be an object.",
+            context={"connector_name": connector_name},
+        )
+
+    spec_schema = _connector_spec_schema(connector_name)
+    if not spec_schema:
+        raise exc.PyAirbyteInputError(
+            message=f"Could not fetch a configuration schema for '{connector_name}'.",
+            context={"connector_name": connector_name},
+        )
+    secret_fields = sorted(_schema_secret_paths(spec_schema))
+    supplied_secrets = sorted(_paths_present(config).intersection(secret_fields))
+    if supplied_secrets:
+        raise exc.PyAirbyteInputError(
+            message="Secret values cannot be provided in config.",
+            context={"secret_fields": supplied_secrets},
+        )
+
+    action, token = _mint_form_token(
+        connector_name,
+        config_defaults=config,
+        ctx=ctx,
+        source_id=None,
+        workspace_id=workspace_id,
+        source_name=source_name,
+    )
+    if action != "create":
+        raise exc.PyAirbyteInputError(
+            message="Cloud credentials and a workspace ID are required to create a source."
+        )
+    claims = decrypt_action_token(token, consume=False)
+    config_merged = claims.get("non_secret_defaults", {})
+    if not isinstance(config_merged, dict):
+        raise exc.PyAirbyteInputError(
+            message="Source configuration defaults must be an object.",
+            context={"connector_name": connector_name},
+        )
+    stubbed_config = cast(
+        dict[str, Any],
+        _stub_missing_secrets(config_merged, spec_schema),
+    )
+    workspace_id_claim = claims.get("workspace_id")
+    if not isinstance(workspace_id_claim, str):
+        raise exc.PyAirbyteInputError(
+            message="Cloud credentials and a workspace ID are required to create a source."
+        )
+    source = api_util.create_source(
+        source_name,
+        workspace_id=workspace_id_claim,
+        config=stubbed_config,
+        api_root=claims.get("api_url") or "",
+        client_id=_secret_claim(claims, "client_id"),
+        client_secret=_secret_claim(claims, "client_secret"),
+        bearer_token=_secret_claim(claims, "bearer_token"),
+    )
+    source_id = source.source_id
+    result = {
+        "status": "created",
+        "connector_name": connector_name,
+        "source_id": source_id,
+        "connector_url": (
+            f"https://cloud.airbyte.com/workspaces/{workspace_id_claim}/source/{source_id}"
+        ),
+        "non_secret_config": claims.get("non_secret_defaults", {}),
+        "note": (
+            "Source created without working credentials. The user must open the "
+            "connector URL in Airbyte Cloud and complete authentication (enter "
+            "secrets or use the OAuth button). Poll the workspace or ask the user "
+            "to confirm completion."
+        ),
+    }
+    return ToolResult(
+        content=json.dumps(result, separators=(",", ":")),
+        structured_content=result,
+    )
+
+
 __all__ = [
     "connector_config_form_endpoint",
+    "create_source_with_deferred_auth",
     "start_connector_oauth",
     "show_connector_config_form",
 ]

@@ -324,9 +324,8 @@ def _select_branch(
 def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
     """Fill missing secret fields with placeholder values.
 
-    Cloud validates the configuration against the connector spec before merging
-    the OAuth `secret_id` payload, so required secret properties must be present
-    at create/update time; the hydrated secret overwrites the placeholders.
+    Required secret properties receive placeholder values so Cloud schema
+    validation passes when a source is created.
     """
     for branch_key in ("oneOf", "anyOf"):
         branches = schema.get(branch_key)
