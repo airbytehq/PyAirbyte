@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
-from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud.client import (
     CloudClient,
 )
@@ -52,11 +51,6 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
-from airbyte.mcp._deferred_auth import (
-    _paths_present,
-    _schema_secret_paths,
-    _stub_missing_secrets,
-)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
@@ -118,7 +112,7 @@ def _resolve_deferred_auth_config(
     config: dict | str | None,
     config_secret_name: str | None,
 ) -> dict[str, Any]:
-    """Resolve and stub a connector configuration for deferred Cloud authentication."""
+    """Resolve a connector configuration for deferred Cloud authentication."""
     if config_secret_name is not None:
         raise PyAirbyteInputError(
             message="config_secret_name cannot be used with deferred_auth.",
@@ -148,32 +142,7 @@ def _resolve_deferred_auth_config(
             context={"connector_name": connector_name},
         )
 
-    spec_schema = get_connector_spec_from_registry(
-        connector_name,
-        platform="cloud",
-    )
-    if spec_schema is None:
-        spec_schema = get_connector_spec_from_registry(
-            connector_name,
-            platform="oss",
-        )
-    if spec_schema is None:
-        raise PyAirbyteInputError(
-            message=f"Could not fetch a configuration schema for '{connector_name}'.",
-            context={"connector_name": connector_name},
-        )
-
-    secret_fields = sorted(_schema_secret_paths(spec_schema))
-    supplied_secrets = sorted(_paths_present(config_dict).intersection(secret_fields))
-    if supplied_secrets:
-        raise PyAirbyteInputError(
-            message="Secret values cannot be provided in config.",
-            context={"secret_fields": supplied_secrets},
-        )
-    return cast(
-        dict[str, Any],
-        _stub_missing_secrets(config_dict, spec_schema),
-    )
+    return config_dict
 
 
 class CloudSourceResult(BaseModel):
@@ -538,6 +507,7 @@ def deploy_source_to_cloud(
         name=source_name,
         source=source,
         unique=unique,
+        deferred_auth=deferred_auth,
     )
 
     register_guid_created_in_session(deployed_source.connector_id)
@@ -639,6 +609,7 @@ def deploy_destination_to_cloud(
         name=destination_name,
         destination=destination,
         unique=unique,
+        deferred_auth=deferred_auth,
     )
 
     register_guid_created_in_session(deployed_destination.connector_id)

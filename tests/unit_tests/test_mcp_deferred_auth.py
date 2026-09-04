@@ -8,13 +8,16 @@ from typing import Any
 
 import pytest
 
-from airbyte.exceptions import AirbyteMissingWorkspaceContextError, PyAirbyteInputError
-from airbyte.mcp import cloud as cloud_mcp
-from airbyte.mcp._deferred_auth import (
+from airbyte.cloud import workspaces as cloud_workspaces
+from airbyte.cloud._deferred_auth import (
     SECRET_PLACEHOLDER,
     _schema_secret_paths,
     _stub_missing_secrets,
 )
+from airbyte.destinations.base import Destination as DestinationBase
+from airbyte.exceptions import AirbyteMissingWorkspaceContextError, PyAirbyteInputError
+from airbyte.mcp import cloud as cloud_mcp
+from airbyte.sources.base import Source as SourceBase
 
 
 def _google_sheets_schema() -> dict[str, Any]:
@@ -69,11 +72,28 @@ def _enum_auth_schema() -> dict[str, Any]:
     }
 
 
+def _workspace() -> cloud_workspaces.CloudWorkspace:
+    workspace = object.__new__(cloud_workspaces.CloudWorkspace)
+    workspace.api_root = "https://api.airbyte.com"
+    workspace.workspace_id = "workspace-id"
+    workspace.client_id = None
+    workspace.client_secret = None
+    workspace.bearer_token = None
+    return workspace
+
+
 def test_deferred_auth_rejects_secret_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    source = object.__new__(SourceBase)
+    source._name = "source-google-sheets"  # noqa: SLF001
+    source._config_dict = {  # noqa: SLF001
+        "credentials": {"auth_type": "Client", "client_id": "secret"}
+    }
+    workspace = _workspace()
+
     monkeypatch.setattr(
-        cloud_mcp,
+        cloud_workspaces,
         "get_connector_spec_from_registry",
         lambda *args, **kwargs: _google_sheets_schema(),
     )
@@ -81,14 +101,10 @@ def test_deferred_auth_rejects_secret_config(
     with pytest.raises(
         PyAirbyteInputError, match="Secret values cannot be provided in config"
     ):
-        cloud_mcp.deploy_source_to_cloud(
-            object(),
-            "Google Sheets",
-            "source-google-sheets",
-            workspace_id=None,
-            config={"credentials": {"auth_type": "Client", "client_id": "secret"}},
-            config_secret_name=None,
-            unique=True,
+        workspace.deploy_source(
+            name="Google Sheets",
+            source=source,
+            unique=False,
             deferred_auth=True,
         )
 
@@ -101,11 +117,6 @@ def test_deferred_auth_accepts_json_config_and_rejects_invalid_json(
             assert value == {"spreadsheet_id": "sheet-id"}
             assert validate is False
 
-    monkeypatch.setattr(
-        cloud_mcp,
-        "get_connector_spec_from_registry",
-        lambda *args, **kwargs: _google_sheets_schema(),
-    )
     monkeypatch.setattr(cloud_mcp, "get_source", lambda *args, **kwargs: Source())
     monkeypatch.setattr(
         cloud_mcp,
@@ -164,6 +175,21 @@ def test_stub_missing_secrets_matches_null_const_branch() -> None:
         "auth_type": None,
         "client_id": SECRET_PLACEHOLDER,
     }
+
+
+def test_stub_missing_secrets_does_not_match_omitted_null_const() -> None:
+    schema = {
+        "oneOf": [
+            {
+                "properties": {
+                    "auth_type": {"const": None},
+                    "client_id": {"airbyte_secret": True},
+                }
+            }
+        ]
+    }
+
+    assert _stub_missing_secrets({}, schema) == {}
 
 
 def test_stub_missing_secrets_handles_all_of() -> None:
@@ -274,6 +300,48 @@ def test_schema_secret_paths_include_nested_branch_secrets() -> None:
     }
 
 
+def test_workspace_deferred_auth_stubs_source_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = object.__new__(SourceBase)
+    source._name = "source-google-sheets"  # noqa: SLF001
+    source._config_dict = {  # noqa: SLF001
+        "credentials": {"auth_type": "Client"}
+    }
+    workspace = _workspace()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cloud_workspaces,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _google_sheets_schema(),
+    )
+
+    def create_source(**kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return type("SourceResponse", (), {"source_id": "source-id"})()
+
+    monkeypatch.setattr(cloud_workspaces.api_util, "create_source", create_source)
+
+    deployed = workspace.deploy_source(
+        name="Google Sheets",
+        source=source,
+        unique=False,
+        deferred_auth=True,
+    )
+
+    assert captured["config"] == {
+        "credentials": {
+            "auth_type": "Client",
+            "client_id": SECRET_PLACEHOLDER,
+            "client_secret": SECRET_PLACEHOLDER,
+            "refresh_token": SECRET_PLACEHOLDER,
+        },
+        "sourceType": "google-sheets",
+    }
+    assert deployed.connector_id == "source-id"
+
+
 def test_deferred_auth_creates_source_with_safe_confirmation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -286,10 +354,18 @@ def test_deferred_auth_creates_source_with_safe_confirmation(
             captured["validate"] = validate
 
     class Workspace:
-        def deploy_source(self, *, name: str, source: Source, unique: bool) -> Any:
+        def deploy_source(
+            self,
+            *,
+            name: str,
+            source: Source,
+            unique: bool,
+            deferred_auth: bool,
+        ) -> Any:
             captured["name"] = name
             captured["source"] = source
             captured["unique"] = unique
+            captured["deferred_auth"] = deferred_auth
             return type(
                 "DeployedSource",
                 (),
@@ -299,11 +375,6 @@ def test_deferred_auth_creates_source_with_safe_confirmation(
                 },
             )()
 
-    monkeypatch.setattr(
-        cloud_mcp,
-        "get_connector_spec_from_registry",
-        lambda *args, **kwargs: _google_sheets_schema(),
-    )
     monkeypatch.setattr(
         cloud_mcp,
         "_get_cloud_workspace",
@@ -322,18 +393,11 @@ def test_deferred_auth_creates_source_with_safe_confirmation(
         deferred_auth=True,
     )
 
-    assert captured["config"] == {
-        "credentials": {
-            "auth_type": "Client",
-            "client_id": SECRET_PLACEHOLDER,
-            "client_secret": SECRET_PLACEHOLDER,
-            "refresh_token": SECRET_PLACEHOLDER,
-        },
-        "spreadsheet_id": "sheet-id",
-    }
+    assert captured["config"] == config
     assert captured["validate"] is False
     assert captured["name"] == "Google Sheets"
     assert captured["unique"] is True
+    assert captured["deferred_auth"] is True
     assert result.startswith(
         "Successfully deployed source 'Google Sheets' with ID 'source-id'"
     )
@@ -345,15 +409,7 @@ def test_deferred_auth_creates_source_with_safe_confirmation(
     assert "bearer-token" not in serialized
 
 
-def test_deferred_auth_rejects_config_secret_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        cloud_mcp,
-        "get_connector_spec_from_registry",
-        lambda *args, **kwargs: _google_sheets_schema(),
-    )
-
+def test_deferred_auth_rejects_config_secret_name() -> None:
     with pytest.raises(
         PyAirbyteInputError,
         match="config_secret_name cannot be used with deferred_auth",
@@ -373,8 +429,15 @@ def test_deferred_auth_rejects_config_secret_name(
 def test_deferred_auth_rejects_destination_secret_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    destination = object.__new__(DestinationBase)
+    destination._name = "destination-postgres"  # noqa: SLF001
+    destination._config_dict = {  # noqa: SLF001
+        "credentials": {"auth_type": "Client", "client_id": "secret"}
+    }
+    workspace = _workspace()
+
     monkeypatch.setattr(
-        cloud_mcp,
+        cloud_workspaces,
         "get_connector_spec_from_registry",
         lambda *args, **kwargs: _google_sheets_schema(),
     )
@@ -382,14 +445,10 @@ def test_deferred_auth_rejects_destination_secret_config(
     with pytest.raises(
         PyAirbyteInputError, match="Secret values cannot be provided in config"
     ):
-        cloud_mcp.deploy_destination_to_cloud(
-            object(),
-            "Postgres",
-            "destination-postgres",
-            workspace_id=None,
-            config={"credentials": {"auth_type": "Client", "client_id": "secret"}},
-            config_secret_name=None,
-            unique=True,
+        workspace.deploy_destination(
+            name="Postgres",
+            destination=destination,
+            unique=False,
             deferred_auth=True,
         )
 
@@ -429,10 +488,12 @@ def test_deferred_auth_creates_destination_with_safe_confirmation(
             name: str,
             destination: Destination,
             unique: bool,
+            deferred_auth: bool,
         ) -> Any:
             captured["name"] = name
             captured["destination"] = destination
             captured["unique"] = unique
+            captured["deferred_auth"] = deferred_auth
             return type(
                 "DeployedDestination",
                 (),
@@ -442,11 +503,6 @@ def test_deferred_auth_creates_destination_with_safe_confirmation(
                 },
             )()
 
-    monkeypatch.setattr(
-        cloud_mcp,
-        "get_connector_spec_from_registry",
-        lambda *args, **kwargs: _google_sheets_schema(),
-    )
     monkeypatch.setattr(
         cloud_mcp,
         "_get_cloud_workspace",
@@ -469,18 +525,11 @@ def test_deferred_auth_creates_destination_with_safe_confirmation(
         deferred_auth=True,
     )
 
-    assert captured["config"] == {
-        "credentials": {
-            "auth_type": "Client",
-            "client_id": SECRET_PLACEHOLDER,
-            "client_secret": SECRET_PLACEHOLDER,
-            "refresh_token": SECRET_PLACEHOLDER,
-        },
-        "database": "warehouse",
-    }
+    assert captured["config"] == config
     assert captured["validate"] is False
     assert captured["name"] == "Postgres"
     assert captured["unique"] is True
+    assert captured["deferred_auth"] is True
     assert result.startswith(
         "Successfully deployed destination 'Postgres' with ID 'destination-id' "
         "and URL: https://cloud.airbyte.com/destinations/destination-id"
@@ -503,9 +552,17 @@ def test_deploy_source_without_deferred_auth_has_no_note(
             assert validate is True
 
     class Workspace:
-        def deploy_source(self, *, name: str, source: Source, unique: bool) -> Any:
+        def deploy_source(
+            self,
+            *,
+            name: str,
+            source: Source,
+            unique: bool,
+            deferred_auth: bool,
+        ) -> Any:
             assert name == "Source"
             assert unique is True
+            assert deferred_auth is False
             return type(
                 "DeployedSource",
                 (),
@@ -538,11 +595,12 @@ def test_deploy_source_without_deferred_auth_has_no_note(
 def test_deferred_auth_requires_workspace_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        cloud_mcp,
-        "get_connector_spec_from_registry",
-        lambda *args, **kwargs: _google_sheets_schema(),
-    )
+    class Source:
+        def set_config(self, value: dict[str, Any], *, validate: bool) -> None:
+            assert value == {}
+            assert validate is False
+
+    monkeypatch.setattr(cloud_mcp, "get_source", lambda *args, **kwargs: Source())
     monkeypatch.setattr(cloud_mcp, "get_mcp_config", lambda *args, **kwargs: None)
 
     with pytest.raises(AirbyteMissingWorkspaceContextError):

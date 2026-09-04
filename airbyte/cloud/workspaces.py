@@ -45,7 +45,13 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud._deferred_auth import (
+    _paths_present,
+    _schema_secret_paths,
+    _stub_missing_secrets,
+)
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -372,6 +378,7 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
+        deferred_auth: bool = False,
     ) -> CloudSource:
         """Deploy a source to the workspace.
 
@@ -383,9 +390,32 @@ class CloudWorkspace:
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
+            deferred_auth: Whether to create the source without working credentials so
+                the user can complete authentication in the Cloud UI.
         """
         source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
         source_config_dict["sourceType"] = source.name.replace("source-", "")
+        if deferred_auth:
+            spec_schema = get_connector_spec_from_registry(source.name, platform="cloud")
+            if spec_schema is None:
+                spec_schema = get_connector_spec_from_registry(
+                    source.name,
+                    platform="oss",
+                )
+            if spec_schema is None:
+                raise exc.PyAirbyteInputError(
+                    message=f"Could not fetch a configuration schema for '{source.name}'."
+                )
+            secret_fields = _schema_secret_paths(spec_schema)
+            supplied_secrets = _paths_present(source_config_dict).intersection(secret_fields) - {
+                "sourceType"
+            }
+            if supplied_secrets:
+                raise exc.PyAirbyteInputError(
+                    message="Secret values cannot be provided in config.",
+                    context={"secret_fields": sorted(supplied_secrets)},
+                )
+            source_config_dict = dict(_stub_missing_secrets(source_config_dict, spec_schema))
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -419,6 +449,7 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
+        deferred_auth: bool = False,
     ) -> CloudDestination:
         """Deploy a destination to the workspace.
 
@@ -431,12 +462,46 @@ class CloudWorkspace:
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
+            deferred_auth: Whether to create the destination without working credentials so
+                the user can complete authentication in the Cloud UI.
         """
         if isinstance(destination, Destination):
             destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
             # raise ValueError(destination_conf_dict)
+            if deferred_auth:
+                spec_schema = get_connector_spec_from_registry(
+                    destination.name,
+                    platform="cloud",
+                )
+                if spec_schema is None:
+                    spec_schema = get_connector_spec_from_registry(
+                        destination.name,
+                        platform="oss",
+                    )
+                if spec_schema is None:
+                    raise exc.PyAirbyteInputError(
+                        message=(
+                            f"Could not fetch a configuration schema for '{destination.name}'."
+                        )
+                    )
+                secret_fields = _schema_secret_paths(spec_schema)
+                supplied_secrets = _paths_present(destination_conf_dict).intersection(
+                    secret_fields
+                ) - {"destinationType"}
+                if supplied_secrets:
+                    raise exc.PyAirbyteInputError(
+                        message="Secret values cannot be provided in config.",
+                        context={"secret_fields": sorted(supplied_secrets)},
+                    )
+                destination_conf_dict = dict(
+                    _stub_missing_secrets(destination_conf_dict, spec_schema)
+                )
         else:
+            if deferred_auth:
+                raise exc.PyAirbyteInputError(
+                    message="deferred_auth requires a Destination object."
+                )
             destination_conf_dict = destination.copy()
             if "destinationType" not in destination_conf_dict:
                 raise exc.PyAirbyteInputError(

@@ -79,7 +79,7 @@ def _select_branch(
                 if isinstance(enum, list) and len(enum) == 1:
                     discriminators[name] = enum[0]
         if discriminators and all(
-            value.get(name) == expected for name, expected in discriminators.items()
+            name in value and value[name] == expected for name, expected in discriminators.items()
         ):
             return branch
     return None
