@@ -58,7 +58,7 @@ def _cached_spec(connector_name: str) -> dict[str, Any] | None:
             if isinstance(cached_spec, dict):
                 return cached_spec
         except (OSError, json.JSONDecodeError):
-            pass
+            pass  # Unreadable or corrupt cache entry; fall through to refetch.
 
     spec = None
     for platform in ("cloud", "oss"):
