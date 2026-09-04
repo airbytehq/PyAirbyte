@@ -68,8 +68,16 @@ class _CheckableConnectorLike:
     result: CheckResult
     received_raise_on_error: bool | None = None
 
-    def check(self, *, raise_on_error: bool = True) -> CheckResult:
+    def check(
+        self,
+        *,
+        raise_on_error: bool = True,
+        wait: bool = True,
+        wait_timeout: int = 300,
+        command_id: str | None = None,
+    ) -> CheckResult:
         """Capture the error handling option and return the configured result."""
+        _ = (wait, wait_timeout, command_id)
         self.received_raise_on_error = raise_on_error
         return self.result
 
@@ -354,31 +362,80 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
     ],
 )
 @pytest.mark.parametrize(
-    ("check_result", "expected_success", "expected_message"),
+    (
+        "check_result",
+        "expected_status",
+        "expected_success",
+        "expected_message",
+        "expected_command_id",
+        "expected_failure_type",
+        "wait",
+    ),
     [
         pytest.param(
             CheckResult(success=True),
+            "completed",
             True,
             None,
+            None,
+            None,
+            True,
             id="success",
         ),
         pytest.param(
             CheckResult(success=False, error_message="Invalid credentials"),
+            "completed",
             False,
             "Invalid credentials",
+            None,
+            None,
+            True,
             id="error-message",
         ),
         pytest.param(
             CheckResult(success=False, internal_error="Check service unavailable"),
+            "completed",
             False,
             "Check service unavailable",
+            None,
+            None,
+            True,
             id="internal-error",
         ),
         pytest.param(
             CheckResult(success=False),
+            "completed",
             False,
             "Connector check failed without a failure message.",
+            None,
+            None,
+            True,
             id="missing-message",
+        ),
+        pytest.param(
+            CheckResult(
+                success=False,
+                error_message="x",
+                failure_type="config_error",
+                command_id="cmd-1",
+            ),
+            "completed",
+            False,
+            "x",
+            "cmd-1",
+            "config_error",
+            True,
+            id="async-failure",
+        ),
+        pytest.param(
+            CheckResult(success=False, command_id="cmd-1", _status="pending"),
+            "pending",
+            False,
+            "Connector check failed without a failure message.",
+            "cmd-1",
+            None,
+            False,
+            id="async-pending",
         ),
     ],
 )
@@ -389,8 +446,12 @@ def test_mcp_cloud_connector_checks_map_results(
     connector_id: str,
     connector_type: str,
     check_result: CheckResult,
+    expected_status: str,
     expected_success: bool,
     expected_message: str | None,
+    expected_command_id: str | None,
+    expected_failure_type: str | None,
+    wait: bool,
 ) -> None:
     """Verify Cloud MCP connector checks map result fields and disable raising."""
     workspace = _ConnectorCheckWorkspace(check_result)
@@ -405,6 +466,9 @@ def test_mcp_cloud_connector_checks_map_results(
         tool(
             ctx=cast(Context, object()),
             workspace_id="workspace-id",
+            wait=wait,
+            wait_timeout=300,
+            command_id=check_result.command_id,
             **{connector_id_parameter: connector_id},
         ),
     )
@@ -414,8 +478,11 @@ def test_mcp_cloud_connector_checks_map_results(
     )
     assert result.connector_id == connector_id
     assert result.connector_type == connector_type
+    assert result.status == expected_status
     assert result.succeeded is expected_success
     assert result.message == expected_message
+    assert result.command_id == expected_command_id
+    assert result.failure_type == expected_failure_type
     assert connector.received_raise_on_error is False
 
 

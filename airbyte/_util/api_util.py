@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import base64
 import json
+import time
+import uuid
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -1914,7 +1916,7 @@ def _make_config_api_request(
     return response.json()
 
 
-def check_connector(
+def check_connector(  # noqa: PLR0913  # Explicit auth and timeout arguments are part of the API.
     *,
     actor_id: str,
     connector_type: Literal["source", "destination"],
@@ -1924,20 +1926,93 @@ def check_connector(
     workspace_id: str | None = None,
     api_root: str = CLOUD_API_ROOT,
     config_api_root: str | None = None,
+    wait_timeout: int = 300,
 ) -> tuple[bool, str | None]:
-    """Check a source.
+    """Check a connector using the platform command API.
 
-    Raises an exception if the check fails. Uses one of these endpoints:
-
-    - /v1/sources/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1409
-    - /v1/destinations/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
+    Uses `runCheckCommand`, `getCommandStatus`, `getCheckCommandOutput`, and `cancelCommand`
+    from the [Config API](https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml).
     """
-    _ = workspace_id  # Not used (yet)
+    command_id = run_check_command(
+        actor_id=actor_id,
+        workspace_id=workspace_id,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    start_time = time.time()
+    while True:
+        status = get_command_status(
+            command_id=command_id,
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+        if status not in {"pending", "running"}:
+            break
+        if time.time() - start_time > wait_timeout:
+            raise AirbyteError(
+                message="Check command timed out.",
+                context={
+                    "actor_id": actor_id,
+                    "connector_type": connector_type,
+                    "command_id": command_id,
+                    "timeout": wait_timeout,
+                },
+            )
+        time.sleep(JOB_WAIT_INTERVAL_SECS)
 
-    json_result = _make_config_api_request(
-        path=f"/{connector_type}s/check_connection",
+    if status == "cancelled":
+        return False, "Check command was cancelled."
+
+    output = get_check_command_output(
+        command_id=command_id,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    if output.get("status") == "succeeded":
+        return True, None
+    if output.get("status") == "failed":
+        failure_reason = output.get("failureReason") or {}
+        return False, failure_reason.get("externalMessage") or output.get("message")
+
+    raise AirbyteError(
+        context={
+            "actor_id": actor_id,
+            "connector_type": connector_type,
+            "command_id": command_id,
+            "response": output,
+        },
+    )
+
+
+def run_check_command(
+    *,
+    actor_id: str,
+    workspace_id: str | None,
+    command_id: str | None = None,
+    api_root: str = CLOUD_API_ROOT,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> str:
+    """Start an asynchronous connector check command."""
+    if command_id is None:
+        command_id = str(uuid.uuid4())
+    response = _make_config_api_request(
+        path="/commands/run/check",
         json={
-            f"{connector_type}Id": actor_id,
+            "id": command_id,
+            "actor_id": actor_id,
+            "workspace_id": workspace_id,
         },
         api_root=api_root,
         config_api_root=config_api_root,
@@ -1945,20 +2020,83 @@ def check_connector(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    result, message = json_result.get("status"), json_result.get("message")
+    response_id = response.get("id")
+    if not response_id:
+        raise AirbyteError(
+            message="Check command response is missing an ID.",
+            context={"actor_id": actor_id, "response": response},
+        )
+    return response_id
 
-    if result == "succeeded":
-        return True, None
 
-    if result == "failed":
-        return False, message
+def get_command_status(
+    *,
+    command_id: str,
+    api_root: str = CLOUD_API_ROOT,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> str:
+    """Get the status of an asynchronous command."""
+    response = _make_config_api_request(
+        path="/commands/status",
+        json={"id": command_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    status = response.get("status")
+    if not status:
+        raise AirbyteError(
+            message="Command status response is missing a status.",
+            context={"command_id": command_id, "response": response},
+        )
+    return status
 
-    raise AirbyteError(
-        context={
-            "actor_id": actor_id,
-            "connector_type": connector_type,
-            "response": json_result,
-        },
+
+def get_check_command_output(
+    *,
+    command_id: str,
+    with_logs: bool = False,
+    api_root: str = CLOUD_API_ROOT,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get the output of an asynchronous connector check command."""
+    return _make_config_api_request(
+        path="/commands/output/check",
+        json={"id": command_id, "with_logs": with_logs},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def cancel_command(
+    *,
+    command_id: str,
+    api_root: str = CLOUD_API_ROOT,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> None:
+    """Cancel an asynchronous command."""
+    _make_config_api_request(
+        path="/commands/cancel",
+        json={"id": command_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
