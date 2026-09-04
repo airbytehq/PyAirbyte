@@ -81,11 +81,15 @@ def test_deferred_auth_rejects_secret_config(
     with pytest.raises(
         PyAirbyteInputError, match="Secret values cannot be provided in config"
     ):
-        cloud_mcp.create_source_with_deferred_auth(
+        cloud_mcp.deploy_source_to_cloud(
             object(),
             "Google Sheets",
             "source-google-sheets",
+            workspace_id=None,
             config={"credentials": {"auth_type": "Client", "client_id": "secret"}},
+            config_secret_name=None,
+            unique=True,
+            deferred_auth=True,
         )
 
 
@@ -105,19 +109,27 @@ def test_deferred_auth_accepts_json_config_and_rejects_invalid_json(
         ),
     )
     with pytest.raises(AirbyteMissingWorkspaceContextError):
-        cloud_mcp.create_source_with_deferred_auth(
+        cloud_mcp.deploy_source_to_cloud(
             object(),
             "Google Sheets",
             "source-google-sheets",
+            workspace_id=None,
             config='{"spreadsheet_id":"sheet-id"}',
+            config_secret_name=None,
+            unique=True,
+            deferred_auth=True,
         )
 
     with pytest.raises(PyAirbyteInputError, match="config must be a JSON object"):
-        cloud_mcp.create_source_with_deferred_auth(
+        cloud_mcp.deploy_source_to_cloud(
             object(),
             "Google Sheets",
             "source-google-sheets",
+            workspace_id=None,
             config="{",
+            config_secret_name=None,
+            unique=True,
+            deferred_auth=True,
         )
 
 
@@ -205,12 +217,15 @@ def test_deferred_auth_creates_source_with_safe_confirmation(
     )
     monkeypatch.setattr(cloud_mcp, "get_source", lambda *args, **kwargs: Source())
 
-    result = cloud_mcp.create_source_with_deferred_auth(
+    result = cloud_mcp.deploy_source_to_cloud(
         object(),
         "Google Sheets",
         "source-google-sheets",
         config=config,
         workspace_id="ws",
+        config_secret_name=None,
+        unique=True,
+        deferred_auth=True,
     )
 
     assert captured["config"] == {
@@ -225,16 +240,83 @@ def test_deferred_auth_creates_source_with_safe_confirmation(
     assert captured["validate"] is False
     assert captured["name"] == "Google Sheets"
     assert captured["unique"] is True
-    assert result.id == "source-id"
-    assert result.name == "Google Sheets"
-    assert result.url == "https://cloud.airbyte.com/workspaces/ws/source/source-id"
-    assert result.non_secret_config == config
-    assert "complete authentication" in result.note
-    serialized = result.model_dump_json()
+    assert result.startswith(
+        "Successfully deployed source 'Google Sheets' with ID 'source-id'"
+    )
+    assert "Source created without working credentials (deferred auth)." in result
+    assert SECRET_PLACEHOLDER not in result
+    serialized = json.dumps(result)
     assert "__airbyte_placeholder__" not in serialized
     assert "client-secret" not in serialized
     assert "bearer-token" not in serialized
-    assert json.loads(serialized)["non_secret_config"] == config
+
+
+def test_deferred_auth_rejects_config_secret_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _google_sheets_schema(),
+    )
+
+    with pytest.raises(
+        PyAirbyteInputError,
+        match="config_secret_name cannot be used with deferred_auth",
+    ):
+        cloud_mcp.deploy_source_to_cloud(
+            object(),
+            "Google Sheets",
+            "source-google-sheets",
+            workspace_id=None,
+            config=None,
+            config_secret_name="source-config",
+            unique=True,
+            deferred_auth=True,
+        )
+
+
+def test_deploy_source_without_deferred_auth_has_no_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Source:
+        config_spec: dict[str, Any] = {}
+
+        def set_config(self, value: dict[str, Any], *, validate: bool) -> None:
+            assert value == {}
+            assert validate is True
+
+    class Workspace:
+        def deploy_source(self, *, name: str, source: Source, unique: bool) -> Any:
+            assert name == "Source"
+            assert unique is True
+            return type(
+                "DeployedSource",
+                (),
+                {
+                    "connector_id": "source-id",
+                    "connector_url": "https://cloud.airbyte.com/source/source-id",
+                },
+            )()
+
+    monkeypatch.setattr(cloud_mcp, "get_source", lambda *args, **kwargs: Source())
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id=None: Workspace(),
+    )
+
+    result = cloud_mcp.deploy_source_to_cloud(
+        object(),
+        "Source",
+        "source-faker",
+        workspace_id=None,
+        config=None,
+        config_secret_name=None,
+        unique=True,
+    )
+
+    assert "deferred auth" not in result
 
 
 def test_deferred_auth_requires_workspace_context(
@@ -248,8 +330,13 @@ def test_deferred_auth_requires_workspace_context(
     monkeypatch.setattr(cloud_mcp, "get_mcp_config", lambda *args, **kwargs: None)
 
     with pytest.raises(AirbyteMissingWorkspaceContextError):
-        cloud_mcp.create_source_with_deferred_auth(
+        cloud_mcp.deploy_source_to_cloud(
             object(),
             "Google Sheets",
             "source-google-sheets",
+            workspace_id=None,
+            config=None,
+            config_secret_name=None,
+            unique=True,
+            deferred_auth=True,
         )
