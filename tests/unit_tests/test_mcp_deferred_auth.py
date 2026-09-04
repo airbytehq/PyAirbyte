@@ -753,6 +753,20 @@ def test_deferred_auth_rejects_destination_secret_config(
         )
 
 
+def test_deferred_auth_rejects_dict_destination() -> None:
+    workspace = _workspace()
+
+    with pytest.raises(
+        PyAirbyteInputError, match="deferred_auth requires a Destination object"
+    ):
+        workspace.deploy_destination(
+            name="Postgres",
+            destination={"some": "dict", "destinationType": "postgres"},
+            unique=False,
+            deferred_auth=True,
+        )
+
+
 def test_deferred_auth_rejects_destination_config_secret_name() -> None:
     with pytest.raises(
         PyAirbyteInputError,

@@ -130,7 +130,7 @@ def _resolve_deferred_auth_config(
             ) from error
         if not isinstance(parsed_config, dict):
             raise PyAirbyteInputError(
-                message="config must be an object.",
+                message="config must be a JSON object.",
                 context={"connector_name": connector_name},
             )
         config_dict = parsed_config
@@ -138,7 +138,7 @@ def _resolve_deferred_auth_config(
         config_dict = config
     else:
         raise PyAirbyteInputError(
-            message="config must be an object.",
+            message="config must be a JSON object.",
             context={"connector_name": connector_name},
         )
 
