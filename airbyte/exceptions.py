@@ -655,6 +655,20 @@ class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
     """The timeout in seconds that was reached."""
 
 
+@dataclass
+class AirbyteConnectorCheckTimeoutError(AirbyteError):
+    """A timeout occurred while waiting for the connector check to complete."""
+
+    connector_id: str | None = None
+    """The connector ID being checked."""
+
+    command_id: str | None = None
+    """The command ID being checked."""
+
+    timeout: int | None = None
+    """The timeout in seconds that was reached."""
+
+
 # Airbyte Resource Errors (General)
 
 

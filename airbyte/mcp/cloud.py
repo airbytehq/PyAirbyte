@@ -95,9 +95,13 @@ def _handle_discovery_permission_error(
     )
 
 
-def _get_connector_check_message(check_result: CheckResult) -> str | None:
+def _get_connector_check_message(
+    check_result: CheckResult,
+    *,
+    status: str,
+) -> str | None:
     """Return the check failure message, if applicable."""
-    if check_result.success:
+    if status in {"pending", "running"} or check_result.success:
         return None
     return (
         check_result.error_message
@@ -318,10 +322,16 @@ class ConnectorCheckResult(BaseModel):
     """The deployed connector ID."""
     connector_type: Literal["source", "destination"]
     """The connector type: 'source' or 'destination'."""
+    status: Literal["pending", "running", "completed", "cancelled"]
+    """The current status of the connector check."""
     succeeded: bool
-    """Whether the connector check succeeded."""
+    """Whether the connector check succeeded, meaningful once `status` is `completed`."""
     message: str | None
-    """The failure message when the check failed, otherwise None."""
+    """The failure message, meaningful once `status` is `completed`; otherwise None."""
+    command_id: str | None = None
+    """The asynchronous check command ID."""
+    failure_type: str | None = None
+    """The failure type returned by the check command."""
 
 
 class SyncJobListResult(BaseModel):
@@ -1130,16 +1140,48 @@ def check_cloud_source(
             default=None,
         ),
     ],
+    wait: Annotated[
+        bool,
+        Field(
+            description="If true (default), block until the check completes. If false, return "
+            "immediately; poll again by passing the returned `command_id`.",
+            default=True,
+        ),
+    ],
+    wait_timeout: Annotated[
+        int,
+        Field(
+            description="Max seconds to wait for the check to complete when `wait` is true.",
+            default=300,
+        ),
+    ],
+    command_id: Annotated[
+        str | None,
+        Field(
+            description="ID of an in-progress check command to poll, instead of starting a new "
+            "check.",
+            default=None,
+        ),
+    ],
 ) -> ConnectorCheckResult:
     """Check the configuration and credentials of a deployed source connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
-    check_result = source.check(raise_on_error=False)
+    check_result = source.check(
+        raise_on_error=False,
+        wait=wait,
+        wait_timeout=wait_timeout,
+        command_id=command_id,
+    )
+    status = check_result.get_status()
     return ConnectorCheckResult(
         connector_id=source_id,
         connector_type=source.connector_type,
+        status=status,
         succeeded=check_result.success,
-        message=_get_connector_check_message(check_result),
+        message=_get_connector_check_message(check_result, status=status),
+        command_id=check_result.command_id,
+        failure_type=check_result.failure_type,
     )
 
 
@@ -1163,16 +1205,48 @@ def check_cloud_destination(
             default=None,
         ),
     ],
+    wait: Annotated[
+        bool,
+        Field(
+            description="If true (default), block until the check completes. If false, return "
+            "immediately; poll again by passing the returned `command_id`.",
+            default=True,
+        ),
+    ],
+    wait_timeout: Annotated[
+        int,
+        Field(
+            description="Max seconds to wait for the check to complete when `wait` is true.",
+            default=300,
+        ),
+    ],
+    command_id: Annotated[
+        str | None,
+        Field(
+            description="ID of an in-progress check command to poll, instead of starting a new "
+            "check.",
+            default=None,
+        ),
+    ],
 ) -> ConnectorCheckResult:
     """Check the configuration and credentials of a deployed destination connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
-    check_result = destination.check(raise_on_error=False)
+    check_result = destination.check(
+        raise_on_error=False,
+        wait=wait,
+        wait_timeout=wait_timeout,
+        command_id=command_id,
+    )
+    status = check_result.get_status()
     return ConnectorCheckResult(
         connector_id=destination_id,
         connector_type=destination.connector_type,
+        status=status,
         succeeded=check_result.success,
-        message=_get_connector_check_message(check_result),
+        message=_get_connector_check_message(check_result, status=status),
+        command_id=check_result.command_id,
+        failure_type=check_result.failure_type,
     )
 
 
