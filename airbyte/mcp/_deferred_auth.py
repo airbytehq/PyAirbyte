@@ -72,7 +72,7 @@ def _select_branch(
         for name, child in properties.items():
             if not isinstance(child, Mapping):
                 continue
-            if child.get("const") is not None:
+            if "const" in child:
                 discriminators[name] = child["const"]
             else:
                 enum = child.get("enum")
@@ -88,8 +88,9 @@ def _select_branch(
 def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
     """Fill missing secret fields with placeholder values.
 
-    Missing secret properties receive placeholder values so Cloud schema
-    validation passes at source create time.
+    Missing secret properties receive placeholder values so required secret
+    fields are present in the configuration sent to the Cloud API at source
+    create time.
     """
     for branch_key in ("oneOf", "anyOf"):
         branches = schema.get(branch_key)
@@ -97,6 +98,11 @@ def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
             branch = _select_branch(branches, value)
             if branch is not None:
                 return _stub_missing_secrets(value, branch)
+    all_of = schema.get("allOf")
+    if isinstance(all_of, list):
+        for branch in all_of:
+            if isinstance(branch, Mapping):
+                value = _stub_missing_secrets(value, branch)
     properties = schema.get("properties")
     if not isinstance(properties, Mapping) or not isinstance(value, Mapping):
         return value

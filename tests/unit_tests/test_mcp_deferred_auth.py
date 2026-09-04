@@ -142,6 +142,38 @@ def test_stub_missing_secrets_matches_single_value_enum_branch() -> None:
     }
 
 
+def test_stub_missing_secrets_matches_null_const_branch() -> None:
+    schema = {
+        "oneOf": [
+            {
+                "properties": {
+                    "auth_type": {"const": None},
+                    "client_id": {"airbyte_secret": True},
+                }
+            }
+        ]
+    }
+
+    assert _stub_missing_secrets({"auth_type": None}, schema) == {
+        "auth_type": None,
+        "client_id": SECRET_PLACEHOLDER,
+    }
+
+
+def test_stub_missing_secrets_handles_all_of() -> None:
+    schema = {
+        "allOf": [
+            {
+                "properties": {
+                    "api_key": {"airbyte_secret": True},
+                }
+            }
+        ]
+    }
+
+    assert _stub_missing_secrets({}, schema) == {"api_key": SECRET_PLACEHOLDER}
+
+
 def test_stub_missing_secrets_leaves_unknown_branch_unchanged() -> None:
     schema = _enum_auth_schema()
     value = {"auth_type": "Unknown"}
