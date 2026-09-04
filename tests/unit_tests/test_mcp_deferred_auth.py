@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from airbyte import _connector_base
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud._deferred_auth import (
     SECRET_PLACEHOLDER,
@@ -300,7 +301,7 @@ def test_schema_secret_paths_include_nested_branch_secrets() -> None:
     }
 
 
-def test_workspace_deferred_auth_stubs_source_config(
+def test_workspace_deferred_auth_stubs_source_config_without_hydration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = object.__new__(SourceBase)
@@ -311,6 +312,10 @@ def test_workspace_deferred_auth_stubs_source_config(
     workspace = _workspace()
     captured: dict[str, Any] = {}
 
+    def fail_hydration(value: object) -> object:
+        raise AssertionError("deferred auth should not hydrate connector secrets")
+
+    monkeypatch.setattr(_connector_base, "hydrate_secrets", fail_hydration)
     monkeypatch.setattr(
         cloud_workspaces,
         "get_connector_spec_from_registry",

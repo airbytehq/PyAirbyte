@@ -393,7 +393,10 @@ class CloudWorkspace:
             deferred_auth: Whether to create the source without working credentials so
                 the user can complete authentication in the Cloud UI.
         """
-        source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
+        if deferred_auth:
+            source_config_dict = source.get_config().copy()
+        else:
+            source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
         source_config_dict["sourceType"] = source.name.replace("source-", "")
         if deferred_auth:
             spec_schema = get_connector_spec_from_registry(source.name, platform="cloud")
@@ -469,7 +472,10 @@ class CloudWorkspace:
                 the user can complete authentication in the Cloud UI.
         """
         if isinstance(destination, Destination):
-            destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
+            if deferred_auth:
+                destination_conf_dict = destination.get_config().copy()
+            else:
+                destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
             # raise ValueError(destination_conf_dict)
             if deferred_auth:
