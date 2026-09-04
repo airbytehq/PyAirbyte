@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import yaml
 
@@ -415,7 +415,10 @@ class CloudWorkspace:
                     message="Secret values cannot be provided in config.",
                     context={"secret_fields": sorted(supplied_secrets)},
                 )
-            source_config_dict = dict(_stub_missing_secrets(source_config_dict, spec_schema))
+            source_config_dict = cast(
+                dict[str, Any],
+                _stub_missing_secrets(source_config_dict, spec_schema),
+            )
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -494,8 +497,8 @@ class CloudWorkspace:
                         message="Secret values cannot be provided in config.",
                         context={"secret_fields": sorted(supplied_secrets)},
                     )
-                destination_conf_dict = dict(
-                    _stub_missing_secrets(destination_conf_dict, spec_schema)
+                destination_conf_dict = cast(
+                    dict[str, Any], _stub_missing_secrets(destination_conf_dict, spec_schema)
                 )
         else:
             if deferred_auth:
