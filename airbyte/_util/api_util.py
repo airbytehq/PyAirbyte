@@ -2005,13 +2005,12 @@ def run_check_command(
     """Start an asynchronous connector check command."""
     if command_id is None:
         command_id = str(uuid.uuid4())
+    request_json: dict[str, Any] = {"id": command_id, "actor_id": actor_id}
+    if workspace_id is not None:
+        request_json["workspace_id"] = workspace_id
     response = _make_config_api_request(
         path="/commands/run/check",
-        json={
-            "id": command_id,
-            "actor_id": actor_id,
-            "workspace_id": workspace_id,
-        },
+        json=request_json,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
