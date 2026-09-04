@@ -11,6 +11,7 @@ from typing import Any
 
 import jsonschema
 import pytest
+import requests
 
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud._deferred_auth import (
@@ -36,7 +37,7 @@ def _certified_source_names() -> list[str]:
                 and metadata.support_level == "certified"
             )
         ]
-    except Exception:
+    except (requests.exceptions.RequestException, OSError):
         return []
 
 
@@ -53,15 +54,21 @@ def _cached_spec(connector_name: str) -> dict[str, Any] | None:
     )
     if cache_path.exists():
         try:
-            return json.loads(cache_path.read_text(encoding="utf-8"))
+            cached_spec = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached_spec, dict):
+                return cached_spec
         except (OSError, json.JSONDecodeError):
             pass
 
-    spec = get_connector_spec_from_registry(
-        connector_name,
-        version=version,
-        platform="oss",
-    )
+    spec = None
+    for platform in ("cloud", "oss"):
+        spec = get_connector_spec_from_registry(
+            connector_name,
+            version=version,
+            platform=platform,
+        )
+        if spec is not None:
+            break
     if spec is None:
         return None
 
@@ -198,12 +205,21 @@ if not _CERTIFIED_SOURCE_NAMES:
 
 @pytest.mark.parametrize(
     "connector_name",
-    [pytest.param(name, id=name) for name in _CERTIFIED_SOURCE_NAMES],
+    [
+        pytest.param(
+            name,
+            id=name,
+            marks=pytest.mark.xfail(
+                reason=EXPECTED_FAILURES[name],
+                strict=False,
+            ),
+        )
+        if name in EXPECTED_FAILURES
+        else pytest.param(name, id=name)
+        for name in _CERTIFIED_SOURCE_NAMES
+    ],
 )
 def test_stubbed_config_passes_registry_schema(connector_name: str) -> None:
-    if connector_name in EXPECTED_FAILURES:
-        pytest.xfail(EXPECTED_FAILURES[connector_name])
-
     spec = _cached_spec(connector_name)
     if spec is None:
         pytest.skip(f"no spec available for {connector_name}")
