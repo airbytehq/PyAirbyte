@@ -101,7 +101,7 @@ def _get_connector_check_message(
     status: str,
 ) -> str | None:
     """Return the check failure message, if applicable."""
-    if status != "completed" or check_result.success:
+    if status in {"pending", "running"} or check_result.success:
         return None
     return (
         check_result.error_message
