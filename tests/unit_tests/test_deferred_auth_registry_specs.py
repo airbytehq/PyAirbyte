@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,10 @@ import jsonschema
 import pytest
 
 from airbyte._util.registry_spec import get_connector_spec_from_registry
-from airbyte.cloud._deferred_auth import _stub_missing_secrets
+from airbyte.cloud._deferred_auth import (
+    _schema_secret_paths,
+    _stub_missing_secrets,
+)
 from airbyte.registry import (
     InstallType,
     get_available_connectors,
@@ -66,161 +70,125 @@ def _cached_spec(connector_name: str) -> dict[str, Any] | None:
     return spec
 
 
+_UNSET = object()
+
+
+def _matches_type(value: Any, schema: Mapping[str, Any]) -> bool:
+    schema_type = schema.get("type")
+    if schema_type is None:
+        return True
+    if isinstance(schema_type, list):
+        return any(_matches_type(value, {"type": item}) for item in schema_type)
+    if schema_type == "string":
+        return isinstance(value, str)
+    if schema_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if schema_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if schema_type == "boolean":
+        return isinstance(value, bool)
+    if schema_type == "array":
+        return isinstance(value, list)
+    if schema_type == "object":
+        return isinstance(value, Mapping)
+    return True
+
+
+def _synthesize_value(schema: Mapping[str, Any]) -> Any:
+    for key in ("default", "const"):
+        if key in schema and _matches_type(schema[key], schema):
+            return schema[key]
+
+    if isinstance(schema.get("oneOf"), list) or isinstance(schema.get("anyOf"), list):
+        return _UNSET
+
+    examples = schema.get("examples")
+    if isinstance(examples, list) and examples and _matches_type(examples[0], schema):
+        return examples[0]
+
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum and _matches_type(enum[0], schema):
+        return enum[0]
+
+    schema_type = schema.get("type")
+    if schema_type == "string":
+        pattern = schema.get("pattern")
+        if pattern:
+            return _UNSET
+        schema_format = schema.get("format")
+        if schema_format == "date":
+            return "2024-01-01"
+        if schema_format == "date-time":
+            return "2024-01-01T00:00:00Z"
+        return "x"
+    if schema_type in ("integer", "number"):
+        minimum = schema.get("minimum")
+        return minimum if isinstance(minimum, (int, float)) else 1
+    if schema_type == "boolean":
+        return False
+    if schema_type == "array":
+        items = schema.get("items")
+        if isinstance(items, Mapping):
+            item = _synthesize_value(items)
+            if item is not _UNSET:
+                return [item]
+        return _UNSET
+    if schema_type == "object" or "properties" in schema or "allOf" in schema:
+        return _fill_required_non_secrets(schema)
+    return _UNSET
+
+
+def _fill_required_non_secrets(schema: Mapping[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    properties = schema.get("properties")
+    required = schema.get("required")
+    if isinstance(properties, Mapping) and isinstance(required, list):
+        for name in required:
+            if not isinstance(name, str):
+                continue
+            child = properties.get(name)
+            if not isinstance(child, Mapping):
+                continue
+            if name in _schema_secret_paths(child, name):
+                continue
+            value = _synthesize_value(child)
+            if value is not _UNSET:
+                result[name] = value
+
+    all_of = schema.get("allOf")
+    if isinstance(all_of, list):
+        for branch in all_of:
+            if isinstance(branch, Mapping):
+                result.update(_fill_required_non_secrets(branch))
+    return result
+
+
 EXPECTED_FAILURES: dict[str, str] = {
-    "source-amazon-seller-partner": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "aws_environment"
-    ),
-    "source-amplitude": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-azure-blob-storage": (
-        "requires non-secret configuration not inferable from an empty config: streams"
-    ),
-    "source-chargebee": (
-        "requires non-secret configuration not inferable from an empty config: site"
-    ),
-    "source-db2-enterprise": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
+    "source-azure-blob-storage": "requires choosing an unselectable credentials or stream format branch",
+    "source-db2-enterprise": "requires choosing an unselectable encryption branch",
     "source-facebook-marketing": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "account_ids"
+        "required account IDs have a regex-constrained array item with no example"
     ),
-    "source-file": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "dataset_name"
-    ),
-    "source-freshdesk": (
-        "requires non-secret configuration not inferable from an empty config: domain"
-    ),
-    "source-gcs": (
-        "requires non-secret configuration not inferable from an empty config: streams"
-    ),
-    "source-github": "requires choosing a credentials oneOf branch",
-    "source-gitlab": "requires choosing a credentials oneOf branch",
-    "source-google-ads": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "credentials.client_id"
-    ),
-    "source-google-analytics-data-api": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "property_ids"
-    ),
-    "source-google-drive": (
-        "requires non-secret configuration not inferable from an empty config: streams"
-    ),
-    "source-google-search-console": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "site_urls"
-    ),
-    "source-google-sheets": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "spreadsheet_id"
-    ),
-    "source-harvest": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "replication_start_date"
-    ),
-    "source-hubspot": "requires choosing a credentials oneOf branch",
-    "source-intercom": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-jira": "requires choosing a credentials oneOf branch",
-    "source-linkedin-ads": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-mongodb-v2": "requires choosing a database_config oneOf branch",
-    "source-mssql": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-mysql": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-netsuite-enterprise": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-oracle-enterprise": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-paypal-transaction": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-postgres": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-s3": (
-        "requires non-secret configuration not inferable from an empty config: streams"
-    ),
-    "source-salesforce": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "client_id"
-    ),
-    "source-sap-hana-enterprise": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-sendgrid": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-sentry": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "organization"
-    ),
-    "source-service-now": (
-        "requires non-secret configuration not inferable from an empty config: base_url"
-    ),
-    "source-sharepoint-enterprise": (
-        "requires non-secret configuration not inferable from an empty config: streams"
-    ),
-    "source-sharepoint-lists-enterprise": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "tenant_id"
-    ),
-    "source-shopify": (
-        "requires non-secret configuration not inferable from an empty config: shop"
-    ),
-    "source-slack": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-snowflake": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-stripe": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "account_id"
-    ),
-    "source-twilio": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-typeform": "requires choosing a credentials oneOf branch",
-    "source-woocommerce": (
-        "requires non-secret configuration not inferable from an empty config: shop"
-    ),
-    "source-workday": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-workday-rest": (
-        "requires non-secret configuration not inferable from an empty config: host"
-    ),
-    "source-zendesk-chat": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "start_date"
-    ),
-    "source-zendesk-support": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "subdomain"
-    ),
-    "source-zendesk-talk": (
-        "requires non-secret configuration not inferable from an empty config: "
-        "subdomain"
-    ),
+    "source-file": "requires choosing an unselectable provider branch",
+    "source-gcs": "requires choosing an unselectable credentials or stream format branch",
+    "source-github": "requires choosing an unselectable credentials branch",
+    "source-gitlab": "requires choosing an unselectable credentials branch",
+    "source-google-drive": "requires choosing an unselectable credentials or stream format branch",
+    "source-google-search-console": "requires choosing an unselectable authorization branch",
+    "source-google-sheets": "requires choosing an unselectable credentials branch",
+    "source-hubspot": "requires choosing an unselectable credentials branch",
+    "source-jira": "requires choosing an unselectable credentials branch",
+    "source-mongodb-v2": "requires choosing an unselectable database_config branch",
+    "source-mssql": "requires choosing an unselectable replication_method branch",
+    "source-mysql": "requires choosing an unselectable replication_method branch",
+    "source-netsuite-enterprise": "requires choosing an unselectable authentication_method branch",
+    "source-oracle-enterprise": "requires choosing an unselectable connection_data branch",
+    "source-postgres": "requires choosing an unselectable tunnel_method branch",
+    "source-s3": "requires choosing an unselectable stream format branch",
+    "source-sap-hana-enterprise": "requires choosing an unselectable encryption branch",
+    "source-sendgrid": "required start_date has a regex pattern with no example",
+    "source-sharepoint-enterprise": "requires choosing an unselectable credentials or stream format branch",
+    "source-typeform": "requires choosing an unselectable credentials branch",
 }
 
 _CERTIFIED_SOURCE_NAMES = _certified_source_names()
@@ -228,7 +196,10 @@ if not _CERTIFIED_SOURCE_NAMES:
     pytest.skip("registry unreachable", allow_module_level=True)
 
 
-@pytest.mark.parametrize("connector_name", _CERTIFIED_SOURCE_NAMES)
+@pytest.mark.parametrize(
+    "connector_name",
+    [pytest.param(name, id=name) for name in _CERTIFIED_SOURCE_NAMES],
+)
 def test_stubbed_config_passes_registry_schema(connector_name: str) -> None:
     if connector_name in EXPECTED_FAILURES:
         pytest.xfail(EXPECTED_FAILURES[connector_name])
@@ -237,5 +208,6 @@ def test_stubbed_config_passes_registry_schema(connector_name: str) -> None:
     if spec is None:
         pytest.skip(f"no spec available for {connector_name}")
 
-    config = _stub_missing_secrets({}, spec)
+    config = _fill_required_non_secrets(spec)
+    config = _stub_missing_secrets(config, spec)
     jsonschema.validate(instance=config, schema=spec)
