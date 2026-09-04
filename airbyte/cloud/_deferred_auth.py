@@ -8,7 +8,6 @@ from typing import Any
 
 
 SECRET_PLACEHOLDER = "__airbyte_placeholder__"
-_UNSET = object()
 
 
 def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str]:

@@ -211,7 +211,7 @@ def _synthesize_value(schema: Mapping[str, Any]) -> Any:
                     if re.fullmatch(pattern, candidate):
                         return candidate
             except re.error:
-                pass
+                pass  # Unsupported regex syntax; leave the value unsynthesized.
             return _UNSET
         schema_format = schema.get("format")
         if schema_format == "date":
