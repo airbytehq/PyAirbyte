@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 import responses
 
+from airbyte.cloud.connectors import CheckResult
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteConnectorCheckTimeoutError
 
@@ -163,6 +164,13 @@ def test_check_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValueError, match="Check failed: Failed: Check failed."):
         _workspace().get_source(CONNECTOR_ID).check()
+
+
+def test_check_result_str_uses_internal_error() -> None:
+    """Verify check result strings include an internal failure message."""
+    result = CheckResult(success=False, internal_error="Check service unavailable")
+
+    assert str(result) == "Failed: Check service unavailable"
 
 
 @responses.activate

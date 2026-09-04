@@ -210,7 +210,12 @@ class CheckResult:
 
     def __str__(self) -> str:
         """Get a string representation of the check result."""
-        return "Success" if self.success else f"Failed: {self.error_message}"
+        if self.success:
+            return "Success"
+        failure_message = (
+            self.error_message or self.internal_error or "No failure message provided."
+        )
+        return f"Failed: {failure_message}"
 
     def __repr__(self) -> str:
         """Get a string representation of the check result."""

@@ -29,6 +29,7 @@ from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFI
 from airbyte.exceptions import (
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
+    AirbyteConnectorCheckTimeoutError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
@@ -1955,14 +1956,10 @@ def check_connector(  # noqa: PLR0913  # Explicit auth and timeout arguments are
         if status not in {"pending", "running"}:
             break
         if time.time() - start_time > wait_timeout:
-            raise AirbyteError(
-                message="Check command timed out.",
-                context={
-                    "actor_id": actor_id,
-                    "connector_type": connector_type,
-                    "command_id": command_id,
-                    "timeout": wait_timeout,
-                },
+            raise AirbyteConnectorCheckTimeoutError(
+                connector_id=actor_id,
+                command_id=command_id,
+                timeout=wait_timeout,
             )
         time.sleep(JOB_WAIT_INTERVAL_SECS)
 
