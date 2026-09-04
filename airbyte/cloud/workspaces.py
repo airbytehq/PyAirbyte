@@ -48,9 +48,8 @@ from airbyte._util.api_util import get_web_url_root
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud._deferred_auth import (
-    _paths_present,
-    _schema_secret_paths,
     _stub_missing_secrets,
+    _supplied_secret_paths,
 )
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
@@ -409,8 +408,7 @@ class CloudWorkspace:
                 raise exc.PyAirbyteInputError(
                     message=f"Could not fetch a configuration schema for '{source.name}'."
                 )
-            secret_fields = _schema_secret_paths(spec_schema)
-            supplied_secrets = _paths_present(source_config_dict).intersection(secret_fields) - {
+            supplied_secrets = _supplied_secret_paths(source_config_dict, spec_schema) - {
                 "sourceType"
             }
             if supplied_secrets:
@@ -494,9 +492,9 @@ class CloudWorkspace:
                             f"Could not fetch a configuration schema for '{destination.name}'."
                         )
                     )
-                secret_fields = _schema_secret_paths(spec_schema)
-                supplied_secrets = _paths_present(destination_conf_dict).intersection(
-                    secret_fields
+                supplied_secrets = _supplied_secret_paths(
+                    destination_conf_dict,
+                    spec_schema,
                 ) - {"destinationType"}
                 if supplied_secrets:
                     raise exc.PyAirbyteInputError(

@@ -13,6 +13,7 @@ from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud._deferred_auth import (
     SECRET_PLACEHOLDER,
     _schema_secret_paths,
+    _supplied_secret_paths,
     _stub_missing_secrets,
 )
 from airbyte.destinations.base import Destination as DestinationBase
@@ -68,6 +69,41 @@ def _enum_auth_schema() -> dict[str, Any]:
                     "auth_type": {"enum": ["Service"]},
                     "service_account": {"type": "string", "airbyte_secret": True},
                 },
+            },
+        ]
+    }
+
+
+def _required_credentials_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["credentials"],
+        "properties": {
+            "credentials": {
+                "type": "object",
+                "required": ["api_key"],
+                "properties": {
+                    "api_key": {"type": "string", "airbyte_secret": True},
+                },
+            }
+        },
+    }
+
+
+def _branch_token_schema() -> dict[str, Any]:
+    return {
+        "oneOf": [
+            {
+                "properties": {
+                    "auth_type": {"const": "token"},
+                    "token": {"type": "string", "airbyte_secret": True},
+                }
+            },
+            {
+                "properties": {
+                    "auth_type": {"const": "oauth"},
+                    "token": {"type": "string"},
+                }
             },
         ]
     }
@@ -293,6 +329,52 @@ def test_stub_missing_secrets_preserves_empty_secret_value() -> None:
     assert _stub_missing_secrets({"api_key": ""}, schema) == {"api_key": ""}
 
 
+def test_stub_missing_secrets_materializes_required_secret_container() -> None:
+    assert _stub_missing_secrets({}, _required_credentials_schema()) == {
+        "credentials": {"api_key": SECRET_PLACEHOLDER}
+    }
+
+
+def test_stub_missing_secrets_does_not_materialize_unselected_auth_container() -> None:
+    schema = {
+        "required": ["credentials"],
+        "properties": {
+            "credentials": {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "auth_type": {"const": "token"},
+                            "token": {"airbyte_secret": True},
+                        }
+                    },
+                    {
+                        "properties": {
+                            "auth_type": {"const": "oauth"},
+                            "access_token": {"airbyte_secret": True},
+                        }
+                    },
+                ]
+            }
+        },
+    }
+
+    assert _stub_missing_secrets({}, schema) == {}
+
+
+def test_supplied_secret_paths_follow_selected_branch() -> None:
+    assert (
+        _supplied_secret_paths(
+            {"auth_type": "oauth", "token": "non-secret"},
+            _branch_token_schema(),
+        )
+        == set()
+    )
+    assert _supplied_secret_paths(
+        {"auth_type": "token", "token": "secret"},
+        _branch_token_schema(),
+    ) == {"token"}
+
+
 def test_schema_secret_paths_include_nested_branch_secrets() -> None:
     assert _schema_secret_paths(_google_sheets_schema()) == {
         "credentials.client_id",
@@ -345,6 +427,219 @@ def test_workspace_deferred_auth_stubs_source_config_without_hydration(
         "sourceType": "google-sheets",
     }
     assert deployed.connector_id == "source-id"
+
+
+def test_workspace_deferred_auth_materializes_required_source_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = object.__new__(SourceBase)
+    source._name = "source-google-ads"  # noqa: SLF001
+    source._config_dict = {}  # noqa: SLF001
+    workspace = _workspace()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cloud_workspaces,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _required_credentials_schema(),
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.api_util,
+        "create_source",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or type("SourceResponse", (), {"source_id": "source-id"})()
+        ),
+    )
+
+    workspace.deploy_source(
+        name="Google Ads",
+        source=source,
+        unique=False,
+        deferred_auth=True,
+    )
+
+    assert captured["config"] == {
+        "credentials": {"api_key": SECRET_PLACEHOLDER},
+        "sourceType": "google-ads",
+    }
+
+
+def test_workspace_deferred_auth_materializes_required_destination_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = object.__new__(DestinationBase)
+    destination._name = "destination-google-ads"  # noqa: SLF001
+    destination._config_dict = {}  # noqa: SLF001
+    workspace = _workspace()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cloud_workspaces,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _required_credentials_schema(),
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.api_util,
+        "create_destination",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or type("DestinationResponse", (), {"destination_id": "destination-id"})()
+        ),
+    )
+
+    workspace.deploy_destination(
+        name="Google Ads",
+        destination=destination,
+        unique=False,
+        deferred_auth=True,
+    )
+
+    assert captured["config"] == {
+        "credentials": {"api_key": SECRET_PLACEHOLDER},
+        "destinationType": "google-ads",
+    }
+
+
+def test_workspace_deferred_auth_replaces_null_source_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = object.__new__(SourceBase)
+    source._name = "source-google-sheets"  # noqa: SLF001
+    source._config_dict = {  # noqa: SLF001
+        "credentials": {"auth_type": "Client", "client_id": None}
+    }
+    workspace = _workspace()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cloud_workspaces,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _google_sheets_schema(),
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.api_util,
+        "create_source",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or type("SourceResponse", (), {"source_id": "source-id"})()
+        ),
+    )
+
+    workspace.deploy_source(
+        name="Google Sheets",
+        source=source,
+        unique=False,
+        deferred_auth=True,
+    )
+
+    assert captured["config"]["credentials"]["client_id"] == SECRET_PLACEHOLDER
+
+
+def test_workspace_deferred_auth_replaces_null_destination_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = object.__new__(DestinationBase)
+    destination._name = "destination-google-sheets"  # noqa: SLF001
+    destination._config_dict = {  # noqa: SLF001
+        "credentials": {"auth_type": "Client", "client_id": None}
+    }
+    workspace = _workspace()
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cloud_workspaces,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _google_sheets_schema(),
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.api_util,
+        "create_destination",
+        lambda **kwargs: (
+            captured.update(kwargs)
+            or type("DestinationResponse", (), {"destination_id": "destination-id"})()
+        ),
+    )
+
+    workspace.deploy_destination(
+        name="Google Sheets",
+        destination=destination,
+        unique=False,
+        deferred_auth=True,
+    )
+
+    assert captured["config"]["credentials"]["client_id"] == SECRET_PLACEHOLDER
+
+
+def test_workspace_deferred_auth_rejects_secrets_only_in_selected_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = object.__new__(SourceBase)
+    source._name = "source-branch-test"  # noqa: SLF001
+    source._config_dict = {"auth_type": "oauth", "token": "non-secret"}  # noqa: SLF001
+    destination = object.__new__(DestinationBase)
+    destination._name = "destination-branch-test"  # noqa: SLF001
+    destination._config_dict = {  # noqa: SLF001
+        "auth_type": "oauth",
+        "token": "non-secret",
+    }
+    workspace = _workspace()
+    response = type(
+        "Response", (), {"source_id": "source-id", "destination_id": "destination-id"}
+    )()
+
+    monkeypatch.setattr(
+        cloud_workspaces,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _branch_token_schema(),
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.api_util,
+        "create_source",
+        lambda **kwargs: response,
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.api_util,
+        "create_destination",
+        lambda **kwargs: response,
+    )
+
+    workspace.deploy_source(
+        name="Branch source",
+        source=source,
+        unique=False,
+        deferred_auth=True,
+    )
+    workspace.deploy_destination(
+        name="Branch destination",
+        destination=destination,
+        unique=False,
+        deferred_auth=True,
+    )
+
+    source._config_dict = {"auth_type": "token", "token": "secret"}  # noqa: SLF001
+    destination._config_dict = {  # noqa: SLF001
+        "auth_type": "token",
+        "token": "secret",
+    }
+    with pytest.raises(
+        PyAirbyteInputError, match="Secret values cannot be provided in config"
+    ):
+        workspace.deploy_source(
+            name="Branch source",
+            source=source,
+            unique=False,
+            deferred_auth=True,
+        )
+    with pytest.raises(
+        PyAirbyteInputError, match="Secret values cannot be provided in config"
+    ):
+        workspace.deploy_destination(
+            name="Branch destination",
+            destination=destination,
+            unique=False,
+            deferred_auth=True,
+        )
 
 
 def test_deferred_auth_creates_source_with_safe_confirmation(

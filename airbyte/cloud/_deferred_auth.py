@@ -58,6 +58,64 @@ def _paths_present(value: object, prefix: str = "") -> set[str]:
     return paths
 
 
+def _supplied_secret_paths(
+    value: object,
+    schema: Mapping[str, Any],
+    prefix: str = "",
+) -> set[str]:
+    """Return secret paths with non-null values supplied in a configuration."""
+    paths: set[str] = set()
+    if (
+        prefix
+        and value is not None
+        and any(
+            (
+                schema.get("airbyte_secret") is True,
+                schema.get("writeOnly") is True,
+                schema.get("format") == "password",
+            )
+        )
+    ):
+        paths.add(prefix)
+
+    items = schema.get("items")
+    if isinstance(value, list) and isinstance(items, Mapping):
+        for item in value:
+            paths.update(_supplied_secret_paths(item, items, prefix))
+
+    if isinstance(value, Mapping):
+        for branch_key in ("oneOf", "anyOf"):
+            branches = schema.get(branch_key)
+            if not isinstance(branches, list):
+                continue
+            branch = _select_branch(branches, value)
+            selected_branches = (
+                [branch]
+                if branch is not None
+                else [candidate for candidate in branches if isinstance(candidate, Mapping)]
+            )
+            for candidate in selected_branches:
+                paths.update(_supplied_secret_paths(value, candidate, prefix))
+
+        all_of = schema.get("allOf")
+        if isinstance(all_of, list):
+            for branch in all_of:
+                if isinstance(branch, Mapping):
+                    paths.update(_supplied_secret_paths(value, branch, prefix))
+
+        properties = schema.get("properties")
+        if isinstance(properties, Mapping):
+            for name, child in properties.items():
+                if not isinstance(name, str) or not isinstance(child, Mapping):
+                    continue
+                if name not in value:
+                    continue
+                child_prefix = f"{prefix}.{name}" if prefix else name
+                paths.update(_supplied_secret_paths(value[name], child, child_prefix))
+
+    return paths
+
+
 def _select_branch(
     branches: list[Any],
     value: Mapping[str, Any],
@@ -123,6 +181,15 @@ def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
                 result[name] = SECRET_PLACEHOLDER
         elif name in result:
             result[name] = _stub_missing_secrets(result[name], child)
+        elif (
+            isinstance(schema.get("required"), list)
+            and name in schema["required"]
+            and ("properties" in child or "allOf" in child)
+            and _schema_secret_paths(child)
+        ):
+            materialized = _stub_missing_secrets({}, child)
+            if isinstance(materialized, dict) and materialized:
+                result[name] = materialized
     return result
 
 
@@ -131,5 +198,6 @@ __all__ = [
     "_paths_present",
     "_schema_secret_paths",
     "_select_branch",
+    "_supplied_secret_paths",
     "_stub_missing_secrets",
 ]
