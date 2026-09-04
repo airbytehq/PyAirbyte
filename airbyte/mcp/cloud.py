@@ -10,6 +10,7 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import json
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
@@ -104,6 +105,44 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
         or check_result.internal_error
         or CONNECTOR_CHECK_FAILURE_FALLBACK
     )
+
+
+def _resolve_deferred_auth_config(
+    connector_name: str,
+    config: dict | str | None,
+    config_secret_name: str | None,
+) -> dict[str, Any]:
+    """Resolve a connector configuration for deferred Cloud authentication."""
+    if config_secret_name is not None:
+        raise PyAirbyteInputError(
+            message="config_secret_name cannot be used with deferred_auth.",
+            context={"connector_name": connector_name},
+        )
+    if config is None:
+        config_dict: dict[str, Any] = {}
+    elif isinstance(config, str):
+        try:
+            parsed_config = json.loads(config)
+        except json.JSONDecodeError as error:
+            raise PyAirbyteInputError(
+                message="config must be a JSON object.",
+                context={"connector_name": connector_name},
+            ) from error
+        if not isinstance(parsed_config, dict):
+            raise PyAirbyteInputError(
+                message="config must be a JSON object.",
+                context={"connector_name": connector_name},
+            )
+        config_dict = parsed_config
+    elif isinstance(config, dict):
+        config_dict = config
+    else:
+        raise PyAirbyteInputError(
+            message="config must be a JSON object.",
+            context={"connector_name": connector_name},
+        )
+
+    return config_dict
 
 
 class CloudSourceResult(BaseModel):
@@ -423,30 +462,59 @@ def deploy_source_to_cloud(
             default=True,
         ),
     ],
+    deferred_auth: Annotated[
+        bool,
+        Field(
+            description=(
+                "If true, create the source without secrets: secret fields must NOT "
+                "be provided and are stubbed with placeholders; the user completes "
+                "authentication in the Airbyte Cloud UI at the returned URL."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> str:
     """Deploy a source connector to Airbyte Cloud."""
-    source = get_source(
-        source_connector_name,
-        no_executor=True,
-    )
-    config_dict = resolve_connector_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=source.config_spec,
-    )
-    source.set_config(config_dict, validate=True)
+    deferred_note = ""
+    if deferred_auth:
+        config_dict = _resolve_deferred_auth_config(
+            source_connector_name,
+            config,
+            config_secret_name,
+        )
+        source = get_source(source_connector_name, no_executor=True)
+        source.set_config(config_dict, validate=False)
+        deferred_note = (
+            " NOTE: Source created without working credentials (deferred auth). "
+            "The user must open the URL in Airbyte Cloud and complete authentication "
+            "(enter secrets or use the OAuth button). Ask the user to confirm when "
+            "done, or poll the source's check status."
+        )
+    else:
+        source = get_source(
+            source_connector_name,
+            no_executor=True,
+        )
+        config_dict = resolve_connector_config(
+            config=config,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=source.config_spec,
+        )
+        source.set_config(config_dict, validate=True)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_source = workspace.deploy_source(
         name=source_name,
         source=source,
         unique=unique,
+        deferred_auth=deferred_auth,
     )
 
     register_guid_created_in_session(deployed_source.connector_id)
     return (
         f"Successfully deployed source '{source_name}' with ID '{deployed_source.connector_id}'"
         f" and URL: {deployed_source.connector_url}"
+        f"{deferred_note}"
     )
 
 
@@ -493,30 +561,63 @@ def deploy_destination_to_cloud(
             default=True,
         ),
     ],
+    deferred_auth: Annotated[
+        bool,
+        Field(
+            description=(
+                "If true, create the destination without secrets: secret fields must "
+                "NOT be provided and are stubbed with placeholders; the user completes "
+                "authentication in the Airbyte Cloud UI at the returned URL."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> str:
     """Deploy a destination connector to Airbyte Cloud."""
-    destination = get_destination(
-        destination_connector_name,
-        no_executor=True,
-    )
-    config_dict = resolve_connector_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=destination.config_spec,
-    )
-    destination.set_config(config_dict, validate=True)
+    deferred_note = ""
+    if deferred_auth:
+        config_dict = _resolve_deferred_auth_config(
+            destination_connector_name,
+            config,
+            config_secret_name,
+        )
+        destination = get_destination(
+            destination_connector_name,
+            no_executor=True,
+        )
+        destination.set_config(config_dict, validate=False)
+        deferred_note = (
+            " NOTE: Destination created without working credentials (deferred auth). "
+            "The user must open the URL in Airbyte Cloud and enter credentials to "
+            "complete setup. Ask the user to confirm when done, or poll the "
+            "destination's check status."
+        )
+    else:
+        destination = get_destination(
+            destination_connector_name,
+            no_executor=True,
+        )
+        config_dict = resolve_connector_config(
+            config=config,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=destination.config_spec,
+        )
+        destination.set_config(config_dict, validate=True)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_destination = workspace.deploy_destination(
         name=destination_name,
         destination=destination,
         unique=unique,
+        deferred_auth=deferred_auth,
     )
 
     register_guid_created_in_session(deployed_destination.connector_id)
     return (
         f"Successfully deployed destination '{destination_name}' "
-        f"with ID: {deployed_destination.connector_id}"
+        f"with ID '{deployed_destination.connector_id}' "
+        f"and URL: {deployed_destination.connector_url}"
+        f"{deferred_note}"
     )
 
 
