@@ -335,7 +335,7 @@ def test_stub_missing_secrets_materializes_required_secret_container() -> None:
     }
 
 
-def test_stub_missing_secrets_does_not_materialize_unselected_auth_container() -> None:
+def test_stub_missing_secrets_materializes_default_auth_container() -> None:
     schema = {
         "required": ["credentials"],
         "properties": {
@@ -358,7 +358,172 @@ def test_stub_missing_secrets_does_not_materialize_unselected_auth_container() -
         },
     }
 
-    assert _stub_missing_secrets({}, schema) == {}
+    assert _stub_missing_secrets({}, schema) == {
+        "credentials": {
+            "auth_type": "token",
+            "token": SECRET_PLACEHOLDER,
+        }
+    }
+
+
+def test_stub_missing_secrets_defaults_to_first_tunnel_branch() -> None:
+    schema = {
+        "required": ["tunnel_method"],
+        "properties": {
+            "tunnel_method": {
+                "oneOf": [
+                    {
+                        "required": ["tunnel_method"],
+                        "properties": {
+                            "tunnel_method": {"const": "NO_TUNNEL"},
+                        },
+                    },
+                    {
+                        "required": ["tunnel_method", "tunnel_host"],
+                        "properties": {
+                            "tunnel_method": {"const": "SSH_KEY_AUTH"},
+                            "tunnel_host": {"type": "string"},
+                        },
+                    },
+                ]
+            }
+        },
+    }
+
+    assert _stub_missing_secrets({}, schema) == {
+        "tunnel_method": {"tunnel_method": "NO_TUNNEL"}
+    }
+
+
+def test_stub_missing_secrets_defaults_github_credentials_branch() -> None:
+    schema = {
+        "required": ["credentials"],
+        "properties": {
+            "credentials": {
+                "oneOf": [
+                    {
+                        "required": ["access_token"],
+                        "properties": {
+                            "option_title": {"const": "OAuth Credentials"},
+                            "access_token": {
+                                "type": "string",
+                                "airbyte_secret": True,
+                            },
+                        },
+                    },
+                    {
+                        "required": ["personal_access_token"],
+                        "properties": {
+                            "option_title": {"const": "PAT Credentials"},
+                            "personal_access_token": {
+                                "type": "string",
+                                "airbyte_secret": True,
+                            },
+                        },
+                    },
+                ]
+            }
+        },
+    }
+
+    assert _stub_missing_secrets({}, schema) == {
+        "credentials": {
+            "option_title": "OAuth Credentials",
+            "access_token": SECRET_PLACEHOLDER,
+        }
+    }
+
+
+def test_stub_missing_secrets_preserves_selected_branch() -> None:
+    schema = {
+        "oneOf": [
+            {
+                "required": ["auth_type", "first_secret"],
+                "properties": {
+                    "auth_type": {"const": "first"},
+                    "first_secret": {"airbyte_secret": True},
+                },
+            },
+            {
+                "required": ["auth_type", "second_secret"],
+                "properties": {
+                    "auth_type": {"const": "second"},
+                    "second_secret": {"airbyte_secret": True},
+                },
+            },
+        ]
+    }
+
+    assert _stub_missing_secrets({"auth_type": "second"}, schema) == {
+        "auth_type": "second",
+        "second_secret": SECRET_PLACEHOLDER,
+    }
+
+
+def test_stub_missing_secrets_skips_unsatisfiable_default_branch() -> None:
+    schema = {
+        "required": ["credentials"],
+        "properties": {
+            "credentials": {
+                "oneOf": [
+                    {
+                        "required": ["auth_type", "host"],
+                        "properties": {
+                            "auth_type": {"const": "first"},
+                            "host": {"type": "string"},
+                        },
+                    },
+                    {
+                        "required": ["auth_type", "token"],
+                        "properties": {
+                            "auth_type": {"const": "second"},
+                            "token": {"airbyte_secret": True},
+                        },
+                    },
+                ]
+            }
+        },
+    }
+
+    assert _stub_missing_secrets({}, schema) == {
+        "credentials": {
+            "auth_type": "second",
+            "token": SECRET_PLACEHOLDER,
+        }
+    }
+
+
+def test_stub_missing_secrets_defaults_single_value_enum_branch() -> None:
+    schema = {
+        "required": ["credentials"],
+        "properties": {
+            "credentials": {
+                "oneOf": [
+                    {
+                        "required": ["auth_type", "token"],
+                        "properties": {
+                            "auth_type": {"enum": ["token"]},
+                            "token": {"airbyte_secret": True},
+                        },
+                    },
+                    {
+                        "required": ["auth_type", "api_key"],
+                        "properties": {
+                            "auth_type": {"enum": ["api_key"]},
+                            "api_key": {"airbyte_secret": True},
+                        },
+                    },
+                ]
+            }
+        },
+    }
+
+    assert _stub_missing_secrets({}, schema) == {
+        "credentials": {
+            "auth_type": "token",
+            "token": SECRET_PLACEHOLDER,
+        }
+    }
 
 
 def test_supplied_secret_paths_follow_selected_branch() -> None:

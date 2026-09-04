@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -78,6 +79,16 @@ def _cached_spec(connector_name: str) -> dict[str, Any] | None:
 
 
 _UNSET = object()
+_PATTERN_CANDIDATES = (
+    "2024-01-01T00:00:00Z",
+    "2024-01-01",
+    "2024-01-01T00:00:00.000Z",
+    "0",
+    "1",
+    "x",
+    "a1",
+    "https://example.com",
+)
 
 
 def _matches_type(value: Any, schema: Mapping[str, Any]) -> bool:
@@ -101,13 +112,87 @@ def _matches_type(value: Any, schema: Mapping[str, Any]) -> bool:
     return True
 
 
+def _discriminator_values(schema: Mapping[str, Any]) -> dict[str, Any]:
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        return {}
+    values: dict[str, Any] = {}
+    for name, child in properties.items():
+        if not isinstance(name, str) or not isinstance(child, Mapping):
+            continue
+        if "const" in child and _matches_type(child["const"], child):
+            values[name] = child["const"]
+        else:
+            enum = child.get("enum")
+            if (
+                isinstance(enum, list)
+                and len(enum) == 1
+                and _matches_type(enum[0], child)
+            ):
+                values[name] = enum[0]
+    return values
+
+
+def _fill_required_non_secrets_result(
+    schema: Mapping[str, Any],
+) -> dict[str, Any] | object:
+    result: dict[str, Any] = {}
+    for branch_key in ("oneOf", "anyOf"):
+        branches = schema.get(branch_key)
+        if not isinstance(branches, list):
+            continue
+        selected: dict[str, Any] | object = _UNSET
+        for branch in branches:
+            if not isinstance(branch, Mapping):
+                continue
+            candidate = _fill_required_non_secrets_result(branch)
+            if candidate is not _UNSET:
+                selected = candidate
+                break
+        if selected is _UNSET:
+            return _UNSET
+        result.update(selected)
+
+    result.update({
+        name: value
+        for name, value in _discriminator_values(schema).items()
+        if name not in result
+    })
+    properties = schema.get("properties")
+    required = schema.get("required")
+    if isinstance(properties, Mapping) and isinstance(required, list):
+        for name in required:
+            if not isinstance(name, str):
+                continue
+            child = properties.get(name)
+            if not isinstance(child, Mapping):
+                return _UNSET
+            if name in _schema_secret_paths(child, name):
+                continue
+            value = _synthesize_value(child)
+            if value is _UNSET:
+                return _UNSET
+            result[name] = value
+
+    all_of = schema.get("allOf")
+    if isinstance(all_of, list):
+        for branch in all_of:
+            if not isinstance(branch, Mapping):
+                continue
+            candidate = _fill_required_non_secrets_result(branch)
+            if candidate is _UNSET:
+                return _UNSET
+            result.update(candidate)
+    return result
+
+
 def _synthesize_value(schema: Mapping[str, Any]) -> Any:
     for key in ("default", "const"):
         if key in schema and _matches_type(schema[key], schema):
             return schema[key]
 
     if isinstance(schema.get("oneOf"), list) or isinstance(schema.get("anyOf"), list):
-        return _UNSET
+        return _fill_required_non_secrets_result(schema)
 
     examples = schema.get("examples")
     if isinstance(examples, list) and examples and _matches_type(examples[0], schema):
@@ -121,6 +206,12 @@ def _synthesize_value(schema: Mapping[str, Any]) -> Any:
     if schema_type == "string":
         pattern = schema.get("pattern")
         if pattern:
+            try:
+                for candidate in _PATTERN_CANDIDATES:
+                    if re.fullmatch(pattern, candidate):
+                        return candidate
+            except re.error:
+                pass
             return _UNSET
         schema_format = schema.get("format")
         if schema_format == "date":
@@ -136,67 +227,29 @@ def _synthesize_value(schema: Mapping[str, Any]) -> Any:
     if schema_type == "array":
         items = schema.get("items")
         if isinstance(items, Mapping):
+            examples = schema.get("examples")
+            if (
+                isinstance(examples, list)
+                and examples
+                and _matches_type(examples[0], items)
+            ):
+                return [examples[0]]
             item = _synthesize_value(items)
             if item is not _UNSET:
                 return [item]
         return _UNSET
     if schema_type == "object" or "properties" in schema or "allOf" in schema:
-        return _fill_required_non_secrets(schema)
+        result = _fill_required_non_secrets_result(schema)
+        return result if result is not _UNSET else _UNSET
     return _UNSET
 
 
 def _fill_required_non_secrets(schema: Mapping[str, Any]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    properties = schema.get("properties")
-    required = schema.get("required")
-    if isinstance(properties, Mapping) and isinstance(required, list):
-        for name in required:
-            if not isinstance(name, str):
-                continue
-            child = properties.get(name)
-            if not isinstance(child, Mapping):
-                continue
-            if name in _schema_secret_paths(child, name):
-                continue
-            value = _synthesize_value(child)
-            if value is not _UNSET:
-                result[name] = value
-
-    all_of = schema.get("allOf")
-    if isinstance(all_of, list):
-        for branch in all_of:
-            if isinstance(branch, Mapping):
-                result.update(_fill_required_non_secrets(branch))
-    return result
+    result = _fill_required_non_secrets_result(schema)
+    return result if result is not _UNSET else {}
 
 
-EXPECTED_FAILURES: dict[str, str] = {
-    "source-azure-blob-storage": "requires choosing an unselectable credentials or stream format branch",
-    "source-db2-enterprise": "requires choosing an unselectable encryption branch",
-    "source-facebook-marketing": (
-        "required account IDs have a regex-constrained array item with no example"
-    ),
-    "source-file": "requires choosing an unselectable provider branch",
-    "source-gcs": "requires choosing an unselectable credentials or stream format branch",
-    "source-github": "requires choosing an unselectable credentials branch",
-    "source-gitlab": "requires choosing an unselectable credentials branch",
-    "source-google-drive": "requires choosing an unselectable credentials or stream format branch",
-    "source-google-search-console": "requires choosing an unselectable authorization branch",
-    "source-google-sheets": "requires choosing an unselectable credentials branch",
-    "source-hubspot": "requires choosing an unselectable credentials branch",
-    "source-jira": "requires choosing an unselectable credentials branch",
-    "source-mongodb-v2": "requires choosing an unselectable database_config branch",
-    "source-mssql": "requires choosing an unselectable replication_method branch",
-    "source-mysql": "requires choosing an unselectable replication_method branch",
-    "source-netsuite-enterprise": "requires choosing an unselectable authentication_method branch",
-    "source-oracle-enterprise": "requires choosing an unselectable connection_data branch",
-    "source-postgres": "requires choosing an unselectable tunnel_method branch",
-    "source-s3": "requires choosing an unselectable stream format branch",
-    "source-sap-hana-enterprise": "requires choosing an unselectable encryption branch",
-    "source-sendgrid": "required start_date has a regex pattern with no example",
-    "source-sharepoint-enterprise": "requires choosing an unselectable credentials or stream format branch",
-    "source-typeform": "requires choosing an unselectable credentials branch",
-}
+EXPECTED_FAILURES: dict[str, str] = {}
 
 _CERTIFIED_SOURCE_NAMES = _certified_source_names()
 if not _CERTIFIED_SOURCE_NAMES:

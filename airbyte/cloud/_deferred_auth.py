@@ -8,6 +8,7 @@ from typing import Any
 
 
 SECRET_PLACEHOLDER = "__airbyte_placeholder__"
+_UNSET = object()
 
 
 def _schema_secret_paths(schema: Mapping[str, Any], prefix: str = "") -> set[str]:
@@ -143,7 +144,103 @@ def _select_branch(
     return None
 
 
-def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
+def _discriminator_values(schema: Mapping[str, Any]) -> dict[str, Any]:
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        return {}
+    values: dict[str, Any] = {}
+    for name, child in properties.items():
+        if not isinstance(name, str) or not isinstance(child, Mapping):
+            continue
+        if "const" in child:
+            values[name] = child["const"]
+            continue
+        enum = child.get("enum")
+        if isinstance(enum, list) and len(enum) == 1:
+            values[name] = enum[0]
+    return values
+
+
+def _is_secret_schema(schema: Mapping[str, Any]) -> bool:
+    return any(
+        (
+            schema.get("airbyte_secret") is True,
+            schema.get("writeOnly") is True,
+            schema.get("format") == "password",
+        )
+    )
+
+
+def _default_branch_value(
+    value: Mapping[str, Any],
+    schema: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], dict[str, Any]] | None:
+    for branch_key in ("oneOf", "anyOf"):
+        branches = schema.get(branch_key)
+        if not isinstance(branches, list):
+            continue
+        for branch in branches:
+            if not isinstance(branch, Mapping):
+                continue
+            properties = branch.get("properties", {})
+            if not isinstance(properties, Mapping):
+                continue
+            candidate = dict(value)
+            candidate.update(
+                {
+                    name: expected
+                    for name, expected in _discriminator_values(branch).items()
+                    if name not in candidate
+                }
+            )
+            required = branch.get("required", [])
+            if not isinstance(required, list):
+                required = []
+            satisfiable = True
+            for name in required:
+                if not isinstance(name, str) or name in candidate:
+                    continue
+                child = properties.get(name)
+                if not isinstance(child, Mapping):
+                    satisfiable = False
+                    break
+                if _is_secret_schema(child):
+                    candidate[name] = SECRET_PLACEHOLDER
+                elif "default" in child:
+                    candidate[name] = child["default"]
+                elif isinstance(child.get("oneOf"), list) or isinstance(child.get("anyOf"), list):
+                    nested = _default_branch_value({}, child)
+                    if nested is None:
+                        satisfiable = False
+                        break
+                    _, candidate[name] = nested
+                else:
+                    satisfiable = False
+                    break
+            if satisfiable:
+                return branch, candidate
+    return None
+
+
+def _is_required_container(
+    schema: Mapping[str, Any],
+    name: str,
+    child: Mapping[str, Any],
+) -> bool:
+    required = schema.get("required")
+    return (
+        isinstance(required, list)
+        and name in required
+        and any(key in child for key in ("properties", "allOf", "oneOf", "anyOf"))
+    )
+
+
+def _stub_missing_secrets(  # noqa: PLR0912
+    value: object,
+    schema: Mapping[str, Any],
+    *,
+    _allow_default_branch: bool = False,
+) -> object:
     """Fill missing secret fields with placeholder values.
 
     Missing secret properties receive placeholder values so required secret
@@ -152,18 +249,30 @@ def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
     """
     items = schema.get("items")
     if isinstance(value, list) and isinstance(items, Mapping):
-        return [_stub_missing_secrets(item, items) for item in value]
+        return [
+            _stub_missing_secrets(item, items, _allow_default_branch=_allow_default_branch)
+            for item in value
+        ]
     for branch_key in ("oneOf", "anyOf"):
         branches = schema.get(branch_key)
         if isinstance(branches, list) and isinstance(value, Mapping):
             branch = _select_branch(branches, value)
             if branch is not None:
                 value = _stub_missing_secrets(value, branch)
+            elif _allow_default_branch:
+                default_branch = _default_branch_value(value, {branch_key: branches})
+                if default_branch is not None:
+                    branch, value = default_branch
+                    value = _stub_missing_secrets(value, branch)
     all_of = schema.get("allOf")
     if isinstance(all_of, list):
         for branch in all_of:
             if isinstance(branch, Mapping):
-                value = _stub_missing_secrets(value, branch)
+                value = _stub_missing_secrets(
+                    value,
+                    branch,
+                    _allow_default_branch=_allow_default_branch,
+                )
     properties = schema.get("properties")
     if not isinstance(properties, Mapping) or not isinstance(value, Mapping):
         return value
@@ -180,15 +289,20 @@ def _stub_missing_secrets(value: object, schema: Mapping[str, Any]) -> object:
             if name not in result or result[name] is None:
                 result[name] = SECRET_PLACEHOLDER
         elif name in result:
-            result[name] = _stub_missing_secrets(result[name], child)
-        elif (
-            isinstance(schema.get("required"), list)
-            and name in schema["required"]
-            and ("properties" in child or "allOf" in child)
-            and _schema_secret_paths(child)
-        ):
-            materialized = _stub_missing_secrets({}, child)
-            if isinstance(materialized, dict) and materialized:
+            result[name] = _stub_missing_secrets(
+                result[name],
+                child,
+                _allow_default_branch=(
+                    isinstance(schema.get("required"), list) and name in schema["required"]
+                ),
+            )
+        elif _is_required_container(schema, name, child):
+            materialized = _stub_missing_secrets(
+                {},
+                child,
+                _allow_default_branch=True,
+            )
+            if isinstance(materialized, Mapping) and materialized:
                 result[name] = materialized
     return result
 
