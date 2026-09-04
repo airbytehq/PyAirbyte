@@ -354,6 +354,124 @@ def test_deferred_auth_rejects_config_secret_name(
         )
 
 
+def test_deferred_auth_rejects_destination_secret_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _google_sheets_schema(),
+    )
+
+    with pytest.raises(
+        PyAirbyteInputError, match="Secret values cannot be provided in config"
+    ):
+        cloud_mcp.deploy_destination_to_cloud(
+            object(),
+            "Postgres",
+            "destination-postgres",
+            workspace_id=None,
+            config={"credentials": {"auth_type": "Client", "client_id": "secret"}},
+            config_secret_name=None,
+            unique=True,
+            deferred_auth=True,
+        )
+
+
+def test_deferred_auth_rejects_destination_config_secret_name() -> None:
+    with pytest.raises(
+        PyAirbyteInputError,
+        match="config_secret_name cannot be used with deferred_auth",
+    ):
+        cloud_mcp.deploy_destination_to_cloud(
+            object(),
+            "Postgres",
+            "destination-postgres",
+            workspace_id=None,
+            config=None,
+            config_secret_name="destination-config",
+            unique=True,
+            deferred_auth=True,
+        )
+
+
+def test_deferred_auth_creates_destination_with_safe_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = {"credentials": {"auth_type": "Client"}, "database": "warehouse"}
+    captured: dict[str, Any] = {}
+
+    class Destination:
+        def set_config(self, value: dict[str, Any], *, validate: bool) -> None:
+            captured["config"] = value
+            captured["validate"] = validate
+
+    class Workspace:
+        def deploy_destination(
+            self,
+            *,
+            name: str,
+            destination: Destination,
+            unique: bool,
+        ) -> Any:
+            captured["name"] = name
+            captured["destination"] = destination
+            captured["unique"] = unique
+            return type(
+                "DeployedDestination",
+                (),
+                {"connector_id": "destination-id"},
+            )()
+
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_spec_from_registry",
+        lambda *args, **kwargs: _google_sheets_schema(),
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id=None: Workspace(),
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_destination",
+        lambda *args, **kwargs: Destination(),
+    )
+
+    result = cloud_mcp.deploy_destination_to_cloud(
+        object(),
+        "Postgres",
+        "destination-postgres",
+        config=config,
+        workspace_id="ws",
+        config_secret_name=None,
+        unique=True,
+        deferred_auth=True,
+    )
+
+    assert captured["config"] == {
+        "credentials": {
+            "auth_type": "Client",
+            "client_id": SECRET_PLACEHOLDER,
+            "client_secret": SECRET_PLACEHOLDER,
+            "refresh_token": SECRET_PLACEHOLDER,
+        },
+        "database": "warehouse",
+    }
+    assert captured["validate"] is False
+    assert captured["name"] == "Postgres"
+    assert captured["unique"] is True
+    assert result.startswith(
+        "Successfully deployed destination 'Postgres' with ID: destination-id"
+    )
+    assert "Destination created without working credentials (deferred auth)." in result
+    assert SECRET_PLACEHOLDER not in result
+    assert "__airbyte_placeholder__" not in json.dumps(result)
+    assert "client-secret" not in result
+    assert "bearer-token" not in result
+
+
 def test_deploy_source_without_deferred_auth_has_no_note(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
