@@ -221,6 +221,34 @@ def test_stub_missing_secrets_leaves_unknown_branch_unchanged() -> None:
     assert _stub_missing_secrets(value, schema) == value
 
 
+def test_stub_missing_secrets_matches_single_value_enum_branch() -> None:
+    schema = {
+        "oneOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "auth_type": {"enum": ["Client"]},
+                    "client_id": {"type": "string", "airbyte_secret": True},
+                },
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "auth_type": {"enum": ["Service"]},
+                    "service_account": {"type": "string", "airbyte_secret": True},
+                },
+            },
+        ]
+    }
+
+    result = _stub_missing_secrets({"auth_type": "Client"}, schema)
+
+    assert result == {
+        "auth_type": "Client",
+        "client_id": OAUTH_SECRET_PLACEHOLDER,
+    }
+
+
 class _SourceStub:
     def __init__(self) -> None:
         self.config: dict[str, object] | None = None
