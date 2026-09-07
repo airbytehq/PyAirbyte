@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -113,6 +114,39 @@ class DeclarativeExecutor(Executor):
         """Not applicable."""
         return []  # N/A
 
+    def _load_config_from_args(self, args: list[str]) -> None:
+        """Merge the config passed as `--config <path>` into the executor config.
+
+        `ConcurrentDeclarativeSource` resolves `{{ config[...] }}` interpolations
+        against the config it is constructed with. Without this, the source is
+        built with an effectively empty config and every interpolation fails, e.g.
+        `'dict object' has no attribute 'api_key'`, or `SelectiveAuthenticator`
+        raising "The path from `authenticator_selection_path` is not found in the
+        config."
+
+        Injected component keys already in `_config_dict` take precedence, so
+        `__injected_components_py` is never overwritten by user config.
+        """
+        if "--config" not in args:
+            return
+
+        config_index = args.index("--config") + 1
+        if config_index >= len(args):
+            return
+
+        try:
+            config_path = Path(args[config_index])
+            user_config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # A malformed or unreadable config is reported downstream by the
+            # entrypoint with a much better error message than we could give here.
+            return
+
+        if isinstance(user_config, dict):
+            merged: dict[str, Any] = dict(user_config)
+            merged.update(self._config_dict)
+            self._config_dict = merged
+
     def execute(
         self,
         args: list[str],
@@ -122,6 +156,7 @@ class DeclarativeExecutor(Executor):
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin, suppress_stderr  # Not used
+        self._load_config_from_args(args)
         source_entrypoint = AirbyteEntrypoint(self.declarative_source)
 
         mapped_args: list[str] = self.map_cli_args(args)

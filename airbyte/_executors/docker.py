@@ -5,7 +5,7 @@ import logging
 import shutil
 import subprocess
 from contextlib import suppress
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
@@ -91,7 +91,15 @@ class DockerExecutor(Executor):
                             f"Found file input path `{arg}` "
                             f"relative to container-mapped volume: {local_volume}"
                         )
-                        mapped_path = Path(container_path) / Path(arg).relative_to(local_volume)
+                        # Container paths must be POSIX. `Path()` returns a
+                        # WindowsPath on Windows hosts, which stringifies with
+                        # backslash separators that the Linux container cannot
+                        # open. `PurePosixPath` keeps the separators correct on
+                        # every host OS.
+                        mapped_path = (
+                            PurePosixPath(container_path)
+                            / Path(arg).relative_to(local_volume).as_posix()
+                        )
                         logger.debug(f"Mapping `{arg}` -> `{mapped_path}`")
                         new_args.append(str(mapped_path))
                         break

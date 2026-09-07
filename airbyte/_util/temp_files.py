@@ -37,8 +37,23 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
                 json.dumps(content) if isinstance(content, dict) else content,
             )
             temp_file.flush()
-            # Grant "read" permission to all users
-            Path(temp_file.name).chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            # Grant read AND write permission to all users.
+            #
+            # Write access is required because connectors that declare
+            # `config_migrations` in their manifest (e.g. `source-slack`) rewrite
+            # the config file in place via
+            # `ConcurrentDeclarativeSource._migrate_and_transform_config()`.
+            # When the file is mounted into a container running as a different
+            # uid, a read-only file raises
+            # `PermissionError: [Errno 13] Permission denied`.
+            Path(temp_file.name).chmod(
+                stat.S_IRUSR
+                | stat.S_IRGRP
+                | stat.S_IROTH
+                | stat.S_IWUSR
+                | stat.S_IWGRP
+                | stat.S_IWOTH
+            )
 
             # Don't close the file yet (breaks Windows)
             # temp_file.close()
