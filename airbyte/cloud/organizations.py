@@ -96,27 +96,25 @@ class CloudOrganization:
         if self._organization_name is not None:
             return self._organization_name
         info = self._fetch_organization_info()
-        return getattr(info, "organizationName", None)
+        return info.organizationName if info is not None else None
 
     @property
     def email(self) -> str | None:
         """Email associated with the organization."""
-        if self._email is not None:
-            return self._email
         return self._email
 
     @property
     def payment_status(self) -> str | None:
         """Payment status of the organization."""
         info = self._fetch_organization_info()
-        billing = getattr(info, "billing", None)
+        billing = info.billing if info is not None else None
         return billing.paymentStatus.value if billing is not None else None
 
     @property
     def subscription_status(self) -> str | None:
         """Subscription status of the organization."""
         info = self._fetch_organization_info()
-        billing = getattr(info, "billing", None)
+        billing = info.billing if info is not None else None
         return (
             billing.subscriptionStatus.value
             if billing is not None and billing.subscriptionStatus is not None
