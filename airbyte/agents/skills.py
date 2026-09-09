@@ -17,6 +17,8 @@ from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo, AgentSkillList
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
@@ -118,6 +120,61 @@ def search_skills(
             organization_id=credentials.organization_id,
             workspace_id=workspace_id,
             limit=limit,
+            cursor=cursor,
+        )
+    )
+
+
+def _iter_skill_pages(
+    fetch_page: Callable[[str | None], AgentSkillList],
+) -> Iterator[AgentSkillInfo]:
+    """Yield skills across pages, following `next_cursor` until it is `None`.
+
+    Stops early if the server returns a cursor already seen, rather than requesting the
+    same page forever.
+    """
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = fetch_page(cursor)
+        yield from page.data
+        cursor = page.next_cursor
+        if cursor is None or cursor in seen_cursors:
+            return
+        seen_cursors.add(cursor)
+
+
+def iter_skills(
+    *,
+    credentials: _AirbyteCredentials,
+    workspace_id: str | None = None,
+) -> Iterator[AgentSkillInfo]:
+    """Yield all available skills, following the API's pagination cursor.
+
+    This is the pagination-free way to list skills: each page is fetched lazily as the
+    caller iterates, so no cursor bookkeeping is needed.
+    """
+    return _iter_skill_pages(
+        lambda cursor: list_skills(
+            credentials=credentials,
+            workspace_id=workspace_id,
+            cursor=cursor,
+        )
+    )
+
+
+def iter_skill_search(
+    query: str,
+    *,
+    credentials: _AirbyteCredentials,
+    workspace_id: str | None = None,
+) -> Iterator[AgentSkillInfo]:
+    """Yield all skills matching `query`, following the API's pagination cursor."""
+    return _iter_skill_pages(
+        lambda cursor: search_skills(
+            query,
+            credentials=credentials,
+            workspace_id=workspace_id,
             cursor=cursor,
         )
     )

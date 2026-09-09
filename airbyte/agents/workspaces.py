@@ -18,7 +18,6 @@ from airbyte.agents.connectors import AgentConnector, _resolve_connector_lookup
 from airbyte.agents.models import (
     AgentConnectorInfo,
     AgentSkillDocs,
-    AgentSkillList,
     AgentWorkspaceInfo,
 )
 from airbyte.agents.skills import AgentSkill
@@ -139,39 +138,36 @@ class AgentWorkspace:
             )
         ]
 
-    def list_skills(
-        self,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-    ) -> AgentSkillList:
-        """List the skills available to this workspace.
+    def list_skills(self) -> list[AgentSkill]:
+        """List all skills available to this workspace, following pagination."""
+        return [
+            AgentSkill(
+                skill_id=info.id,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+                info=info,
+            )
+            for info in _skills.iter_skills(
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+            )
+        ]
 
-        Pass `limit` to cap the page size and the `next_cursor` of a previous result as
-        `cursor` to fetch the next page.
-        """
-        return _skills.list_skills(
-            credentials=self._credentials,
-            workspace_id=self.workspace_id,
-            limit=limit,
-            cursor=cursor,
-        )
-
-    def search_skills(
-        self,
-        query: str,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-    ) -> AgentSkillList:
-        """Search skills by keyword, returning a page of matching skills."""
-        return _skills.search_skills(
-            query,
-            credentials=self._credentials,
-            workspace_id=self.workspace_id,
-            limit=limit,
-            cursor=cursor,
-        )
+    def search_skills(self, query: str) -> list[AgentSkill]:
+        """Search skills by keyword, returning all matching skills across pages."""
+        return [
+            AgentSkill(
+                skill_id=info.id,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+                info=info,
+            )
+            for info in _skills.iter_skill_search(
+                query,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+            )
+        ]
 
     def get_skill(self, skill_id: str) -> AgentSkill:
         """Get a skill by ID, without calling the Agents API."""

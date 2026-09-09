@@ -17,7 +17,6 @@ from airbyte.agents.models import (
     AgentExecutionMetadata,
     AgentSkillDocs,
     AgentSkillInfo,
-    AgentSkillList,
     AgentSkillSection,
 )
 from airbyte.agents.connectors import AgentConnector
@@ -417,8 +416,6 @@ _ACCESS_FAILURE_CASES = [
         lambda: agents_mcp.list_agent_skills(
             ctx=cast(Context, object()),
             workspace_id="workspace-1",
-            limit=None,
-            cursor=None,
         ),
         {"skills": []},
         id="list_skills",
@@ -430,8 +427,6 @@ _ACCESS_FAILURE_CASES = [
             ctx=cast(Context, object()),
             query="github",
             workspace_id="workspace-1",
-            limit=None,
-            cursor=None,
         ),
         {"skills": []},
         id="search_skills",
@@ -560,15 +555,15 @@ def test_workspace_organization_id_comes_from_mcp_config(
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify the skills tools shape `AgentSkillList`/`AgentSkillDocs` into results."""
 
+    class _SkillLike:
+        def __init__(self, info: AgentSkillInfo) -> None:
+            self.info = info
+
     class _SkilledWorkspace:
-        def list_skills(
-            self,
-            *,
-            limit: int | None = None,
-            cursor: str | None = None,
-        ) -> AgentSkillList:
-            return AgentSkillList(
-                data=[
+        def list_skills(self) -> list[Any]:
+            # Two skills spanning two pages; pagination is internal to the workspace.
+            return [
+                _SkillLike(
                     AgentSkillInfo(
                         id="connector:github",
                         kind="connector_source",
@@ -576,18 +571,12 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
                         summary="GitHub usage docs.",
                         tags=["github"],
                     )
-                ],
-                next_cursor="cursor-1",
-            )
+                ),
+                _SkillLike(AgentSkillInfo(id="context-store", title="Context Store")),
+            ]
 
-        def search_skills(
-            self,
-            query: str,
-            *,
-            limit: int | None = None,
-            cursor: str | None = None,
-        ) -> AgentSkillList:
-            return AgentSkillList(data=[], next_cursor=None)
+        def search_skills(self, query: str) -> list[Any]:
+            return []
 
         def read_skill_docs(
             self,
@@ -618,8 +607,6 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
     listed = agents_mcp.list_agent_skills(
         ctx=cast(Context, object()),
         workspace_id="workspace-1",
-        limit=5,
-        cursor="c0",
     )
     assert listed.skills == [
         agents_mcp.AgentSkillResult(
@@ -628,19 +615,20 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
             title="GitHub",
             summary="GitHub usage docs.",
             tags=["github"],
-        )
+        ),
+        agents_mcp.AgentSkillResult(
+            skill_id="context-store",
+            title="Context Store",
+            tags=[],
+        ),
     ]
-    assert listed.next_cursor == "cursor-1"
 
     searched = agents_mcp.search_agent_skills(
         ctx=cast(Context, object()),
         query="github",
         workspace_id="workspace-1",
-        limit=None,
-        cursor=None,
     )
     assert searched.skills == []
-    assert searched.next_cursor is None
 
     docs = agents_mcp.read_agent_skill_docs(
         ctx=cast(Context, object()),

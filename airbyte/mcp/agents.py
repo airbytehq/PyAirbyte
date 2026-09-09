@@ -197,10 +197,7 @@ class AgentSkillListResult(BaseModel):
     """Result of listing or searching skills on the Airbyte Agents platform."""
 
     skills: list[AgentSkillResult]
-    """Skills matching the listing or search."""
-
-    next_cursor: str | None = None
-    """The cursor to pass as `cursor` to fetch the next page, when one is available."""
+    """Skills matching the listing or search, across all pages."""
 
     message: str | None = None
     """Why the listing is empty, when the Agents API denied the request."""
@@ -759,26 +756,16 @@ def list_agent_skills(
             default=None,
         ),
     ],
-    limit: Annotated[
-        int | None,
-        Field(description="Maximum number of skills to return in this page.", default=None),
-    ],
-    cursor: Annotated[
-        str | None,
-        Field(
-            description="Pagination cursor, taken from `next_cursor` of a previous result.",
-            default=None,
-        ),
-    ],
 ) -> AgentSkillListResult:
-    """List the skills available to an Airbyte Agents workspace.
+    """List all skills available to an Airbyte Agents workspace.
 
     Skills are reusable documentation the Agents API serves, for example connector usage
-    docs. Pass a listed skill's `skill_id` to `read_agent_skill_docs` to read it.
+    docs. All pages are fetched, so no pagination arguments are needed. Pass a listed
+    skill's `skill_id` to `read_agent_skill_docs` to read it.
     """
     workspace = _get_agent_workspace(ctx, workspace_id)
     try:
-        skills = workspace.list_skills(limit=limit, cursor=cursor)
+        skills = workspace.list_skills()
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:
@@ -786,8 +773,7 @@ def list_agent_skills(
         return AgentSkillListResult(skills=[], message=message)
 
     return AgentSkillListResult(
-        skills=[_agent_skill_result(skill) for skill in skills.data],
-        next_cursor=skills.next_cursor,
+        skills=[_agent_skill_result(skill.info) for skill in skills],
     )
 
 
@@ -813,25 +799,15 @@ def search_agent_skills(
             default=None,
         ),
     ],
-    limit: Annotated[
-        int | None,
-        Field(description="Maximum number of skills to return in this page.", default=None),
-    ],
-    cursor: Annotated[
-        str | None,
-        Field(
-            description="Pagination cursor, taken from `next_cursor` of a previous result.",
-            default=None,
-        ),
-    ],
 ) -> AgentSkillListResult:
     """Search skills by keyword in an Airbyte Agents workspace.
 
-    Pass a matching skill's `skill_id` to `read_agent_skill_docs` to read it.
+    All pages are fetched, so no pagination arguments are needed. Pass a matching skill's
+    `skill_id` to `read_agent_skill_docs` to read it.
     """
     workspace = _get_agent_workspace(ctx, workspace_id)
     try:
-        skills = workspace.search_skills(query, limit=limit, cursor=cursor)
+        skills = workspace.search_skills(query)
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:
@@ -839,8 +815,7 @@ def search_agent_skills(
         return AgentSkillListResult(skills=[], message=message)
 
     return AgentSkillListResult(
-        skills=[_agent_skill_result(skill) for skill in skills.data],
-        next_cursor=skills.next_cursor,
+        skills=[_agent_skill_result(skill.info) for skill in skills],
     )
 
 

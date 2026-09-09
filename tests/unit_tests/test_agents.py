@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 import requests
 from airbyte.agents import _api_util
+from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.agents.organizations import AgentOrganization
@@ -64,7 +65,7 @@ SKILL_LIST_RESPONSE: dict[str, Any] = {
             "tags": ["github", "connector"],
         }
     ],
-    "next_cursor": "cursor-skills-1",
+    "next_cursor": None,
 }
 SKILL_DOCS_RESPONSE: dict[str, Any] = {
     "metadata": {
@@ -868,7 +869,8 @@ def test_skill_requests(
         assert response["metadata"]["id"] == "connector:github"
     else:
         # The raw response is returned, so `next_cursor` is not dropped.
-        assert response["next_cursor"] == "cursor-skills-1"
+        assert "next_cursor" in response
+        assert response["data"][0]["id"] == "connector:github"
 
 
 def test_skill_requests_omit_none_params(
@@ -895,23 +897,22 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
     """`AgentWorkspace` skill methods scope requests to the workspace and parse results."""
     workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
 
-    skills = workspace.list_skills(limit=5)
+    skills = workspace.list_skills()
     assert captured_requests[0]["url"].endswith("/skills")
-    assert captured_requests[0]["params"] == {
-        "limit": 5,
-        "workspace_id": "workspace-id",
-    }
-    assert skills.data[0].id == "connector:github"
-    assert skills.next_cursor == "cursor-skills-1"
+    assert captured_requests[0]["params"] == {"workspace_id": "workspace-id"}
+    assert [skill.skill_id for skill in skills] == ["connector:github"]
+    # `info` is already populated from the listing, so reading it is free.
+    assert skills[0].info.id == "connector:github"
+    assert skills[0].title == "GitHub"
+    assert len(captured_requests) == 1
 
-    skills = workspace.search_skills("github", cursor="c1")
+    skills = workspace.search_skills("github")
     assert captured_requests[1]["url"].endswith("/skills/search")
     assert captured_requests[1]["params"] == {
         "query": "github",
-        "cursor": "c1",
         "workspace_id": "workspace-id",
     }
-    assert skills.data[0].id == "connector:github"
+    assert [skill.skill_id for skill in skills] == ["connector:github"]
 
     docs = workspace.read_skill_docs("connector:github", section="setup")
     assert captured_requests[2]["url"].endswith("/skills/docs")
@@ -925,6 +926,69 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
     assert docs.outline[0].id == "setup"
     assert docs.outline[1].available is False
     assert docs.content == [{"type": "paragraph", "text": "Hello"}]
+
+
+@pytest.mark.parametrize(
+    ("pages", "expected_ids", "expected_request_count"),
+    [
+        pytest.param(
+            [
+                (["s1", "s2"], "cursor-1"),
+                (["s3"], None),
+            ],
+            ["s1", "s2", "s3"],
+            2,
+            id="follows_cursor_to_last_page",
+        ),
+        pytest.param(
+            [(["s1"], None)],
+            ["s1"],
+            1,
+            id="single_page",
+        ),
+        pytest.param(
+            [
+                (["s1"], "cursor-1"),
+                (["s2"], "cursor-1"),
+            ],
+            ["s1", "s2"],
+            2,
+            id="stops_when_cursor_does_not_advance",
+        ),
+    ],
+)
+def test_iter_skills(
+    monkeypatch: pytest.MonkeyPatch,
+    pages: list[tuple[list[str], str | None]],
+    expected_ids: list[str],
+    expected_request_count: int,
+) -> None:
+    """`iter_skills()` follows the API's cursor and stops without looping."""
+    calls: list[dict[str, Any]] = []
+
+    def _fake_request(**kwargs: Any) -> _FakeResponse:
+        calls.append(kwargs)
+        ids, next_cursor = pages[min(len(calls) - 1, len(pages) - 1)]
+        return _FakeResponse({
+            "data": [{"id": skill_id} for skill_id in ids],
+            "next_cursor": next_cursor,
+        })
+
+    monkeypatch.setattr(requests, "request", _fake_request)
+
+    skills = list(
+        skills_module.iter_skills(
+            credentials=_credentials(),
+            workspace_id="workspace-id",
+        )
+    )
+
+    assert [skill.id for skill in skills] == expected_ids
+    assert len(calls) == expected_request_count
+    assert [call["params"].get("cursor") for call in calls] == [
+        None,
+        *[page[1] for page in pages[: expected_request_count - 1]],
+    ]
 
 
 def test_get_skill(captured_requests: list[dict[str, Any]]) -> None:
