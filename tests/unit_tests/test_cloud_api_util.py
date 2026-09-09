@@ -18,19 +18,18 @@ from airbyte.exceptions import (
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
 from airbyte_server_models._config_api import (
+    CheckConnectionRead,
+    JobConfigType,
     OrganizationInfoRead,
     OrganizationRead,
     OrganizationReadList,
     PermissionRead,
     PermissionReadList,
     PermissionType,
-    CheckConnectionRead,
-    JobConfigType,
     Status4,
     SynchronousJobRead,
     UserRead,
 )
-
 
 USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000002")
@@ -259,6 +258,41 @@ def test_make_config_api_request_wraps_response_validation_error(
         "full_url": "https://config.example/users/get_by_auth_id",
         "path": "/users/get_by_auth_id",
         "response": '{"invalid": true}',
+    }
+
+
+def test_make_config_api_request_wraps_invalid_json_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b"not json"
+    response.url = "https://config.example/users/get_by_auth_id"
+
+    def raise_json_error() -> object:
+        raise requests.exceptions.JSONDecodeError("x", "doc", 0)
+
+    monkeypatch.setattr(response, "json", raise_json_error)
+    monkeypatch.setattr(requests, "request", lambda **_: response)
+
+    with pytest.raises(
+        AirbyteError, match="did not match the expected schema"
+    ) as exc_info:
+        api_util._make_config_api_request(
+            api_root="https://api.example",
+            path="/users/get_by_auth_id",
+            request=api_util.UserAuthIdRequestBody(authUserId="auth-user-id"),
+            response_model=UserRead,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+            config_api_root="https://config.example",
+        )
+
+    assert exc_info.value.context == {
+        "full_url": "https://config.example/users/get_by_auth_id",
+        "path": "/users/get_by_auth_id",
+        "response": "not json",
     }
 
 

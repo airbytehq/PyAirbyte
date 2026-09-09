@@ -1955,7 +1955,7 @@ def _make_config_api_request(
 
     try:
         return response_model.model_validate(response.json())
-    except ValidationError as ex:
+    except (ValidationError, requests.exceptions.JSONDecodeError) as ex:
         raise AirbyteError(
             message=f"Config API response for {path} did not match the expected schema.",
             context={
