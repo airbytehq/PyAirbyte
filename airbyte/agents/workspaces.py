@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.agents import _api_util
+from airbyte.agents import skills as _skills
 from airbyte.agents.connectors import AgentConnector, _resolve_connector_lookup
 from airbyte.agents.models import (
     AgentConnectorInfo,
@@ -20,6 +21,7 @@ from airbyte.agents.models import (
     AgentSkillList,
     AgentWorkspaceInfo,
 )
+from airbyte.agents.skills import AgentSkill
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
@@ -148,14 +150,11 @@ class AgentWorkspace:
         Pass `limit` to cap the page size and the `next_cursor` of a previous result as
         `cursor` to fetch the next page.
         """
-        return AgentSkillList.model_validate(
-            _api_util.list_agent_skills(
-                credentials=self._credentials,
-                organization_id=self.organization_id,
-                workspace_id=self.workspace_id,
-                limit=limit,
-                cursor=cursor,
-            )
+        return _skills.list_skills(
+            credentials=self._credentials,
+            workspace_id=self.workspace_id,
+            limit=limit,
+            cursor=cursor,
         )
 
     def search_skills(
@@ -166,15 +165,20 @@ class AgentWorkspace:
         cursor: str | None = None,
     ) -> AgentSkillList:
         """Search skills by keyword, returning a page of matching skills."""
-        return AgentSkillList.model_validate(
-            _api_util.search_agent_skills(
-                query=query,
-                credentials=self._credentials,
-                organization_id=self.organization_id,
-                workspace_id=self.workspace_id,
-                limit=limit,
-                cursor=cursor,
-            )
+        return _skills.search_skills(
+            query,
+            credentials=self._credentials,
+            workspace_id=self.workspace_id,
+            limit=limit,
+            cursor=cursor,
+        )
+
+    def get_skill(self, skill_id: str) -> AgentSkill:
+        """Get a skill by ID, without calling the Agents API."""
+        return AgentSkill(
+            skill_id,
+            credentials=self._credentials,
+            workspace_id=self.workspace_id,
         )
 
     def read_skill_docs(
@@ -189,15 +193,7 @@ class AgentWorkspace:
         pass an exact section `id` from the outline to read that section. Connector usage
         docs use the `docs_skill_id` reported by `AgentConnector.inspect()`.
         """
-        return AgentSkillDocs.model_validate(
-            _api_util.read_agent_skill_docs(
-                skill_id=skill_id,
-                credentials=self._credentials,
-                organization_id=self.organization_id,
-                workspace_id=self.workspace_id,
-                section=section,
-            )
-        )
+        return self.get_skill(skill_id).read_docs(section=section)
 
     def get_connector(
         self,

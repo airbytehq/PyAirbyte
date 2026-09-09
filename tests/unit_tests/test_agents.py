@@ -11,6 +11,7 @@ from airbyte.agents import _api_util
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.agents.organizations import AgentOrganization
+from airbyte.agents.skills import AgentSkill
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.organizations import CloudOrganization
@@ -924,3 +925,55 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
     assert docs.outline[0].id == "setup"
     assert docs.outline[1].available is False
     assert docs.content == [{"type": "paragraph", "text": "Hello"}]
+
+
+def test_get_skill(captured_requests: list[dict[str, Any]]) -> None:
+    """`get_skill()` returns an `AgentSkill` bound to the workspace, without a request."""
+    workspace = AgentWorkspace(
+        workspace_id="workspace-id",
+        organization_id="org-id",
+        bearer_token="test-token",
+    )
+
+    skill = workspace.get_skill("connector:github")
+
+    assert isinstance(skill, AgentSkill)
+    assert skill.skill_id == "connector:github"
+    assert captured_requests == []
+
+
+@pytest.mark.parametrize("section", [None, "setup"], ids=["no_section", "with_section"])
+def test_agent_skill_read_docs(
+    captured_requests: list[dict[str, Any]],
+    section: str | None,
+) -> None:
+    """`AgentSkill.read_docs()` requests `/skills/docs` for its skill and section."""
+    skill = AgentSkill(
+        "connector:github",
+        credentials=_credentials(),
+        workspace_id="workspace-id",
+    )
+
+    docs = skill.read_docs(section=section)
+
+    expected_params: dict[str, Any] = {
+        "id": "connector:github",
+        "organization_id": "org-id",
+        "workspace_id": "workspace-id",
+    }
+    if section is not None:
+        expected_params["section"] = section
+    assert captured_requests[0]["url"].endswith("/skills/docs")
+    assert captured_requests[0]["params"] == expected_params
+    assert docs.metadata.id == "connector:github"
+    assert skill.info.id == "connector:github"
+
+
+def test_agent_skill_info_is_cached(captured_requests: list[dict[str, Any]]) -> None:
+    """`AgentSkill.info` fetches once and caches across property accesses."""
+    skill = AgentSkill("connector:github", credentials=_credentials())
+
+    assert skill.title == "GitHub"
+    assert skill.kind == "connector_source"
+    assert skill.info.id == "connector:github"
+    assert len(captured_requests) == 1

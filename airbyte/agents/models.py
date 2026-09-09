@@ -170,8 +170,8 @@ class AgentConnectorDetails(BaseModel):
     """The name of the underlying Airbyte source definition, for example `GitHub`."""
 
     docs_skill_id: str | None = None
-    """Skill ID to pass to `AgentWorkspace.read_skill_docs` (MCP: `read_agent_skill_docs`)
-    for this connector's usage docs."""
+    """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
+    `read_agent_skill_docs`) for this connector's usage docs."""
 
     context_store_readiness: AgentContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
