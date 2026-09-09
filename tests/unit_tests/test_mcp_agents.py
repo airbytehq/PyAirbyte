@@ -101,7 +101,7 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None: stub,
+        lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
     )
     return stub
 
@@ -120,6 +120,7 @@ def _execute_ro(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: AN
         cursor=kwargs.pop("cursor", None),
         intent=kwargs.pop("intent", None),
         workspace_id=kwargs.pop("workspace_id", "workspace-id"),
+        organization_id=kwargs.pop("organization_id", None),
     )
 
 
@@ -138,6 +139,7 @@ def _execute(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: ANN40
         intent=kwargs.pop("intent", None),
         read_only=kwargs.pop("read_only", None),
         workspace_id=kwargs.pop("workspace_id", "workspace-id"),
+        organization_id=kwargs.pop("organization_id", None),
     )
 
 
@@ -258,13 +260,17 @@ def test_inspect_tool_reports_context_store_entities(
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None: _InspectableConnector(),
+        lambda ctx,
+        connector_id,
+        workspace_id=None,
+        organization_id=None: _InspectableConnector(),
     )
 
     result = agents_mcp.inspect_agent_connector(
         ctx=cast(Context, object()),
         connector_id="connector-id",
         workspace_id="workspace-id",
+        organization_id=None,
     )
 
     assert result.context_store_entities == ["issues"]
@@ -381,6 +387,7 @@ _ACCESS_FAILURE_CASES = [
         lambda: agents_mcp.list_agent_connectors(
             ctx=cast(Context, object()),
             workspace_id="workspace-1",
+            organization_id=None,
         ),
         {"connectors": []},
         id="list_connectors",
@@ -399,6 +406,7 @@ _ACCESS_FAILURE_CASES = [
             ctx=cast(Context, object()),
             connector_id="connector-id",
             workspace_id="workspace-1",
+            organization_id=None,
         ),
         {"context_store_entities": [], "connector_id": "connector-id"},
         id="inspect",
@@ -484,6 +492,41 @@ def test_organization_id_resolution(
     )
 
     assert organization.organization_id == expected_organization_id
+
+
+@pytest.mark.parametrize(
+    ("explicit_organization_id", "expected_organization_id"),
+    [
+        pytest.param(None, "org-from-config", id="falls_back_to_config"),
+        pytest.param("org-from-argument", "org-from-argument", id="explicit_wins"),
+    ],
+)
+def test_list_agent_connectors_threads_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_organization_id: str | None,
+    expected_organization_id: str,
+) -> None:
+    """Verify `list_agent_connectors` passes `organization_id` to the workspace."""
+    _patch_mcp_config(monkeypatch)
+    constructed: list[dict[str, Any]] = []
+
+    class _RecordingWorkspace:
+        def __init__(self, **kwargs: Any) -> None:
+            constructed.append(kwargs)
+
+        def list_connectors(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(agents_mcp, "AgentWorkspace", _RecordingWorkspace)
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id=explicit_organization_id,
+    )
+
+    assert constructed[0]["organization_id"] == expected_organization_id
+    assert result.connectors == []
 
 
 def test_workspace_organization_id_comes_from_mcp_config(
