@@ -53,6 +53,37 @@ WORKSPACES_RESPONSE: dict[str, Any] = {
         {"id": "workspace-2", "name": "secondary", "organization_id": "org-id"},
     ]
 }
+SKILL_LIST_RESPONSE: dict[str, Any] = {
+    "data": [
+        {
+            "id": "connector:github",
+            "kind": "connector_source",
+            "title": "GitHub",
+            "summary": "GitHub usage docs.",
+            "tags": ["github", "connector"],
+        }
+    ],
+    "next_cursor": "cursor-skills-1",
+}
+SKILL_DOCS_RESPONSE: dict[str, Any] = {
+    "metadata": {
+        "id": "connector:github",
+        "kind": "connector_source",
+        "title": "GitHub",
+        "warnings": ["Partial runtime metadata."],
+    },
+    "outline": [
+        {
+            "id": "setup",
+            "title": "Setup",
+            "summary": "How to configure.",
+            "available": True,
+        },
+        {"id": "faq", "title": "FAQ", "available": False},
+    ],
+    "section_id": None,
+    "content": [{"type": "paragraph", "text": "Hello"}],
+}
 
 
 class _FakeResponse:
@@ -101,6 +132,10 @@ def captured_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
             return _FakeResponse(INSPECT_RESPONSE)
         if url.endswith("/execute"):
             return _FakeResponse(EXECUTE_RESPONSE)
+        if url.endswith("/skills/docs"):
+            return _FakeResponse(SKILL_DOCS_RESPONSE)
+        if url.endswith("/skills/search") or url.endswith("/skills"):
+            return _FakeResponse(SKILL_LIST_RESPONSE)
         if url.endswith("/connectors"):
             return _FakeResponse(CONNECTORS_RESPONSE)
         if url.endswith("/workspaces"):
@@ -754,3 +789,138 @@ def test_conversion_rejects_non_public_cloud_api_roots(
         convert()
 
     assert captured_requests == []
+
+
+@pytest.mark.parametrize(
+    ("call_api", "expected_path", "expected_params"),
+    [
+        pytest.param(
+            lambda: _api_util.list_agent_skills(
+                credentials=_credentials(),
+                organization_id="org-id",
+                workspace_id="workspace-id",
+                limit=5,
+                cursor="c1",
+            ),
+            "/skills",
+            {
+                "limit": 5,
+                "cursor": "c1",
+                "organization_id": "org-id",
+                "workspace_id": "workspace-id",
+            },
+            id="list_skills",
+        ),
+        pytest.param(
+            lambda: _api_util.search_agent_skills(
+                query="github",
+                credentials=_credentials(),
+                organization_id="org-id",
+                workspace_id="workspace-id",
+                limit=5,
+                cursor="c1",
+            ),
+            "/skills/search",
+            {
+                "query": "github",
+                "limit": 5,
+                "cursor": "c1",
+                "organization_id": "org-id",
+                "workspace_id": "workspace-id",
+            },
+            id="search_skills",
+        ),
+        pytest.param(
+            lambda: _api_util.read_agent_skill_docs(
+                skill_id="connector:github",
+                credentials=_credentials(),
+                organization_id="org-id",
+                workspace_id="workspace-id",
+                section="setup",
+            ),
+            "/skills/docs",
+            {
+                "id": "connector:github",
+                "section": "setup",
+                "organization_id": "org-id",
+                "workspace_id": "workspace-id",
+            },
+            id="read_skill_docs",
+        ),
+    ],
+)
+def test_skill_requests(
+    captured_requests: list[dict[str, Any]],
+    call_api: Any,
+    expected_path: str,
+    expected_params: dict[str, Any],
+) -> None:
+    """Skill API calls hit their `/skills` endpoints with only non-`None` params."""
+    response = call_api()
+
+    call = captured_requests[0]
+    assert call["url"] == f"https://api.airbyte.ai/api/v1{expected_path}"
+    assert call["params"] == expected_params
+    assert call["headers"]["X-Organization-Id"] == "org-id"
+
+    if expected_path == "/skills/docs":
+        assert response["metadata"]["id"] == "connector:github"
+    else:
+        # The raw response is returned, so `next_cursor` is not dropped.
+        assert response["next_cursor"] == "cursor-skills-1"
+
+
+def test_skill_requests_omit_none_params(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """Unset skill API arguments are left out of the query string."""
+    _api_util.list_agent_skills(credentials=_credentials(organization_id=None))
+    assert captured_requests[0]["params"] is None
+
+    _api_util.search_agent_skills(
+        query="github",
+        credentials=_credentials(organization_id=None),
+    )
+    assert captured_requests[1]["params"] == {"query": "github"}
+
+    _api_util.read_agent_skill_docs(
+        skill_id="connector:github",
+        credentials=_credentials(organization_id=None),
+    )
+    assert captured_requests[2]["params"] == {"id": "connector:github"}
+
+
+def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> None:
+    """`AgentWorkspace` skill methods scope requests to the workspace and parse results."""
+    workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
+
+    skills = workspace.list_skills(limit=5)
+    assert captured_requests[0]["url"].endswith("/skills")
+    assert captured_requests[0]["params"] == {
+        "limit": 5,
+        "workspace_id": "workspace-id",
+    }
+    assert skills.data[0].id == "connector:github"
+    assert skills.next_cursor == "cursor-skills-1"
+
+    skills = workspace.search_skills("github", cursor="c1")
+    assert captured_requests[1]["url"].endswith("/skills/search")
+    assert captured_requests[1]["params"] == {
+        "query": "github",
+        "cursor": "c1",
+        "workspace_id": "workspace-id",
+    }
+    assert skills.data[0].id == "connector:github"
+
+    docs = workspace.read_skill_docs("connector:github", section="setup")
+    assert captured_requests[2]["url"].endswith("/skills/docs")
+    assert captured_requests[2]["params"] == {
+        "id": "connector:github",
+        "section": "setup",
+        "workspace_id": "workspace-id",
+    }
+    assert docs.metadata.id == "connector:github"
+    assert docs.metadata.warnings == ["Partial runtime metadata."]
+    assert docs.outline[0].id == "setup"
+    assert docs.outline[1].available is False
+    assert docs.content == [{"type": "paragraph", "text": "Hello"}]

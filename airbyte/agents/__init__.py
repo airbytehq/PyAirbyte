@@ -94,6 +94,10 @@ from airbyte.agents.models import (
     AgentContextStoreReadiness,
     AgentExecuteResult,
     AgentExecutionMetadata,
+    AgentSkillDocs,
+    AgentSkillInfo,
+    AgentSkillList,
+    AgentSkillSection,
     AgentWorkspaceInfo,
 )
 from airbyte.agents.organizations import AgentOrganization
@@ -127,6 +131,10 @@ __all__ = [
     "AgentExecuteResult",
     "AgentExecutionMetadata",
     "AgentOrganization",
+    "AgentSkillDocs",
+    "AgentSkillInfo",
+    "AgentSkillList",
+    "AgentSkillSection",
     "AgentWorkspace",
     "AgentWorkspaceInfo",
 ]

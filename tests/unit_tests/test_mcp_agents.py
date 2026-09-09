@@ -15,6 +15,10 @@ from airbyte.agents.models import (
     AgentContextStoreReadiness,
     AgentExecuteResult,
     AgentExecutionMetadata,
+    AgentSkillDocs,
+    AgentSkillInfo,
+    AgentSkillList,
+    AgentSkillSection,
 )
 from airbyte.agents.connectors import AgentConnector
 from airbyte.constants import MCP_CONFIG_BEARER_TOKEN, MCP_CONFIG_ORGANIZATION_ID
@@ -75,6 +79,18 @@ class _RaisingWorkspace:
         self._error = error
 
     def list_connectors(self) -> list[Any]:
+        """Raise the configured error."""
+        raise self._error
+
+    def list_skills(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def search_skills(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
@@ -284,6 +300,9 @@ def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
 
     assert tools["execute_agent_connector_ro"].annotations.readOnlyHint is True
     assert tools["execute_agent_connector"].annotations.readOnlyHint is False
+    assert tools["list_agent_skills"].annotations.readOnlyHint is True
+    assert tools["search_agent_skills"].annotations.readOnlyHint is True
+    assert tools["read_agent_skill_docs"].annotations.readOnlyHint is True
     assert "read_only" in tools["execute_agent_connector"].parameters["properties"]
     assert (
         "read_only" not in tools["execute_agent_connector_ro"].parameters["properties"]
@@ -393,6 +412,43 @@ _ACCESS_FAILURE_CASES = [
         id="execute",
     ),
     pytest.param(
+        "_get_agent_workspace",
+        _RaisingWorkspace,
+        lambda: agents_mcp.list_agent_skills(
+            ctx=cast(Context, object()),
+            workspace_id="workspace-1",
+            limit=None,
+            cursor=None,
+        ),
+        {"skills": []},
+        id="list_skills",
+    ),
+    pytest.param(
+        "_get_agent_workspace",
+        _RaisingWorkspace,
+        lambda: agents_mcp.search_agent_skills(
+            ctx=cast(Context, object()),
+            query="github",
+            workspace_id="workspace-1",
+            limit=None,
+            cursor=None,
+        ),
+        {"skills": []},
+        id="search_skills",
+    ),
+    pytest.param(
+        "_get_agent_workspace",
+        _RaisingWorkspace,
+        lambda: agents_mcp.read_agent_skill_docs(
+            ctx=cast(Context, object()),
+            skill_id="connector:github",
+            section=None,
+            workspace_id="workspace-1",
+        ),
+        {"skill_id": "connector:github", "outline": [], "content": []},
+        id="read_skill_docs",
+    ),
+    pytest.param(
         "_get_agent_connector",
         _RaisingConnector,
         lambda: agents_mcp.inspect_agent_connector(
@@ -499,3 +555,103 @@ def test_workspace_organization_id_comes_from_mcp_config(
 
     assert workspace.organization_id == "org-from-config"
     assert workspace._credentials.organization_id == "org-from-config"  # noqa: SLF001
+
+
+def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the skills tools shape `AgentSkillList`/`AgentSkillDocs` into results."""
+
+    class _SkilledWorkspace:
+        def list_skills(
+            self,
+            *,
+            limit: int | None = None,
+            cursor: str | None = None,
+        ) -> AgentSkillList:
+            return AgentSkillList(
+                data=[
+                    AgentSkillInfo(
+                        id="connector:github",
+                        kind="connector_source",
+                        title="GitHub",
+                        summary="GitHub usage docs.",
+                        tags=["github"],
+                    )
+                ],
+                next_cursor="cursor-1",
+            )
+
+        def search_skills(
+            self,
+            query: str,
+            *,
+            limit: int | None = None,
+            cursor: str | None = None,
+        ) -> AgentSkillList:
+            return AgentSkillList(data=[], next_cursor=None)
+
+        def read_skill_docs(
+            self,
+            skill_id: str,
+            *,
+            section: str | None = None,
+        ) -> AgentSkillDocs:
+            return AgentSkillDocs(
+                metadata=AgentSkillInfo(
+                    id=skill_id,
+                    title="GitHub",
+                    warnings=["Partial runtime metadata."],
+                ),
+                outline=[
+                    AgentSkillSection(id="setup", title="Setup", available=True),
+                    AgentSkillSection(id="faq", title="FAQ", available=False),
+                ],
+                section_id=section,
+                content=[{"type": "paragraph", "text": "Hello"}],
+            )
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda ctx, workspace_id=None: _SkilledWorkspace(),  # noqa: ARG005
+    )
+
+    listed = agents_mcp.list_agent_skills(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        limit=5,
+        cursor="c0",
+    )
+    assert listed.skills == [
+        agents_mcp.AgentSkillResult(
+            skill_id="connector:github",
+            kind="connector_source",
+            title="GitHub",
+            summary="GitHub usage docs.",
+            tags=["github"],
+        )
+    ]
+    assert listed.next_cursor == "cursor-1"
+
+    searched = agents_mcp.search_agent_skills(
+        ctx=cast(Context, object()),
+        query="github",
+        workspace_id="workspace-1",
+        limit=None,
+        cursor=None,
+    )
+    assert searched.skills == []
+    assert searched.next_cursor is None
+
+    docs = agents_mcp.read_agent_skill_docs(
+        ctx=cast(Context, object()),
+        skill_id="connector:github",
+        section="setup",
+        workspace_id="workspace-1",
+    )
+    assert docs.skill_id == "connector:github"
+    assert docs.title == "GitHub"
+    assert docs.section_id == "setup"
+    assert [section.section_id for section in docs.outline] == ["setup", "faq"]
+    assert docs.outline[1].available is False
+    assert docs.content == [{"type": "paragraph", "text": "Hello"}]
+    assert docs.warnings == ["Partial runtime metadata."]
