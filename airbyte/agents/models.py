@@ -103,7 +103,7 @@ class AgentSkillList(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    data: list[AgentSkillInfo] = Field(default_factory=list)
+    data: list[AgentSkillInfo]
     """The skills on this page."""
 
     next_cursor: str | None = None
