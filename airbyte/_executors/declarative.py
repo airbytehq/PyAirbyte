@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -38,6 +39,27 @@ def _suppress_cdk_pydantic_deprecation_warnings() -> None:
     )
 
 
+def _get_config_from_args(args: list[str]) -> dict[str, Any]:
+    config_path: str | None = None
+    try:
+        config_path = args[args.index("--config") + 1]
+    except (IndexError, ValueError):
+        for arg in args:
+            if arg.startswith("--config="):
+                config_path = arg.partition("=")[2]
+                break
+
+    if not config_path:
+        return {}
+
+    try:
+        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+
+    return config if isinstance(config, dict) else {}
+
+
 class DeclarativeExecutor(Executor):
     """An executor for declarative sources."""
 
@@ -45,6 +67,8 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
+        *,
+        config: dict[str, Any] | None = None,
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
     ) -> None:
@@ -53,6 +77,7 @@ class DeclarativeExecutor(Executor):
         - If `manifest` is a path, it will be read as a json file.
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
+        - If `config` is provided, it will be used to resolve manifest interpolations.
         - If `components_py` is provided, components will be injected into the source.
         - If `components_py_checksum` is not provided, it will be calculated automatically.
         """
@@ -66,7 +91,7 @@ class DeclarativeExecutor(Executor):
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
 
-        config_dict: dict[str, Any] = {}
+        config_dict: dict[str, Any] = dict(config or {})
         if components_py:
             if isinstance(components_py, Path):
                 components_py = components_py.read_text()
@@ -82,6 +107,25 @@ class DeclarativeExecutor(Executor):
         self.reported_version: str | None = self._manifest_dict.get("version", None)
         self._config_dict = config_dict
 
+    def _create_declarative_source(
+        self,
+        config: dict[str, Any],
+    ) -> ConcurrentDeclarativeSource:
+        return ConcurrentDeclarativeSource(
+            config=config,
+            source_config=self._manifest_dict,
+        )
+
+    def _get_effective_config(self, args_config: dict[str, Any]) -> dict[str, Any]:
+        config = {**self._config_dict, **args_config}
+        for key in (
+            "__injected_components_py",
+            "__injected_components_py_checksums",
+        ):
+            if key in self._config_dict:
+                config[key] = self._config_dict[key]
+        return config
+
     @property
     def declarative_source(self) -> ConcurrentDeclarativeSource:
         """Get the declarative source object.
@@ -93,10 +137,7 @@ class DeclarativeExecutor(Executor):
         3. Rather than cache the source object, we recreate it each time we need it, to
            avoid any issues with re-using the same object.
         """
-        return ConcurrentDeclarativeSource(
-            config=self._config_dict,
-            source_config=self._manifest_dict,
-        )
+        return self._create_declarative_source(self._config_dict)
 
     def get_installed_version(
         self,
@@ -122,9 +163,11 @@ class DeclarativeExecutor(Executor):
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin, suppress_stderr  # Not used
-        source_entrypoint = AirbyteEntrypoint(self.declarative_source)
-
         mapped_args: list[str] = self.map_cli_args(args)
+        args_config = _get_config_from_args(mapped_args)
+        source_entrypoint = AirbyteEntrypoint(
+            self._create_declarative_source(self._get_effective_config(args_config))
+        )
         parsed_args: Namespace = source_entrypoint.parse_args(mapped_args)
         yield from source_entrypoint.run(parsed_args)
 
