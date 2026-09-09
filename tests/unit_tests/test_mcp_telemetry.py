@@ -12,6 +12,7 @@ from fastmcp_extensions import ToolCallTelemetryMiddleware
 from segment import analytics
 
 from airbyte import constants
+from airbyte._util import telemetry
 from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp import server
 
@@ -23,47 +24,55 @@ _DUMMY_SEGMENT_WRITE_KEY = "dummy-segment-write-key"
 def force_online_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep in-process telemetry tests independent of the runner environment."""
     monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", False)
+    yield
 
 
-def test_segment_write_key_defaults_to_app_tracking_key(
+@pytest.mark.parametrize(
+    ("do_not_track", "segment_key", "offline_mode", "expected_key"),
+    [
+        pytest.param(
+            None, None, False, server.PYAIRBYTE_APP_TRACKING_KEY, id="default"
+        ),
+        pytest.param(
+            None,
+            _DUMMY_SEGMENT_WRITE_KEY,
+            False,
+            _DUMMY_SEGMENT_WRITE_KEY,
+            id="environment-override",
+        ),
+        pytest.param(
+            "1",
+            _DUMMY_SEGMENT_WRITE_KEY,
+            False,
+            None,
+            id="do-not-track",
+        ),
+        pytest.param(
+            None,
+            _DUMMY_SEGMENT_WRITE_KEY,
+            True,
+            None,
+            id="offline-mode",
+        ),
+    ],
+)
+def test_segment_write_key_respects_configuration(
     monkeypatch: pytest.MonkeyPatch,
+    do_not_track: str | None,
+    segment_key: str | None,
+    offline_mode: bool,
+    expected_key: str | None,
 ) -> None:
-    """The telemetry key defaults to PyAirbyte's application key."""
+    """The Segment key reflects tracking, environment, and offline configuration."""
     monkeypatch.delenv(server.SEGMENT_WRITE_KEY_ENV, raising=False)
     monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
+    if do_not_track is not None:
+        monkeypatch.setenv(server.DO_NOT_TRACK, do_not_track)
+    if segment_key is not None:
+        monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, segment_key)
+    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", offline_mode)
 
-    assert server._segment_write_key() == server.PYAIRBYTE_APP_TRACKING_KEY
-
-
-def test_segment_write_key_uses_env_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The MCP server can use a deployment-specific Segment key."""
-    monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert server._segment_write_key() == _DUMMY_SEGMENT_WRITE_KEY
-
-
-def test_segment_write_key_respects_do_not_track(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The telemetry sink is disabled when tracking is opted out."""
-    monkeypatch.setenv(server.DO_NOT_TRACK, "1")
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert server._segment_write_key() is None
-
-
-def test_segment_write_key_respects_offline_mode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Offline mode disables the external Segment sink."""
-    monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", True)
-
-    assert server._segment_write_key() is None
+    assert server._segment_write_key() == expected_key
 
 
 def test_segment_write_key_rechecks_runtime_offline_mode() -> None:
@@ -117,20 +126,58 @@ def test_shared_app_registers_telemetry_without_sending_events(
         pytest.fail("telemetry setup must not send Segment traffic")
 
     monkeypatch.setattr(analytics, "track", fail_if_called)
-    # Keep the module-level Segment client state isolated from middleware setup.
-    monkeypatch.setattr(analytics, "write_key", analytics.write_key)
-    monkeypatch.setattr(analytics, "send", analytics.send)
-    monkeypatch.setattr(analytics, "on_error", analytics.on_error)
-    original_middleware = list(server.app.middleware)
-    try:
-        telemetry_middleware = [
-            middleware
-            for middleware in server.app.middleware
-            if isinstance(middleware, ToolCallTelemetryMiddleware)
-        ]
-        assert len(telemetry_middleware) == 1
-    finally:
-        server.app.middleware[:] = original_middleware
+    telemetry_middleware = [
+        middleware
+        for middleware in server.app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    ]
+    assert len(telemetry_middleware) == 1
+
+
+def test_shared_app_passes_upstream_attribution_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared app configures attribution with PyAirbyte's analytics ID."""
+    monkeypatch.setattr(telemetry, "_ANALYTICS_ID", "analytics-ulid")
+    telemetry_middleware = next(
+        middleware
+        for middleware in server.app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    attribution = telemetry_middleware._attribution
+
+    assert attribution is not None
+    assert attribution._known_public_mcp_domains == (
+        "airbyte.ai",
+        "airbyte.com",
+        "airbyte.io",
+    )
+    assert attribution._anonymization_salt is server._mcp_anonymization_salt
+    monkeypatch.setenv(server.ANONYMIZATION_SALT_ENV, "configured-salt")
+    assert attribution._anonymization_salt() == "configured-salt"
+    monkeypatch.delenv(server.ANONYMIZATION_SALT_ENV)
+    assert attribution._anonymization_salt() == "analytics-ulid"
+    telemetry_middleware = next(
+        middleware
+        for middleware in server.app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    assert (
+        telemetry_middleware._sinks._segment_anonymous_id
+        is server._mcp_segment_anonymous_id
+    )
+
+
+def test_segment_anonymous_id_uses_local_analytics_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the analytics ID locally, but not as a hosted shared user."""
+    monkeypatch.setattr(telemetry, "_ANALYTICS_ID", "analytics-ulid")
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    assert server._mcp_segment_anonymous_id() == "analytics-ulid"
+
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    assert server._mcp_segment_anonymous_id() is None
 
 
 def test_hosted_attribution_is_resolved_per_call(
@@ -138,12 +185,12 @@ def test_hosted_attribution_is_resolved_per_call(
 ) -> None:
     """Hosted attribution reflects mode changes after module import."""
     monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
-    telemetry = next(
+    telemetry_middleware = next(
         middleware
         for middleware in server.app.middleware
         if isinstance(middleware, ToolCallTelemetryMiddleware)
     )
-    extra_properties = telemetry._extra_properties
+    extra_properties = telemetry_middleware._extra_properties
     assert callable(extra_properties)
     assert extra_properties() == {"is_hosted_mcp": False}
 
