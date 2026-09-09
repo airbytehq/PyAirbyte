@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, PrimaryKeyConstraint, String, and_
@@ -59,8 +59,8 @@ class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
 
     last_updated = Column(
         DateTime(timezone=True),
-        onupdate=datetime.now(timezone.utc),
-        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(UTC),
+        default=datetime.now(UTC),
     )
     """The last time the state was updated."""
 
@@ -91,8 +91,8 @@ class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
 
     last_updated = Column(
         DateTime(timezone=True),
-        onupdate=datetime.now(timezone.utc),
-        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(UTC),
+        default=datetime.now(UTC),
     )
     """The last time the state was updated."""
 

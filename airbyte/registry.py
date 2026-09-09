@@ -8,14 +8,13 @@ import logging
 import os
 import warnings
 from copy import copy
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import requests
 import yaml
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
@@ -45,7 +44,7 @@ _DEFAULT_MANIFEST_URL = (
 )
 
 
-class InstallType(str, Enum):
+class InstallType(StrEnum):
     """The type of installation for a connector."""
 
     YAML = "yaml"
@@ -66,7 +65,7 @@ class InstallType(str, Enum):
     """All connectors in the registry (environment-independent)."""
 
 
-class Language(str, Enum):
+class Language(StrEnum):
     """The language of a connector."""
 
     PYTHON = InstallType.PYTHON.value

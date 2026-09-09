@@ -3,12 +3,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class SupportLevel(str, Enum):
+class SupportLevel(StrEnum):
     """Connector support levels ordered by precedence."""
 
     ARCHIVED = "archived"
@@ -44,7 +44,7 @@ class SupportLevel(str, Enum):
             ) from None
 
 
-class ConnectorType(str, Enum):
+class ConnectorType(StrEnum):
     """Connector type: `source` or `destination`."""
 
     SOURCE = "source"
