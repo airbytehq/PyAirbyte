@@ -109,6 +109,7 @@ allow-direct-references = true
 # TK-TODO: `airbyte-server-models` is consumed from a git branch while the package is
 # unreleased. Pin this to a published PyPI version (and remove this source entry)
 # before the next PyAirbyte release.
+# CI authenticates to the private repo via .github/actions/private-git-deps-auth (Octavia bot app).
 airbyte-server-models = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git", branch = "devin/1788977312-server-models", subdirectory = "airbyte-server-models" }
 
 [tool.hatch.build.targets.wheel]

@@ -105,6 +105,10 @@ from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, final
 
+# The Config API models live in an underscore-prefixed module on purpose: the Config API is
+# Airbyte-internal and may change without notice, so the private name is a deliberate signal
+# to consumers. PyAirbyte accepts that contract, hence the `PLC2701` (import-private-name)
+# suppressions below.
 from airbyte_server_models._config_api import JobIdRequestBody, JobInfoRead  # noqa: PLC2701
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse

@@ -22,6 +22,11 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
+
+# The Config API models live in an underscore-prefixed module on purpose: the Config API is
+# Airbyte-internal and may change without notice, so the private name is a deliberate signal
+# to consumers. PyAirbyte accepts that contract, hence the `PLC2701` (import-private-name)
+# suppressions below.
 from airbyte_server_models._config_api import (
     AirbyteCatalog,  # noqa: PLC2701
     BuilderProjectForDefinitionRequestBody,  # noqa: PLC2701
