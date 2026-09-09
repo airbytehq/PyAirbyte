@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
 
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.secrets.base import SecretString
+
+
+if TYPE_CHECKING:
+    from airbyte_server_models._config_api import OrganizationInfoRead
 
 
 logger = logging.getLogger(__name__)
@@ -51,16 +55,20 @@ class CloudOrganization:
             config_api_root=config_api_root,
             organization_id=organization_id,
         )
-        self._organization_info: dict[str, Any] | None = None
+        self._organization_info: OrganizationInfoRead | None = None
         self._organization_info_fetch_failed: bool = False
 
-    def _fetch_organization_info(self, *, force_refresh: bool = False) -> dict[str, Any]:
+    def _fetch_organization_info(
+        self,
+        *,
+        force_refresh: bool = False,
+    ) -> OrganizationInfoRead | None:
         """Fetch and cache organization info including billing status."""
         if force_refresh:
             self._organization_info_fetch_failed = False
 
         if self._organization_info_fetch_failed and self._organization_info is None:
-            return {}
+            return None
 
         if not force_refresh and self._organization_info is not None:
             return self._organization_info
@@ -78,7 +86,7 @@ class CloudOrganization:
             logger.debug("Failed to fetch organization info.", exc_info=ex)
             if self._organization_info is None:
                 self._organization_info_fetch_failed = True
-            return self._organization_info or {}
+            return self._organization_info
         else:
             return self._organization_info
 
@@ -88,27 +96,32 @@ class CloudOrganization:
         if self._organization_name is not None:
             return self._organization_name
         info = self._fetch_organization_info()
-        return info.get("organizationName")
+        return getattr(info, "organizationName", None)
 
     @property
     def email(self) -> str | None:
         """Email associated with the organization."""
         if self._email is not None:
             return self._email
-        info = self._fetch_organization_info()
-        return info.get("email")
+        return self._email
 
     @property
     def payment_status(self) -> str | None:
         """Payment status of the organization."""
         info = self._fetch_organization_info()
-        return (info.get("billing") or {}).get("paymentStatus")
+        billing = getattr(info, "billing", None)
+        return billing.paymentStatus.value if billing is not None else None
 
     @property
     def subscription_status(self) -> str | None:
         """Subscription status of the organization."""
         info = self._fetch_organization_info()
-        return (info.get("billing") or {}).get("subscriptionStatus")
+        billing = getattr(info, "billing", None)
+        return (
+            billing.subscriptionStatus.value
+            if billing is not None and billing.subscriptionStatus is not None
+            else None
+        )
 
     @property
     def is_account_locked(self) -> bool:

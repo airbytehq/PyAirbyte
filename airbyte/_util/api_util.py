@@ -16,12 +16,47 @@ from __future__ import annotations
 import base64
 import json
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import airbyte_api
 import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
+from airbyte_server_models._config_api import (
+    AirbyteCatalog,  # noqa: PLC2701
+    BuilderProjectForDefinitionRequestBody,  # noqa: PLC2701
+    BuilderProjectForDefinitionResponse,  # noqa: PLC2701
+    CheckConnectionRead,  # noqa: PLC2701
+    ConnectionIdRequestBody,  # noqa: PLC2701
+    ConnectionState,  # noqa: PLC2701
+    ConnectionStateCreateOrUpdate,  # noqa: PLC2701
+    ConnectorBuilderProjectIdWithWorkspaceId,  # noqa: PLC2701
+    ConnectorBuilderProjectRead,  # noqa: PLC2701
+    ConnectorBuilderProjectTestingValues,  # noqa: PLC2701
+    ConnectorBuilderProjectTestingValuesUpdate,  # noqa: PLC2701
+    DestinationIdRequestBody,  # noqa: PLC2701
+    ListOrganizationsByUserRequestBody,  # noqa: PLC2701
+    ListWorkspacesInOrganizationRequestBody,  # noqa: PLC2701
+    OrganizationIdRequestBody,  # noqa: PLC2701
+    OrganizationInfoRead,  # noqa: PLC2701
+    OrganizationRead,
+    OrganizationReadList,  # noqa: PLC2701
+    Pagination,  # noqa: PLC2701
+    PermissionRead,
+    PermissionReadList,  # noqa: PLC2701
+    SourceDefinitionSpecification,  # noqa: PLC2701
+    SourceIdRequestBody,  # noqa: PLC2701
+    UserAuthIdRequestBody,  # noqa: PLC2701
+    UserIdRequestBody,  # noqa: PLC2701
+    UserRead,  # noqa: PLC2701
+    WebBackendConnectionRead,  # noqa: PLC2701
+    WebBackendConnectionRequestBody,  # noqa: PLC2701
+    WebBackendConnectionUpdate,  # noqa: PLC2701
+    WorkspaceIdRequestBody,  # noqa: PLC2701
+    WorkspaceRead,
+    WorkspaceReadList,  # noqa: PLC2701
+)
+from pydantic import BaseModel, ValidationError
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
@@ -49,6 +84,7 @@ JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
 JWT_PART_COUNT = 3
+_T = TypeVar("_T", bound=BaseModel)
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -1859,12 +1895,13 @@ def _make_config_api_request(
     *,
     api_root: str,
     path: str,
-    json: dict[str, Any],
+    request: BaseModel,
+    response_model: type[_T],
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> _T:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
 
     # Use provided bearer token or generate one from client credentials
@@ -1889,7 +1926,7 @@ def _make_config_api_request(
         method="POST",
         url=full_url,
         headers=headers,
-        json=json,
+        json=request.model_dump(mode="json", exclude_none=True),
     )
     if not status_ok(response.status_code):
         try:
@@ -1911,7 +1948,17 @@ def _make_config_api_request(
                 },
             ) from ex
 
-    return response.json()
+    try:
+        return response_model.model_validate(response.json())
+    except ValidationError as ex:
+        raise AirbyteError(
+            message=f"Config API response for {path} did not match the expected schema.",
+            context={
+                "full_url": full_url,
+                "path": path,
+                "response": response.text,
+            },
+        ) from ex
 
 
 def check_connector(
@@ -1934,18 +1981,26 @@ def check_connector(
     """
     _ = workspace_id  # Not used (yet)
 
+    request: BaseModel
+    if connector_type == "source":
+        request = SourceIdRequestBody(sourceId=actor_id)
+    else:
+        request = DestinationIdRequestBody(destinationId=actor_id)
+
     json_result = _make_config_api_request(
         path=f"/{connector_type}s/check_connection",
-        json={
-            f"{connector_type}Id": actor_id,
-        },
+        request=request,
+        response_model=CheckConnectionRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    result, message = json_result.get("status"), json_result.get("message")
+    result, message = (
+        json_result.status.value if json_result.status is not None else None,
+        json_result.message,
+    )
 
     if result == "succeeded":
         return True, None
@@ -1957,7 +2012,7 @@ def check_connector(
         context={
             "actor_id": actor_id,
             "connector_type": connector_type,
-            "response": json_result,
+            "response": json_result.model_dump(mode="json", by_alias=True, exclude_none=True),
         },
     )
 
@@ -2249,7 +2304,7 @@ def get_connector_builder_project_for_definition_id(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> BuilderProjectForDefinitionResponse:
     """Get the connector builder project info for a declarative source definition.
 
     Uses the Config API endpoint:
@@ -2267,15 +2322,16 @@ def get_connector_builder_project_for_definition_id(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        A dict containing 'builderProjectId' and 'workspaceId' (the workspace that
+        A response containing 'builderProjectId' and 'workspaceId' (the workspace that
         owns the builder project, which may differ from the caller's workspace).
     """
     return _make_config_api_request(
         path="/connector_builder_projects/get_for_definition_id",
-        json={
-            "actorDefinitionId": definition_id,
-            "workspaceId": workspace_id,
-        },
+        request=BuilderProjectForDefinitionRequestBody(
+            actorDefinitionId=definition_id,
+            workspaceId=workspace_id,
+        ),
+        response_model=BuilderProjectForDefinitionResponse,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2293,7 +2349,7 @@ def get_connector_builder_project(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> ConnectorBuilderProjectRead:
     """Get a connector builder project, including the draft manifest if one exists.
 
     Uses the Config API endpoint:
@@ -2311,17 +2367,18 @@ def get_connector_builder_project(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        A dictionary containing the builder project details. Key fields include:
+        A generated response containing the builder project details. Key fields include:
         - builderProject: The project metadata (name, hasDraft, etc.)
         - declarativeManifest: The draft manifest data (if hasDraft is True),
           which contains a 'manifest' field with the actual YAML manifest dict.
     """
     return _make_config_api_request(
         path="/connector_builder_projects/get_with_manifest",
-        json={
-            "workspaceId": workspace_id,
-            "builderProjectId": builder_project_id,
-        },
+        request=ConnectorBuilderProjectIdWithWorkspaceId(
+            workspaceId=workspace_id,
+            builderProjectId=builder_project_id,
+        ),
+        response_model=ConnectorBuilderProjectRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2341,7 +2398,7 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> ConnectorBuilderProjectTestingValues:
     """Update the testing values for a connector builder project.
 
     This call replaces the entire testing values object stored for the project.
@@ -2367,12 +2424,13 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
     """
     return _make_config_api_request(
         path="/connector_builder_projects/update_testing_values",
-        json={
-            "workspaceId": workspace_id,
-            "builderProjectId": builder_project_id,
-            "testingValues": testing_values,
-            "spec": spec,
-        },
+        request=ConnectorBuilderProjectTestingValuesUpdate(
+            workspaceId=workspace_id,
+            builderProjectId=builder_project_id,
+            testingValues=ConnectorBuilderProjectTestingValues.model_validate(testing_values),
+            spec=SourceDefinitionSpecification.model_validate(spec),
+        ),
+        response_model=ConnectorBuilderProjectTestingValues,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2434,7 +2492,7 @@ def list_organizations_for_user_id(
     config_api_root: str | None = None,
     name_contains: str | None = None,
     limit: int | None = None,
-) -> list[dict[str, Any]]:
+) -> list[OrganizationRead]:
     """List organizations the given user is a member of.
 
     Uses the Config API endpoint: POST /v1/organizations/list_by_user_id
@@ -2453,29 +2511,23 @@ def list_organizations_for_user_id(
         limit: Optional maximum number of organizations to return
 
     Returns:
-        List of organization dictionaries containing organizationId, organizationName, email, etc.
+        List of organization models containing organizationId, organizationName, email, etc.
     """
     _validate_pagination_params(limit=limit)
-    result: list[dict[str, Any]] = []
+    result: list[OrganizationRead] = []
     page_size = PAGE_SIZE
 
-    payload: dict[str, Any] = {
-        "userId": user_id,
-        "pagination": {
-            "pageSize": page_size,
-            "rowOffset": 0,
-        },
-    }
-    if name_contains is not None:
-        payload["nameContains"] = name_contains
+    row_offset = 0
 
     while True:
         json_result = _make_config_api_request(
             path="/organizations/list_by_user_id",
-            json={
-                **payload,
-                "pagination": payload["pagination"].copy(),
-            },
+            request=ListOrganizationsByUserRequestBody(
+                userId=user_id,
+                pagination=Pagination(pageSize=page_size, rowOffset=row_offset),
+                nameContains=name_contains,
+            ),
+            response_model=OrganizationReadList,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
@@ -2483,17 +2535,7 @@ def list_organizations_for_user_id(
             bearer_token=bearer_token,
         )
 
-        if not isinstance(json_result, dict):
-            raise AirbyteError(
-                message="The organizations API returned an unexpected response.",
-                context={"response": json_result},
-            )
-        organizations = json_result.get("organizations", [])
-        if not isinstance(organizations, list):
-            raise AirbyteError(
-                message="The organizations API returned an unexpected response.",
-                context={"response": json_result},
-            )
+        organizations = json_result.organizations
 
         if not organizations:
             break
@@ -2506,7 +2548,7 @@ def list_organizations_for_user_id(
         if len(organizations) < page_size:
             break
 
-        payload["pagination"]["rowOffset"] += page_size
+        row_offset += page_size
 
     return result
 
@@ -2521,7 +2563,7 @@ def list_workspaces_in_organization(
     config_api_root: str | None = None,
     name_contains: str | None = None,
     limit: int | None = None,
-) -> list[dict[str, Any]]:
+) -> list[WorkspaceRead]:
     """List workspaces within a specific organization.
 
     Uses the Config API endpoint: POST /v1/workspaces/list_by_organization_id
@@ -2537,28 +2579,24 @@ def list_workspaces_in_organization(
         limit: Optional maximum number of workspaces to return
 
     Returns:
-        List of workspace dictionaries containing workspaceId, organizationId, name, slug, etc.
+        List of workspace models containing workspaceId, organizationId, name, slug, etc.
     """
     _validate_pagination_params(limit=limit)
-    result: list[dict[str, Any]] = []
+    result: list[WorkspaceRead] = []
     page_size = 100
 
-    # Build base payload
-    payload: dict[str, Any] = {
-        "organizationId": organization_id,
-        "pagination": {
-            "pageSize": page_size,
-            "rowOffset": 0,
-        },
-    }
-    if name_contains:
-        payload["nameContains"] = name_contains
+    row_offset = 0
 
     # Fetch pages until we have all results or reach the limit
     while True:
         json_result = _make_config_api_request(
             path="/workspaces/list_by_organization_id",
-            json=payload,
+            request=ListWorkspacesInOrganizationRequestBody(
+                organizationId=organization_id,
+                pagination=Pagination(pageSize=page_size, rowOffset=row_offset),
+                nameContains=name_contains,
+            ),
+            response_model=WorkspaceReadList,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
@@ -2566,7 +2604,7 @@ def list_workspaces_in_organization(
             bearer_token=bearer_token,
         )
 
-        workspaces = json_result.get("workspaces", [])
+        workspaces = json_result.workspaces
 
         # If no results returned, we've exhausted all pages
         if not workspaces:
@@ -2583,7 +2621,7 @@ def list_workspaces_in_organization(
             break
 
         # Bump offset for next iteration
-        payload["pagination"]["rowOffset"] += page_size
+        row_offset += page_size
 
     return result
 
@@ -2596,7 +2634,7 @@ def get_workspace_organization_info(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> OrganizationInfoRead:
     """Get organization info for a workspace.
 
     Uses the Config API endpoint: POST /v1/workspaces/get_organization_info
@@ -2613,26 +2651,21 @@ def get_workspace_organization_info(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        Dictionary containing organization info:
+        Generated organization info response:
         - organizationId: The organization ID
         - organizationName: The organization name
         - sso: Whether SSO is enabled
         - billing: Billing information (optional)
     """
-    result = _make_config_api_request(
+    return _make_config_api_request(
         path="/workspaces/get_organization_info",
-        json={"workspaceId": workspace_id},
+        request=WorkspaceIdRequestBody(workspaceId=workspace_id),
+        response_model=OrganizationInfoRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-    )
-    if isinstance(result, dict):
-        return result
-    raise AirbyteError(
-        message="The workspace API returned an unexpected response.",
-        context={"response": result},
     )
 
 
@@ -2660,15 +2693,17 @@ def get_connection_state(
     Returns:
         Dictionary containing the connection state.
     """
-    return _make_config_api_request(
+    response = _make_config_api_request(
         path="/state/get",
-        json={"connectionId": connection_id},
+        request=ConnectionIdRequestBody(connectionId=connection_id),
+        response_model=ConnectionState,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def replace_connection_state(
@@ -2713,21 +2748,25 @@ def replace_connection_state(
         Dictionary containing the updated ConnectionState object.
     """
     try:
-        return _make_config_api_request(
+        response = _make_config_api_request(
             path="/state/create_or_update_safe",
-            json={
-                "connectionId": connection_id,
-                "connectionState": {
-                    **connection_state_dict,
-                    "connectionId": connection_id,
-                },
-            },
+            request=ConnectionStateCreateOrUpdate(
+                connectionId=connection_id,
+                connectionState=ConnectionState.model_validate(
+                    {
+                        **connection_state_dict,
+                        "connectionId": connection_id,
+                    }
+                ),
+            ),
+            response_model=ConnectionState,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
+        return response.model_dump(mode="json", by_alias=True, exclude_none=True)
     except AirbyteError as ex:
         if ex.context and ex.context.get("status_code") == HTTPStatus.LOCKED:
             raise AirbyteConnectionSyncActiveError(
@@ -2765,15 +2804,20 @@ def get_connection_catalog(
     Returns:
         Dictionary containing the connection info with syncCatalog.
     """
-    return _make_config_api_request(
+    response = _make_config_api_request(
         path="/web_backend/connections/get",
-        json={"connectionId": connection_id, "withRefreshedCatalog": False},
+        request=WebBackendConnectionRequestBody(
+            connectionId=connection_id,
+            withRefreshedCatalog=False,
+        ),
+        response_model=WebBackendConnectionRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def replace_connection_catalog(
@@ -2805,21 +2849,23 @@ def replace_connection_catalog(
     Returns:
         Dictionary containing the updated WebBackendConnectionRead response.
     """
-    return _make_config_api_request(
+    response = _make_config_api_request(
         path="/web_backend/connections/update",
-        json={
-            "connectionId": connection_id,
-            "syncCatalog": configured_catalog_dict,
+        request=WebBackendConnectionUpdate(
+            connectionId=connection_id,
+            syncCatalog=AirbyteCatalog.model_validate(configured_catalog_dict),
             # Resets are destructive and cause customer-side data outage.
             # If a reset is desired, caller will need to decide & manage.
-            "skipReset": True,
-        },
+            skipReset=True,
+        ),
+        response_model=WebBackendConnectionRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def get_organization_info(
@@ -2830,7 +2876,7 @@ def get_organization_info(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> dict[str, Any]:
+) -> OrganizationInfoRead:
     """Get organization info including billing status.
 
     Uses the Config API endpoint: POST /v1/organizations/get_organization_info
@@ -2844,26 +2890,21 @@ def get_organization_info(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        Dictionary containing organization info:
+        Generated organization info response:
         - organizationId: The organization ID
         - organizationName: The organization name
         - sso: Whether SSO is enabled
         - billing: Billing information (optional, contains paymentStatus, subscriptionStatus, etc.)
     """
-    result = _make_config_api_request(
+    return _make_config_api_request(
         path="/organizations/get_organization_info",
-        json={"organizationId": organization_id},
+        request=OrganizationIdRequestBody(organizationId=organization_id),
+        response_model=OrganizationInfoRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-    )
-    if isinstance(result, dict):
-        return result
-    raise AirbyteError(
-        message="The organization API returned an unexpected response.",
-        context={"response": result},
     )
 
 
@@ -2905,26 +2946,17 @@ def get_user_by_auth_id(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> dict[str, Any]:
+) -> UserRead:
     """Get an Airbyte user by the authentication provider user ID."""
-    result = _make_config_api_request(
+    return _make_config_api_request(
         path="/users/get_by_auth_id",
-        json={
-            "authUserId": auth_user_id,
-            "authProvider": "keycloak",
-        },
+        request=UserAuthIdRequestBody(authUserId=auth_user_id),
+        response_model=UserRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-    )
-    if isinstance(result, dict):
-        return result
-
-    raise AirbyteError(
-        message="The user API returned an unexpected response.",
-        context={"response": result},
     )
 
 
@@ -2936,28 +2968,19 @@ def list_permissions_for_user(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> list[dict[str, Any]]:
+) -> list[PermissionRead]:
     """List permissions granted to an Airbyte user."""
     result = _make_config_api_request(
         path="/permissions/list_by_user",
-        json={"userId": user_id},
+        request=UserIdRequestBody(userId=user_id),
+        response_model=PermissionReadList,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    if isinstance(result, list):
-        return result
-
-    permissions = result.get("permissions") if isinstance(result, dict) else None
-    if isinstance(permissions, list):
-        return permissions
-
-    raise AirbyteError(
-        message="The permissions API returned an unexpected response.",
-        context={"response": result},
-    )
+    return result.permissions
 
 
 # Billing status constants (using tuples for safe `in` checks with unhashable types)

@@ -84,7 +84,7 @@ unavailable, so self-managed deployments keep working.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NoReturn, overload
+from typing import TYPE_CHECKING, NoReturn, overload
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util
@@ -96,7 +96,9 @@ from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
+
+    from airbyte_server_models._config_api import OrganizationRead
 
     from airbyte.secrets.base import SecretString
 
@@ -408,7 +410,24 @@ class CloudClient:
             name_contains=name_contains or name,
             limit=None if name is not None or name_filter is not None else limit,
         )
-        workspace_infos = [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
+        workspace_infos = [
+            CloudWorkspaceInfo.model_validate(
+                {
+                    "workspaceId": str(workspace.workspaceId),
+                    "name": workspace.name,
+                    "organizationId": str(workspace.organizationId),
+                    "notifications": (
+                        [
+                            notification.model_dump(mode="json", by_alias=True)
+                            for notification in workspace.notifications
+                        ]
+                        if workspace.notifications is not None
+                        else {}
+                    ),
+                }
+            )
+            for workspace in workspaces
+        ]
         if name is not None:
             workspace_infos = [workspace for workspace in workspace_infos if workspace.name == name]
         if name_filter is not None:
@@ -480,8 +499,8 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self._get_config_api_bearer_token(),
         )
-        resolved_organization_id = organization.get("organizationId")
-        if isinstance(resolved_organization_id, str) and resolved_organization_id:
+        resolved_organization_id = str(organization.organizationId)
+        if resolved_organization_id:
             return resolved_organization_id
         raise exc.PyAirbyteInputError(
             message="The workspace response did not include an organization ID.",
@@ -508,12 +527,7 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=bearer_token,
         )
-        user_id = user.get("userId")
-        if not isinstance(user_id, str) or not user_id:
-            raise exc.PyAirbyteInputError(
-                message="The Airbyte user response did not include a user ID.",
-                context={"response": user},
-            )
+        user_id = str(user.userId)
         self._authenticated_user_id = user_id
         return self._authenticated_user_id
 
@@ -532,12 +546,10 @@ class CloudClient:
         )
         organization_ids: list[str] = []
         for permission in permissions:
-            permission_organization_id = permission.get("organizationId")
-            if (
-                isinstance(permission_organization_id, str)
-                and permission_organization_id
-                and permission_organization_id not in organization_ids
-            ):
+            permission_organization_id = (
+                str(permission.organizationId) if permission.organizationId is not None else None
+            )
+            if permission_organization_id and permission_organization_id not in organization_ids:
                 organization_ids.append(permission_organization_id)
         self._membership_organization_ids = tuple(organization_ids)
         return self._membership_organization_ids
@@ -562,9 +574,7 @@ class CloudClient:
             except AirbyteError:
                 pass
             else:
-                candidate_name = organization_info.get("organizationName")
-                if isinstance(candidate_name, str):
-                    organization_name = candidate_name
+                organization_name = organization_info.organizationName
             candidates.append(
                 {
                     "organization_id": organization_id,
@@ -640,7 +650,7 @@ class CloudClient:
         """List organizations via the Config API, with server-side search and paging."""
         user_id = self._get_authenticated_user_id()
         return [
-            self._organization_from_mapping(organization)
+            self._organization_from_model(organization)
             for organization in api_util.list_organizations_for_user_id(
                 user_id=user_id,
                 api_root=self.public_api_root,
@@ -653,15 +663,15 @@ class CloudClient:
             )
         ]
 
-    def _organization_from_mapping(
+    def _organization_from_model(
         self,
-        organization: Mapping[str, Any],
+        organization: OrganizationRead,
     ) -> CloudOrganization:
-        """Build a `CloudOrganization` from a Config API organization mapping."""
+        """Build a `CloudOrganization` from a Config API organization model."""
         return CloudOrganization(
-            organization_id=organization["organizationId"],
-            organization_name=organization.get("organizationName"),
-            email=organization.get("email"),
+            organization_id=str(organization.organizationId),
+            organization_name=organization.organizationName,
+            email=organization.email,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -707,9 +717,15 @@ class CloudClient:
             )
         except AirbyteError:
             return None
-        if not isinstance(organization_info.get("organizationId"), str):
-            return None
-        return self._organization_from_mapping(organization_info)
+        return CloudOrganization(
+            organization_id=str(organization_info.organizationId),
+            organization_name=organization_info.organizationName,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            public_api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+        )
 
     def _search_organizations_by_name(
         self,

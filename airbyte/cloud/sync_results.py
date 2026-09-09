@@ -103,9 +103,9 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, final
 
-from typing_extensions import final
+from airbyte_server_models._config_api import JobIdRequestBody, JobInfoRead  # noqa: PLC2701
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 
@@ -318,12 +318,13 @@ class SyncResult:
                     api_root=self.workspace.api_root,
                     config_api_root=self.workspace.config_api_root,
                     path="/jobs/get",
-                    json={"id": self.job_id},
+                    request=JobIdRequestBody(id=self.job_id),
+                    response_model=JobInfoRead,
                     client_id=self.workspace.client_id,
                     client_secret=self.workspace.client_secret,
                     bearer_token=self.workspace.bearer_token,
                 )
-                raw_start_time = job_info_raw.get("startTime")
+                raw_start_time = job_info_raw.job.startedAt if job_info_raw.job else None
                 if raw_start_time:
                     return ab_datetime_parse(raw_start_time)
             raise
@@ -337,13 +338,12 @@ class SyncResult:
             api_root=self.workspace.api_root,
             config_api_root=self.workspace.config_api_root,
             path="/jobs/get",
-            json={
-                "id": self.job_id,
-            },
+            request=JobIdRequestBody(id=self.job_id),
+            response_model=JobInfoRead,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
-        )
+        ).model_dump(mode="json", by_alias=True, exclude_none=True)
         return self._job_with_attempts_info
 
     def get_attempts(self) -> list[SyncAttempt]:

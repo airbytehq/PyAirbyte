@@ -51,7 +51,7 @@ import airbyte as ab
 
 source = ab.get_source(
     "source-faker",
-    use_python="3.11.17",
+    use_python="3.11.13",
 )
 ```
 
