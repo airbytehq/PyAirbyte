@@ -27,6 +27,7 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte.agents.connectors import AgentConnector
+from airbyte.agents.models import AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.constants import (
@@ -68,7 +69,9 @@ AGENTS_AUTH_TIP_TEXT = (
     f"environment variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. Call `list_agent_connectors` to discover connector "
     f"IDs, then `inspect_agent_connector` to learn which entities a connector supports, "
-    f"before calling `execute_agent_connector`."
+    f"before calling `execute_agent_connector`. Use `list_agent_skills` or "
+    f"`search_agent_skills` to discover skills, and pass a `docs_skill_id` reported by "
+    f"`inspect_agent_connector` to `read_agent_skill_docs` for connector usage docs."
 )
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the `{MCP_WORKSPACE_ID_HEADER}` "
@@ -171,6 +174,76 @@ class AgentConnectorDetailsResult(BaseModel):
 
     message: str | None = None
     """Why the details are empty, when the Agents API denied the request."""
+
+
+class AgentSkillResult(BaseModel):
+    """A skill discoverable on the Airbyte Agents platform."""
+
+    skill_id: str
+    """The skill ID, used as `skill_id` in `read_agent_skill_docs`."""
+
+    kind: str | None = None
+    """The skill category, for example `static` or `connector_source`."""
+
+    title: str | None = None
+    """The human-readable skill title."""
+
+    summary: str | None = None
+    """A short summary of what the skill documents."""
+
+    tags: list[str]
+    """Search and categorization tags for the skill."""
+
+
+class AgentSkillListResult(BaseModel):
+    """Result of listing or searching skills on the Airbyte Agents platform."""
+
+    skills: list[AgentSkillResult]
+    """Skills matching the listing or search, across all pages."""
+
+    message: str | None = None
+    """Why the listing is empty, when the Agents API denied the request."""
+
+
+class AgentSkillSectionResult(BaseModel):
+    """A section of a skill's docs, as listed in the docs outline."""
+
+    section_id: str
+    """The section ID, passed as `section` to `read_agent_skill_docs`."""
+
+    title: str | None = None
+    """The human-readable section title."""
+
+    summary: str | None = None
+    """A short summary of the section content."""
+
+    available: bool = True
+    """Whether this section can currently be read."""
+
+
+class AgentSkillDocsResult(BaseModel):
+    """Documentation for a single skill on the Airbyte Agents platform."""
+
+    skill_id: str
+    """The skill ID that was read."""
+
+    title: str | None = None
+    """The human-readable skill title."""
+
+    section_id: str | None = None
+    """The section that was read, or `None` for the default docs response."""
+
+    outline: list[AgentSkillSectionResult]
+    """The sections available for this skill."""
+
+    content: list[dict[str, Any]]
+    """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
+
+    warnings: list[str]
+    """Non-fatal issues reported while building or reading the docs."""
+
+    message: str | None = None
+    """Why the docs are empty, when the Agents API denied the request."""
 
 
 class AgentExecuteToolResult(BaseModel):
@@ -446,7 +519,8 @@ def inspect_agent_connector(
     """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
 
     Call this before `execute_agent_connector` to learn what the connector exposes. The
-    connector must belong to the given workspace.
+    connector must belong to the given workspace. The reported `docs_skill_id` can be
+    passed to `read_agent_skill_docs` to read the connector's usage docs.
     """
     try:
         details = _get_agent_connector(ctx, connector_id, workspace_id, organization_id).inspect()
@@ -690,6 +764,171 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         cursor=cursor,
         intent=intent,
         read_only=read_only,
+    )
+
+
+def _agent_skill_result(skill: AgentSkillInfo) -> AgentSkillResult:
+    """Shape an `AgentSkillInfo` into an `AgentSkillResult`."""
+    return AgentSkillResult(
+        skill_id=skill.id,
+        kind=skill.kind,
+        title=skill.title,
+        summary=skill.summary,
+        tags=skill.tags,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=AGENTS_AUTH_TIP_TEXT,
+)
+def list_agent_skills(
+    ctx: Context,
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> AgentSkillListResult:
+    """List all skills available to an Airbyte Agents workspace.
+
+    Skills are reusable documentation the Agents API serves, for example connector usage
+    docs. All pages are fetched, so no pagination arguments are needed. Pass a listed
+    skill's `skill_id` to `read_agent_skill_docs` to read it.
+    """
+    workspace = _get_agent_workspace(ctx, workspace_id)
+    try:
+        skills = workspace.list_skills()
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentSkillListResult(skills=[], message=message)
+
+    return AgentSkillListResult(
+        skills=[_agent_skill_result(skill.info) for skill in skills],
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=AGENTS_AUTH_TIP_TEXT,
+)
+def search_agent_skills(
+    ctx: Context,
+    query: Annotated[
+        str,
+        Field(
+            description=("Keyword query to match against skill titles, summaries, and tags."),
+        ),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> AgentSkillListResult:
+    """Search skills by keyword in an Airbyte Agents workspace.
+
+    All pages are fetched, so no pagination arguments are needed. Pass a matching skill's
+    `skill_id` to `read_agent_skill_docs` to read it.
+    """
+    workspace = _get_agent_workspace(ctx, workspace_id)
+    try:
+        skills = workspace.search_skills(query)
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentSkillListResult(skills=[], message=message)
+
+    return AgentSkillListResult(
+        skills=[_agent_skill_result(skill.info) for skill in skills],
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=AGENTS_AUTH_TIP_TEXT,
+)
+def read_agent_skill_docs(
+    ctx: Context,
+    skill_id: Annotated[
+        str,
+        Field(
+            description=(
+                "Skill ID, e.g. the `docs_skill_id` reported by `inspect_agent_connector`, "
+                "or an `id` from `list_agent_skills`."
+            ),
+        ),
+    ],
+    *,
+    section: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Omit to get metadata, guidance, and the outline of available sections. "
+                "Pass an exact section `id` from the outline to read that section."
+            ),
+            default=None,
+        ),
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> AgentSkillDocsResult:
+    """Read a skill's docs in an Airbyte Agents workspace.
+
+    Without `section`, this returns the skill's metadata, guidance, and the outline of
+    sections, which is the cheapest way to orient before reading a specific section.
+    """
+    workspace = _get_agent_workspace(ctx, workspace_id)
+    try:
+        docs = workspace.read_skill_docs(skill_id, section=section)
+    except AirbyteError as error:
+        message = _agents_access_message(error)
+        if message is None:
+            raise
+        return AgentSkillDocsResult(
+            skill_id=skill_id,
+            section_id=section,
+            outline=[],
+            content=[],
+            warnings=[],
+            message=message,
+        )
+
+    return AgentSkillDocsResult(
+        skill_id=docs.metadata.id,
+        title=docs.metadata.title,
+        section_id=docs.section_id,
+        outline=[
+            AgentSkillSectionResult(
+                section_id=docs_section.id,
+                title=docs_section.title,
+                summary=docs_section.summary,
+                available=docs_section.available,
+            )
+            for docs_section in docs.outline
+        ],
+        content=docs.content,
+        warnings=[str(warning) for warning in docs.metadata.warnings],
     )
 
 

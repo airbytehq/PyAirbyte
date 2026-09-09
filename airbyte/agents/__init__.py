@@ -94,9 +94,14 @@ from airbyte.agents.models import (
     AgentContextStoreReadiness,
     AgentExecuteResult,
     AgentExecutionMetadata,
+    AgentSkillDocs,
+    AgentSkillInfo,
+    AgentSkillList,
+    AgentSkillSection,
     AgentWorkspaceInfo,
 )
 from airbyte.agents.organizations import AgentOrganization
+from airbyte.agents.skills import AgentSkill
 from airbyte.agents.workspaces import AgentWorkspace
 
 
@@ -107,6 +112,7 @@ if TYPE_CHECKING:
         connectors,
         models,
         organizations,
+        skills,
         workspaces,
     )
 
@@ -116,6 +122,7 @@ __all__ = [
     "connectors",
     "models",
     "organizations",
+    "skills",
     "workspaces",
     # Classes
     "AgentConnector",
@@ -127,6 +134,11 @@ __all__ = [
     "AgentExecuteResult",
     "AgentExecutionMetadata",
     "AgentOrganization",
+    "AgentSkill",
+    "AgentSkillDocs",
+    "AgentSkillInfo",
+    "AgentSkillList",
+    "AgentSkillSection",
     "AgentWorkspace",
     "AgentWorkspaceInfo",
 ]
