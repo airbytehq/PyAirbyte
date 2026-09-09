@@ -23,6 +23,7 @@ from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
 from airbyte.mcp import _client_credentials as client_credentials
 from airbyte.mcp import http_main
 from airbyte.mcp import server
+from airbyte.mcp._transport_security import HostOriginGuardMiddleware
 
 
 if TYPE_CHECKING:
@@ -167,14 +168,12 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
 
     http_main.main()
 
-    assert config == {
-        "path": "/mcp",
-        "transport": "streamable-http",
-        "stateless_http": True,
-        "wrapper": http_main.wrap_if_enabled,
-        "host": http_main.DEFAULT_HTTP_HOST,
-        "port": http_main.DEFAULT_HTTP_PORT,
-    }
+    assert config["path"] == "/mcp"
+    assert config["transport"] == "streamable-http"
+    assert config["stateless_http"] is True
+    assert config["host"] == http_main.DEFAULT_HTTP_HOST
+    assert config["port"] == http_main.DEFAULT_HTTP_PORT
+    assert isinstance(config["wrapper"](object()), HostOriginGuardMiddleware)
 
 
 @pytest.mark.parametrize(
