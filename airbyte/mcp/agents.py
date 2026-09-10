@@ -324,10 +324,10 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
 
     try:
         result = _get_agent_connector(
-            ctx,
-            connector_id,
-            workspace_id,
-            organization_id,
+            ctx=ctx,
+            connector_id=connector_id,
+            workspace_id=workspace_id,
+            organization_id=organization_id,
         ).execute(
             entity_type,
             action,
