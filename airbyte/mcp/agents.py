@@ -329,9 +329,9 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             workspace_id=workspace_id,
             organization_id=organization_id,
         ).execute(
-            entity_type,
-            action,
-            _resolve_api_args(api_args),
+            entity_type=entity_type,
+            action=action,
+            api_args=_resolve_api_args(api_args),
             select_fields=resolve_list_of_strings(select_fields),
             exclude_fields=resolve_list_of_strings(exclude_fields),
             page_size=page_size,
