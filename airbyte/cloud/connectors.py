@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -48,6 +49,7 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
+from airbyte.agents import _api_util as _agents_api_util
 from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
@@ -56,6 +58,7 @@ from airbyte.cloud.models import (
     _DestinationResponseLike,
     _SourceResponseLike,
 )
+from airbyte.direct import HostedDirectConnector
 
 
 if TYPE_CHECKING:
@@ -280,6 +283,40 @@ class CloudSource(CloudConnector):
         )
         result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
+
+    def as_direct_connector(self, *, verify: bool = True) -> HostedDirectConnector:
+        """Return this source as a direct connector backed by the hosted Airbyte Agents API.
+
+        Cloud source IDs are also Agents connector IDs, but a source is only usable as a
+        direct connector when its connector type is supported and Agents access is
+        enabled for it in the organization. By default this is verified by calling
+        `inspect()`; pass `verify=False` to skip that request.
+
+        Raises `AirbyteDirectConnectorNotSupportedError` when the source is not available
+        as a direct connector, and `PyAirbyteInputError` when the workspace uses
+        non-public Cloud API roots (the Agents API is hosted on Airbyte Cloud only).
+        """
+        _agents_api_util.check_public_cloud_api_roots(
+            self.workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
+        )
+        connector = HostedDirectConnector(
+            connector_id=self.connector_id,
+            credentials=self.workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
+            name=self._connector_info.name if self._connector_info else None,
+        )
+        if verify:
+            try:
+                connector.inspect()
+            except exc.AirbyteError as ex:
+                status_code = (ex.context or {}).get("status_code")
+                if status_code not in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                    raise
+                raise exc.AirbyteDirectConnectorNotSupportedError(
+                    connector_name=(self._connector_info.name if self._connector_info else None),
+                    connector_id=self.connector_id,
+                    context={"status_code": status_code},
+                ) from ex
+        return connector
 
 
 class CloudDestination(CloudConnector):

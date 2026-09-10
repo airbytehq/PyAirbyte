@@ -412,6 +412,19 @@ class AirbyteConnectorNotPyPiPublishedError(AirbyteConnectorRegistryError):
     guidance = "This likely means that the connector is not ready for use with PyAirbyte."
 
 
+@dataclass
+class AirbyteDirectConnectorNotSupportedError(PyAirbyteError):
+    """The source has no direct connector, so it cannot perform direct entity actions."""
+
+    connector_name: str | None = None
+    connector_id: str | None = None
+    guidance: str | None = (
+        "Direct entity actions require a source with a mapped direct connector that is "
+        "enabled for Airbyte Agents. Check that the connector type is supported and that "
+        "Agents access is enabled for this source in its organization."
+    )
+
+
 # Connector Errors
 
 

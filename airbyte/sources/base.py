@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from airbyte.caches import CacheBase
     from airbyte.callbacks import ConfigChangeCallback
     from airbyte.datasets._inmemory import InMemoryDataset
+    from airbyte.direct import DirectConnector
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
@@ -998,6 +999,21 @@ class Source(ConnectorBase):  # noqa: PLR0904
             progress_tracker=progress_tracker,
             processed_streams=stream_names,
             cache=cache,
+        )
+
+    def as_direct_connector(self) -> DirectConnector:
+        """Return this source as a direct connector for entity/action operations.
+
+        Local sources do not yet support direct execution, so this always raises
+        `AirbyteDirectConnectorNotSupportedError`. Use `CloudSource.as_direct_connector()`
+        for sources deployed to Airbyte Cloud.
+        """
+        raise exc.AirbyteDirectConnectorNotSupportedError(
+            connector_name=self.name,
+            guidance=(
+                "Local sources cannot yet run direct entity actions. Deploy the source to "
+                "Airbyte Cloud and call `CloudSource.as_direct_connector()` instead."
+            ),
         )
 
 
