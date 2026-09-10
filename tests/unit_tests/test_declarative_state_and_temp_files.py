@@ -269,9 +269,7 @@ class TestDockerPathsOnWindowsHosts:
         already `PosixPath` there, so the assertion holds against the unfixed
         code too. Forcing Windows semantics is what gives the test teeth in CI.
         """
-        import airbyte._executors.docker as docker_module
-
-        monkeypatch.setattr(docker_module, "Path", _WindowsPath)
+        monkeypatch.setattr("airbyte._executors.docker.Path", _WindowsPath)
 
         volume = _WindowsPath(r"C:\Users\dev\AppData\Local\Temp")
         executor = DockerExecutor(
