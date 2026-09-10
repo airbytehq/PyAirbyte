@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -82,9 +83,37 @@ class DeclarativeExecutor(Executor):
         self.reported_version: str | None = self._manifest_dict.get("version", None)
         self._config_dict = config_dict
 
-    @property
-    def declarative_source(self) -> ConcurrentDeclarativeSource:
-        """Get the declarative source object.
+    def _config_from_args(self, args: list[str]) -> dict[str, Any]:
+        """Read the connector config from the `--config <path>` CLI arg.
+
+        Returns an empty dict when the arg is absent (as for `spec`) or when the
+        referenced file cannot be read. Argument parsing and validation remain the
+        responsibility of the CDK entrypoint.
+        """
+        if "--config" not in args:
+            return {}
+
+        config_index = args.index("--config") + 1
+        if config_index >= len(args):
+            return {}
+
+        config_path = Path(args[config_index])
+        if not config_path.is_file():
+            return {}
+
+        try:
+            return cast(
+                "dict[str, Any]",
+                json.loads(config_path.read_text(encoding="utf-8")),
+            )
+        except (OSError, ValueError):
+            return {}
+
+    def _build_declarative_source(
+        self,
+        config: dict[str, Any] | None = None,
+    ) -> ConcurrentDeclarativeSource:
+        """Build the declarative source, merging `config` over any injected components.
 
         Notes:
         1. Since Sep 2025, the declarative source class used is `ConcurrentDeclarativeSource`.
@@ -94,9 +123,14 @@ class DeclarativeExecutor(Executor):
            avoid any issues with re-using the same object.
         """
         return ConcurrentDeclarativeSource(
-            config=self._config_dict,
+            config={**self._config_dict, **(config or {})},
             source_config=self._manifest_dict,
         )
+
+    @property
+    def declarative_source(self) -> ConcurrentDeclarativeSource:
+        """The declarative source object, without connector config applied."""
+        return self._build_declarative_source()
 
     def get_installed_version(
         self,
@@ -122,7 +156,12 @@ class DeclarativeExecutor(Executor):
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin, suppress_stderr  # Not used
-        source_entrypoint = AirbyteEntrypoint(self.declarative_source)
+        # The declarative source resolves `{{ config[...] }}` interpolations when it is
+        # constructed, so the connector config has to be supplied here rather than left
+        # for the entrypoint to read later.
+        source_entrypoint = AirbyteEntrypoint(
+            self._build_declarative_source(self._config_from_args(args))
+        )
 
         mapped_args: list[str] = self.map_cli_args(args)
         parsed_args: Namespace = source_entrypoint.parse_args(mapped_args)
