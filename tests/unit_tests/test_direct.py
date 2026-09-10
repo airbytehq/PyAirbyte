@@ -113,7 +113,11 @@ def _cloud_source(**workspace_kwargs: Any) -> CloudSource:
 
 def test_hosted_direct_connector_satisfies_protocol() -> None:
     """`HostedDirectConnector` is a `DirectConnector`."""
-    connector = HostedDirectConnector("cid", credentials=_credentials())
+    # `isinstance` reads the `name` property, which fetches it from the Agents API
+    # when unset — pass one so the check stays offline.
+    connector = HostedDirectConnector(
+        "cid", credentials=_credentials(), name="test-connector"
+    )
     assert isinstance(connector, DirectConnector)
 
 
