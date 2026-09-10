@@ -31,14 +31,14 @@ class _AgentConnectorLike:
 
     def execute(
         self,
-        entity: str,
+        entity_type: str,
         action: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
     ) -> AgentExecuteResult:
         """Record the call and return a fixed successful result."""
         self.calls.append({
-            "entity": entity,
+            "entity": entity_type,
             "action": action,
             "api_args": api_args,
             **kwargs,
