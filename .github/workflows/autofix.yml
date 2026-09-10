@@ -21,8 +21,13 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
 
+    - name: Authenticate git for private dependencies
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev

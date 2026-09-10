@@ -44,14 +44,14 @@ If you prefer to fall back to the prior `pip`-based installation methods, set th
 
 In both `get_source()` and `get_destination()`, you can provide a `use_python` input arg that is equal to the desired version of Python that you with to use for the given connector. This can be helpful if an older connector doesn't support the version of Python that you are using for PyAirbyte itself.
 
-For example, assuming PyAirbyte is running on Python 3.12, you can install a connector using Python 3.10.13 with the following code snippet:
+For example, assuming PyAirbyte is running on Python 3.12, you can install a connector using Python 3.11.13 with the following code snippet:
 
 ```py
 import airbyte as ab
 
 source = ab.get_source(
     "source-faker",
-    use_python="3.10.17",
+    use_python="3.11.13",
 )
 ```
 

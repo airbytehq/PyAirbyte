@@ -1,0 +1,29 @@
+# TK-TODO: Temporary. `airbyte-server-models` is consumed from the private airbyte-ops-mcp repo
+# until it is published to PyPI (airbytehq/airbyte-ops-mcp#1326). Remove this action and its
+# call sites once pyproject.toml pins a released version.
+name: Authenticate git for private dependency repos
+description: Authenticate git for private dependency repos
+inputs:
+  app-id:
+    description: GitHub App ID.
+    required: true
+  private-key:
+    description: GitHub App private key.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Create GitHub App token
+      id: get-app-token
+      uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+      with:
+        owner: "airbytehq"
+        repositories: "airbyte-ops-mcp"
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+    - name: Configure git credentials for airbyte-ops-mcp
+      shell: bash
+      env:
+        GH_APP_TOKEN: ${{ steps.get-app-token.outputs.token }}
+      run: |
+        git config --global url."https://x-access-token:${GH_APP_TOKEN}@github.com/airbytehq/airbyte-ops-mcp".insteadOf "https://github.com/airbytehq/airbyte-ops-mcp"

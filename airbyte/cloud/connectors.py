@@ -501,11 +501,13 @@ class CustomCloudSourceDefinition:
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
         )
-        self._connector_builder_project_id = result.get("builderProjectId")
+        self._connector_builder_project_id = str(result.builderProjectId)
         self._connector_builder_project_id_fetched = True
         # The builder project may live in a different workspace than the caller's.
         # We must use the project's owning workspace ID when fetching its data.
-        self._builder_project_workspace_id = result.get("workspaceId")
+        self._builder_project_workspace_id = (
+            str(result.workspaceId) if result.workspaceId is not None else None
+        )
 
         return self._connector_builder_project_id
 
@@ -573,7 +575,7 @@ class CustomCloudSourceDefinition:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
-        )
+        ).model_dump(mode="json", by_alias=True, exclude_none=True)
         return self._builder_project_data
 
     @property

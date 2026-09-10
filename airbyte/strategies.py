@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from airbyte_protocol.models import DestinationSyncMode
 
@@ -15,7 +15,7 @@ _APPEND = "append"
 _AUTO = "auto"
 
 
-class WriteStrategy(str, Enum):
+class WriteStrategy(StrEnum):
     """Read strategies for PyAirbyte.
 
     Read strategies set a preferred method for writing data to a destination. The actual method used
@@ -51,7 +51,7 @@ class WriteStrategy(str, Enum):
     """
 
 
-class WriteMethod(str, Enum):
+class WriteMethod(StrEnum):
     """Write methods for PyAirbyte.
 
     Unlike write strategies, write methods are expected to be fully resolved and do not require any

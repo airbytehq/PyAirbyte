@@ -5,12 +5,13 @@ readme = "README.md"
 authors = [
     { name = "Airbyte", email = "contact@airbyte.io" }
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 dynamic = ["version"]
 dependencies = [
     "airbyte-api>=0.53.0,<1.0",
     "airbyte-cdk>=7.28.3,<8.0.0",
     "airbyte-protocol-models-pdv2>=0.13.0,<1.0",
+    "airbyte-server-models",
     "cryptography>=44.0.0,<47.0.0,!=45.0.0,!=45.0.1",  # 45.0.0/45.0.1 broke load_pem_private_key()
     "cyclopts>=4.0,<5.0",
     # TODO: Restore broader version constraints after verifying compatibility
@@ -104,6 +105,13 @@ fallback-version = "0.0.0"
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.uv.sources]
+# TK-TODO: `airbyte-server-models` is consumed from a git branch while the package is
+# unreleased. Pin this to a published PyPI version (and remove this source entry)
+# before the next PyAirbyte release.
+# CI authenticates to the private repo via .github/actions/private-git-deps-auth (Octavia bot app).
+airbyte-server-models = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git", branch = "devin/1788977312-server-models", subdirectory = "airbyte-server-models" }
+
 [tool.hatch.build.targets.wheel]
 packages = ["airbyte"]
 
@@ -148,7 +156,7 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 ignore_errors = true
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 

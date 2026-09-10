@@ -43,7 +43,13 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
+    - name: Authenticate git for private dependencies
+      if: github.event.pull_request.head.repo.fork == false
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -117,7 +123,13 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
+    - name: Authenticate git for private dependencies
+      if: github.event.pull_request.head.repo.fork == false
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -176,7 +188,6 @@ jobs:
     strategy:
       matrix:
         python-version: [
-          '3.10',
           '3.11',
           # '3.12', # Commented out: Certain tests don't work in Python 3.12, although PyAirbyte itself does work on 3.12
         ]
@@ -207,6 +218,11 @@ jobs:
       with:
         version: "latest"
         python-version: ${{ matrix.python-version }}
+    - name: Authenticate git for private dependencies
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -251,7 +267,7 @@ jobs:
         path: htmlcov/
 
     - name: Upload coverage to GitHub Code Quality
-      if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      if: always() && matrix.python-version == '3.11' && matrix.os == 'Ubuntu'
       uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
       with:
         file: htmlcov/coverage.xml
@@ -268,7 +284,7 @@ jobs:
 
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@v2
-      if: always() && !cancelled() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      if: always() && !cancelled() && matrix.python-version == '3.11' && matrix.os == 'Ubuntu'
       continue-on-error: true
       with:
         check_name: "PyTest Results (Full)"
@@ -286,7 +302,12 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
+    - name: Authenticate git for private dependencies
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev

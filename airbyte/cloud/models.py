@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +15,7 @@ class _WorkspaceResponseLike(Protocol):
     workspace_id: str
     name: str
     data_residency: str
+    organization_id: str | None
     notifications: object
 
 
@@ -56,7 +57,7 @@ class _DeclarativeSourceDefinitionResponseLike(Protocol):
     version: object
 
 
-class JobStatusEnum(str, Enum):
+class JobStatusEnum(StrEnum):
     """Status values for an Airbyte Cloud job."""
 
     PENDING = "pending"
@@ -67,7 +68,7 @@ class JobStatusEnum(str, Enum):
     CANCELLED = "cancelled"
 
 
-class JobTypeEnum(str, Enum):
+class JobTypeEnum(StrEnum):
     """Job type values for Airbyte Cloud jobs."""
 
     SYNC = "sync"
@@ -101,12 +102,14 @@ class CloudWorkspaceInfo(BaseModel):
     @classmethod
     def from_api_response(cls, workspace: _WorkspaceResponseLike) -> CloudWorkspaceInfo:
         """Create a public model from an internal API workspace response."""
-        return cls(
-            workspace_id=workspace.workspace_id,
-            name=workspace.name,
-            data_residency=workspace.data_residency,
-            organization_id=getattr(workspace, "organization_id", None),
-            notifications=_notifications_to_dict(workspace.notifications),
+        return cls.model_validate(
+            {
+                "workspaceId": workspace.workspace_id,
+                "name": workspace.name,
+                "dataResidency": workspace.data_residency,
+                "organizationId": getattr(workspace, "organization_id", None),
+                "notifications": _notifications_to_dict(workspace.notifications),
+            }
         )
 
     @classmethod
