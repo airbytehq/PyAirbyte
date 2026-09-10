@@ -9,7 +9,7 @@ import pytest
 import requests
 from airbyte.agents import _api_util
 from airbyte.agents.connectors import AgentConnector
-from airbyte.agents.models import AgentExecuteResult
+from airbyte.agents.models import AgentConnectorMetadata, AgentExecuteResult
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
@@ -332,6 +332,21 @@ def test_entities(
             _ = result.entities
     else:
         assert result.entities == expectation
+
+
+def test_execute_result_accepts_null_metadata() -> None:
+    """`AgentExecuteResult` accepts null metadata from the Agents API."""
+    result = AgentExecuteResult.model_validate({
+        "status": "success",
+        "result": {"data": [], "meta": {}},
+        "connector_metadata": None,
+        "execution_metadata": None,
+        "bundle": None,
+    })
+
+    assert result.connector_metadata == AgentConnectorMetadata()
+    assert result.has_next_page is False
+    assert result.end_cursor is None
 
 
 def test_inspect(captured_requests: list[dict[str, Any]]) -> None:
