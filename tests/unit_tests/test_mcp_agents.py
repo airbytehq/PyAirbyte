@@ -101,12 +101,7 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx,
-        connector_id,
-        workspace_id=None,
-        organization_id=None,
-        *,
-        verify_in_workspace=True: stub,
+        lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
     )
     return stub
 
@@ -159,19 +154,24 @@ def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> 
     assert result.execution_time_ms == 42
 
 
-def test_execute_sql_select_addresses_connector_by_id(
+def test_execute_sql_select_falls_back_to_cloud_destinations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `sql_select` does not list workspace connectors before execution."""
+    """Verify `sql_select` falls back to Cloud destinations when Agents listing omits one."""
     _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
 
-    def fail_list_connectors(self) -> list[Any]:
-        raise AssertionError("workspace connectors were listed")
+    class _CloudDestination:
+        connector_id = "connector-id"
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[_CloudDestination]:
+            return [_CloudDestination()]
 
     monkeypatch.setattr(
-        agents_mcp.AgentWorkspace,
-        "list_connectors",
-        fail_list_connectors,
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
     )
     monkeypatch.setattr(
         agents_mcp.AgentConnector,
@@ -185,6 +185,51 @@ def test_execute_sql_select_addresses_connector_by_id(
     )
 
     assert result.status == "success"
+
+
+def test_execute_unknown_connector_raises_when_not_a_cloud_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an unknown connector still raises after the Cloud destination fallback."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
+    with pytest.raises(
+        AirbyteError, match="No connector found with the given ID or name"
+    ):
+        _execute(action="sql_select")
+
+
+def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify unrelated connector lookup errors do not trigger Cloud destination fallback."""
+    _patch_mcp_config(monkeypatch)
+
+    def raise_lookup_error(self: Any) -> list[Any]:
+        raise AirbyteError(message="Connector listing failed.")
+
+    monkeypatch.setattr(
+        agents_mcp.AgentWorkspace, "list_connectors", raise_lookup_error
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: pytest.fail("Cloud fallback should not run"),
+    )
+
+    with pytest.raises(AirbyteError, match="Connector listing failed"):
+        _execute(action="sql_select")
 
 
 def test_execute_list_uses_positional_connector_lookup(
@@ -383,6 +428,15 @@ def test_connector_resolution_validates_workspace_scope(
             AgentConnector(connector_id=connector_id, credentials=self._credentials)  # noqa: SLF001
             for connector_id in workspace_connector_ids
         ],
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: type(
+            "_CloudWorkspace",
+            (),
+            {"list_destinations": lambda self: []},
+        )(),
     )
 
     if expect_error:

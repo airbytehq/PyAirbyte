@@ -47,7 +47,7 @@ from airbyte.constants import (
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
-from airbyte.mcp.cloud import _add_defaults_for_exclude_args
+from airbyte.mcp.cloud import _add_defaults_for_exclude_args, _get_cloud_workspace
 
 
 AgentReadAction = Literal["list", "get", "search", "api_search", "sql_select"]
@@ -270,8 +270,6 @@ def _get_agent_connector(
     connector_id: str,
     workspace_id: str | None = None,
     organization_id: str | None = None,
-    *,
-    verify_in_workspace: bool = True,
 ) -> AgentConnector:
     """Get an `AgentConnector` from its workspace, using MCP config.
 
@@ -279,14 +277,22 @@ def _get_agent_connector(
     its workspace anyway, so a connector ID belonging to another workspace raises before
     any action runs.
 
-    Destination connectors targeted by `sql_select` are not listed by the workspace connectors
-    endpoint, so they are addressed by ID alone and the Agents API enforces workspace/org
-    authorization.
+    Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
+    does not know are verified against the Cloud workspace's destinations instead.
     """
     workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
-    if verify_in_workspace:
+    try:
         return workspace.get_connector(connector_id)
-    return workspace.get_connector(connector_id=connector_id)
+    except AirbyteError as error:
+        if error.get_message() != "No connector found with the given ID or name.":
+            raise
+        cloud_destination_ids = {
+            destination.connector_id
+            for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
+        }
+        if connector_id not in cloud_destination_ids:
+            raise
+        return workspace.get_connector(connector_id=connector_id)
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
@@ -322,7 +328,6 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             connector_id,
             workspace_id,
             organization_id,
-            verify_in_workspace=action != "sql_select",
         ).execute(
             entity_type,
             action,
