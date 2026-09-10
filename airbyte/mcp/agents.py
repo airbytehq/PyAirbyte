@@ -50,14 +50,20 @@ from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import _add_defaults_for_exclude_args
 
 
-AgentReadAction = Literal["list", "get", "search", "api_search"]
+AgentReadAction = Literal["list", "get", "search", "api_search", "sql_select"]
 """The connector actions that only read data.
+
+The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
+engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
+`dry_run`) in `api_args`; `entity_type` is ignored for this action.
 
 The `download` action is deliberately absent even though it reads: it returns a binary
 stream rather than JSON, which PyAirbyte does not yet support.
 """
 
-AgentAction = Literal["list", "get", "search", "api_search", "create", "update", "delete"]
+AgentAction = Literal[
+    "list", "get", "search", "api_search", "sql_select", "create", "update", "delete"
+]
 """Every connector action callable through the MCP layer, including writes."""
 
 AGENTS_AUTH_TIP_TEXT = (
@@ -495,7 +501,14 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     ],
     action: Annotated[
         AgentReadAction,
-        Field(description="The read action to run against the entity type."),
+        Field(
+            description=(
+                "The read action to run against the entity type. "
+                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
+                "trino) "
+                "in `api_args` and any value for `entity_type`."
+            ),
+        ),
     ],
     api_args: Annotated[
         dict[str, Any] | str | None,
@@ -600,7 +613,14 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     ],
     action: Annotated[
         AgentAction,
-        Field(description="The action to run against the entity type."),
+        Field(
+            description=(
+                "The action to run against the entity type. "
+                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
+                "trino) "
+                "in `api_args` and any value for `entity_type`."
+            ),
+        ),
     ],
     api_args: Annotated[
         dict[str, Any] | str | None,
