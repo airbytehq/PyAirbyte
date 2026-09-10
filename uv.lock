@@ -221,7 +221,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2,<7.0" },
     { name = "requests", specifier = "!=3.32.0" },
     { name = "rich", specifier = ">=13.7.0,<14.0" },
-    { name = "snowflake-connector-python", specifier = ">=3.12.2,<4.0" },
+    { name = "snowflake-connector-python", specifier = ">=3.12.2,<5.0" },
     { name = "snowflake-sqlalchemy", specifier = ">=1.6.1,<2.0" },
     { name = "sqlalchemy", specifier = "==2.0.43" },
     { name = "sqlalchemy-bigquery", specifier = "==1.12.0" },
