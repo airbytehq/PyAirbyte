@@ -32,7 +32,11 @@ def test_map_cli_args_emits_posix_container_paths(tmp_path: Path) -> None:
     executor = _make_executor(tmp_path)
     mapped = executor.map_cli_args(["check", "--config", str(config_file)])
 
-    assert mapped == ["check", "--config", "/airbyte/tmp/config.json"]
+    assert mapped == [
+        "check",
+        "--config",
+        f"{DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR}/config.json",
+    ]
 
 
 def test_map_cli_args_maps_nested_paths_with_posix_separators(tmp_path: Path) -> None:
@@ -45,7 +49,9 @@ def test_map_cli_args_maps_nested_paths_with_posix_separators(tmp_path: Path) ->
     executor = _make_executor(tmp_path)
     mapped = executor.map_cli_args([str(catalog_file)])
 
-    assert mapped == ["/airbyte/tmp/sub/dir/catalog.json"]
+    assert mapped == [
+        f"{DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR}/sub/dir/catalog.json",
+    ]
 
 
 def test_map_cli_args_leaves_non_path_args_untouched(tmp_path: Path) -> None:

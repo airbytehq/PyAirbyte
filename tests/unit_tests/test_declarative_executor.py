@@ -45,6 +45,17 @@ def test_config_from_args_reads_the_config_file(
     assert executor._config_from_args(args) == config
 
 
+def test_config_from_args_with_non_object_json(
+    executor: DeclarativeExecutor,
+    tmp_path: Path,
+) -> None:
+    """A config file with a non-object JSON root is ignored."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(["invalid"]))
+
+    assert executor._config_from_args(["check", "--config", str(config_path)]) == {}
+
+
 def test_config_from_args_without_config_flag(executor: DeclarativeExecutor) -> None:
     """`spec` takes no config, so there is nothing to read."""
     assert executor._config_from_args(["spec"]) == {}
@@ -59,7 +70,6 @@ def test_config_from_args_with_missing_file(executor: DeclarativeExecutor) -> No
 
 def test_declarative_source_receives_connector_config(
     executor: DeclarativeExecutor,
-    tmp_path: Path,
     mocker: Any,
 ) -> None:
     """The config read from args must reach the underlying CDK source."""
@@ -80,7 +90,7 @@ def test_declarative_source_receives_connector_config(
     assert captured["config"]["client_id"] == "abc"
 
 
-def test_injected_components_are_preserved(tmp_path: Path, mocker: Any) -> None:
+def test_injected_components_are_preserved(mocker: Any) -> None:
     """Connector config must merge with, not replace, injected components."""
     captured: dict[str, Any] = {}
 
