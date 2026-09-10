@@ -25,6 +25,7 @@ for entity in direct.iter_entities("issues"):
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from airbyte.agents.connectors import AgentConnector
@@ -42,19 +43,20 @@ class DirectConnector(Protocol):
     """Entity/action interface satisfied by every direct connector implementation."""
 
     @property
+    @abstractmethod
     def connector_id(self) -> str | None:
         """The connector ID."""
-        ...
 
     @property
+    @abstractmethod
     def name(self) -> str | None:
         """The connector name, if known."""
-        ...
 
+    @abstractmethod
     def inspect(self, *, force_refresh: bool = False) -> AgentConnectorDetails:
         """Return connector metadata, optionally bypassing any cached result."""
-        ...
 
+    @abstractmethod
     def execute(  # noqa: PLR0913  # Mirrors `AgentConnector.execute()`.
         self,
         entity_type: str,
@@ -69,8 +71,8 @@ class DirectConnector(Protocol):
         intent: str | None = None,
     ) -> AgentExecuteResult:
         """Execute a single action against one entity type on this connector."""
-        ...
 
+    @abstractmethod
     def list_entities(
         self,
         entity_type: str,
@@ -78,8 +80,8 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
         """Run the `list` action, which returns a page of entities of `entity_type`."""
-        ...
 
+    @abstractmethod
     def iter_entities(
         self,
         entity_type: str,
@@ -89,8 +91,8 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `list_entities()`.
     ) -> Iterator[dict[str, Any]]:
         """Yield entities of `entity_type`, following the connector's pagination cursor."""
-        ...
 
+    @abstractmethod
     def search_entities(
         self,
         entity_type: str,
@@ -98,8 +100,8 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
         """Run the `search` action, which returns matching entities of `entity_type`."""
-        ...
 
+    @abstractmethod
     def get_entity(
         self,
         entity_type: str,
@@ -107,8 +109,8 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
         """Run the `get` action, which returns a single entity of `entity_type`."""
-        ...
 
+    @abstractmethod
     def create_entity(
         self,
         entity_type: str,
@@ -116,8 +118,8 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
         """Run the `create` action, which creates an entity of `entity_type`."""
-        ...
 
+    @abstractmethod
     def update_entity(
         self,
         entity_type: str,
@@ -125,8 +127,8 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
         """Run the `update` action, which updates an entity of `entity_type`."""
-        ...
 
+    @abstractmethod
     def delete_entity(
         self,
         entity_type: str,
@@ -134,7 +136,6 @@ class DirectConnector(Protocol):
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
         """Run the `delete` action, which deletes an entity of `entity_type`."""
-        ...
 
 
 class HostedDirectConnector(AgentConnector):

@@ -49,7 +49,6 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
-from airbyte.agents import _api_util as _agents_api_util
 from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
@@ -58,11 +57,11 @@ from airbyte.cloud.models import (
     _DestinationResponseLike,
     _SourceResponseLike,
 )
-from airbyte.direct import HostedDirectConnector
 
 
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
+    from airbyte.direct import HostedDirectConnector
 
 
 @dataclass
@@ -296,6 +295,15 @@ class CloudSource(CloudConnector):
         as a direct connector, and `PyAirbyteInputError` when the workspace uses
         non-public Cloud API roots (the Agents API is hosted on Airbyte Cloud only).
         """
+        # Deferred imports: `airbyte.agents` and `airbyte.direct` import `airbyte.cloud`
+        # modules at runtime, so a top-level import here creates a circular import.
+        from airbyte.agents import (  # noqa: PLC0415  # Deferred to avoid an import cycle.
+            _api_util as _agents_api_util,
+        )
+        from airbyte.direct import (  # noqa: PLC0415  # Deferred to avoid an import cycle.
+            HostedDirectConnector,
+        )
+
         _agents_api_util.check_public_cloud_api_roots(
             self.workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
         )
