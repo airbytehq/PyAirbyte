@@ -86,9 +86,10 @@ class DeclarativeExecutor(Executor):
     def _config_from_args(self, args: list[str]) -> dict[str, Any]:
         """Read the connector config from the `--config <path>` CLI arg.
 
-        Returns an empty dict when the arg is absent (as for `spec`) or when the
-        referenced file cannot be read. Argument parsing and validation remain the
-        responsibility of the CDK entrypoint.
+        Returns an empty dict when the arg is absent (as for `spec`), when the
+        referenced file cannot be read, or when it does not contain a JSON object.
+        Argument parsing and validation remain the responsibility of the CDK
+        entrypoint.
         """
         if "--config" not in args:
             return {}
@@ -102,12 +103,12 @@ class DeclarativeExecutor(Executor):
             return {}
 
         try:
-            return cast(
-                "dict[str, Any]",
-                json.loads(config_path.read_text(encoding="utf-8")),
-            )
+            loaded = json.loads(config_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
+        if not isinstance(loaded, dict):
+            return {}
+        return loaded
 
     def _build_declarative_source(
         self,
