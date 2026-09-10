@@ -101,7 +101,12 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
+        lambda ctx,
+        connector_id,
+        workspace_id=None,
+        organization_id=None,
+        *,
+        verify_in_workspace=True: stub,
     )
     return stub
 
@@ -152,6 +157,53 @@ def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> 
     assert result.has_next_page is True
     assert result.end_cursor == "cursor-2"
     assert result.execution_time_ms == 42
+
+
+def test_execute_sql_select_addresses_connector_by_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `sql_select` does not list workspace connectors before execution."""
+    _patch_mcp_config(monkeypatch)
+
+    def fail_list_connectors(self) -> list[Any]:
+        raise AssertionError("workspace connectors were listed")
+
+    monkeypatch.setattr(
+        agents_mcp.AgentWorkspace,
+        "list_connectors",
+        fail_list_connectors,
+    )
+    monkeypatch.setattr(
+        agents_mcp.AgentConnector,
+        "execute",
+        lambda self, *args, **kwargs: AgentExecuteResult(status="success", result=[]),
+    )
+
+    result = _execute(
+        action="sql_select",
+        api_args={"sql": "SELECT 1", "sql_dialect": "snowflake"},
+    )
+
+    assert result.status == "success"
+
+
+def test_execute_list_uses_positional_connector_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-SQL actions keep the workspace-validating connector lookup."""
+    _patch_mcp_config(monkeypatch)
+    connector = _AgentConnectorLike()
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def get_connector(self, *args: Any, **kwargs: Any) -> _AgentConnectorLike:
+        calls.append((args, kwargs))
+        return connector
+
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "get_connector", get_connector)
+
+    _execute(action="list")
+
+    assert calls == [(("connector-id",), {})]
 
 
 @pytest.mark.parametrize(

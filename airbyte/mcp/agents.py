@@ -270,14 +270,23 @@ def _get_agent_connector(
     connector_id: str,
     workspace_id: str | None = None,
     organization_id: str | None = None,
+    *,
+    verify_in_workspace: bool = True,
 ) -> AgentConnector:
     """Get an `AgentConnector` from its workspace, using MCP config.
 
     The Agents API addresses a connector by ID alone, but the connector is fetched through
     its workspace anyway, so a connector ID belonging to another workspace raises before
     any action runs.
+
+    Destination connectors targeted by `sql_select` are not listed by the workspace connectors
+    endpoint, so they are addressed by ID alone and the Agents API enforces workspace/org
+    authorization.
     """
-    return _get_agent_workspace(ctx, workspace_id, organization_id).get_connector(connector_id)
+    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+    if verify_in_workspace:
+        return workspace.get_connector(connector_id)
+    return workspace.get_connector(connector_id=connector_id)
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
@@ -308,7 +317,13 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
         )
 
     try:
-        result = _get_agent_connector(ctx, connector_id, workspace_id, organization_id).execute(
+        result = _get_agent_connector(
+            ctx,
+            connector_id,
+            workspace_id,
+            organization_id,
+            verify_in_workspace=action != "sql_select",
+        ).execute(
             entity_type,
             action,
             _resolve_api_args(api_args),
