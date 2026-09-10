@@ -88,6 +88,18 @@ def captured_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return calls
 
 
+@pytest.fixture
+def patched_organization(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    """Stub `CloudWorkspace.get_organization` so no org lookup hits the API."""
+    organization = Mock(organization_id="org-y")
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_organization",
+        lambda self, **_: organization,
+    )
+    return organization
+
+
 def _cloud_source(**workspace_kwargs: Any) -> CloudSource:
     """Build a `CloudSource` wired to test credentials."""
     kwargs: dict[str, Any] = {
@@ -107,6 +119,7 @@ def test_hosted_direct_connector_satisfies_protocol() -> None:
 
 def test_cloud_source_as_direct_connector(
     captured_requests: list[dict[str, Any]],
+    patched_organization: Mock,
 ) -> None:
     """`as_direct_connector()` returns a hosted connector verified via `inspect()`."""
     connector = _cloud_source().as_direct_connector()
@@ -115,11 +128,39 @@ def test_cloud_source_as_direct_connector(
     assert connector.connector_id == "src-1"
     assert len(captured_requests) == 1
     assert captured_requests[0]["url"].endswith("/connectors/src-1/inspect")
-    assert "X-Organization-Id" not in captured_requests[0]["headers"]
+    assert captured_requests[0]["headers"]["X-Organization-Id"] == "org-y"
+
+
+def test_cloud_source_as_direct_connector_explicit_organization(
+    captured_requests: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit `organization_id` is used without a workspace org lookup."""
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_organization",
+        Mock(side_effect=AssertionError("org lookup should not be called")),
+    )
+    connector = _cloud_source().as_direct_connector(organization_id="org-x")
+
+    assert isinstance(connector, HostedDirectConnector)
+    assert captured_requests[0]["headers"]["X-Organization-Id"] == "org-x"
+
+
+def test_cloud_source_as_direct_connector_resolves_organization(
+    captured_requests: list[dict[str, Any]],
+    patched_organization: Mock,
+) -> None:
+    """Without `organization_id`, the org is resolved once from the workspace."""
+    connector = _cloud_source().as_direct_connector()
+
+    assert isinstance(connector, HostedDirectConnector)
+    assert captured_requests[0]["headers"]["X-Organization-Id"] == "org-y"
 
 
 def test_cloud_source_as_direct_connector_no_verify(
     captured_requests: list[dict[str, Any]],
+    patched_organization: Mock,
 ) -> None:
     """`verify=False` skips the `inspect()` request."""
     connector = _cloud_source().as_direct_connector(verify=False)
@@ -138,6 +179,7 @@ def test_cloud_source_as_direct_connector_no_verify(
 )
 def test_cloud_source_as_direct_connector_not_supported(
     monkeypatch: pytest.MonkeyPatch,
+    patched_organization: Mock,
     status_code: int,
     expected_error: type[AirbyteError],
 ) -> None:
@@ -189,6 +231,7 @@ def test_local_source_as_direct_connector_raises() -> None:
 
 def test_hosted_direct_connector_inspect(
     captured_requests: list[dict[str, Any]],
+    patched_organization: Mock,
 ) -> None:
     """The hosted connector's `inspect()` returns the Agents API payload."""
     details: AgentConnectorDetails = _cloud_source().as_direct_connector().inspect()

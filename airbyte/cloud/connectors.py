@@ -283,13 +283,22 @@ class CloudSource(CloudConnector):
         result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
 
-    def as_direct_connector(self, *, verify: bool = True) -> HostedDirectConnector:
+    def as_direct_connector(
+        self,
+        *,
+        organization_id: str | None = None,
+        verify: bool = True,
+    ) -> HostedDirectConnector:
         """Return this source as a direct connector backed by the hosted Airbyte Agents API.
 
         Cloud source IDs are also Agents connector IDs, but a source is only usable as a
         direct connector when its connector type is supported and Agents access is
         enabled for it in the organization. By default this is verified by calling
         `inspect()`; pass `verify=False` to skip that request.
+
+        The connector's organization is taken from `organization_id` when provided,
+        otherwise from the credentials' own organization, otherwise resolved once from
+        the workspace's owning organization.
 
         Raises `AirbyteDirectConnectorNotSupportedError` when the source is not available
         as a direct connector, and `PyAirbyteInputError` when the workspace uses
@@ -307,9 +316,16 @@ class CloudSource(CloudConnector):
         _agents_api_util.check_public_cloud_api_roots(
             self.workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
         )
+        credentials = self.workspace._credentials  # noqa: SLF001  # Same-domain conversion.
+        if organization_id is not None:
+            credentials = credentials.with_organization_id(organization_id)
+        elif credentials.organization_id is None:
+            organization = self.workspace.get_organization()
+            credentials = credentials.with_organization_id(organization.organization_id)
+
         connector = HostedDirectConnector(
             connector_id=self.connector_id,
-            credentials=self.workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
+            credentials=credentials,
             name=self._connector_info.name if self._connector_info else None,
         )
         if verify:
