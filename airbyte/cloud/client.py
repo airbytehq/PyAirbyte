@@ -114,7 +114,7 @@ class CloudClient:
 
     _credentials: _AirbyteCredentials
     _membership_organization_ids: tuple[str, ...] | None
-    _authenticated_user: dict[str, Any] | None = field(repr=False)
+    _authenticated_user_info: dict[str, Any] | None = field(repr=False)
     _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
 
@@ -141,7 +141,7 @@ class CloudClient:
             env_vars=False,
         )
         self._membership_organization_ids = None
-        self._authenticated_user = None
+        self._authenticated_user_info = None
         self._authenticated_user_id = None
         self._authenticated_bearer_token = None
 
@@ -510,10 +510,10 @@ class CloudClient:
         except (exc.AirbyteError, exc.PyAirbyteInputError):
             return None
 
-    def _get_authenticated_user(self) -> dict[str, Any]:
+    def _get_authenticated_user_info(self) -> dict[str, Any]:
         """Get and cache the Airbyte user record for the current credentials."""
-        if self._authenticated_user is not None:
-            return self._authenticated_user
+        if self._authenticated_user_info is not None:
+            return self._authenticated_user_info
 
         bearer_token = self._get_config_api_bearer_token()
         if bearer_token is None:
@@ -522,7 +522,7 @@ class CloudClient:
                 guidance="Provide either client credentials or a bearer token.",
             )
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
-        self._authenticated_user = api_util.get_user_by_auth_id(
+        self._authenticated_user_info = api_util.get_user_by_auth_id(
             auth_user_id,
             api_root=self.public_api_root,
             config_api_root=self.config_api_root,
@@ -530,14 +530,14 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=bearer_token,
         )
-        return self._authenticated_user
+        return self._authenticated_user_info
 
     def _get_authenticated_user_id(self) -> str:
         """Get and cache the Airbyte user ID for the current credentials."""
         if self._authenticated_user_id is not None:
             return self._authenticated_user_id
 
-        user = self._get_authenticated_user()
+        user = self._get_authenticated_user_info()
         user_id = user.get("userId")
         if not isinstance(user_id, str) or not user_id:
             raise exc.PyAirbyteInputError(
@@ -550,7 +550,7 @@ class CloudClient:
     def _get_user_default_workspace_id(self) -> str | None:
         """Get the authenticated user's default workspace ID, when available."""
         try:
-            default_workspace_id = self._get_authenticated_user().get("defaultWorkspaceId")
+            default_workspace_id = self._get_authenticated_user_info().get("defaultWorkspaceId")
         except (exc.AirbyteError, exc.PyAirbyteInputError):
             return None
         return (

@@ -42,7 +42,7 @@ def _api_patches(
 def test_authenticated_user_is_not_in_client_repr() -> None:
     client = CloudClient(bearer_token="token")
 
-    assert "_authenticated_user" not in repr(client)
+    assert "_authenticated_user_info" not in repr(client)
 
 
 def test_get_workspace_uses_authenticated_user_default_workspace() -> None:
