@@ -31,14 +31,14 @@ class _AgentConnectorLike:
 
     def execute(
         self,
-        entity: str,
+        entity_type: str,
         action: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
     ) -> AgentExecuteResult:
         """Record the call and return a fixed successful result."""
         self.calls.append({
-            "entity": entity,
+            "entity": entity_type,
             "action": action,
             "api_args": api_args,
             **kwargs,
@@ -154,6 +154,103 @@ def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> 
     assert result.execution_time_ms == 42
 
 
+def test_execute_sql_select_falls_back_to_cloud_destinations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `sql_select` falls back to Cloud destinations when Agents listing omits one."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudDestination:
+        connector_id = "connector-id"
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[_CloudDestination]:
+            return [_CloudDestination()]
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+    monkeypatch.setattr(
+        agents_mcp.AgentConnector,
+        "execute",
+        lambda self, *args, **kwargs: AgentExecuteResult(status="success", result=[]),
+    )
+
+    result = _execute(
+        action="sql_select",
+        api_args={"sql": "SELECT 1", "sql_dialect": "snowflake"},
+    )
+
+    assert result.status == "success"
+
+
+def test_execute_unknown_connector_raises_when_not_a_cloud_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an unknown connector still raises after the Cloud destination fallback."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
+    with pytest.raises(
+        AirbyteError, match="No connector found with the given ID or name"
+    ):
+        _execute(action="sql_select")
+
+
+def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify unrelated connector lookup errors do not trigger Cloud destination fallback."""
+    _patch_mcp_config(monkeypatch)
+
+    def raise_lookup_error(self: Any) -> list[Any]:
+        raise AirbyteError(message="Connector listing failed.")
+
+    monkeypatch.setattr(
+        agents_mcp.AgentWorkspace, "list_connectors", raise_lookup_error
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: pytest.fail("Cloud fallback should not run"),
+    )
+
+    with pytest.raises(AirbyteError, match="Connector listing failed"):
+        _execute(action="sql_select")
+
+
+def test_execute_list_uses_positional_connector_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-SQL actions keep the workspace-validating connector lookup."""
+    _patch_mcp_config(monkeypatch)
+    connector = _AgentConnectorLike()
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def get_connector(self, *args: Any, **kwargs: Any) -> _AgentConnectorLike:
+        calls.append((args, kwargs))
+        return connector
+
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "get_connector", get_connector)
+
+    _execute(action="list")
+
+    assert calls == [(("connector-id",), {})]
+
+
 @pytest.mark.parametrize(
     ("tool_kwargs", "expected_forwarded"),
     [
@@ -232,7 +329,7 @@ def test_read_only_tool_action_type_excludes_writes() -> None:
     """Verify the read-only tool's action type offers no write or download actions."""
     read_actions = set(agents_mcp.get_args(agents_mcp.AgentReadAction))
 
-    assert read_actions == {"list", "get", "search", "api_search"}
+    assert read_actions == {"list", "get", "search", "api_search", "sql_select"}
     assert "download" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
 
 
@@ -331,6 +428,15 @@ def test_connector_resolution_validates_workspace_scope(
             AgentConnector(connector_id=connector_id, credentials=self._credentials)  # noqa: SLF001
             for connector_id in workspace_connector_ids
         ],
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: type(
+            "_CloudWorkspace",
+            (),
+            {"list_destinations": lambda self: []},
+        )(),
     )
 
     if expect_error:

@@ -47,17 +47,23 @@ from airbyte.constants import (
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
-from airbyte.mcp.cloud import _add_defaults_for_exclude_args
+from airbyte.mcp.cloud import _add_defaults_for_exclude_args, _get_cloud_workspace
 
 
-AgentReadAction = Literal["list", "get", "search", "api_search"]
+AgentReadAction = Literal["list", "get", "search", "api_search", "sql_select"]
 """The connector actions that only read data.
+
+The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
+engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
+`dry_run`) in `api_args`; `entity_type` is ignored for this action.
 
 The `download` action is deliberately absent even though it reads: it returns a binary
 stream rather than JSON, which PyAirbyte does not yet support.
 """
 
-AgentAction = Literal["list", "get", "search", "api_search", "create", "update", "delete"]
+AgentAction = Literal[
+    "list", "get", "search", "api_search", "sql_select", "create", "update", "delete"
+]
 """Every connector action callable through the MCP layer, including writes."""
 
 AGENTS_AUTH_TIP_TEXT = (
@@ -270,8 +276,23 @@ def _get_agent_connector(
     The Agents API addresses a connector by ID alone, but the connector is fetched through
     its workspace anyway, so a connector ID belonging to another workspace raises before
     any action runs.
+
+    Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
+    does not know are verified against the Cloud workspace's destinations instead.
     """
-    return _get_agent_workspace(ctx, workspace_id, organization_id).get_connector(connector_id)
+    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+    try:
+        return workspace.get_connector(connector_id)
+    except AirbyteError as error:
+        if error.get_message() != "No connector found with the given ID or name.":
+            raise
+        cloud_destination_ids = {
+            destination.connector_id
+            for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
+        }
+        if connector_id not in cloud_destination_ids:
+            raise
+        return workspace.get_connector(connector_id=connector_id)
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
@@ -302,10 +323,15 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
         )
 
     try:
-        result = _get_agent_connector(ctx, connector_id, workspace_id, organization_id).execute(
-            entity_type,
-            action,
-            _resolve_api_args(api_args),
+        result = _get_agent_connector(
+            ctx=ctx,
+            connector_id=connector_id,
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+        ).execute(
+            entity_type=entity_type,
+            action=action,
+            api_args=_resolve_api_args(api_args),
             select_fields=resolve_list_of_strings(select_fields),
             exclude_fields=resolve_list_of_strings(exclude_fields),
             page_size=page_size,
@@ -495,7 +521,14 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     ],
     action: Annotated[
         AgentReadAction,
-        Field(description="The read action to run against the entity type."),
+        Field(
+            description=(
+                "The read action to run against the entity type. "
+                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
+                "trino) "
+                "in `api_args` and any value for `entity_type`."
+            ),
+        ),
     ],
     api_args: Annotated[
         dict[str, Any] | str | None,
@@ -600,7 +633,14 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     ],
     action: Annotated[
         AgentAction,
-        Field(description="The action to run against the entity type."),
+        Field(
+            description=(
+                "The action to run against the entity type. "
+                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
+                "trino) "
+                "in `api_args` and any value for `entity_type`."
+            ),
+        ),
     ],
     api_args: Annotated[
         dict[str, Any] | str | None,

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -165,6 +165,11 @@ class AgentExecuteResult(BaseModel):
 
     warning: dict[str, Any] | None = None
     """A warning reported alongside an otherwise successful result."""
+
+    @field_validator("connector_metadata", "execution_metadata", mode="before")
+    @classmethod
+    def _none_to_empty(cls, value: object) -> object:
+        return {} if value is None else value
 
     @property
     def entities(self) -> list[dict[str, Any]]:
