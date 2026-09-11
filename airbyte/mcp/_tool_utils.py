@@ -211,8 +211,8 @@ ORGANIZATION_ID_CONFIG_ARG = MCPServerConfigArg(
 )
 """Config arg for organization ID, supporting both HTTP header and env var.
 
-Only the tools that scope a listing to an organization use it; a workspace-scoped tool
-resolves its organization from the workspace.
+Only the tools that scope a listing to an organization use it; workspace-scoped tools
+resolve their organization from the resolved workspace when none is configured.
 """
 
 
