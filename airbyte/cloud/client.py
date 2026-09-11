@@ -44,13 +44,13 @@ default), or from the credentials as `CloudClient.organization_id`.
 
 ### If neither is known
 
-`CloudClient.list_workspaces` first tries the parent organization of the authenticated
-user's default workspace, then falls back to the authenticated user's memberships: the
-organizations that user holds permissions on, read once and cached for the life of the
-client. `CloudClient.get_organization` called with no arguments resolves the same way:
-configured `CloudClient.organization_id` first, then the parent organization of
-`CloudClient.default_workspace_id`, then the parent organization of the authenticated
-user's default workspace, then the memberships below.
+`CloudClient.list_workspaces` first tries the parent organization of the configured
+workspace, then the authenticated user's default workspace, and finally the authenticated
+user's memberships: the organizations that user holds permissions on, read once and
+cached for the life of the client. `CloudClient.get_organization` called with no
+arguments resolves the same way: configured `CloudClient.organization_id` first, then the
+parent organization of `CloudClient.default_workspace_id`, then the parent organization
+of the authenticated user's default workspace, then the memberships below.
 
 - Exactly one membership — that organization is the context.
 - Several memberships — discovery stops with a `PyAirbyteInputError` that both carries
