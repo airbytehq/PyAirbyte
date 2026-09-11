@@ -87,7 +87,7 @@ unavailable, so self-managed deployments keep working.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NoReturn, overload
 
 from airbyte import exceptions as exc
@@ -114,8 +114,8 @@ class CloudClient:
 
     _credentials: _AirbyteCredentials
     _membership_organization_ids: tuple[str, ...] | None
-    _authenticated_user: dict[str, Any] | None
-    _authenticated_user_id: str | None
+    _authenticated_user: dict[str, Any] | None = field(repr=False)
+    _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
 
     def __init__(
@@ -231,8 +231,8 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="Workspace ID is required.",
                 guidance=(
-                    "No workspace was configured, and the authenticated user has no "
-                    "default workspace. Provide a workspace ID."
+                    "No workspace was configured, and no default workspace could be "
+                    "resolved for the authenticated user. Provide a workspace ID."
                 ),
             )
 
