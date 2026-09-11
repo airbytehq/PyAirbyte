@@ -27,6 +27,13 @@ on:
         description: 'Whether to deploy the preview service instead of production ("true" or "false").'
         required: true
         type: string
+    secrets:
+      OCTAVIA_BOT_APP_ID:
+        description: 'GitHub App ID used to dispatch the airbyte-ops-mcp deploy workflow.'
+        required: true
+      OCTAVIA_BOT_PRIVATE_KEY:
+        description: 'Private key for the GitHub App above.'
+        required: true
 
 permissions:
   contents: read

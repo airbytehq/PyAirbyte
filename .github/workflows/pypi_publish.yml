@@ -90,7 +90,9 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/deploy_cloud_mcp.yml
-    secrets: inherit
+    secrets:
+      OCTAVIA_BOT_APP_ID: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+      OCTAVIA_BOT_PRIVATE_KEY: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     with:
       pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
       preview: ${{ 'true' }}
@@ -106,7 +108,9 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/deploy_cloud_mcp.yml
-    secrets: inherit
+    secrets:
+      OCTAVIA_BOT_APP_ID: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+      OCTAVIA_BOT_PRIVATE_KEY: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     with:
       pyairbyte-version: ${{ github.event.release.tag_name }}
       preview: ${{ 'false' }}
