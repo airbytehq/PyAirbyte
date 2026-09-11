@@ -93,7 +93,7 @@ jobs:
     secrets: inherit
     with:
       pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
-      preview: 'true'
+      preview: ${{ 'true' }}
 
   # A public (non-prerelease) release additionally promotes the version to
   # production.
@@ -109,4 +109,4 @@ jobs:
     secrets: inherit
     with:
       pyairbyte-version: ${{ github.event.release.tag_name }}
-      preview: 'false'
+      preview: ${{ 'false' }}
