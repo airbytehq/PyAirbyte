@@ -422,6 +422,15 @@ def test_connector_resolution_validates_workspace_scope(
         lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
     )
     monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: type(
+            "_CloudClient",
+            (),
+            {"resolve_default_workspace_id": lambda self: None},
+        )(),
+    )
+    monkeypatch.setattr(
         agents_mcp.AgentWorkspace,
         "list_connectors",
         lambda self: [

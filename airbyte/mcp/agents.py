@@ -47,7 +47,11 @@ from airbyte.constants import (
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
-from airbyte.mcp.cloud import _add_defaults_for_exclude_args, _get_cloud_workspace
+from airbyte.mcp.cloud import (
+    _add_defaults_for_exclude_args,
+    _get_cloud_client,
+    _get_cloud_workspace,
+)
 
 
 AgentReadAction = Literal["list", "get", "search", "api_search", "sql_select"]
@@ -256,8 +260,13 @@ def _get_agent_workspace(
     organization_id: str | None = None,
 ) -> AgentWorkspace:
     """Build an `AgentWorkspace` from MCP config."""
+    resolved_workspace_id = (
+        workspace_id
+        or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+        or _get_cloud_client(ctx).resolve_default_workspace_id()
+    )
     return AgentWorkspace(
-        workspace_id=workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID),
+        workspace_id=resolved_workspace_id,
         organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),

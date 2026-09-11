@@ -349,11 +349,12 @@ def _get_cloud_workspace(
     from HTTP headers or environment variables based on the config args
     defined in server.py.
     """
-    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    client = _get_cloud_client(ctx)
+    resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError
 
-    return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
+    return client.get_workspace(resolved_workspace_id)
 
 
 def _get_cloud_client(
