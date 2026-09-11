@@ -4,25 +4,27 @@
 ## Organization and workspace resolution
 
 Most operations need an organization and/or a workspace context. `CloudClient` derives
-that context from what the caller supplies, falling back to the credentials' own scope
-and finally to the authenticated user's organization memberships.
+that context from what the caller supplies, falling back to the credentials' own scope,
+the authenticated user's default workspace, and finally to the authenticated user's
+organization memberships.
 
 Two rules govern the whole protocol: an explicitly passed ID always beats an ambient
 one, and within each of those tiers an organization ID beats a workspace ID.
 
 ### Where a workspace ID comes from
 
-A workspace ID reaches the client from one of three places, in order:
+A workspace ID reaches the client from one of four places, in order:
 
 1. The `workspace_id` argument on the operation, such as `CloudClient.get_workspace`.
 2. The `X-Airbyte-Workspace-Id` header, when running as an MCP server over HTTP.
 3. The `AIRBYTE_CLOUD_WORKSPACE_ID` (or `AIRBYTE_WORKSPACE_ID`) environment variable,
    read when the client is built with `CloudClient.from_auth(env_vars=True)`.
+4. The authenticated user's default workspace from their Airbyte user record.
 
-The last two become `CloudClient.default_workspace_id`, the ambient workspace context
-for the client. Workspace-scoped operations use it whenever no `workspace_id` argument
-is passed; `CloudClient.get_workspace` raises when neither is available, since an
-organization can hold many workspaces and there is nothing to guess from.
+The configured workspace becomes `CloudClient.default_workspace_id`, the ambient
+workspace context for the client. Workspace-scoped operations use it, then the
+authenticated user's default workspace, whenever no `workspace_id` argument is passed.
+`CloudClient.get_workspace` raises when neither is available.
 
 ### If a workspace ID is known
 
@@ -42,11 +44,13 @@ default), or from the credentials as `CloudClient.organization_id`.
 
 ### If neither is known
 
-`CloudClient.list_workspaces` falls back to the authenticated user's memberships: the
-organizations that user holds permissions on, read once and cached for the life of the
-client. `CloudClient.get_organization` called with no arguments resolves the same way:
-configured `CloudClient.organization_id` first, then the parent organization of
-`CloudClient.default_workspace_id`, then the memberships below.
+`CloudClient.list_workspaces` first tries the parent organization of the configured
+workspace, then the authenticated user's default workspace, and finally the authenticated
+user's memberships: the organizations that user holds permissions on, read once and
+cached for the life of the client. `CloudClient.get_organization` called with no
+arguments resolves the same way: configured `CloudClient.organization_id` first, then the
+parent organization of `CloudClient.default_workspace_id`, then the parent organization
+of the authenticated user's default workspace, then the memberships below.
 
 - Exactly one membership — that organization is the context.
 - Several memberships — discovery stops with a `PyAirbyteInputError` that both carries
@@ -83,7 +87,7 @@ unavailable, so self-managed deployments keep working.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NoReturn, overload
 
 from airbyte import exceptions as exc
@@ -110,7 +114,8 @@ class CloudClient:
 
     _credentials: _AirbyteCredentials
     _membership_organization_ids: tuple[str, ...] | None
-    _authenticated_user_id: str | None
+    _authenticated_user_info: dict[str, Any] | None = field(repr=False)
+    _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
 
     def __init__(
@@ -136,6 +141,7 @@ class CloudClient:
             env_vars=False,
         )
         self._membership_organization_ids = None
+        self._authenticated_user_info = None
         self._authenticated_user_id = None
         self._authenticated_bearer_token = None
 
@@ -220,11 +226,14 @@ class CloudClient:
 
         See the module docstring for how the workspace is resolved.
         """
-        resolved_workspace_id = workspace_id or self._credentials.workspace_id
+        resolved_workspace_id = workspace_id or self.resolve_default_workspace_id()
         if not resolved_workspace_id:
             raise exc.PyAirbyteInputError(
                 message="Workspace ID is required.",
-                guidance="Provide a workspace ID.",
+                guidance=(
+                    "No workspace was configured, and no default workspace could be "
+                    "resolved for the authenticated user. Provide a workspace ID."
+                ),
             )
 
         credentials = self._credentials.with_workspace_id(resolved_workspace_id)
@@ -447,6 +456,12 @@ class CloudClient:
                 return self._get_workspace_parent_organization_id(self.default_workspace_id)
             except (exc.AirbyteError, exc.PyAirbyteInputError):
                 pass
+        user_default_workspace_id = self._get_user_default_workspace_id()
+        if user_default_workspace_id:
+            try:
+                return self._get_workspace_parent_organization_id(user_default_workspace_id)
+            except (exc.AirbyteError, exc.PyAirbyteInputError):
+                pass
 
         try:
             organization_ids = self._get_membership_organization_ids()
@@ -488,10 +503,17 @@ class CloudClient:
             context={"workspace_id": workspace_id, "response": organization},
         )
 
-    def _get_authenticated_user_id(self) -> str:
-        """Get and cache the Airbyte user ID for the current credentials."""
-        if self._authenticated_user_id is not None:
-            return self._authenticated_user_id
+    def get_workspace_parent_organization_id(self, workspace_id: str) -> str | None:
+        """Return the parent organization ID of a workspace, or `None` if it cannot be resolved."""
+        try:
+            return self._get_workspace_parent_organization_id(workspace_id)
+        except (exc.AirbyteError, exc.PyAirbyteInputError):
+            return None
+
+    def _get_authenticated_user_info(self) -> dict[str, Any]:
+        """Get and cache the Airbyte user record for the current credentials."""
+        if self._authenticated_user_info is not None:
+            return self._authenticated_user_info
 
         bearer_token = self._get_config_api_bearer_token()
         if bearer_token is None:
@@ -500,7 +522,7 @@ class CloudClient:
                 guidance="Provide either client credentials or a bearer token.",
             )
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
-        user = api_util.get_user_by_auth_id(
+        self._authenticated_user_info = api_util.get_user_by_auth_id(
             auth_user_id,
             api_root=self.public_api_root,
             config_api_root=self.config_api_root,
@@ -508,6 +530,14 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=bearer_token,
         )
+        return self._authenticated_user_info
+
+    def _get_authenticated_user_id(self) -> str:
+        """Get and cache the Airbyte user ID for the current credentials."""
+        if self._authenticated_user_id is not None:
+            return self._authenticated_user_id
+
+        user = self._get_authenticated_user_info()
         user_id = user.get("userId")
         if not isinstance(user_id, str) or not user_id:
             raise exc.PyAirbyteInputError(
@@ -516,6 +546,22 @@ class CloudClient:
             )
         self._authenticated_user_id = user_id
         return self._authenticated_user_id
+
+    def _get_user_default_workspace_id(self) -> str | None:
+        """Get the authenticated user's default workspace ID, when available."""
+        try:
+            default_workspace_id = self._get_authenticated_user_info().get("defaultWorkspaceId")
+        except (exc.AirbyteError, exc.PyAirbyteInputError):
+            return None
+        return (
+            default_workspace_id
+            if isinstance(default_workspace_id, str) and default_workspace_id
+            else None
+        )
+
+    def resolve_default_workspace_id(self) -> str | None:
+        """Resolve the configured or authenticated user's default workspace ID."""
+        return self.default_workspace_id or self._get_user_default_workspace_id()
 
     def _get_membership_organization_ids(self) -> tuple[str, ...]:
         """Get and cache organization IDs from the caller's permissions."""

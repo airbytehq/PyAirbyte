@@ -60,10 +60,12 @@ from airbyte.mcp._tool_utils import (
 CLOUD_AUTH_TIP_TEXT = (
     f"When connecting to a hosted MCP server, provide a bearer token via the "
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
-    f"`Client-Id` and `Client-Secret` headers. To discover your organization and "
-    f"workspaces, call `list_cloud_workspaces`, which resolves your organization "
-    f"automatically. Only call `list_cloud_organizations` when you need to search "
-    f"organizations by name, passing `name_contains`. For local or "
+    f"`Client-Id` and `Client-Secret` headers. When no workspace ID is provided, "
+    f"the authenticated user's default workspace (and its organization) is used "
+    f"automatically. To discover other workspaces, call `list_cloud_workspaces`, "
+    f"which resolves your organization automatically. Only call "
+    f"`list_cloud_organizations` when you need to search organizations by name, "
+    f"passing `name_contains`. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
@@ -349,11 +351,12 @@ def _get_cloud_workspace(
     from HTTP headers or environment variables based on the config args
     defined in server.py.
     """
-    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    client = _get_cloud_client(ctx)
+    resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError
 
-    return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
+    return client.get_workspace(resolved_workspace_id)
 
 
 def _get_cloud_client(

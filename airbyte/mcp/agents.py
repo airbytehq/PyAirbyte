@@ -47,7 +47,11 @@ from airbyte.constants import (
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
-from airbyte.mcp.cloud import _add_defaults_for_exclude_args, _get_cloud_workspace
+from airbyte.mcp.cloud import (
+    _add_defaults_for_exclude_args,
+    _get_cloud_client,
+    _get_cloud_workspace,
+)
 
 
 AgentReadAction = Literal["list", "get", "search", "api_search", "sql_select"]
@@ -255,10 +259,20 @@ def _get_agent_workspace(
     workspace_id: str | None,
     organization_id: str | None = None,
 ) -> AgentWorkspace:
-    """Build an `AgentWorkspace` from MCP config."""
+    """Build an `AgentWorkspace`, deriving an absent organization from its workspace."""
+    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    resolved_organization_id = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
+    if not resolved_workspace_id or not resolved_organization_id:
+        client = _get_cloud_client(ctx)
+        if not resolved_workspace_id:
+            resolved_workspace_id = client.resolve_default_workspace_id()
+        if resolved_workspace_id and not resolved_organization_id:
+            resolved_organization_id = client.get_workspace_parent_organization_id(
+                resolved_workspace_id
+            )
     return AgentWorkspace(
-        workspace_id=workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID),
-        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
+        workspace_id=resolved_workspace_id,
+        organization_id=resolved_organization_id,
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),

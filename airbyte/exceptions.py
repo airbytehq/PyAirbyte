@@ -285,7 +285,8 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
             return
         if is_hosted_mcp_mode():
             self.guidance = (
-                "Call `list_cloud_workspaces` first, which resolves the organization "
+                "The authenticated user's default workspace was checked. If it was not "
+                "available, call `list_cloud_workspaces`, which resolves the organization "
                 "automatically; only call `list_cloud_organizations` to search "
                 "organizations by name. If discovery returns exactly one workspace, "
                 f"provide its ID via the `{MCP_WORKSPACE_ID_HEADER}` header or the "
@@ -293,7 +294,8 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
             )
         else:
             self.guidance = (
-                "Call `list_cloud_workspaces` first, which resolves the organization "
+                "The authenticated user's default workspace was checked. If it was not "
+                "available, call `list_cloud_workspaces`, which resolves the organization "
                 "automatically; only call `list_cloud_organizations` to search "
                 "organizations by name. If discovery returns exactly one workspace, "
                 f"set its ID in `{CLOUD_WORKSPACE_ID_ENV_VAR}` or pass the "

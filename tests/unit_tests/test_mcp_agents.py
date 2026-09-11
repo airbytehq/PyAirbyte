@@ -17,7 +17,12 @@ from airbyte.agents.models import (
     AgentExecutionMetadata,
 )
 from airbyte.agents.connectors import AgentConnector
-from airbyte.constants import MCP_CONFIG_BEARER_TOKEN, MCP_CONFIG_ORGANIZATION_ID
+from airbyte.cloud.client import CloudClient
+from airbyte.constants import (
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_ORGANIZATION_ID,
+    MCP_CONFIG_WORKSPACE_ID,
+)
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
@@ -422,6 +427,18 @@ def test_connector_resolution_validates_workspace_scope(
         lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
     )
     monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: type(
+            "_CloudClient",
+            (),
+            {
+                "resolve_default_workspace_id": lambda self: None,
+                "get_workspace_parent_organization_id": lambda self, workspace_id: None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
         agents_mcp.AgentWorkspace,
         "list_connectors",
         lambda self: [
@@ -638,13 +655,204 @@ def test_list_agent_connectors_threads_organization_id(
 def test_workspace_organization_id_comes_from_mcp_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify workspace-scoped tools send the configured organization ID too."""
-    _patch_mcp_config(monkeypatch)
+    """Verify configured workspace and organization IDs avoid CloudClient lookup."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (
+            "workspace-from-config"
+            if key == MCP_CONFIG_WORKSPACE_ID
+            else "org-from-config"
+            if key == MCP_CONFIG_ORGANIZATION_ID
+            else "fake-token"
+            if key == MCP_CONFIG_BEARER_TOKEN
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: pytest.fail("CloudClient lookup should not be called"),
+    )
 
     workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
         cast(Context, object()),
-        "workspace-1",
+        None,
     )
 
+    assert workspace.workspace_id == "workspace-from-config"
     assert workspace.organization_id == "org-from-config"
     assert workspace._credentials.organization_id == "org-from-config"  # noqa: SLF001
+
+
+def test_explicit_workspace_derives_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an explicit workspace derives its parent organization."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            pytest.fail("default workspace lookup should not be called")
+
+        def get_workspace_parent_organization_id(self, workspace_id: str) -> str:
+            assert workspace_id == "workspace-explicit"
+            return "org-parent"
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_client", lambda ctx: _CloudClient())
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        "workspace-explicit",
+    )
+
+    assert workspace.workspace_id == "workspace-explicit"
+    assert workspace.organization_id == "org-parent"
+
+
+def test_configured_workspace_derives_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a configured workspace derives its parent organization."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (
+            "workspace-from-config"
+            if key == MCP_CONFIG_WORKSPACE_ID
+            else "fake-token"
+            if key == MCP_CONFIG_BEARER_TOKEN
+            else None
+        ),
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            pytest.fail("default workspace lookup should not be called")
+
+        def get_workspace_parent_organization_id(self, workspace_id: str) -> str:
+            assert workspace_id == "workspace-from-config"
+            return "org-parent"
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_client", lambda ctx: _CloudClient())
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "workspace-from-config"
+    assert workspace.organization_id == "org-parent"
+
+
+def test_workspace_fallback_uses_user_default_workspace_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify workspace fallback derives the parent organization."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            return "ws-default"
+
+        def get_workspace_parent_organization_id(self, _workspace_id: str) -> str:
+            return "org-parent"
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: _CloudClient(),
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "ws-default"
+    assert workspace.organization_id == "org-parent"
+
+
+def test_workspace_fallback_preserves_configured_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a configured organization wins over parent organization lookup."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (
+            "fake-token"
+            if key == MCP_CONFIG_BEARER_TOKEN
+            else "org-cfg"
+            if key == MCP_CONFIG_ORGANIZATION_ID
+            else None
+        ),
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            return "ws-default"
+
+        def get_workspace_parent_organization_id(self, _workspace_id: str) -> str:
+            pytest.fail("parent organization lookup should not be called")
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: _CloudClient(),
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "ws-default"
+    assert workspace.organization_id == "org-cfg"
+
+
+def test_workspace_fallback_ignores_parent_organization_lookup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify parent organization lookup errors leave the organization unset."""
+    client = CloudClient(bearer_token="token")
+
+    def raise_parent_organization_error(_workspace_id: str) -> str:
+        raise AirbyteError(message="lookup failed")
+
+    monkeypatch.setattr(
+        client,
+        "resolve_default_workspace_id",
+        lambda: "ws-default",
+    )
+    monkeypatch.setattr(
+        client,
+        "_get_workspace_parent_organization_id",
+        raise_parent_organization_error,
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: client,
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "ws-default"
+    assert workspace.organization_id is None
