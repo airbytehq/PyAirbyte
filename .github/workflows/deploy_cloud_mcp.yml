@@ -8,8 +8,8 @@
 # - push (main) - Every merge refreshes cloud-mcp-preview with that commit,
 #   installed straight from git so no PyPI release is needed.
 # - workflow_call - `pypi_publish.yml` calls this after a publish to ship the
-#   published version: a public release goes to production, a prerelease to
-#   the preview service.
+#   published version: every publish refreshes the preview service, and a
+#   public release also goes to production.
 
 name: Deploy Cloud MCP
 
@@ -27,6 +27,13 @@ on:
         description: 'Whether to deploy the preview service instead of production ("true" or "false").'
         required: true
         type: string
+    secrets:
+      OCTAVIA_BOT_APP_ID:
+        description: 'GitHub App ID used to dispatch the airbyte-ops-mcp deploy workflow.'
+        required: true
+      OCTAVIA_BOT_PRIVATE_KEY:
+        description: 'Private key for the GitHub App above.'
+        required: true
 
 permissions:
   contents: read
