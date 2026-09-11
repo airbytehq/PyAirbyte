@@ -260,14 +260,18 @@ def _get_agent_workspace(
     organization_id: str | None = None,
 ) -> AgentWorkspace:
     """Build an `AgentWorkspace` from MCP config."""
-    resolved_workspace_id = (
-        workspace_id
-        or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
-        or _get_cloud_client(ctx).resolve_default_workspace_id()
-    )
+    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    resolved_organization_id = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
+    if not resolved_workspace_id:
+        client = _get_cloud_client(ctx)
+        resolved_workspace_id = client.resolve_default_workspace_id()
+        if resolved_workspace_id and not resolved_organization_id:
+            resolved_organization_id = client.get_workspace_parent_organization_id(
+                resolved_workspace_id
+            )
     return AgentWorkspace(
         workspace_id=resolved_workspace_id,
-        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
+        organization_id=resolved_organization_id,
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),

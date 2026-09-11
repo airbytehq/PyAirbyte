@@ -503,6 +503,13 @@ class CloudClient:
             context={"workspace_id": workspace_id, "response": organization},
         )
 
+    def get_workspace_parent_organization_id(self, workspace_id: str) -> str | None:
+        """Return the parent organization ID of a workspace, or `None` if it cannot be resolved."""
+        try:
+            return self._get_workspace_parent_organization_id(workspace_id)
+        except (exc.AirbyteError, exc.PyAirbyteInputError):
+            return None
+
     def _get_authenticated_user(self) -> dict[str, Any]:
         """Get and cache the Airbyte user record for the current credentials."""
         if self._authenticated_user is not None:
