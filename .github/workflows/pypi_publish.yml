@@ -80,13 +80,27 @@ jobs:
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
-  # A publish ships the exact published version to cloud-mcp: a public release
-  # promotes it to production, while a GitHub prerelease or an on-demand
-  # prerelease build only refreshes the preview service.
+  # A publish ships the exact published version to cloud-mcp. Every publish
+  # refreshes the preview service, so preview always reports the newest
+  # published version rather than a post-release git build of the prior one.
+  deploy_cloud_mcp_preview:
+    name: Deploy Cloud MCP Preview
+    needs: publish_to_pypi
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy_cloud_mcp.yml
+    secrets: inherit
+    with:
+      pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
+      preview: 'true'
+
+  # A public (non-prerelease) release additionally promotes the version to
+  # production.
   deploy_cloud_mcp:
     name: Deploy Cloud MCP
     needs: publish_to_pypi
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    if: github.event_name == 'release' && github.event.release.prerelease != true
     # The dispatch to airbyte-ops-mcp is authenticated with a GitHub App token,
     # not `GITHUB_TOKEN`, so this job needs nothing beyond reading the workflow.
     permissions:
@@ -94,5 +108,5 @@ jobs:
     uses: ./.github/workflows/deploy_cloud_mcp.yml
     secrets: inherit
     with:
-      pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
-      preview: ${{ (github.event_name == 'release' && github.event.release.prerelease != true) && 'false' || 'true' }}
+      pyairbyte-version: ${{ github.event.release.tag_name }}
+      preview: 'false'
