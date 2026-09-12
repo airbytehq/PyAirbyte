@@ -2890,8 +2890,10 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
 
     user_id = payload.get("user_id") if isinstance(payload, dict) else None
     if not isinstance(user_id, str) or not user_id:
+        user_id = payload.get("sub") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id:
         raise PyAirbyteInputError(
-            message="The bearer token does not contain a user ID.",
+            message="The bearer token does not contain a user_id or sub claim.",
             guidance="Provide a bearer token issued for an Airbyte user.",
         )
     return user_id

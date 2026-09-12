@@ -93,7 +93,11 @@ from typing import TYPE_CHECKING, Any, NoReturn, overload
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
-from airbyte.cloud.models import CloudWorkspaceInfo
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudOrganizationInfo,
+    CloudWorkspaceInfo,
+)
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
@@ -114,6 +118,7 @@ class CloudClient:
 
     _credentials: _AirbyteCredentials
     _membership_organization_ids: tuple[str, ...] | None
+    _user_permissions: tuple[dict[str, Any], ...] | None
     _authenticated_user_info: dict[str, Any] | None = field(repr=False)
     _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
@@ -141,6 +146,7 @@ class CloudClient:
             env_vars=False,
         )
         self._membership_organization_ids = None
+        self._user_permissions = None
         self._authenticated_user_info = None
         self._authenticated_user_id = None
         self._authenticated_bearer_token = None
@@ -231,8 +237,9 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="Workspace ID is required.",
                 guidance=(
-                    "No workspace was configured, and no default workspace could be "
-                    "resolved for the authenticated user. Provide a workspace ID."
+                    "Call `get_default_cloud_context` first. No workspace was configured, "
+                    "and no default workspace could be resolved for the authenticated user. "
+                    "Provide a workspace ID."
                 ),
             )
 
@@ -336,7 +343,7 @@ class CloudClient:
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
-    def list_workspaces(
+    def list_workspaces(  # noqa: PLR0912
         self,
         name: str | None = None,
         *,
@@ -376,15 +383,65 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="You can provide name or name_contains, but not both."
             )
-        resolved_organization_id = (
-            None
-            if all_organizations
-            else self._resolve_workspace_organization_id(
-                organization_id=organization_id,
-                organization_name=organization_name,
-                workspace_id=workspace_id,
+        if all_organizations:
+            resolved_organization_id = None
+        else:
+            try:
+                resolved_organization_id = self._resolve_workspace_organization_id(
+                    organization_id=organization_id,
+                    organization_name=organization_name,
+                    workspace_id=workspace_id,
+                )
+            except exc.PyAirbyteInputError:
+                direct_workspaces = self._try_list_direct_workspaces(
+                    name=name,
+                    name_contains=name_contains,
+                    name_filter=name_filter,
+                    limit=limit,
+                )
+                if direct_workspaces:
+                    return direct_workspaces
+                raise
+        if resolved_organization_id is None and not all_organizations:
+            direct_workspaces = self._try_list_direct_workspaces(
+                name=name,
+                name_contains=name_contains,
+                name_filter=name_filter,
+                limit=limit,
             )
-        )
+            if direct_workspaces:
+                return direct_workspaces
+            if not all_organizations and self._try_is_instance_admin():
+                raise exc.PyAirbyteInputError(
+                    message=(
+                        "Call `get_default_cloud_context` first. An organization or "
+                        "workspace context is required for an instance administrator."
+                    ),
+                    guidance=(
+                        "Call `get_default_cloud_context` first, then pass organization_id "
+                        "or organization_name, or set all_organizations=True."
+                    ),
+                )
+            if name_contains is not None:
+                name_substring = name_contains.casefold()
+
+                def matches_name(workspace_name: str) -> bool:
+                    return name_substring in workspace_name.casefold()
+
+                name_filter = matches_name
+                name = None
+            workspaces = api_util.list_workspaces(
+                workspace_id="",
+                api_root=self.public_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                name_filter=name_filter,
+                name=name,
+                limit=limit,
+            )
+            return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
+
         if resolved_organization_id is None:
             if name_contains is not None:
                 name_substring = name_contains.casefold()
@@ -427,6 +484,72 @@ class CloudClient:
         if limit is not None and (name is not None or name_filter is not None):
             workspace_infos = workspace_infos[:limit]
         return workspace_infos
+
+    def list_direct_workspaces(
+        self,
+        *,
+        name: str | None = None,
+        name_contains: str | None = None,
+        name_filter: Callable[[str], bool] | None = None,
+        limit: int | None = None,
+    ) -> list[CloudWorkspaceInfo]:
+        """List workspaces granted directly to the authenticated user."""
+        if name is not None and name_contains is not None:
+            raise exc.PyAirbyteInputError(
+                message="You can provide name or name_contains, but not both."
+            )
+        if name_contains is not None and name_filter is not None:
+            raise exc.PyAirbyteInputError(
+                message="You can provide name_contains or name_filter, but not both."
+            )
+        workspaces = [
+            CloudWorkspaceInfo.from_api_response(
+                api_util.get_workspace(
+                    workspace_id=workspace_id,
+                    api_root=self.public_api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    bearer_token=self.bearer_token,
+                )
+            )
+            for workspace_id in self._get_direct_workspace_ids()
+        ]
+        if name is not None:
+            workspaces = [workspace for workspace in workspaces if workspace.name == name]
+        elif name_contains is not None:
+            name_substring = name_contains.casefold()
+            workspaces = [
+                workspace for workspace in workspaces if name_substring in workspace.name.casefold()
+            ]
+        elif name_filter is not None:
+            workspaces = [workspace for workspace in workspaces if name_filter(workspace.name)]
+        return workspaces if limit is None else workspaces[:limit]
+
+    def _try_list_direct_workspaces(
+        self,
+        *,
+        name: str | None = None,
+        name_contains: str | None = None,
+        name_filter: Callable[[str], bool] | None = None,
+        limit: int | None = None,
+    ) -> list[CloudWorkspaceInfo]:
+        """List direct workspaces, degrading to an empty result on lookup errors."""
+        try:
+            return self.list_direct_workspaces(
+                name=name,
+                name_contains=name_contains,
+                name_filter=name_filter,
+                limit=limit,
+            )
+        except (AirbyteError, exc.PyAirbyteInputError):
+            return []
+
+    def _try_is_instance_admin(self) -> bool:
+        """Return instance-admin status, degrading to false on lookup errors."""
+        try:
+            return self._is_instance_admin()
+        except (AirbyteError, exc.PyAirbyteInputError):
+            return False
 
     def _resolve_workspace_organization_id(
         self,
@@ -561,21 +684,41 @@ class CloudClient:
 
     def resolve_default_workspace_id(self) -> str | None:
         """Resolve the configured or authenticated user's default workspace ID."""
-        return self.default_workspace_id or self._get_user_default_workspace_id()
+        configured_workspace_id = self.default_workspace_id
+        if configured_workspace_id:
+            return configured_workspace_id
+        user_default_workspace_id = self._get_user_default_workspace_id()
+        if user_default_workspace_id:
+            return user_default_workspace_id
+        try:
+            direct_workspace_ids = self._get_direct_workspace_ids()
+        except (AirbyteError, exc.PyAirbyteInputError):
+            return None
+        return direct_workspace_ids[0] if len(direct_workspace_ids) == 1 else None
+
+    def _get_user_permissions(self) -> tuple[dict[str, Any], ...]:
+        """Get and cache permissions for the authenticated user."""
+        if self._user_permissions is None:
+            self._user_permissions = tuple(
+                permission
+                for permission in api_util.list_permissions_for_user(
+                    self._get_authenticated_user_id(),
+                    api_root=self.public_api_root,
+                    config_api_root=self.config_api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    bearer_token=self._get_config_api_bearer_token(),
+                )
+                if isinstance(permission, dict)
+            )
+        return self._user_permissions
 
     def _get_membership_organization_ids(self) -> tuple[str, ...]:
         """Get and cache organization IDs from the caller's permissions."""
         if self._membership_organization_ids is not None:
             return self._membership_organization_ids
 
-        permissions = api_util.list_permissions_for_user(
-            self._get_authenticated_user_id(),
-            api_root=self.public_api_root,
-            config_api_root=self.config_api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self._get_config_api_bearer_token(),
-        )
+        permissions = self._get_user_permissions()
         organization_ids: list[str] = []
         for permission in permissions:
             permission_organization_id = permission.get("organizationId")
@@ -587,6 +730,83 @@ class CloudClient:
                 organization_ids.append(permission_organization_id)
         self._membership_organization_ids = tuple(organization_ids)
         return self._membership_organization_ids
+
+    def _get_direct_workspace_ids(self) -> tuple[str, ...]:
+        """Get unique workspace IDs from the caller's direct permissions."""
+        workspace_ids: list[str] = []
+        for permission in self._get_user_permissions():
+            workspace_id = permission.get("workspaceId")
+            if isinstance(workspace_id, str) and workspace_id and workspace_id not in workspace_ids:
+                workspace_ids.append(workspace_id)
+        return tuple(workspace_ids)
+
+    def _is_instance_admin(self) -> bool:
+        """Return whether the caller has an instance-admin permission."""
+        return any(
+            permission.get("permissionType") == "instance_admin"
+            for permission in self._get_user_permissions()
+        )
+
+    def get_default_context(self) -> CloudDefaultContextInfo:
+        """Describe the authenticated user's resolvable Cloud context."""
+        notes: list[str] = []
+        user_id: str | None = None
+        user_name: str | None = None
+        user_email: str | None = None
+        try:
+            user = self._get_authenticated_user_info()
+        except (AirbyteError, exc.PyAirbyteInputError) as error:
+            notes.append(
+                "Bearer token has no user identity claim; membership resolution unavailable."
+                if isinstance(error, exc.PyAirbyteInputError)
+                else "Authenticated user lookup unavailable; membership resolution unavailable."
+            )
+            user = {}
+        else:
+            user_id_value = user.get("userId")
+            user_id = user_id_value if isinstance(user_id_value, str) else None
+            user_name_value = user.get("userName", user.get("name"))
+            user_name = user_name_value if isinstance(user_name_value, str) else None
+            user_email_value = user.get("email")
+            user_email = user_email_value if isinstance(user_email_value, str) else None
+
+        default_workspace_id = self.resolve_default_workspace_id()
+        if default_workspace_id is None:
+            notes.append("No default workspace on user record")
+
+        try:
+            membership_organization_ids = self._get_membership_organization_ids()
+        except (AirbyteError, exc.PyAirbyteInputError):
+            membership_organization_ids = ()
+            notes.append("Membership permissions unavailable")
+        try:
+            is_instance_admin = self._is_instance_admin()
+        except (AirbyteError, exc.PyAirbyteInputError):
+            is_instance_admin = False
+            notes.append("Instance-admin permission status unavailable")
+        try:
+            direct_workspaces = self.list_direct_workspaces(limit=25)
+        except (AirbyteError, exc.PyAirbyteInputError):
+            direct_workspaces = []
+            notes.append("Direct workspace permissions unavailable")
+
+        membership_organizations = [
+            CloudOrganizationInfo.model_validate(candidate)
+            for candidate in self._get_organization_candidates(
+                membership_organization_ids[:MAX_ORGANIZATION_CANDIDATES]
+            )
+        ]
+        return CloudDefaultContextInfo(
+            user_id=user_id,
+            user_name=user_name,
+            user_email=user_email,
+            is_instance_admin=is_instance_admin,
+            default_workspace_id=default_workspace_id,
+            configured_organization_id=self.organization_id,
+            membership_organizations=membership_organizations,
+            direct_workspaces=direct_workspaces,
+            resolution_notes=notes,
+        )
 
     def _get_organization_candidates(
         self,
@@ -634,8 +854,9 @@ class CloudClient:
         )
         raise exc.PyAirbyteInputError(
             message=(
-                "Multiple organization memberships were found for these credentials. "
-                "Retry with one of these organization IDs "
+                "Call `get_default_cloud_context` first. Multiple organization "
+                "memberships were found for these credentials. Retry with one of these "
+                "organization IDs "
                 f"(showing {len(candidates)} of {len(organization_ids)}): {candidate_details}"
             ),
             context={
@@ -789,7 +1010,13 @@ class CloudClient:
             resolved_organization_id = self._resolve_default_organization_id()
         if not resolved_organization_id and not organization_name:
             raise exc.PyAirbyteInputError(
-                message="Organization ID or organization name is required."
+                message=(
+                    "Call `get_default_cloud_context` first. Organization ID or "
+                    "organization name is required."
+                ),
+                guidance=(
+                    "Call `get_default_cloud_context`, then provide an organization ID or name."
+                ),
             )
 
         if resolved_organization_id:

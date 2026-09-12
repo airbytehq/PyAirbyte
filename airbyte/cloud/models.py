@@ -119,6 +119,49 @@ class CloudWorkspaceInfo(BaseModel):
         return self.model_dump(mode="json")
 
 
+class CloudOrganizationInfo(BaseModel):
+    """Information about an Airbyte organization."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    organization_id: str = Field(alias="organizationId")
+    """The organization ID."""
+
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name, if available."""
+
+
+class CloudDefaultContextInfo(BaseModel):
+    """Information about the authenticated Cloud user's current context."""
+
+    user_id: str | None
+    """The Airbyte user ID, if available."""
+
+    user_name: str | None
+    """The authenticated user's name, if available."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    is_instance_admin: bool
+    """Whether the authenticated user has an instance-admin permission."""
+
+    default_workspace_id: str | None
+    """The resolved default workspace ID, if available."""
+
+    configured_organization_id: str | None
+    """The configured organization ID, if available."""
+
+    membership_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by organization-scoped permissions."""
+
+    direct_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by direct workspace-scoped permissions."""
+
+    resolution_notes: list[str]
+    """Notes about unavailable identity or context resolution data."""
+
+
 class CloudConnectionInfo(BaseModel):
     """Information about an Airbyte Cloud connection."""
 

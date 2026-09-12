@@ -26,7 +26,12 @@ from airbyte.cloud.client import (
 )
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.models import JobTypeEnum
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudOrganizationInfo,
+    CloudWorkspaceInfo,
+    JobTypeEnum,
+)
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -62,7 +67,8 @@ CLOUD_AUTH_TIP_TEXT = (
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
     f"`Client-Id` and `Client-Secret` headers. When no workspace ID is provided, "
     f"the authenticated user's default workspace (and its organization) is used "
-    f"automatically. To discover other workspaces, call `list_cloud_workspaces`, "
+    f"automatically. Call `get_default_cloud_context` first to inspect the resolved "
+    f"context. To discover other workspaces, call `list_cloud_workspaces`, "
     f"which resolves your organization automatically. Only call "
     f"`list_cloud_organizations` when you need to search organizations by name, "
     f"passing `name_contains`. For local or "
@@ -277,6 +283,40 @@ class CloudWorkspaceListResult(BaseModel):
 
     available_organizations: list[CloudOrganizationResult] | None = None
     """Organizations to choose from when the credentials match multiple organizations."""
+
+
+class CloudDefaultContextResult(BaseModel):
+    """Current authenticated Cloud user context and resolution guidance."""
+
+    user_id: str | None
+    """The Airbyte user ID, if available."""
+
+    user_name: str | None
+    """The authenticated user's name, if available."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    is_instance_admin: bool
+    """Whether the authenticated user has an instance-admin permission."""
+
+    default_workspace_id: str | None
+    """The resolved default workspace ID, if available."""
+
+    configured_organization_id: str | None
+    """The configured organization ID, if available."""
+
+    membership_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by organization-scoped permissions."""
+
+    direct_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by direct workspace-scoped permissions."""
+
+    resolution_notes: list[str]
+    """Notes about unavailable identity or context resolution data."""
+
+    message: str
+    """Guidance for selecting a workspace or organization context."""
 
 
 class LogReadResult(BaseModel):
@@ -1494,7 +1534,7 @@ def list_deployed_cloud_connections(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def list_cloud_workspaces(
+def list_cloud_workspaces(  # noqa: PLR0912
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -1545,6 +1585,17 @@ def list_cloud_workspaces(
         candidates = context.get("organization_candidates")
         if not isinstance(candidates, list):
             raise
+        direct_workspace_lister = getattr(client, "list_direct_workspaces", None)
+        if callable(direct_workspace_lister):
+            try:
+                direct_workspaces = direct_workspace_lister(
+                    name_contains=name_contains,
+                    limit=limit,
+                )
+            except (AirbyteError, PyAirbyteInputError):
+                direct_workspaces = []
+        else:
+            direct_workspaces = []
         available_organizations: list[CloudOrganizationResult] = []
         for candidate in candidates:
             if not isinstance(candidate, dict):
@@ -1560,13 +1611,22 @@ def list_cloud_workspaces(
                 )
             )
         message = error.get_message()
+        if "get_default_cloud_context" not in message:
+            message = f"Call `get_default_cloud_context` first. {message}"
         if available_organizations:
             message += (
                 " Retry with an explicit organization ID from the provided list of the "
                 "available organizations."
             )
         return CloudWorkspaceListResult(
-            workspaces=[],
+            workspaces=[
+                CloudWorkspaceResult(
+                    workspace_id=workspace.workspace_id,
+                    workspace_name=workspace.name,
+                    organization_id=workspace.organization_id,
+                )
+                for workspace in direct_workspaces
+            ],
             available_organizations=available_organizations,
             message=message,
         )
@@ -1625,6 +1685,24 @@ def list_cloud_workspaces(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
+def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
+    """Return the authenticated user's default Cloud context."""
+    context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context()
+    return CloudDefaultContextResult(
+        **context.model_dump(),
+        message=(
+            "Use default_workspace_id, pass workspace_id from direct_workspaces, "
+            "or pick an organization from membership_organizations."
+        ),
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
 def list_cloud_organizations(
     ctx: Context,
     name_contains: Annotated[
@@ -1662,8 +1740,9 @@ def list_cloud_organizations(
         return CloudOrganizationListResult(
             organizations=[],
             message=(
-                "No organizations were returned for these credentials. Verify the "
-                "credentials or ask the user to provide an organization ID."
+                "Call `get_default_cloud_context` first. No organizations were returned "
+                "for these credentials. Verify the credentials or ask the user to provide "
+                "an organization ID."
             ),
         )
 

@@ -1198,7 +1198,7 @@ def test_cloud_client_get_organization_requires_context_without_defaults(
 
     with pytest.raises(
         PyAirbyteInputError,
-        match="Organization ID or organization name is required.",
+        match="Call `get_default_cloud_context` first. Organization ID or organization name is required.",
     ):
         CloudClient(bearer_token="token").get_organization()
 
@@ -1586,7 +1586,9 @@ def test_mcp_list_cloud_workspaces_reports_available_organizations(
     if has_retry_guidance:
         assert retry_guidance in (result.message or "")
     else:
-        assert result.message == "No organization membership was found."
+        assert result.message == (
+            "Call `get_default_cloud_context` first. No organization membership was found."
+        )
 
 
 def test_mcp_get_cloud_client_uses_configured_workspace(

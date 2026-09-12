@@ -109,7 +109,8 @@ def test_cloud_credentials_error_guidance(
     [
         pytest.param(
             True,
-            "The authenticated user's default workspace was checked. If it was not "
+            "Call `get_default_cloud_context` first. The authenticated user's "
+            "default workspace was checked. If it was not "
             "available, call `list_cloud_workspaces`, which resolves the organization "
             "automatically; only call `list_cloud_organizations` to search "
             "organizations by name. If discovery returns exactly one workspace, "
@@ -120,7 +121,8 @@ def test_cloud_credentials_error_guidance(
         ),
         pytest.param(
             False,
-            "The authenticated user's default workspace was checked. If it was not "
+            "Call `get_default_cloud_context` first. The authenticated user's "
+            "default workspace was checked. If it was not "
             "available, call `list_cloud_workspaces`, which resolves the organization "
             "automatically; only call `list_cloud_organizations` to search "
             "organizations by name. If discovery returns exactly one workspace, "

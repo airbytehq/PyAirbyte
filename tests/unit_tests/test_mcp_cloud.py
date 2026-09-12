@@ -9,7 +9,11 @@ from typing import Callable, cast
 
 import pytest
 from airbyte.cloud.connectors import CheckResult
-from airbyte.cloud.models import JobStatusEnum
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudOrganizationInfo,
+    JobStatusEnum,
+)
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
@@ -484,3 +488,37 @@ def test_cancel_cloud_sync_forwards_missing_job_id(
     )
 
     assert connection.received_job_id is None
+
+
+def test_get_default_cloud_context_returns_context_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = CloudDefaultContextInfo(
+        user_id="user-id",
+        user_name="User",
+        user_email="user@example.com",
+        is_instance_admin=True,
+        default_workspace_id=None,
+        configured_organization_id=None,
+        membership_organizations=[
+            CloudOrganizationInfo(
+                organization_id="organization-id",
+                organization_name="Organization",
+            )
+        ],
+        direct_workspaces=[],
+        resolution_notes=["No default workspace on user record"],
+    )
+
+    class ContextClient:
+        def get_default_context(self) -> CloudDefaultContextInfo:
+            return context
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+
+    assert result.user_id == "user-id"
+    assert result.is_instance_admin is True
+    assert result.membership_organizations[0].organization_id == "organization-id"
+    assert "default_workspace_id" in result.message

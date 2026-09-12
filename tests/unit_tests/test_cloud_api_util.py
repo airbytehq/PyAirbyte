@@ -122,6 +122,15 @@ def test_get_user_id_from_bearer_token() -> None:
     )
 
 
+def test_get_user_id_from_bearer_token_falls_back_to_subject() -> None:
+    assert (
+        api_util.get_user_id_from_bearer_token(
+            SecretString("header.eyJzdWIiOiJhdXRoLXVzZXItaWQifQ.signature")
+        )
+        == "auth-user-id"
+    )
+
+
 @pytest.mark.parametrize(
     ("token", "expected_message"),
     [
@@ -137,7 +146,7 @@ def test_get_user_id_from_bearer_token() -> None:
         ),
         pytest.param(
             "header.e30.signature",
-            "does not contain a user ID",
+            "does not contain a user_id or sub claim",
             id="missing-user-id",
         ),
     ],

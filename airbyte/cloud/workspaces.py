@@ -131,7 +131,7 @@ class CloudWorkspace:
         if not credentials.workspace_id:
             raise exc.PyAirbyteInputError(
                 message="Workspace ID is required.",
-                guidance="Provide a workspace ID.",
+                guidance=("Call `get_default_cloud_context` first, then provide a workspace ID."),
             )
 
         self._credentials = credentials
