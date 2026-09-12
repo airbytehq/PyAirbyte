@@ -1661,12 +1661,10 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     truncated_memberships: list[str] = []
     if context.member_organizations_truncated:
         truncated_memberships.append(
-            f"the first {len(context.member_organizations)} organization memberships"
+            f"{len(context.member_organizations)} organization memberships"
         )
     if context.member_workspaces_truncated:
-        truncated_memberships.append(
-            f"the first {len(context.member_workspaces)} workspace memberships"
-        )
+        truncated_memberships.append(f"{len(context.member_workspaces)} workspace memberships")
     message = (
         "These lists are membership-based, not access-based: they show explicit "
         "organization and workspace memberships only. Use default_workspace_id, "
@@ -1674,10 +1672,9 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
         "member_organizations."
     )
     if truncated_memberships:
-        shown = " and ".join(item.removeprefix("the first ") for item in truncated_memberships)
         message += (
-            f" Only the first {shown} are shown; use list_cloud_organizations or "
-            "list_cloud_workspaces to see the rest."
+            f" Only the first {' and '.join(truncated_memberships)} are shown; use "
+            "list_cloud_organizations or list_cloud_workspaces to see the rest."
         )
     return CloudDefaultContextResult(
         **context.model_dump(),
