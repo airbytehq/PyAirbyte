@@ -76,6 +76,15 @@ class JobTypeEnum(str, Enum):
     CLEAR = "clear"
 
 
+class WorkspacePrivilegeScope(str, Enum):
+    """How broadly `list_workspaces` searches for workspaces."""
+
+    MEMBER_OF = "member_of"
+    ORGANIZATION_ADMIN = "organization_admin"
+    INSTANCE_ADMIN = "instance_admin"
+    ANY = "any"
+
+
 class CloudWorkspaceInfo(BaseModel):
     """Information about an Airbyte workspace."""
 
@@ -117,6 +126,55 @@ class CloudWorkspaceInfo(BaseModel):
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable dictionary."""
         return self.model_dump(mode="json")
+
+
+class CloudOrganizationInfo(BaseModel):
+    """Information about an Airbyte organization."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    organization_id: str = Field(alias="organizationId")
+    """The organization ID."""
+
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name, if available."""
+
+
+class CloudDefaultContextInfo(BaseModel):
+    """Explicit organization and workspace affinities for the authenticated user."""
+
+    user_id: str | None
+    """The Airbyte user ID, if available."""
+
+    user_name: str | None
+    """The authenticated user's name, if available."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    default_workspace_id: str | None
+    """The resolved default workspace ID, if available."""
+
+    configured_workspace_id: str | None
+    """The explicitly configured workspace ID, if available."""
+
+    configured_organization_id: str | None
+    """The configured organization ID, if available."""
+
+    member_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by explicit organization membership grants."""
+
+    member_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by explicit workspace membership grants."""
+
+    member_organizations_truncated: bool
+    """True if organization memberships beyond the returned list were omitted."""
+
+    member_workspaces_truncated: bool
+    """True if workspace memberships beyond the returned list were omitted."""
+
+    discovery_hints: list[str]
+    """Hints for discovering additional organizations or workspaces."""
 
 
 class CloudConnectionInfo(BaseModel):

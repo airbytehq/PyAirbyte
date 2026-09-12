@@ -26,7 +26,13 @@ from airbyte.cloud.client import (
 )
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.models import JobTypeEnum
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudOrganizationInfo,
+    CloudWorkspaceInfo,
+    JobTypeEnum,
+    WorkspacePrivilegeScope,
+)
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -62,8 +68,9 @@ CLOUD_AUTH_TIP_TEXT = (
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
     f"`Client-Id` and `Client-Secret` headers. When no workspace ID is provided, "
     f"the authenticated user's default workspace (and its organization) is used "
-    f"automatically. To discover other workspaces, call `list_cloud_workspaces`, "
-    f"which resolves your organization automatically. Only call "
+    f"automatically. Call `get_default_cloud_context` to inspect the resolved "
+    f"context. To discover other workspaces, call `list_cloud_workspaces` "
+    f"with an organization ID or broader privilege scope. Only call "
     f"`list_cloud_organizations` when you need to search organizations by name, "
     f"passing `name_contains`. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
@@ -277,6 +284,46 @@ class CloudWorkspaceListResult(BaseModel):
 
     available_organizations: list[CloudOrganizationResult] | None = None
     """Organizations to choose from when the credentials match multiple organizations."""
+
+
+class CloudDefaultContextResult(BaseModel):
+    """Explicit authenticated Cloud affinities and discovery guidance."""
+
+    user_id: str | None
+    """The Airbyte user ID, if available."""
+
+    user_name: str | None
+    """The authenticated user's name, if available."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    default_workspace_id: str | None
+    """The resolved default workspace ID, if available."""
+
+    configured_workspace_id: str | None
+    """The explicitly configured workspace ID, if available."""
+
+    configured_organization_id: str | None
+    """The configured organization ID, if available."""
+
+    member_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by explicit organization membership grants."""
+
+    member_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by explicit workspace membership grants."""
+
+    member_organizations_truncated: bool
+    """True if organization memberships beyond the returned list were omitted."""
+
+    member_workspaces_truncated: bool
+    """True if workspace memberships beyond the returned list were omitted."""
+
+    discovery_hints: list[str]
+    """Hints for discovering additional organizations or workspaces."""
+
+    message: str
+    """Guidance for selecting a workspace or organization context."""
 
 
 class LogReadResult(BaseModel):
@@ -1525,11 +1572,21 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
+    privilege_scope: Annotated[
+        WorkspacePrivilegeScope,
+        Field(
+            description=(
+                "How broadly to search: direct memberships by default, organization "
+                "memberships, instance-wide admin access, or any available scope."
+            ),
+            default=WorkspacePrivilegeScope.MEMBER_OF,
+        ),
+    ],
 ) -> CloudWorkspaceListResult:
     """List all workspaces visible to the authenticated credentials.
 
-    The client resolves an organization from the provided IDs, workspace context, or
-    the authenticated user's organization memberships.
+    The default returns direct workspace memberships. Use `organization_id` or a broader
+    `privilege_scope` to discover more workspaces.
     """
     client = _get_cloud_client(ctx)
 
@@ -1539,36 +1596,7 @@ def list_cloud_workspaces(
             organization_name=organization_name,
             name_contains=name_contains,
             limit=limit,
-        )
-    except PyAirbyteInputError as error:
-        context = error.context or {}
-        candidates = context.get("organization_candidates")
-        if not isinstance(candidates, list):
-            raise
-        available_organizations: list[CloudOrganizationResult] = []
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_id = candidate.get("organization_id")
-            if not isinstance(candidate_id, str):
-                continue
-            candidate_name = candidate.get("organization_name")
-            available_organizations.append(
-                CloudOrganizationResult(
-                    id=candidate_id,
-                    name=candidate_name if isinstance(candidate_name, str) else None,
-                )
-            )
-        message = error.get_message()
-        if available_organizations:
-            message += (
-                " Retry with an explicit organization ID from the provided list of the "
-                "available organizations."
-            )
-        return CloudWorkspaceListResult(
-            workspaces=[],
-            available_organizations=available_organizations,
-            message=message,
+            privilege_scope=privilege_scope,
         )
     except AirbyteError as error:
         return _handle_discovery_permission_error(
@@ -1591,8 +1619,10 @@ def list_cloud_workspaces(
         result.organization_id for result in results if result.organization_id is not None
     }
     message = (
-        "No workspaces were returned for these credentials. Verify the "
-        "credentials or ask the user to provide a workspace ID."
+        "No workspaces were returned for these credentials. By default only direct "
+        "workspace memberships are listed; pass `organization_id` or a broader "
+        "`privilege_scope` to discover organization-wide workspaces, or call "
+        "`get_default_cloud_context` to inspect your memberships."
         if not results
         else None
     )
@@ -1615,6 +1645,39 @@ def list_cloud_workspaces(
                 message = f"Resolved organization {resolved_organization} for these credentials."
     return CloudWorkspaceListResult(
         workspaces=results,
+        message=message,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
+    """Return the authenticated user's default Cloud context."""
+    context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context_for_user()
+    truncated_memberships: list[str] = []
+    if context.member_organizations_truncated:
+        truncated_memberships.append(
+            f"{len(context.member_organizations)} organization memberships"
+        )
+    if context.member_workspaces_truncated:
+        truncated_memberships.append(f"{len(context.member_workspaces)} workspace memberships")
+    message = (
+        "These lists are membership-based, not access-based: they show explicit "
+        "organization and workspace memberships only. Use default_workspace_id, "
+        "pass workspace_id from member_workspaces, or pick an organization from "
+        "member_organizations."
+    )
+    if truncated_memberships:
+        message += (
+            f" Only the first {' and '.join(truncated_memberships)} are shown; use "
+            "list_cloud_organizations or list_cloud_workspaces to see the rest."
+        )
+    return CloudDefaultContextResult(
+        **context.model_dump(),
         message=message,
     )
 
@@ -1662,8 +1725,9 @@ def list_cloud_organizations(
         return CloudOrganizationListResult(
             organizations=[],
             message=(
-                "No organizations were returned for these credentials. Verify the "
-                "credentials or ask the user to provide an organization ID."
+                "No organizations were returned for these credentials. Verify the credentials "
+                "or ask the user to provide an organization ID. Call "
+                "`get_default_cloud_context` to inspect your memberships."
             ),
         )
 

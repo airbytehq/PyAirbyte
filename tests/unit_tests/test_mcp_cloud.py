@@ -9,7 +9,11 @@ from typing import Callable, cast
 
 import pytest
 from airbyte.cloud.connectors import CheckResult
-from airbyte.cloud.models import JobStatusEnum
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudOrganizationInfo,
+    JobStatusEnum,
+)
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
@@ -484,3 +488,42 @@ def test_cancel_cloud_sync_forwards_missing_job_id(
     )
 
     assert connection.received_job_id is None
+
+
+def test_get_default_cloud_context_returns_context_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = CloudDefaultContextInfo(
+        user_id="user-id",
+        user_name="User",
+        user_email="user@example.com",
+        default_workspace_id=None,
+        configured_workspace_id=None,
+        configured_organization_id=None,
+        member_organizations=[
+            CloudOrganizationInfo(
+                organization_id="organization-id",
+                organization_name="Organization",
+            )
+        ],
+        member_workspaces=[],
+        member_organizations_truncated=True,
+        member_workspaces_truncated=True,
+        discovery_hints=[],
+    )
+
+    class ContextClient:
+        def get_default_context_for_user(self) -> CloudDefaultContextInfo:
+            return context
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+
+    assert result.user_id == "user-id"
+    assert result.member_organizations[0].organization_id == "organization-id"
+    assert "membership-based, not access-based" in result.message
+    assert (
+        "Only the first 1 organization memberships and 0 workspace memberships are shown"
+        in result.message
+    )

@@ -106,7 +106,12 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     """
     sdk_context = _get_sdk_error_context(error)
     merged_context = {**(base_context or {}), **sdk_context}
-    return AirbyteError(
+    error_type = (
+        AirbyteMissingResourceError
+        if sdk_context.get("status_code") == HTTPStatus.NOT_FOUND
+        else AirbyteError
+    )
+    return error_type(
         message=f"API error occurred: {error.message}",
         context=merged_context,
     )
@@ -2890,8 +2895,10 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
 
     user_id = payload.get("user_id") if isinstance(payload, dict) else None
     if not isinstance(user_id, str) or not user_id:
+        user_id = payload.get("sub") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id:
         raise PyAirbyteInputError(
-            message="The bearer token does not contain a user ID.",
+            message="The bearer token does not contain a user_id or sub claim.",
             guidance="Provide a bearer token issued for an Airbyte user.",
         )
     return user_id

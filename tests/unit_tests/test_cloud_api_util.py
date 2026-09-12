@@ -17,6 +17,7 @@ from airbyte.exceptions import (
 )
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
+from airbyte_api.errors import SDKError
 
 
 def _job_response(job_id: int) -> models.JobResponse:
@@ -113,10 +114,45 @@ def _list_workspaces_response(
     )
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_error_type"),
+    [
+        pytest.param(404, AirbyteMissingResourceError, id="not_found"),
+        pytest.param(500, AirbyteError, id="server_error"),
+    ],
+)
+def test_wrap_sdk_error_classifies_not_found(
+    status_code: int,
+    expected_error_type: type[AirbyteError],
+) -> None:
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-id"
+    error = SDKError(
+        "Workspace lookup failed.", status_code, "response body", raw_response
+    )
+
+    wrapped = api_util._wrap_sdk_error(error, {"workspace_id": "workspace-id"})
+
+    assert type(wrapped) is expected_error_type
+    assert wrapped.get_message() == "API error occurred: Workspace lookup failed."
+    assert wrapped.context["workspace_id"] == "workspace-id"
+    assert wrapped.context["status_code"] == status_code
+
+
 def test_get_user_id_from_bearer_token() -> None:
     assert (
         api_util.get_user_id_from_bearer_token(
             SecretString("header.eyJ1c2VyX2lkIjoiYXV0aC11c2VyLWlkIn0.signature")
+        )
+        == "auth-user-id"
+    )
+
+
+def test_get_user_id_from_bearer_token_falls_back_to_subject() -> None:
+    assert (
+        api_util.get_user_id_from_bearer_token(
+            SecretString("header.eyJzdWIiOiJhdXRoLXVzZXItaWQifQ.signature")
         )
         == "auth-user-id"
     )
@@ -137,7 +173,7 @@ def test_get_user_id_from_bearer_token() -> None:
         ),
         pytest.param(
             "header.e30.signature",
-            "does not contain a user ID",
+            "does not contain a user_id or sub claim",
             id="missing-user-id",
         ),
     ],

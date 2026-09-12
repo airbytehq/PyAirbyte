@@ -109,24 +109,24 @@ def test_cloud_credentials_error_guidance(
     [
         pytest.param(
             True,
-            "The authenticated user's default workspace was checked. If it was not "
-            "available, call `list_cloud_workspaces`, which resolves the organization "
-            "automatically; only call `list_cloud_organizations` to search "
-            "organizations by name. If discovery returns exactly one workspace, "
-            "provide its ID via the "
-            "`X-Airbyte-Workspace-Id` header or the `workspace_id` parameter; "
-            "otherwise ask the user to choose.",
+            "The authenticated user's default workspace was checked and none was "
+            "available. `list_cloud_workspaces` returns direct workspace memberships "
+            "by default; pass `organization_id`/`organization_name` or a broader "
+            "`privilege_scope` for organization-wide discovery, or call "
+            "`list_cloud_organizations` to search organizations by name. If exactly "
+            "one workspace is found, use it; otherwise ask the user to choose. Call "
+            "`get_default_cloud_context` to inspect your memberships.",
             id="hosted",
         ),
         pytest.param(
             False,
-            "The authenticated user's default workspace was checked. If it was not "
-            "available, call `list_cloud_workspaces`, which resolves the organization "
-            "automatically; only call `list_cloud_organizations` to search "
-            "organizations by name. If discovery returns exactly one workspace, "
-            "set its ID in "
-            "`AIRBYTE_CLOUD_WORKSPACE_ID` or pass the `workspace_id` parameter; "
-            "otherwise ask the user to choose.",
+            "The authenticated user's default workspace was checked and none was "
+            "available. `list_workspaces` returns direct workspace memberships "
+            "by default; pass `organization_id`/`organization_name` or a broader "
+            "`privilege_scope` for organization-wide discovery, or call "
+            "`list_organizations` to search organizations by name. If exactly "
+            "one workspace is found, use it; otherwise ask the user to choose. Call "
+            "`get_default_context_for_user` to inspect your memberships.",
             id="local",
         ),
     ],
