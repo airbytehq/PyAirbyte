@@ -736,7 +736,7 @@ class CloudClient:
         try:
             user = self._get_authenticated_user_info()
         except (AirbyteError, exc.PyAirbyteInputError):
-            user = {}
+            pass
         else:
             user_id_value = user.get("userId")
             user_id = user_id_value if isinstance(user_id_value, str) else None
