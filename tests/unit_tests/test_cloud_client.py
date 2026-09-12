@@ -209,18 +209,34 @@ def test_direct_workspace_validation_is_capped() -> None:
                     notifications=models.NotificationsConfig(),
                     workspace_id=f"workspace-{index}",
                 )
-                for index in range(25)
+                for index in range(26)
             ],
         ) as get_workspace,
     ):
         client = CloudClient(bearer_token="token")
         assert client.resolve_default_workspace_id() is None
+
+        workspaces = client.list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.MEMBER_OF
+        )
+        assert [workspace.workspace_id for workspace in workspaces] == [
+            f"workspace-{index}" for index in range(26)
+        ]
+        assert get_workspace.call_count == 26
+        assert get_workspace_organization_info.call_count == 25
+
+        limited_workspaces = client.list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+            limit=3,
+        )
+        assert len(limited_workspaces) == 3
+
         context = client.get_default_context_for_user()
 
     assert len(context.member_workspaces) == 25
     assert context.member_workspaces_truncated is True
     assert context.unvalidated_workspace_count == 1
-    assert get_workspace.call_count == 25
+    assert get_workspace.call_count == 26
     assert get_workspace_organization_info.call_count == 25
 
 

@@ -464,19 +464,30 @@ class CloudClient:
         limit: int | None = None,
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces granted directly to the authenticated user."""
-        workspaces, _ = self._validate_direct_workspaces()
+        workspaces, unvalidated_count = self._validate_direct_workspaces()
         name_substring = name_contains.casefold() if name_contains is not None else None
         filtered_workspaces: list[CloudWorkspaceInfo] = []
-        for workspace in workspaces:
+
+        def accepts(workspace: CloudWorkspaceInfo) -> bool:
             if name is not None and workspace.name != name:
-                continue
+                return False
             if name_substring is not None and name_substring not in workspace.name.casefold():
-                continue
-            if name_filter is not None and not name_filter(workspace.name):
-                continue
-            filtered_workspaces.append(workspace)
+                return False
+            return name_filter is None or name_filter(workspace.name)
+
+        for workspace in workspaces:
+            if accepts(workspace):
+                filtered_workspaces.append(workspace)
             if limit is not None and len(filtered_workspaces) == limit:
                 break
+        if unvalidated_count > 0 and (limit is None or len(filtered_workspaces) < limit):
+            for workspace_id in self._get_direct_workspace_ids()[MAX_WORKSPACES_TO_VALIDATE:]:
+                workspace = self._get_direct_workspace_info(workspace_id)
+                if workspace is None or not accepts(workspace):
+                    continue
+                filtered_workspaces.append(workspace)
+                if limit is not None and len(filtered_workspaces) == limit:
+                    break
         return filtered_workspaces
 
     def _list_unscoped_workspaces(
