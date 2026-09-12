@@ -172,6 +172,14 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
     assert context.default_organization_name == "Org One"
     assert [item.organization_id for item in context.member_organizations] == ["org-1"]
     assert context.member_organizations_truncated is False
+    get_workspace_organization_info.assert_called_once_with(
+        workspace_id="live-workspace",
+        api_root=client.public_api_root,
+        config_api_root=client.config_api_root,
+        client_id=client.client_id,
+        client_secret=client.client_secret,
+        bearer_token=client.bearer_token,
+    )
 
 
 def test_resolve_default_workspace_id_skips_probing_beyond_candidate_cap() -> None:
@@ -249,16 +257,25 @@ def test_default_context_enriches_configured_workspace() -> None:
             "organizationId": "org-1",
             "organizationName": "Org One",
         }
-        context = CloudClient(
+        client = CloudClient(
             bearer_token="token",
             workspace_id="configured-workspace",
-        ).get_default_context_for_user()
+        )
+        context = client.get_default_context_for_user()
 
     assert context.default_workspace_id == "configured-workspace"
     assert context.default_workspace_name == "Configured"
     assert context.default_organization_id == "org-1"
     assert context.default_organization_name == "Org One"
     assert [item.organization_id for item in context.member_organizations] == ["org-1"]
+    get_workspace_organization_info.assert_called_once_with(
+        workspace_id="configured-workspace",
+        api_root=client.public_api_root,
+        config_api_root=client.config_api_root,
+        client_id=client.client_id,
+        client_secret=client.client_secret,
+        bearer_token=client.bearer_token,
+    )
 
 
 def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> None:
