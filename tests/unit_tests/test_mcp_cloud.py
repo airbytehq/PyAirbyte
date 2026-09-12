@@ -569,6 +569,6 @@ def test_get_default_cloud_context_flags_unverified_default_workspace(
     result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
 
     assert result.message.startswith(
-        "Default workspace ID deleted-workspace is configured but could not be verified "
-        "(it may have been deleted or is not accessible with these credentials)."
+        "Default workspace ID deleted-workspace could not be verified "
+        "(it may have been deleted or is not accessible with these credentials). These"
     )

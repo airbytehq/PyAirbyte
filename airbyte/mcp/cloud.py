@@ -1689,9 +1689,8 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     if context.default_workspace_id is not None:
         if not context.default_workspace_verified:
             resolved_default_workspace = (
-                f"Default workspace ID {context.default_workspace_id} is configured but could not "
-                "be verified (it may have been deleted or is not accessible with these "
-                "credentials)."
+                f"Default workspace ID {context.default_workspace_id} could not be verified "
+                "(it may have been deleted or is not accessible with these credentials)"
             )
         else:
             workspace_detail = context.default_workspace_id
