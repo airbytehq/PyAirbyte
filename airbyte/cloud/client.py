@@ -792,9 +792,11 @@ class CloudClient:
             # (e.g. the caller lacks org-level read, or no Config API root can be derived
             # from a custom public API root). Keep the live workspace and leave the
             # organization unknown.
+            self._workspace_organizations[workspace_id] = None
             return None
         organization_id = organization.get("organizationId")
         if not isinstance(organization_id, str) or not organization_id:
+            self._workspace_organizations[workspace_id] = None
             return None
         organization_info = CloudOrganizationInfo(
             organization_id=organization_id,

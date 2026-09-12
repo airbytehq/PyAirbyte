@@ -240,6 +240,26 @@ def test_direct_workspace_validation_is_capped() -> None:
     assert get_workspace_organization_info.call_count == 25
 
 
+def test_workspace_organization_failure_is_cached() -> None:
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3] as get_workspace_organization_info,
+        patches[4],
+    ):
+        get_workspace_organization_info.side_effect = exc.AirbyteError(
+            message="Organization lookup failed."
+        )
+        client = CloudClient(bearer_token="token")
+
+        assert client._get_workspace_organization("ws-1") is None
+        assert client._get_workspace_organization("ws-1") is None
+
+    get_workspace_organization_info.assert_called_once()
+
+
 def test_default_context_resolves_workspace_when_organization_lookup_fails() -> None:
     permissions = [{"permissionType": "workspace_admin", "workspaceId": "workspace-1"}]
     patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
