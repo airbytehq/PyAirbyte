@@ -171,8 +171,13 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
     assert context.default_workspace_verified is True
     assert context.default_organization_id == "org-1"
     assert context.default_organization_name == "Org One"
-    assert [item.organization_id for item in context.member_organizations] == ["org-1"]
+    assert [item.organization_id for item in context.member_organizations] == []
     assert context.member_organizations_truncated is False
+    assert [workspace.workspace_id for workspace in context.member_workspaces] == [
+        "live-workspace"
+    ]
+    assert context.member_workspaces[0].organization_id == "org-1"
+    assert context.member_workspaces[0].organization_name == "Org One"
     get_workspace_organization_info.assert_called_once_with(
         workspace_id="live-workspace",
         api_root=client.public_api_root,
@@ -193,7 +198,7 @@ def test_direct_workspace_validation_is_capped() -> None:
         patches[0],
         patches[1],
         patches[2],
-        patches[3],
+        patches[3] as get_workspace_organization_info,
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
@@ -216,6 +221,7 @@ def test_direct_workspace_validation_is_capped() -> None:
     assert context.member_workspaces_truncated is True
     assert context.unvalidated_workspace_count == 1
     assert get_workspace.call_count == 25
+    assert get_workspace_organization_info.call_count == 25
 
 
 def test_default_context_resolves_workspace_when_organization_lookup_fails() -> None:
@@ -251,6 +257,11 @@ def test_default_context_resolves_workspace_when_organization_lookup_fails() -> 
     assert context.default_organization_id is None
     assert context.default_organization_name is None
     assert context.member_organizations == []
+    assert [workspace.workspace_id for workspace in context.member_workspaces] == [
+        "workspace-1"
+    ]
+    assert context.member_workspaces[0].organization_id is None
+    assert context.member_workspaces[0].organization_name is None
 
 
 def test_default_context_enriches_configured_workspace() -> None:
@@ -286,7 +297,7 @@ def test_default_context_enriches_configured_workspace() -> None:
     assert context.default_workspace_verified is True
     assert context.default_organization_id == "org-1"
     assert context.default_organization_name == "Org One"
-    assert [item.organization_id for item in context.member_organizations] == ["org-1"]
+    assert [item.organization_id for item in context.member_organizations] == []
     get_workspace_organization_info.assert_called_once_with(
         workspace_id="configured-workspace",
         api_root=client.public_api_root,
@@ -397,9 +408,7 @@ def test_list_workspaces_propagates_non_not_found_workspace_error() -> None:
         )
 
 
-def test_list_workspaces_defaults_to_direct_memberships_without_org_resolution() -> (
-    None
-):
+def test_list_workspaces_defaults_to_direct_memberships() -> None:
     patches = _api_patches(
         user={"userId": "user-id"},
         permissions=[

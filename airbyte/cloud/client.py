@@ -804,8 +804,17 @@ class CloudClient:
         live_workspaces: list[CloudWorkspaceInfo] = []
         for workspace_id in workspace_ids[:MAX_WORKSPACES_TO_VALIDATE]:
             workspace = self._get_direct_workspace_info(workspace_id)
-            if workspace is not None:
-                live_workspaces.append(workspace)
+            if workspace is None:
+                continue
+            organization = self._get_workspace_organization(workspace_id)
+            if organization is not None:
+                workspace = workspace.model_copy(
+                    update={
+                        "organization_id": organization.organization_id,
+                        "organization_name": organization.organization_name,
+                    }
+                )
+            live_workspaces.append(workspace)
         result = (
             live_workspaces,
             max(0, len(workspace_ids) - MAX_WORKSPACES_TO_VALIDATE),
@@ -872,12 +881,6 @@ class CloudClient:
                 default_workspace_organization = self._get_workspace_organization(
                     default_workspace_id
                 )
-            # The default workspace's organization may not be an explicit membership.
-            if default_workspace_organization is not None and all(
-                organization.organization_id != default_workspace_organization.organization_id
-                for organization in member_organizations
-            ):
-                member_organizations.append(default_workspace_organization)
         discovery_hints: list[str] = []
         if any(permission.get("permissionType") == "instance_admin" for permission in permissions):
             discovery_hints.append(
