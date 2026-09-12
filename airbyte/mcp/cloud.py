@@ -31,6 +31,7 @@ from airbyte.cloud.models import (
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
     JobTypeEnum,
+    WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
@@ -68,8 +69,8 @@ CLOUD_AUTH_TIP_TEXT = (
     f"`Client-Id` and `Client-Secret` headers. When no workspace ID is provided, "
     f"the authenticated user's default workspace (and its organization) is used "
     f"automatically. Call `get_default_cloud_context` first to inspect the resolved "
-    f"context. To discover other workspaces, call `list_cloud_workspaces`, "
-    f"which resolves your organization automatically. Only call "
+    f"context. To discover other workspaces, call `list_cloud_workspaces` "
+    f"with an organization ID or broader privilege scope. Only call "
     f"`list_cloud_organizations` when you need to search organizations by name, "
     f"passing `name_contains`. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
@@ -1565,11 +1566,21 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
+    privilege_scope: Annotated[
+        WorkspacePrivilegeScope,
+        Field(
+            description=(
+                "How broadly to search: direct memberships by default, organization "
+                "memberships, instance-wide admin access, or any available scope."
+            ),
+            default=WorkspacePrivilegeScope.MEMBER_OF,
+        ),
+    ],
 ) -> CloudWorkspaceListResult:
     """List all workspaces visible to the authenticated credentials.
 
-    The client resolves an organization from the provided IDs, workspace context, or
-    the authenticated user's organization memberships.
+    The default returns direct workspace memberships. Use `organization_id` or a broader
+    `privilege_scope` to discover more workspaces.
     """
     client = _get_cloud_client(ctx)
 
@@ -1579,53 +1590,7 @@ def list_cloud_workspaces(
             organization_name=organization_name,
             name_contains=name_contains,
             limit=limit,
-        )
-    except PyAirbyteInputError as error:
-        context = error.context or {}
-        candidates = context.get("organization_candidates")
-        if not isinstance(candidates, list):
-            raise
-        try:
-            direct_workspaces = client.list_workspaces(
-                name_contains=name_contains,
-                limit=limit,
-                member_only=True,
-            )
-        except (AirbyteError, PyAirbyteInputError):
-            direct_workspaces = []
-        available_organizations: list[CloudOrganizationResult] = []
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_id = candidate.get("organization_id")
-            if not isinstance(candidate_id, str):
-                continue
-            candidate_name = candidate.get("organization_name")
-            available_organizations.append(
-                CloudOrganizationResult(
-                    id=candidate_id,
-                    name=candidate_name if isinstance(candidate_name, str) else None,
-                )
-            )
-        message = error.get_message()
-        if "get_default_cloud_context" not in message:
-            message = f"Call `get_default_cloud_context` first. {message}"
-        if available_organizations:
-            message += (
-                " Retry with an explicit organization ID from the provided list of the "
-                "available organizations."
-            )
-        return CloudWorkspaceListResult(
-            workspaces=[
-                CloudWorkspaceResult(
-                    workspace_id=workspace.workspace_id,
-                    workspace_name=workspace.name,
-                    organization_id=workspace.organization_id,
-                )
-                for workspace in direct_workspaces
-            ],
-            available_organizations=available_organizations,
-            message=message,
+            privilege_scope=privilege_scope,
         )
     except AirbyteError as error:
         return _handle_discovery_permission_error(

@@ -76,6 +76,15 @@ class JobTypeEnum(str, Enum):
     CLEAR = "clear"
 
 
+class WorkspacePrivilegeScope(str, Enum):
+    """How broadly `list_workspaces` searches for workspaces."""
+
+    MEMBER_OF = "member_of"
+    ORGANIZATION_ADMIN = "organization_admin"
+    INSTANCE_ADMIN = "instance_admin"
+    ANY = "any"
+
+
 class CloudWorkspaceInfo(BaseModel):
     """Information about an Airbyte workspace."""
 

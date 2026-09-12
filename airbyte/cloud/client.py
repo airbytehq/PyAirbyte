@@ -44,32 +44,25 @@ default), or from the credentials as `CloudClient.organization_id`.
 
 ### If neither is known
 
-`CloudClient.list_workspaces` first tries the parent organization of the configured
-workspace, then the authenticated user's default workspace, and finally the authenticated
-user's memberships: the organizations that user holds permissions on, read once and
-cached for the life of the client. `CloudClient.get_organization` called with no
-arguments resolves the same way: configured `CloudClient.organization_id` first, then the
-parent organization of `CloudClient.default_workspace_id`, then the parent organization
-of the authenticated user's default workspace, then the memberships below.
+`CloudClient.list_workspaces` uses `privilege_scope` to choose the search breadth:
+`MEMBER_OF` lists direct workspace grants, `ORGANIZATION_ADMIN` lists workspaces in
+member organizations, `INSTANCE_ADMIN` lists every workspace for instance admins, and
+`ANY` chooses the broadest scope available to the caller. `CloudClient.get_organization`
+called with no arguments resolves the same way: configured `CloudClient.organization_id`
+first, then the parent organization of `CloudClient.default_workspace_id`, then the
+parent organization of the authenticated user's default workspace, then the memberships
+below.
 
-- Exactly one membership — that organization is the context.
-- Several memberships — discovery stops with a `PyAirbyteInputError` that both carries
-  and enumerates in its message the first ten candidate organization IDs and names, so
-  the caller can retry with one of them instead of having to list organizations first.
-- No memberships — which happens for credentials whose grants are not
-  organization-scoped — listing falls back to the cross-organization path below.
-
-Passing `all_organizations=True` selects that path deliberately and cannot be combined
-with an organization or workspace argument.
+The deprecated `all_organizations=True` alias maps to `privilege_scope=ANY`.
 
 ### Why the path matters
 
 The two listing paths differ in completeness, not just speed:
 
-- **Organization-scoped** (an organization was resolved) uses the Config API, which
-  filters by name server-side and paginates, so results are complete and each workspace
-  carries its organization attribution.
-- **Cross-organization** (no organization resolved, or `all_organizations=True`) uses
+- **Organization-scoped** (an organization or membership scope was resolved) uses the
+  Config API, which filters by name server-side and paginates, so results are complete
+  and each workspace carries its organization attribution.
+- **Cross-organization** (`privilege_scope=INSTANCE_ADMIN`, or `ANY` for an instance admin) uses
   the public API, which has neither an organization filter nor a name filter. Name
   matching happens client-side over every visible workspace, and the responses carry no
   organization attribution.
@@ -87,6 +80,7 @@ unavailable, so self-managed deployments keep working.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NoReturn, overload
 
@@ -97,6 +91,7 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
+    WorkspacePrivilegeScope,
 )
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -324,8 +319,8 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
+        privilege_scope: WorkspacePrivilegeScope = WorkspacePrivilegeScope.MEMBER_OF,
         all_organizations: bool = False,
-        member_only: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
@@ -340,12 +335,12 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
+        privilege_scope: WorkspacePrivilegeScope = WorkspacePrivilegeScope.MEMBER_OF,
         all_organizations: bool = False,
-        member_only: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
-    def list_workspaces(  # noqa: C901, PLR0912, PLR0913, PLR0915
+    def list_workspaces(  # noqa: PLR0911, PLR0913
         self,
         name: str | None = None,
         *,
@@ -355,15 +350,14 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
+        privilege_scope: WorkspacePrivilegeScope = WorkspacePrivilegeScope.MEMBER_OF,
         all_organizations: bool = False,
-        member_only: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces available to this client.
 
-        See the module docstring for how the organization context is resolved.
-
-        When `member_only` is enabled, return only the caller's direct workspace
-        grants and do not resolve or enumerate organizations.
+        `privilege_scope` controls whether this lists direct member workspaces,
+        organization workspaces, or instance-wide workspaces. The deprecated
+        `all_organizations` alias maps to `WorkspacePrivilegeScope.ANY`.
         """
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
@@ -374,22 +368,20 @@ class CloudClient:
         has_explicit_organization = organization_id is not None or organization_name is not None
         has_explicit_workspace = workspace_id is not None
 
-        if member_only and (
-            has_explicit_organization or has_explicit_workspace or all_organizations
-        ):
-            raise exc.PyAirbyteInputError(
-                message=(
-                    "The member_only option cannot be combined with an organization, "
-                    "workspace, or all_organizations option."
+        if all_organizations:
+            if privilege_scope is not WorkspacePrivilegeScope.MEMBER_OF:
+                raise exc.PyAirbyteInputError(
+                    message=(
+                        "The all_organizations option conflicts with the "
+                        "privilege_scope option."
+                    )
                 )
+            warnings.warn(
+                "`all_organizations` is deprecated; use `privilege_scope` instead.",
+                DeprecationWarning,
+                stacklevel=2,
             )
-        if all_organizations and (has_explicit_organization or has_explicit_workspace):
-            raise exc.PyAirbyteInputError(
-                message=(
-                    "The all_organizations option cannot be combined with an "
-                    "organization or workspace ID."
-                )
-            )
+            privilege_scope = WorkspacePrivilegeScope.ANY
         if name_contains is not None and name_filter is not None:
             raise exc.PyAirbyteInputError(
                 message="You can provide name_contains or name_filter, but not both."
@@ -398,118 +390,68 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="You can provide name or name_contains, but not both."
             )
-        if member_only:
-            workspace_ids = self._get_direct_workspace_ids()
-            if limit is not None and name is None and name_contains is None and name_filter is None:
-                workspace_ids = workspace_ids[:limit]
-            workspaces: list[CloudWorkspaceInfo] = []
-            name_substring = name_contains.casefold() if name_contains is not None else None
-            for direct_workspace_id in workspace_ids:
-                workspace = CloudWorkspaceInfo.from_api_response(
-                    api_util.get_workspace(
-                        workspace_id=direct_workspace_id,
-                        api_root=self.public_api_root,
-                        client_id=self.client_id,
-                        client_secret=self.client_secret,
-                        bearer_token=self.bearer_token,
-                    )
-                )
-                if name is not None and workspace.name != name:
-                    continue
-                if name_substring is not None and name_substring not in workspace.name.casefold():
-                    continue
-                if name_filter is not None and not name_filter(workspace.name):
-                    continue
-                workspaces.append(workspace)
-                if limit is not None and len(workspaces) == limit:
-                    break
-            return workspaces
-        if all_organizations:
-            resolved_organization_id = None
-        else:
-            try:
-                resolved_organization_id = self._resolve_workspace_organization_id(
-                    organization_id=organization_id,
-                    organization_name=organization_name,
-                    workspace_id=workspace_id,
-                )
-            except exc.PyAirbyteInputError:
-                if has_explicit_organization or has_explicit_workspace:
-                    raise
-                direct_workspaces = self._try_list_member_workspaces(
-                    name=name,
-                    name_contains=name_contains,
-                    name_filter=name_filter,
-                    limit=limit,
-                )
-                if direct_workspaces:
-                    return direct_workspaces
-                raise
-        if resolved_organization_id is None and not all_organizations:
-            direct_workspaces = self._try_list_member_workspaces(
+        if has_explicit_organization or has_explicit_workspace:
+            resolved_organization_id = self._resolve_workspace_organization_id(
+                organization_id=organization_id,
+                organization_name=organization_name,
+                workspace_id=workspace_id,
+            )
+            if resolved_organization_id is None:
+                return []
+            return self._list_workspaces_in_organizations(
+                (resolved_organization_id,),
                 name=name,
                 name_contains=name_contains,
                 name_filter=name_filter,
                 limit=limit,
             )
-            if direct_workspaces:
-                return direct_workspaces
-            if self._try_is_instance_admin():
-                raise exc.PyAirbyteInputError(
-                    message=(
-                        "Call `get_default_cloud_context` first. An organization or "
-                        "workspace context is required for an instance administrator."
-                    ),
-                    guidance=(
-                        "Call `get_default_cloud_context` first, then pass organization_id "
-                        "or organization_name, or set all_organizations=True."
-                    ),
-                )
 
-        if resolved_organization_id is None:
-            if name_contains is not None:
-                name_substring = name_contains.casefold()
-
-                def matches_name(workspace_name: str) -> bool:
-                    return name_substring in workspace_name.casefold()
-
-                name_filter = matches_name
-                name = None
-            workspaces = api_util.list_workspaces(
-                workspace_id="",
-                api_root=self.public_api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-                name_filter=name_filter,
+        if privilege_scope is WorkspacePrivilegeScope.MEMBER_OF:
+            return self._list_member_workspaces(
                 name=name,
+                name_contains=name_contains,
+                name_filter=name_filter,
                 limit=limit,
             )
-            return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
 
-        # The organization-scoped path delegates `name_contains` casing to the server.
-        workspaces = api_util.list_workspaces_in_organization(
-            organization_id=resolved_organization_id,
-            api_root=self.public_api_root,
-            config_api_root=self.config_api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self._get_config_api_bearer_token(),
-            name_contains=name_contains or name,
-            limit=None if name is not None or name_filter is not None else limit,
-        )
-        workspace_infos = [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
-        if name is not None:
-            workspace_infos = [workspace for workspace in workspace_infos if workspace.name == name]
-        if name_filter is not None:
-            workspace_infos = [
-                workspace for workspace in workspace_infos if name_filter(workspace.name)
-            ]
-        if limit is not None and (name is not None or name_filter is not None):
-            workspace_infos = workspace_infos[:limit]
-        return workspace_infos
+        if privilege_scope is WorkspacePrivilegeScope.INSTANCE_ADMIN:
+            if not self._is_instance_admin():
+                raise exc.PyAirbyteInputError(
+                    message="privilege_scope=instance_admin requires the instance_admin permission."
+                )
+            return self._list_unscoped_workspaces(
+                name=name,
+                name_contains=name_contains,
+                name_filter=name_filter,
+                limit=limit,
+            )
 
-    def _try_list_member_workspaces(
+        if privilege_scope is WorkspacePrivilegeScope.ANY and self._is_instance_admin():
+            return self._list_unscoped_workspaces(
+                name=name,
+                name_contains=name_contains,
+                name_filter=name_filter,
+                limit=limit,
+            )
+
+        if privilege_scope in {
+            WorkspacePrivilegeScope.ORGANIZATION_ADMIN,
+            WorkspacePrivilegeScope.ANY,
+        }:
+            organization_ids = self._get_membership_organization_ids()
+            if not organization_ids:
+                return []
+            return self._list_workspaces_in_organizations(
+                organization_ids,
+                name=name,
+                name_contains=name_contains,
+                name_filter=name_filter,
+                limit=limit,
+            )
+
+        raise exc.PyAirbyteInputError(message="Unsupported workspace privilege scope.")
+
+    def _list_member_workspaces(
         self,
         *,
         name: str | None = None,
@@ -517,24 +459,104 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
     ) -> list[CloudWorkspaceInfo]:
-        """List member workspaces, degrading to an empty result on lookup errors."""
-        try:
-            return self.list_workspaces(
-                name=name,
-                name_contains=name_contains,
-                name_filter=name_filter,
-                limit=limit,
-                member_only=True,
+        """List workspaces granted directly to the authenticated user."""
+        workspace_ids = self._get_direct_workspace_ids()
+        if limit is not None and name is None and name_contains is None and name_filter is None:
+            workspace_ids = workspace_ids[:limit]
+        workspaces: list[CloudWorkspaceInfo] = []
+        name_substring = name_contains.casefold() if name_contains is not None else None
+        for direct_workspace_id in workspace_ids:
+            workspace = CloudWorkspaceInfo.from_api_response(
+                api_util.get_workspace(
+                    workspace_id=direct_workspace_id,
+                    api_root=self.public_api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    bearer_token=self.bearer_token,
+                )
             )
-        except (AirbyteError, exc.PyAirbyteInputError):
-            return []
+            if name is not None and workspace.name != name:
+                continue
+            if name_substring is not None and name_substring not in workspace.name.casefold():
+                continue
+            if name_filter is not None and not name_filter(workspace.name):
+                continue
+            workspaces.append(workspace)
+            if limit is not None and len(workspaces) == limit:
+                break
+        return workspaces
 
-    def _try_is_instance_admin(self) -> bool:
-        """Return instance-admin status, degrading to false on lookup errors."""
-        try:
-            return self._is_instance_admin()
-        except (AirbyteError, exc.PyAirbyteInputError):
-            return False
+    def _list_unscoped_workspaces(
+        self,
+        *,
+        name: str | None,
+        name_contains: str | None,
+        name_filter: Callable[[str], bool] | None,
+        limit: int | None,
+    ) -> list[CloudWorkspaceInfo]:
+        """List workspaces across the instance."""
+        if name_contains is not None:
+            name_substring = name_contains.casefold()
+
+            def matches_name(workspace_name: str) -> bool:
+                return name_substring in workspace_name.casefold()
+
+            name_filter = matches_name
+            name = None
+        workspaces = api_util.list_workspaces(
+            workspace_id="",
+            api_root=self.public_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            name_filter=name_filter,
+            name=name,
+            limit=limit,
+        )
+        return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
+
+    def _list_workspaces_in_organizations(
+        self,
+        organization_ids: tuple[str, ...],
+        *,
+        name: str | None,
+        name_contains: str | None,
+        name_filter: Callable[[str], bool] | None,
+        limit: int | None,
+    ) -> list[CloudWorkspaceInfo]:
+        """List and combine workspaces from one or more organizations."""
+        workspace_infos: list[CloudWorkspaceInfo] = []
+        for organization_id in organization_ids:
+            remaining_limit = None if limit is None else limit - len(workspace_infos)
+            if remaining_limit == 0:
+                break
+            workspaces = api_util.list_workspaces_in_organization(
+                organization_id=organization_id,
+                api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self._get_config_api_bearer_token(),
+                name_contains=name_contains or name,
+                limit=None if name is not None or name_filter is not None else remaining_limit,
+            )
+            organization_workspaces = [
+                CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces
+            ]
+            if name is not None:
+                organization_workspaces = [
+                    workspace for workspace in organization_workspaces if workspace.name == name
+                ]
+            if name_filter is not None:
+                organization_workspaces = [
+                    workspace
+                    for workspace in organization_workspaces
+                    if name_filter(workspace.name)
+                ]
+            workspace_infos.extend(organization_workspaces)
+            if limit is not None and len(workspace_infos) >= limit:
+                break
+        return workspace_infos[:limit] if limit is not None else workspace_infos
 
     def _resolve_workspace_organization_id(
         self,
@@ -759,7 +781,10 @@ class CloudClient:
         else:
             membership_organization_ids = self._get_membership_organization_ids()
             try:
-                member_workspaces = self.list_workspaces(member_only=True, limit=25)
+                member_workspaces = self.list_workspaces(
+                    privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+                    limit=25,
+                )
             except (AirbyteError, exc.PyAirbyteInputError):
                 member_workspaces = []
 

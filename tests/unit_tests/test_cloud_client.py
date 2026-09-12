@@ -7,6 +7,7 @@ import pytest
 
 from airbyte import exceptions as exc
 from airbyte.cloud.client import CloudClient
+from airbyte.cloud.models import WorkspacePrivilegeScope
 from airbyte_api import models
 
 
@@ -112,15 +113,9 @@ def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> Non
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
 
 
-def test_list_workspaces_member_only_rejects_organization_context() -> None:
-    with pytest.raises(exc.PyAirbyteInputError, match="member_only"):
-        CloudClient(bearer_token="token").list_workspaces(
-            member_only=True,
-            organization_id="organization-id",
-        )
-
-
-def test_list_workspaces_member_only_fetches_only_until_limit() -> None:
+def test_list_workspaces_defaults_to_direct_memberships_without_org_resolution() -> (
+    None
+):
     patches = _api_patches(
         user={"userId": "user-id"},
         permissions=[
@@ -145,12 +140,188 @@ def test_list_workspaces_member_only_fetches_only_until_limit() -> None:
         ) as get_workspace,
     ):
         workspaces = CloudClient(bearer_token="token").list_workspaces(
-            member_only=True,
+            privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
             limit=1,
         )
 
     assert [workspace.workspace_id for workspace in workspaces] == ["workspace-1"]
     get_workspace.assert_called_once()
+
+
+def test_list_workspaces_organization_admin_lists_all_member_organizations() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-1",
+            },
+            {
+                "permissionType": "organization_admin",
+                "organizationId": "organization-2",
+            },
+        ],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.list_workspaces_in_organization",
+            side_effect=[
+                [{"workspaceId": "workspace-1", "name": "Workspace 1"}],
+                [{"workspaceId": "workspace-2", "name": "Workspace 2"}],
+            ],
+        ) as list_workspaces_in_organization,
+    ):
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.ORGANIZATION_ADMIN
+        )
+
+    assert [workspace.workspace_id for workspace in workspaces] == [
+        "workspace-1",
+        "workspace-2",
+    ]
+    assert [
+        call.kwargs["organization_id"]
+        for call in list_workspaces_in_organization.call_args_list
+    ] == ["organization-1", "organization-2"]
+
+
+def test_list_workspaces_instance_admin_scope_requires_instance_admin() -> None:
+    patches = _api_patches(user={"userId": "user-id"}, permissions=[])
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        pytest.raises(
+            exc.PyAirbyteInputError,
+            match="privilege_scope=instance_admin requires the instance_admin permission",
+        ),
+    ):
+        CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN
+        )
+
+
+def test_list_workspaces_any_scope_uses_unscoped_listing_for_instance_admin() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[{"permissionType": "instance_admin"}],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.list_workspaces",
+            return_value=[],
+        ) as list_workspaces,
+    ):
+        CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.ANY
+        )
+
+    list_workspaces.assert_called_once()
+
+
+def test_list_workspaces_any_scope_fails_closed_when_permissions_cannot_be_loaded() -> (
+    None
+):
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4] as list_permissions,
+        patch("airbyte._util.api_util.list_workspaces") as list_workspaces,
+        pytest.raises(exc.AirbyteError, match="Permission lookup failed"),
+    ):
+        list_permissions.side_effect = exc.AirbyteError(
+            message="Permission lookup failed"
+        )
+        CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.ANY
+        )
+
+    list_workspaces.assert_not_called()
+
+
+def test_list_workspaces_any_scope_uses_member_organizations_without_instance_admin() -> (
+    None
+):
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-1",
+            }
+        ],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.list_workspaces_in_organization",
+            return_value=[{"workspaceId": "workspace-1", "name": "Workspace 1"}],
+        ) as list_workspaces_in_organization,
+    ):
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.ANY
+        )
+
+    assert [workspace.workspace_id for workspace in workspaces] == ["workspace-1"]
+    list_workspaces_in_organization.assert_called_once()
+
+
+def test_list_workspaces_explicit_organization_ignores_privilege_scope() -> None:
+    with patch(
+        "airbyte._util.api_util.list_workspaces_in_organization",
+        return_value=[{"workspaceId": "workspace-1", "name": "Workspace 1"}],
+    ) as list_workspaces_in_organization:
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            organization_id="organization-id",
+            privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+        )
+
+    assert [workspace.workspace_id for workspace in workspaces] == ["workspace-1"]
+    list_workspaces_in_organization.assert_called_once()
+
+
+def test_list_workspaces_all_organizations_alias_warns_and_maps_to_any() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[{"permissionType": "instance_admin"}],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch("airbyte._util.api_util.list_workspaces", return_value=[]),
+        pytest.warns(DeprecationWarning, match="all_organizations"),
+    ):
+        CloudClient(bearer_token="token").list_workspaces(all_organizations=True)
+
+
+def test_list_workspaces_all_organizations_alias_conflicts_with_scope() -> None:
+    with pytest.raises(exc.PyAirbyteInputError, match="privilege_scope"):
+        CloudClient(bearer_token="token").list_workspaces(
+            all_organizations=True,
+            privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
+        )
 
 
 def test_list_workspaces_explicit_workspace_resolution_does_not_use_member_fallback() -> (
@@ -315,22 +486,6 @@ def test_list_workspaces_uses_direct_grants_when_memberships_are_ambiguous() -> 
     ]
     get_workspace.assert_called()
     list_by_organization.assert_not_called()
-
-
-def test_list_workspaces_rejects_unscoped_instance_admin_discovery() -> None:
-    patches = _api_patches(
-        user={"userId": "user-id"},
-        permissions=[{"permissionType": "instance_admin"}],
-    )
-    with (
-        patches[0],
-        patches[1],
-        patches[2],
-        patches[3],
-        patches[4],
-        pytest.raises(exc.PyAirbyteInputError, match="instance administrator"),
-    ):
-        CloudClient(bearer_token="token").list_workspaces()
 
 
 def test_get_default_context_for_user_is_bounded_to_permission_derived_scope() -> None:
