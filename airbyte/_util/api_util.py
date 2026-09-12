@@ -106,7 +106,12 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     """
     sdk_context = _get_sdk_error_context(error)
     merged_context = {**(base_context or {}), **sdk_context}
-    return AirbyteError(
+    error_type = (
+        AirbyteMissingResourceError
+        if sdk_context.get("status_code") == HTTPStatus.NOT_FOUND
+        else AirbyteError
+    )
+    return error_type(
         message=f"API error occurred: {error.message}",
         context=merged_context,
     )

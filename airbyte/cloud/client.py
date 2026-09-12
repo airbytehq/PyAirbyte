@@ -115,6 +115,7 @@ class CloudClient:
     _credentials: _AirbyteCredentials
     _membership_organization_ids: tuple[str, ...] | None
     _user_permissions: tuple[dict[str, Any], ...] | None
+    _direct_workspace_infos: dict[str, CloudWorkspaceInfo | None]
     _authenticated_user_info: dict[str, Any] | None = field(repr=False)
     _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
@@ -143,6 +144,7 @@ class CloudClient:
         )
         self._membership_organization_ids = None
         self._user_permissions = None
+        self._direct_workspace_infos = {}
         self._authenticated_user_info = None
         self._authenticated_user_id = None
         self._authenticated_bearer_token = None
@@ -459,20 +461,12 @@ class CloudClient:
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces granted directly to the authenticated user."""
         workspace_ids = self._get_direct_workspace_ids()
-        if limit is not None and name is None and name_contains is None and name_filter is None:
-            workspace_ids = workspace_ids[:limit]
         workspaces: list[CloudWorkspaceInfo] = []
         name_substring = name_contains.casefold() if name_contains is not None else None
         for direct_workspace_id in workspace_ids:
-            workspace = CloudWorkspaceInfo.from_api_response(
-                api_util.get_workspace(
-                    workspace_id=direct_workspace_id,
-                    api_root=self.public_api_root,
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    bearer_token=self.bearer_token,
-                )
-            )
+            workspace = self._get_direct_workspace_info(direct_workspace_id)
+            if workspace is None:
+                continue
             if name is not None and workspace.name != name:
                 continue
             if name_substring is not None and name_substring not in workspace.name.casefold():
@@ -699,7 +693,13 @@ class CloudClient:
             direct_workspace_ids = self._get_direct_workspace_ids()
         except (AirbyteError, exc.PyAirbyteInputError):
             return None
-        return direct_workspace_ids[0] if len(direct_workspace_ids) == 1 else None
+        if len(direct_workspace_ids) != 1:
+            return None
+        try:
+            workspace_info = self._get_direct_workspace_info(direct_workspace_ids[0])
+        except (AirbyteError, exc.PyAirbyteInputError):
+            return None
+        return direct_workspace_ids[0] if workspace_info is not None else None
 
     def _get_user_permissions(self) -> tuple[dict[str, Any], ...]:
         """Get and cache permissions for the authenticated user."""
@@ -744,6 +744,25 @@ class CloudClient:
             if isinstance(workspace_id, str) and workspace_id and workspace_id not in workspace_ids:
                 workspace_ids.append(workspace_id)
         return tuple(workspace_ids)
+
+    def _get_direct_workspace_info(self, workspace_id: str) -> CloudWorkspaceInfo | None:
+        """Fetch a directly granted workspace, or `None` if the grant is stale (404)."""
+        if workspace_id in self._direct_workspace_infos:
+            return self._direct_workspace_infos[workspace_id]
+        try:
+            workspace = api_util.get_workspace(
+                workspace_id=workspace_id,
+                api_root=self.public_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            )
+        except exc.AirbyteMissingResourceError:
+            self._direct_workspace_infos[workspace_id] = None
+            return None
+        workspace_info = CloudWorkspaceInfo.from_api_response(workspace)
+        self._direct_workspace_infos[workspace_id] = workspace_info
+        return workspace_info
 
     def _is_instance_admin(self) -> bool:
         """Return whether the caller has an instance-admin permission."""

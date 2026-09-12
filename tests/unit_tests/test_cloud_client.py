@@ -100,7 +100,22 @@ def test_resolve_default_workspace_id_uses_exactly_one_direct_grant(
     expected_workspace_id: str | None,
 ) -> None:
     patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Workspace",
+                notifications=models.NotificationsConfig(),
+                workspace_id="direct-workspace",
+            ),
+        ),
+    ):
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() == (
             expected_workspace_id
         )
@@ -111,6 +126,99 @@ def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> Non
     with patches[0], patches[1], patches[2], patches[3], patches[4] as permissions:
         permissions.side_effect = exc.AirbyteError(message="Permission lookup failed.")
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
+
+
+def test_stale_direct_workspace_grant_is_ignored_consistently() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "stale-workspace"}
+        ],
+    )
+    stale_error = exc.AirbyteMissingResourceError(
+        resource_type="workspace",
+        resource_name_or_id="stale-workspace",
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch("airbyte._util.api_util.get_workspace", side_effect=stale_error),
+    ):
+        client = CloudClient(bearer_token="token")
+
+        assert client.resolve_default_workspace_id() is None
+        assert (
+            client.list_workspaces(privilege_scope=WorkspacePrivilegeScope.MEMBER_OF)
+            == []
+        )
+        context = client.get_default_context_for_user()
+
+    assert context.default_workspace_id is None
+    assert context.member_workspaces == []
+    assert context.member_workspaces_truncated is False
+
+
+def test_list_workspaces_skips_stale_grant_before_valid_grant_with_limit() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "stale-workspace"},
+            {"permissionType": "workspace_admin", "workspaceId": "valid-workspace"},
+        ],
+    )
+    stale_error = exc.AirbyteMissingResourceError(
+        resource_type="workspace",
+        resource_name_or_id="stale-workspace",
+    )
+    valid_workspace = models.WorkspaceResponse(
+        data_residency="auto",
+        name="Valid workspace",
+        notifications=models.NotificationsConfig(),
+        workspace_id="valid-workspace",
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            side_effect=[stale_error, valid_workspace],
+        ) as get_workspace,
+    ):
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+            limit=1,
+        )
+
+    assert [workspace.workspace_id for workspace in workspaces] == ["valid-workspace"]
+    assert get_workspace.call_count == 2
+
+
+def test_list_workspaces_propagates_non_not_found_workspace_error() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-id"}
+        ],
+    )
+    api_error = exc.AirbyteError(message="Workspace lookup failed.")
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch("airbyte._util.api_util.get_workspace", side_effect=api_error),
+        pytest.raises(exc.AirbyteError, match="Workspace lookup failed"),
+    ):
+        CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=WorkspacePrivilegeScope.MEMBER_OF
+        )
 
 
 def test_list_workspaces_defaults_to_direct_memberships_without_org_resolution() -> (
