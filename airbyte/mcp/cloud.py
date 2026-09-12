@@ -1684,7 +1684,7 @@ def list_cloud_workspaces(
 )
 def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     """Return the authenticated user's default Cloud context."""
-    context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context()
+    context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context_for_user()
     return CloudDefaultContextResult(
         **context.model_dump(),
         message=(

@@ -511,7 +511,7 @@ def test_get_default_cloud_context_returns_context_model(
     )
 
     class ContextClient:
-        def get_default_context(self) -> CloudDefaultContextInfo:
+        def get_default_context_for_user(self) -> CloudDefaultContextInfo:
             return context
 
     monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())

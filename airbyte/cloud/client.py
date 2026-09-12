@@ -345,7 +345,7 @@ class CloudClient:
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
-    def list_workspaces(  # noqa: PLR0912, PLR0913, PLR0915
+    def list_workspaces(  # noqa: C901, PLR0912, PLR0913, PLR0915
         self,
         name: str | None = None,
         *,
@@ -399,30 +399,31 @@ class CloudClient:
                 message="You can provide name or name_contains, but not both."
             )
         if member_only:
-            workspaces = [
-                CloudWorkspaceInfo.from_api_response(
+            workspace_ids = self._get_direct_workspace_ids()
+            if limit is not None and name is None and name_contains is None and name_filter is None:
+                workspace_ids = workspace_ids[:limit]
+            workspaces: list[CloudWorkspaceInfo] = []
+            name_substring = name_contains.casefold() if name_contains is not None else None
+            for direct_workspace_id in workspace_ids:
+                workspace = CloudWorkspaceInfo.from_api_response(
                     api_util.get_workspace(
-                        workspace_id=workspace_id,
+                        workspace_id=direct_workspace_id,
                         api_root=self.public_api_root,
                         client_id=self.client_id,
                         client_secret=self.client_secret,
                         bearer_token=self.bearer_token,
                     )
                 )
-                for workspace_id in self._get_direct_workspace_ids()
-            ]
-            if name is not None:
-                workspaces = [workspace for workspace in workspaces if workspace.name == name]
-            elif name_contains is not None:
-                name_substring = name_contains.casefold()
-                workspaces = [
-                    workspace
-                    for workspace in workspaces
-                    if name_substring in workspace.name.casefold()
-                ]
-            elif name_filter is not None:
-                workspaces = [workspace for workspace in workspaces if name_filter(workspace.name)]
-            return workspaces if limit is None else workspaces[:limit]
+                if name is not None and workspace.name != name:
+                    continue
+                if name_substring is not None and name_substring not in workspace.name.casefold():
+                    continue
+                if name_filter is not None and not name_filter(workspace.name):
+                    continue
+                workspaces.append(workspace)
+                if limit is not None and len(workspaces) == limit:
+                    break
+            return workspaces
         if all_organizations:
             resolved_organization_id = None
         else:
@@ -433,6 +434,8 @@ class CloudClient:
                     workspace_id=workspace_id,
                 )
             except exc.PyAirbyteInputError:
+                if has_explicit_organization or has_explicit_workspace:
+                    raise
                 direct_workspaces = self._try_list_member_workspaces(
                     name=name,
                     name_contains=name_contains,
@@ -729,7 +732,7 @@ class CloudClient:
             for permission in self._get_user_permissions()
         )
 
-    def get_default_context(self) -> CloudDefaultContextInfo:
+    def get_default_context_for_user(self) -> CloudDefaultContextInfo:
         """Describe the authenticated user's explicit Cloud affinities."""
         user_id: str | None = None
         user_name: str | None = None

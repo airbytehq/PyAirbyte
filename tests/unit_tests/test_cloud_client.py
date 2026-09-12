@@ -120,6 +120,67 @@ def test_list_workspaces_member_only_rejects_organization_context() -> None:
         )
 
 
+def test_list_workspaces_member_only_fetches_only_until_limit() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": f"workspace-{index}"}
+            for index in range(1, 4)
+        ],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Workspace 1",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-1",
+            ),
+        ) as get_workspace,
+    ):
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            member_only=True,
+            limit=1,
+        )
+
+    assert [workspace.workspace_id for workspace in workspaces] == ["workspace-1"]
+    get_workspace.assert_called_once()
+
+
+def test_list_workspaces_explicit_workspace_resolution_does_not_use_member_fallback() -> (
+    None
+):
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-1"}
+        ],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3] as get_workspace_organization_info,
+        patches[4],
+        patch("airbyte._util.api_util.get_workspace") as get_workspace,
+        pytest.raises(exc.PyAirbyteInputError),
+    ):
+        get_workspace_organization_info.side_effect = exc.PyAirbyteInputError(
+            message="Workspace organization is ambiguous."
+        )
+        CloudClient(bearer_token="token").list_workspaces(
+            workspace_id="unknown-workspace"
+        )
+
+    get_workspace.assert_not_called()
+
+
 def test_get_workspace_raises_when_authenticated_user_has_no_default_workspace() -> (
     None
 ):
@@ -272,7 +333,7 @@ def test_list_workspaces_rejects_unscoped_instance_admin_discovery() -> None:
         CloudClient(bearer_token="token").list_workspaces()
 
 
-def test_get_default_context_is_bounded_to_permission_derived_scope() -> None:
+def test_get_default_context_for_user_is_bounded_to_permission_derived_scope() -> None:
     permissions = [
         {"permissionType": "instance_admin"},
         {"permissionType": "organization_admin", "organizationId": "organization-1"},
@@ -309,7 +370,7 @@ def test_get_default_context_is_bounded_to_permission_derived_scope() -> None:
             ],
         ),
     ):
-        context = CloudClient(bearer_token="token").get_default_context()
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
 
     assert context.user_id == "user-id"
     assert context.default_workspace_id is None
@@ -323,7 +384,7 @@ def test_get_default_context_is_bounded_to_permission_derived_scope() -> None:
     assert len(context.discovery_hints) == 2
 
 
-def test_get_default_context_degrades_without_token_identity() -> None:
+def test_get_default_context_for_user_degrades_without_token_identity() -> None:
     patches = _api_patches(user={"userId": "user-id"})
     with (
         patches[0],
@@ -335,7 +396,7 @@ def test_get_default_context_degrades_without_token_identity() -> None:
         get_user_id.side_effect = exc.PyAirbyteInputError(
             message="The bearer token does not contain a user_id or sub claim."
         )
-        context = CloudClient(bearer_token="token").get_default_context()
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
 
     assert context.user_id is None
     assert context.discovery_hints == []
