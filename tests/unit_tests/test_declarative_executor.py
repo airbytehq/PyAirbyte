@@ -291,3 +291,40 @@ def test_missing_config_does_not_resolve_to_a_stale_value(tmp_path: Path) -> Non
     first = ["check", "--config", str(_config_file(tmp_path, "secret-value"))]
     assert executor._config_from_args(first) == {"api_key": "secret-value"}
     assert executor._config_from_args(["spec"]) == {}
+
+
+def test_execute_passes_state_and_catalog_to_the_source(
+    tmp_path: Path,
+    mocker: Any,
+) -> None:
+    """`execute()` must wire the `--state` and `--catalog` files into the source."""
+    captured: dict[str, Any] = {}
+
+    def _capture(*_args: Any, **kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    mocker.patch(
+        "airbyte._executors.declarative.ConcurrentDeclarativeSource",
+        side_effect=_capture,
+    )
+    entrypoint = mocker.patch("airbyte._executors.declarative.AirbyteEntrypoint")
+    entrypoint.return_value.run.return_value = iter([])
+
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    list(
+        executor.execute([
+            "read",
+            "--config",
+            str(_config_file(tmp_path)),
+            "--catalog",
+            str(_catalog_file(tmp_path)),
+            "--state",
+            str(_state_file(tmp_path, "2026-05-05T00:00:00Z")),
+        ])
+    )
+
+    state = captured["state"]
+    assert len(state) == 1
+    assert vars(state[0].stream.stream_state) == {"updated_at": "2026-05-05T00:00:00Z"}
+    assert captured["catalog"].streams[0].stream.name == "items"
