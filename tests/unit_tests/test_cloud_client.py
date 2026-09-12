@@ -536,7 +536,71 @@ def test_get_default_context_for_user_is_bounded_to_permission_derived_scope() -
     assert [item.workspace_id for item in context.member_workspaces] == [
         f"workspace-{index}" for index in range(1, 7)
     ]
+    assert context.member_organizations_truncated is False
+    assert context.member_workspaces_truncated is False
     assert len(context.discovery_hints) == 2
+
+
+def test_get_default_context_for_user_truncates_organization_memberships() -> None:
+    permissions = [
+        {
+            "permissionType": "organization_member",
+            "organizationId": f"organization-{index}",
+        }
+        for index in range(1, 12)
+    ]
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_organization_info",
+            side_effect=[
+                {"organizationName": f"Organization {index}"} for index in range(1, 11)
+            ],
+        ),
+    ):
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
+
+    assert len(context.member_organizations) == 10
+    assert context.member_organizations_truncated is True
+    assert context.member_workspaces_truncated is False
+
+
+def test_get_default_context_for_user_truncates_workspace_memberships() -> None:
+    permissions = [
+        {"permissionType": "workspace_admin", "workspaceId": f"workspace-{index}"}
+        for index in range(1, 27)
+    ]
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            side_effect=[
+                models.WorkspaceResponse(
+                    data_residency="auto",
+                    name=f"Workspace {index}",
+                    notifications=models.NotificationsConfig(),
+                    workspace_id=f"workspace-{index}",
+                )
+                for index in range(1, 26)
+            ],
+        ) as get_workspace,
+    ):
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
+
+    assert len(context.member_workspaces) == 25
+    assert context.member_organizations_truncated is False
+    assert context.member_workspaces_truncated is True
+    assert get_workspace.call_count == 25
 
 
 def test_get_default_context_for_user_degrades_without_token_identity() -> None:

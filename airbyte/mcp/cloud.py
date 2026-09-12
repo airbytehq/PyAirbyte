@@ -313,6 +313,12 @@ class CloudDefaultContextResult(BaseModel):
     member_workspaces: list[CloudWorkspaceInfo]
     """Workspaces identified by explicit workspace membership grants."""
 
+    member_organizations_truncated: bool
+    """True if organization memberships beyond the returned list were omitted."""
+
+    member_workspaces_truncated: bool
+    """True if workspace memberships beyond the returned list were omitted."""
+
     discovery_hints: list[str]
     """Hints for discovering additional organizations or workspaces."""
 
@@ -1613,8 +1619,10 @@ def list_cloud_workspaces(
         result.organization_id for result in results if result.organization_id is not None
     }
     message = (
-        "No workspaces were returned for these credentials. Verify the "
-        "credentials or ask the user to provide a workspace ID."
+        "No workspaces were returned for these credentials. By default only direct "
+        "workspace memberships are listed; pass `organization_id` or a broader "
+        "`privilege_scope` to discover organization-wide workspaces, or call "
+        "`get_default_cloud_context` to inspect your memberships."
         if not results
         else None
     )
@@ -1650,14 +1658,30 @@ def list_cloud_workspaces(
 def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     """Return the authenticated user's default Cloud context."""
     context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context_for_user()
+    truncated_memberships: list[str] = []
+    if context.member_organizations_truncated:
+        truncated_memberships.append(
+            f"the first {len(context.member_organizations)} organization memberships"
+        )
+    if context.member_workspaces_truncated:
+        truncated_memberships.append(
+            f"the first {len(context.member_workspaces)} workspace memberships"
+        )
+    message = (
+        "These lists are membership-based, not access-based: they show explicit "
+        "organization and workspace memberships only. Use default_workspace_id, "
+        "pass workspace_id from member_workspaces, or pick an organization from "
+        "member_organizations."
+    )
+    if truncated_memberships:
+        shown = " and ".join(item.removeprefix("the first ") for item in truncated_memberships)
+        message += (
+            f" Only the first {shown} are shown; use list_cloud_organizations or "
+            "list_cloud_workspaces to see the rest."
+        )
     return CloudDefaultContextResult(
         **context.model_dump(),
-        message=(
-            "These lists are membership-based, not access-based: they show explicit "
-            "organization and workspace memberships only. Use default_workspace_id, "
-            "pass workspace_id from member_workspaces, or pick an organization from "
-            "member_organizations."
-        ),
+        message=message,
     )
 
 

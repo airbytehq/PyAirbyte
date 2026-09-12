@@ -507,6 +507,8 @@ def test_get_default_cloud_context_returns_context_model(
             )
         ],
         member_workspaces=[],
+        member_organizations_truncated=True,
+        member_workspaces_truncated=True,
         discovery_hints=[],
     )
 
@@ -521,3 +523,7 @@ def test_get_default_cloud_context_returns_context_model(
     assert result.user_id == "user-id"
     assert result.member_organizations[0].organization_id == "organization-id"
     assert "membership-based, not access-based" in result.message
+    assert (
+        "Only the first 1 organization memberships and 0 workspace memberships are shown"
+        in result.message
+    )

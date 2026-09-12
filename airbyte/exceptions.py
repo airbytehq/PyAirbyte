@@ -49,9 +49,7 @@ from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
-    CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_WORKSPACE_ID_HEADER,
     is_hosted_mcp_mode,
 )
 
@@ -285,23 +283,23 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
             return
         if is_hosted_mcp_mode():
             self.guidance = (
-                "The authenticated user's default workspace was checked. If it was not "
-                "available, call `list_cloud_workspaces`, which resolves the organization "
-                "automatically; only call `list_cloud_organizations` to search "
-                "organizations by name. If discovery returns exactly one workspace, "
-                f"provide its ID via the `{MCP_WORKSPACE_ID_HEADER}` header or the "
-                "`workspace_id` parameter; otherwise ask the user to choose. Call "
+                "The authenticated user's default workspace was checked and none was "
+                "available. `list_cloud_workspaces` returns direct workspace memberships "
+                "by default; pass `organization_id`/`organization_name` or a broader "
+                "`privilege_scope` for organization-wide discovery, or call "
+                "`list_cloud_organizations` to search organizations by name. If exactly "
+                "one workspace is found, use it; otherwise ask the user to choose. Call "
                 "`get_default_cloud_context` to inspect your memberships."
             )
         else:
             self.guidance = (
-                "The authenticated user's default workspace was checked. If it was not "
-                "available, call `list_cloud_workspaces`, which resolves the organization "
-                "automatically; only call `list_cloud_organizations` to search "
-                "organizations by name. If discovery returns exactly one workspace, "
-                f"set its ID in `{CLOUD_WORKSPACE_ID_ENV_VAR}` or pass the "
-                "`workspace_id` parameter; otherwise ask the user to choose. Call "
-                "`get_default_cloud_context` to inspect your memberships."
+                "The authenticated user's default workspace was checked and none was "
+                "available. `list_workspaces` returns direct workspace memberships "
+                "by default; pass `organization_id`/`organization_name` or a broader "
+                "`privilege_scope` for organization-wide discovery, or call "
+                "`list_organizations` to search organizations by name. If exactly "
+                "one workspace is found, use it; otherwise ask the user to choose. Call "
+                "`get_default_context_for_user` to inspect your memberships."
             )
 
 

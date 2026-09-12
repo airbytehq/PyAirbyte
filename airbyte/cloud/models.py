@@ -167,6 +167,12 @@ class CloudDefaultContextInfo(BaseModel):
     member_workspaces: list[CloudWorkspaceInfo]
     """Workspaces identified by explicit workspace membership grants."""
 
+    member_organizations_truncated: bool
+    """True if organization memberships beyond the returned list were omitted."""
+
+    member_workspaces_truncated: bool
+    """True if workspace memberships beyond the returned list were omitted."""
+
     discovery_hints: list[str]
     """Hints for discovering additional organizations or workspaces."""
 

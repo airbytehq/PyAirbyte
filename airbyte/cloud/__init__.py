@@ -88,6 +88,7 @@ from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
     CloudWorkspaceInfo,
     JobStatusEnum,
     JobTypeEnum,
@@ -127,6 +128,7 @@ __all__ = [
     "CloudWorkspace",
     "CloudConnection",
     "CloudClientConfig",
+    "CloudDefaultContextInfo",
     "CloudWorkspaceInfo",
     "SyncResult",
     # Enums

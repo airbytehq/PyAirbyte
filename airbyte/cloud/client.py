@@ -105,6 +105,7 @@ if TYPE_CHECKING:
 
 
 MAX_ORGANIZATION_CANDIDATES = 10
+MAX_MEMBER_WORKSPACES = 25
 
 
 @dataclass(init=False, kw_only=True)
@@ -761,12 +762,9 @@ class CloudClient:
         except (AirbyteError, exc.PyAirbyteInputError):
             pass
         else:
-            user_id_value = user.get("userId")
-            user_id = user_id_value if isinstance(user_id_value, str) else None
-            user_name_value = user.get("name")
-            user_name = user_name_value if isinstance(user_name_value, str) else None
-            user_email_value = user.get("email")
-            user_email = user_email_value if isinstance(user_email_value, str) else None
+            user_id = user.get("userId") if isinstance(user.get("userId"), str) else None
+            user_name = user.get("name") if isinstance(user.get("name"), str) else None
+            user_email = user.get("email") if isinstance(user.get("email"), str) else None
 
         default_workspace_id = self.resolve_default_workspace_id()
         try:
@@ -775,12 +773,20 @@ class CloudClient:
             permissions = ()
             membership_organization_ids = ()
             member_workspaces = []
+            member_organizations_truncated = False
+            member_workspaces_truncated = False
         else:
             membership_organization_ids = self._get_membership_organization_ids()
+            member_organizations_truncated = (
+                len(membership_organization_ids) > MAX_ORGANIZATION_CANDIDATES
+            )
+            member_workspaces_truncated = (
+                len(self._get_direct_workspace_ids()) > MAX_MEMBER_WORKSPACES
+            )
             try:
                 member_workspaces = self.list_workspaces(
                     privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
-                    limit=25,
+                    limit=MAX_MEMBER_WORKSPACES,
                 )
             except (AirbyteError, exc.PyAirbyteInputError):
                 member_workspaces = []
@@ -813,6 +819,8 @@ class CloudClient:
             configured_organization_id=self.organization_id,
             member_organizations=member_organizations,
             member_workspaces=member_workspaces,
+            member_organizations_truncated=member_organizations_truncated,
+            member_workspaces_truncated=member_workspaces_truncated,
             discovery_hints=discovery_hints,
         )
 
