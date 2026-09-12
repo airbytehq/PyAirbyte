@@ -1135,7 +1135,7 @@ def test_cloud_client_get_organization_requires_context_without_defaults(
 
     with pytest.raises(
         PyAirbyteInputError,
-        match="Call `get_default_cloud_context` first. Organization ID or organization name is required.",
+        match="Organization ID or organization name is required.",
     ):
         CloudClient(bearer_token="token").get_organization()
 

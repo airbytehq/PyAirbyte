@@ -68,7 +68,7 @@ CLOUD_AUTH_TIP_TEXT = (
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
     f"`Client-Id` and `Client-Secret` headers. When no workspace ID is provided, "
     f"the authenticated user's default workspace (and its organization) is used "
-    f"automatically. Call `get_default_cloud_context` first to inspect the resolved "
+    f"automatically. Call `get_default_cloud_context` to inspect the resolved "
     f"context. To discover other workspaces, call `list_cloud_workspaces` "
     f"with an organization ID or broader privilege scope. Only call "
     f"`list_cloud_organizations` when you need to search organizations by name, "
@@ -1704,9 +1704,9 @@ def list_cloud_organizations(
         return CloudOrganizationListResult(
             organizations=[],
             message=(
-                "Call `get_default_cloud_context` first. No organizations were returned "
-                "for these credentials. Verify the credentials or ask the user to provide "
-                "an organization ID."
+                "No organizations were returned for these credentials. Verify the credentials "
+                "or ask the user to provide an organization ID. Call "
+                "`get_default_cloud_context` to inspect your memberships."
             ),
         )
 

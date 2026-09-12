@@ -232,9 +232,9 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="Workspace ID is required.",
                 guidance=(
-                    "Call `get_default_cloud_context` first. No workspace was configured, "
-                    "and no default workspace could be resolved for the authenticated user. "
-                    "Provide a workspace ID."
+                    "No workspace was configured, and no default workspace could be resolved "
+                    "for the authenticated user. Provide a workspace ID, or call "
+                    "`get_default_cloud_context` to discover your workspaces and organizations."
                 ),
             )
 
@@ -862,10 +862,11 @@ class CloudClient:
         )
         raise exc.PyAirbyteInputError(
             message=(
-                "Call `get_default_cloud_context` first. Multiple organization "
-                "memberships were found for these credentials. Retry with one of these "
+                "Multiple organization memberships were found for these credentials. Retry "
+                "with one of these "
                 "organization IDs "
-                f"(showing {len(candidates)} of {len(organization_ids)}): {candidate_details}"
+                f"(showing {len(candidates)} of {len(organization_ids)}): {candidate_details}. "
+                "Call `get_default_cloud_context` to see your memberships."
             ),
             context={
                 "organization_ids": list(organization_ids),
@@ -1018,12 +1019,10 @@ class CloudClient:
             resolved_organization_id = self._resolve_default_organization_id()
         if not resolved_organization_id and not organization_name:
             raise exc.PyAirbyteInputError(
-                message=(
-                    "Call `get_default_cloud_context` first. Organization ID or "
-                    "organization name is required."
-                ),
+                message="Organization ID or organization name is required.",
                 guidance=(
-                    "Call `get_default_cloud_context`, then provide an organization ID or name."
+                    "Provide an organization ID or name, or call `get_default_cloud_context` "
+                    "to discover your organizations."
                 ),
             )
 
