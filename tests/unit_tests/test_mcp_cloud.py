@@ -699,3 +699,48 @@ def test_describe_cloud_organization_excludes_billing_fields(
     assert not hasattr(result, "payment_status")
     assert not hasattr(result, "subscription_status")
     assert not hasattr(result, "is_account_locked")
+
+
+def test_set_default_cloud_workspace_returns_update_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the tool maps the client result and states the durable impact."""
+    update = cloud_mcp.CloudDefaultWorkspaceUpdateInfo(
+        user_id="user-id",
+        user_email="user@example.com",
+        previous_default_workspace_id="old-workspace",
+        default_workspace_id="workspace-id",
+        default_workspace_name="Workspace",
+        organization_id="organization-id",
+        organization_name="Organization",
+        membership_basis="workspace",
+    )
+
+    class ContextClient:
+        def set_default_workspace_for_user(
+            self,
+            *,
+            user_email: str,
+            workspace_id: str,
+        ) -> cloud_mcp.CloudDefaultWorkspaceUpdateInfo:
+            assert user_email == "user@example.com"
+            assert workspace_id == "workspace-id"
+            return update
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.set_default_cloud_workspace(
+        cast(Context, object()),
+        user_email="user@example.com",
+        workspace_id="workspace-id",
+    )
+
+    assert result.user_id == "user-id"
+    assert result.default_workspace_id == "workspace-id"
+    assert result.previous_default_workspace_id == "old-workspace"
+    assert result.membership_basis == "workspace"
+    assert result.message == (
+        "Default workspace durably set to Workspace (workspace-id) for "
+        "user@example.com. This applies to future MCP sessions and the Airbyte "
+        "Cloud web app."
+    )

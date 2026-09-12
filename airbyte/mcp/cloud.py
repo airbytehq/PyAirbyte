@@ -26,6 +26,7 @@ from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
+    CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
     JobTypeEnum,
@@ -328,6 +329,37 @@ class CloudDefaultContextResult(BaseModel):
 
     message: str
     """Guidance for selecting a workspace or organization context."""
+
+
+class CloudDefaultWorkspaceUpdateResult(BaseModel):
+    """Result of durably updating the authenticated user's default workspace."""
+
+    user_id: str
+    """The Airbyte user ID the update applied to."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    previous_default_workspace_id: str | None
+    """The user's previous default workspace ID, if one was set."""
+
+    default_workspace_id: str
+    """The new default workspace ID."""
+
+    default_workspace_name: str | None
+    """The new default workspace name, if available."""
+
+    organization_id: str | None
+    """The ID of the organization containing the new default workspace, if available."""
+
+    organization_name: str | None
+    """The name of the organization containing the new default workspace, if available."""
+
+    membership_basis: Literal["workspace", "organization"]
+    """Whether access was established via a direct workspace grant or an organization grant."""
+
+    message: str
+    """Summary of the persistent change and where it applies."""
 
 
 class LogReadResult(BaseModel):
@@ -1665,6 +1697,63 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     return CloudDefaultContextResult(
         **context.model_dump(),
         message=message,
+    )
+
+
+@mcp_tool(
+    idempotent=True,
+    destructive=False,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def set_default_cloud_workspace(
+    ctx: Context,
+    user_email: Annotated[
+        str,
+        Field(
+            description=(
+                "Email of the authenticated Airbyte Cloud user this change applies to. "
+                "Must exactly match the current credentials' user (see "
+                "get_default_cloud_context); mismatches fail with a validation error. "
+                "Required as a safety confirmation."
+            ),
+        ),
+    ],
+    workspace_id: Annotated[
+        str,
+        Field(
+            description=(
+                "ID of the workspace to make the durable default. The user must be an "
+                "explicit member of the workspace or its organization; tombstoned "
+                "workspaces/organizations are rejected."
+            ),
+        ),
+    ],
+) -> CloudDefaultWorkspaceUpdateResult:
+    """Durably set the authenticated user's default Airbyte Cloud workspace.
+
+    WARNING: This is a persistent, account-level change. It updates the user's
+    stored default workspace in Airbyte Cloud, which affects both future MCP
+    sessions (default_workspace_id in get_default_cloud_context and every tool
+    that falls back to the default workspace) AND the Airbyte Cloud web app,
+    where this workspace becomes the user's default landing workspace.
+    Call get_default_cloud_context first to confirm the current user and to
+    discover member workspaces.
+    """
+    result: CloudDefaultWorkspaceUpdateInfo = _get_cloud_client(ctx).set_default_workspace_for_user(
+        user_email=user_email,
+        workspace_id=workspace_id,
+    )
+    workspace_detail = result.default_workspace_id
+    if result.default_workspace_name is not None:
+        workspace_detail = f"{result.default_workspace_name} ({result.default_workspace_id})"
+    return CloudDefaultWorkspaceUpdateResult(
+        **result.model_dump(),
+        message=(
+            f"Default workspace durably set to {workspace_detail} for "
+            f"{result.user_email}. This applies to future MCP sessions and the "
+            "Airbyte Cloud web app."
+        ),
     )
 
 
