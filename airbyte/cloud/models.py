@@ -85,6 +85,19 @@ class WorkspacePrivilegeScope(str, Enum):
     ANY = "any"
 
 
+class CloudOrganizationBillingInfo(BaseModel):
+    """Billing status information for an Airbyte organization."""
+
+    payment_status: str | None = None
+    """Payment status of the organization."""
+
+    subscription_status: str | None = None
+    """Subscription status of the organization."""
+
+    is_account_locked: bool = False
+    """Whether the organization account is locked."""
+
+
 class CloudWorkspaceInfo(BaseModel):
     """Information about an Airbyte workspace."""
 

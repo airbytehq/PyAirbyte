@@ -1748,3 +1748,21 @@ def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(
     assert organization._fetch_organization_info(force_refresh=True) == {  # noqa: SLF001
         "organizationName": "cached"
     }
+
+
+def test_cloud_organization_get_billing_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "get_organization_info",
+        lambda **_: {
+            "billing": {
+                "paymentStatus": "okay",
+                "subscriptionStatus": "subscribed",
+            }
+        },
+    )
+    organization = CloudOrganization(organization_id="organization-id")
+    result = organization.get_billing_status()
+    assert result.payment_status == "okay"
+    assert result.subscription_status == "subscribed"
+    assert result.is_account_locked is False
