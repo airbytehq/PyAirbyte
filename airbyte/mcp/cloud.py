@@ -21,9 +21,7 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
-from airbyte.cloud.client import (
-    CloudClient,
-)
+from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
@@ -300,6 +298,21 @@ class CloudDefaultContextResult(BaseModel):
 
     default_workspace_id: str | None
     """The resolved default workspace ID, if available."""
+
+    default_workspace_name: str | None
+    """The resolved default workspace name, if available."""
+
+    default_workspace_verified: bool
+    """Whether the resolved default workspace was verified as accessible."""
+
+    unvalidated_workspace_count: int = 0
+    """Number of direct workspace grants not validated due to the validation cap."""
+
+    default_organization_id: str | None
+    """The organization containing the resolved default workspace, if available."""
+
+    default_organization_name: str | None
+    """The name of the organization containing the resolved default workspace, if available."""
 
     configured_workspace_id: str | None
     """The explicitly configured workspace ID, if available."""
@@ -702,7 +715,9 @@ def check_airbyte_cloud_workspace(
         ),
     ],
 ) -> CloudWorkspaceResult:
-    """Check if we have a valid Airbyte Cloud connection and return workspace info.
+    """Check billing/lock status for a specific workspace.
+
+    For orientation (which workspace/org am I in), prefer `get_default_cloud_context`.
 
     Returns workspace details including workspace ID, name, organization info, and billing status.
     """
@@ -1656,7 +1671,12 @@ def list_cloud_workspaces(
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
-    """Return the authenticated user's default Cloud context."""
+    """Return the authenticated user's default Cloud context.
+
+    This is the one-call orientation entry point: it resolves the default
+    workspace and its parent organization in a single call, along with the
+    user's explicit workspace and organization memberships.
+    """
     context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context_for_user()
     truncated_memberships: list[str] = []
     if context.member_organizations_truncated:
@@ -1665,6 +1685,28 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
         )
     if context.member_workspaces_truncated:
         truncated_memberships.append(f"{len(context.member_workspaces)} workspace memberships")
+    resolved_default_workspace = None
+    if context.default_workspace_id is not None:
+        if not context.default_workspace_verified:
+            resolved_default_workspace = (
+                f"Default workspace ID {context.default_workspace_id} could not be verified "
+                "(it may have been deleted or is not accessible with these credentials)"
+            )
+        else:
+            workspace_detail = context.default_workspace_id
+            if context.default_workspace_name is not None:
+                workspace_detail = (
+                    f"{context.default_workspace_name} ({context.default_workspace_id})"
+                )
+            resolved_default_workspace = f"Resolved default workspace {workspace_detail}"
+        if context.default_workspace_verified and context.default_organization_id is not None:
+            organization_detail = context.default_organization_id
+            if context.default_organization_name is not None:
+                organization_detail = (
+                    f"{context.default_organization_name} " f"({context.default_organization_id})"
+                )
+            resolved_default_workspace += f" in organization {organization_detail}"
+        resolved_default_workspace += ". "
     message = (
         "These lists are membership-based, not access-based: they show explicit "
         "organization and workspace memberships only. Use default_workspace_id, "
@@ -1676,6 +1718,14 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
             f" Only the first {' and '.join(truncated_memberships)} are shown; use "
             "list_cloud_organizations or list_cloud_workspaces to see the rest."
         )
+    if context.unvalidated_workspace_count > 0:
+        message += (
+            f" {context.unvalidated_workspace_count} additional direct workspace grant(s) were "
+            f"not validated because this call checks at most {MAX_WORKSPACES_TO_VALIDATE}; use "
+            "list_cloud_workspaces to see them."
+        )
+    if resolved_default_workspace is not None:
+        message = resolved_default_workspace + message
     return CloudDefaultContextResult(
         **context.model_dump(),
         message=message,
