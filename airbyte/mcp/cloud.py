@@ -20,7 +20,6 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
-from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -696,61 +695,6 @@ def run_cloud_sync(
             f"job URL is: {sync_result.job_url}"
         )
     return f"Sync started. Job ID is '{sync_result.job_id}' and job URL is: {sync_result.job_url}"
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def check_airbyte_cloud_workspace(
-    ctx: Context,
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> CloudWorkspaceResult:
-    """Check billing/lock status for a specific workspace.
-
-    For orientation (which workspace/org am I in), prefer `get_default_cloud_context`.
-
-    Returns workspace details including workspace ID, name, organization info, and billing status.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-
-    # Get workspace details from the public API using workspace's credentials
-    workspace_response = api_util.get_workspace(
-        workspace_id=workspace.workspace_id,
-        api_root=workspace.api_root,
-        client_id=workspace.client_id,
-        client_secret=workspace.client_secret,
-        bearer_token=workspace.bearer_token,
-    )
-
-    # Try to get organization info (including billing), but fail gracefully if we don't have
-    # permissions. Fetching organization info requires ORGANIZATION_READER permissions on the
-    # organization, which may not be available with workspace-scoped credentials.
-    organization = workspace.get_organization(raise_on_error=False)
-
-    return CloudWorkspaceResult(
-        workspace_id=workspace_response.workspace_id,
-        workspace_name=workspace_response.name,
-        workspace_url=workspace.workspace_url,
-        organization_id=(
-            organization.organization_id
-            if organization
-            else "[unavailable - requires ORGANIZATION_READER permission]"
-        ),
-        organization_name=organization.organization_name if organization else None,
-        payment_status=organization.payment_status if organization else None,
-        subscription_status=organization.subscription_status if organization else None,
-        is_account_locked=organization.is_account_locked if organization else False,
-    )
 
 
 @mcp_tool(
