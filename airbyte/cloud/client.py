@@ -778,10 +778,11 @@ class CloudClient:
                 client_secret=self.client_secret,
                 bearer_token=self._get_config_api_bearer_token(),
             )
-        except AirbyteError:
+        except (AirbyteError, NotImplementedError):
             # The workspace is readable via the public API but its organization is not
-            # (e.g. the caller lacks org-level read, or the Config API endpoint is
-            # unavailable). Keep the live workspace and leave the organization unknown.
+            # (e.g. the caller lacks org-level read, or no Config API root can be derived
+            # from a custom public API root). Keep the live workspace and leave the
+            # organization unknown.
             pass
         else:
             candidate_id = organization.get("organizationId")
