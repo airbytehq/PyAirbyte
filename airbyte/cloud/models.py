@@ -158,6 +158,9 @@ class CloudDefaultContextInfo(BaseModel):
     default_workspace_name: str | None
     """The resolved default workspace name, if available."""
 
+    default_workspace_verified: bool
+    """Whether the resolved default workspace was verified as accessible."""
+
     default_organization_id: str | None
     """The organization containing the resolved default workspace, if available."""
 

@@ -894,6 +894,7 @@ class CloudClient:
             default_workspace_name=(
                 default_workspace_info.name if default_workspace_info else None
             ),
+            default_workspace_verified=default_workspace_info is not None,
             default_organization_id=(
                 default_workspace_organization.organization_id
                 if default_workspace_organization is not None

@@ -168,6 +168,7 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
 
     assert context.default_workspace_id == "live-workspace"
     assert context.default_workspace_name == "Live Workspace"
+    assert context.default_workspace_verified is True
     assert context.default_organization_id == "org-1"
     assert context.default_organization_name == "Org One"
     assert [item.organization_id for item in context.member_organizations] == ["org-1"]
@@ -230,6 +231,7 @@ def test_default_context_resolves_workspace_when_organization_lookup_fails() -> 
 
     assert context.default_workspace_id == "workspace-1"
     assert context.default_workspace_name == "Workspace 1"
+    assert context.default_workspace_verified is True
     assert context.default_organization_id is None
     assert context.default_organization_name is None
     assert context.member_organizations == []
@@ -265,6 +267,7 @@ def test_default_context_enriches_configured_workspace() -> None:
 
     assert context.default_workspace_id == "configured-workspace"
     assert context.default_workspace_name == "Configured"
+    assert context.default_workspace_verified is True
     assert context.default_organization_id == "org-1"
     assert context.default_organization_name == "Org One"
     assert [item.organization_id for item in context.member_organizations] == ["org-1"]

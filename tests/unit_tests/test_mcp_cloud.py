@@ -499,6 +499,7 @@ def test_get_default_cloud_context_returns_context_model(
         user_email="user@example.com",
         default_workspace_id="workspace-id",
         default_workspace_name="Workspace",
+        default_workspace_verified=True,
         default_organization_id="organization-id",
         default_organization_name="Organization",
         configured_workspace_id=None,
@@ -533,4 +534,39 @@ def test_get_default_cloud_context_returns_context_model(
     assert (
         "Only the first 1 organization memberships and 0 workspace memberships are shown"
         in result.message
+    )
+
+
+def test_get_default_cloud_context_flags_unverified_default_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = CloudDefaultContextInfo(
+        user_id="user-id",
+        user_name="User",
+        user_email="user@example.com",
+        default_workspace_id="deleted-workspace",
+        default_workspace_name=None,
+        default_workspace_verified=False,
+        default_organization_id=None,
+        default_organization_name=None,
+        configured_workspace_id="deleted-workspace",
+        configured_organization_id=None,
+        member_organizations=[],
+        member_workspaces=[],
+        member_organizations_truncated=False,
+        member_workspaces_truncated=False,
+        discovery_hints=[],
+    )
+
+    class ContextClient:
+        def get_default_context_for_user(self) -> CloudDefaultContextInfo:
+            return context
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+
+    assert result.message.startswith(
+        "Default workspace ID deleted-workspace is configured but could not be verified "
+        "(it may have been deleted or is not accessible with these credentials)."
     )

@@ -304,6 +304,9 @@ class CloudDefaultContextResult(BaseModel):
     default_workspace_name: str | None
     """The resolved default workspace name, if available."""
 
+    default_workspace_verified: bool
+    """Whether the resolved default workspace was verified as accessible."""
+
     default_organization_id: str | None
     """The organization containing the resolved default workspace, if available."""
 
@@ -1683,11 +1686,20 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
         truncated_memberships.append(f"{len(context.member_workspaces)} workspace memberships")
     resolved_default_workspace = None
     if context.default_workspace_id is not None:
-        workspace_detail = context.default_workspace_id
-        if context.default_workspace_name is not None:
-            workspace_detail = f"{context.default_workspace_name} ({context.default_workspace_id})"
-        resolved_default_workspace = f"Resolved default workspace {workspace_detail}"
-        if context.default_organization_id is not None:
+        if not context.default_workspace_verified:
+            resolved_default_workspace = (
+                f"Default workspace ID {context.default_workspace_id} is configured but could not "
+                "be verified (it may have been deleted or is not accessible with these "
+                "credentials)."
+            )
+        else:
+            workspace_detail = context.default_workspace_id
+            if context.default_workspace_name is not None:
+                workspace_detail = (
+                    f"{context.default_workspace_name} ({context.default_workspace_id})"
+                )
+            resolved_default_workspace = f"Resolved default workspace {workspace_detail}"
+        if context.default_workspace_verified and context.default_organization_id is not None:
             organization_detail = context.default_organization_id
             if context.default_organization_name is not None:
                 organization_detail = (
