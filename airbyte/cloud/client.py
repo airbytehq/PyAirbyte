@@ -105,8 +105,7 @@ if TYPE_CHECKING:
 
 
 MAX_ORGANIZATION_CANDIDATES = 10
-MAX_MEMBER_WORKSPACES = 25
-MAX_DEFAULT_WORKSPACE_CANDIDATES = 10
+MAX_WORKSPACES_TO_VALIDATE = 25
 
 
 @dataclass(init=False, kw_only=True)
@@ -118,6 +117,7 @@ class CloudClient:
     _user_permissions: tuple[dict[str, Any], ...] | None
     _direct_workspace_infos: dict[str, CloudWorkspaceInfo | None]
     _workspace_organizations: dict[str, CloudOrganizationInfo | None]
+    _validated_direct_workspace_result: tuple[list[CloudWorkspaceInfo], int] | None
     _authenticated_user_info: dict[str, Any] | None = field(repr=False)
     _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
@@ -148,6 +148,7 @@ class CloudClient:
         self._user_permissions = None
         self._direct_workspace_infos = {}
         self._workspace_organizations = {}
+        self._validated_direct_workspace_result = None
         self._authenticated_user_info = None
         self._authenticated_user_id = None
         self._authenticated_bearer_token = None
@@ -463,23 +464,20 @@ class CloudClient:
         limit: int | None = None,
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces granted directly to the authenticated user."""
-        workspace_ids = self._get_direct_workspace_ids()
-        workspaces: list[CloudWorkspaceInfo] = []
+        workspaces, _ = self._validate_direct_workspaces()
         name_substring = name_contains.casefold() if name_contains is not None else None
-        for direct_workspace_id in workspace_ids:
-            workspace = self._get_direct_workspace_info(direct_workspace_id)
-            if workspace is None:
-                continue
+        filtered_workspaces: list[CloudWorkspaceInfo] = []
+        for workspace in workspaces:
             if name is not None and workspace.name != name:
                 continue
             if name_substring is not None and name_substring not in workspace.name.casefold():
                 continue
             if name_filter is not None and not name_filter(workspace.name):
                 continue
-            workspaces.append(workspace)
-            if limit is not None and len(workspaces) == limit:
+            filtered_workspaces.append(workspace)
+            if limit is not None and len(filtered_workspaces) == limit:
                 break
-        return workspaces
+        return filtered_workspaces
 
     def _list_unscoped_workspaces(
         self,
@@ -693,20 +691,14 @@ class CloudClient:
         if user_default_workspace_id:
             return user_default_workspace_id
         try:
-            direct_workspace_ids = self._get_direct_workspace_ids()
+            live_workspaces, unvalidated_count = self._validate_direct_workspaces()
         except (AirbyteError, exc.PyAirbyteInputError):
             return None
-        if len(direct_workspace_ids) > MAX_DEFAULT_WORKSPACE_CANDIDATES:
-            return None
-        try:
-            live_workspace_ids = [
-                workspace_id
-                for workspace_id in direct_workspace_ids
-                if self._get_direct_workspace_info(workspace_id) is not None
-            ]
-        except (AirbyteError, exc.PyAirbyteInputError):
-            return None
-        return live_workspace_ids[0] if len(live_workspace_ids) == 1 else None
+        return (
+            live_workspaces[0].workspace_id
+            if unvalidated_count == 0 and len(live_workspaces) == 1
+            else None
+        )
 
     def _get_user_permissions(self) -> tuple[dict[str, Any], ...]:
         """Get and cache permissions for the authenticated user."""
@@ -804,6 +796,23 @@ class CloudClient:
         self._workspace_organizations[workspace_id] = organization_info
         return organization_info
 
+    def _validate_direct_workspaces(self) -> tuple[list[CloudWorkspaceInfo], int]:
+        """Validate direct workspace grants once within the configured cap."""
+        if self._validated_direct_workspace_result is not None:
+            return self._validated_direct_workspace_result
+        workspace_ids = self._get_direct_workspace_ids()
+        live_workspaces: list[CloudWorkspaceInfo] = []
+        for workspace_id in workspace_ids[:MAX_WORKSPACES_TO_VALIDATE]:
+            workspace = self._get_direct_workspace_info(workspace_id)
+            if workspace is not None:
+                live_workspaces.append(workspace)
+        result = (
+            live_workspaces,
+            max(0, len(workspace_ids) - MAX_WORKSPACES_TO_VALIDATE),
+        )
+        self._validated_direct_workspace_result = result
+        return result
+
     def _is_instance_admin(self) -> bool:
         """Return whether the caller has an instance-admin permission."""
         return any(
@@ -833,22 +842,18 @@ class CloudClient:
             membership_organization_ids = ()
             member_workspaces = []
             member_organizations_truncated = False
-            member_workspaces_truncated = False
+            unvalidated_workspace_count = 0
         else:
             membership_organization_ids = self._get_membership_organization_ids()
             member_organizations_truncated = (
                 len(membership_organization_ids) > MAX_ORGANIZATION_CANDIDATES
             )
-            member_workspaces_truncated = (
-                len(self._get_direct_workspace_ids()) > MAX_MEMBER_WORKSPACES
-            )
             try:
-                member_workspaces = self.list_workspaces(
-                    privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
-                    limit=MAX_MEMBER_WORKSPACES,
-                )
+                member_workspaces, unvalidated_workspace_count = self._validate_direct_workspaces()
             except (AirbyteError, exc.PyAirbyteInputError):
                 member_workspaces = []
+                unvalidated_workspace_count = 0
+            member_workspaces = member_workspaces[:]
 
         member_organizations = [
             CloudOrganizationInfo.model_validate(candidate)
@@ -910,7 +915,8 @@ class CloudClient:
             member_organizations=member_organizations,
             member_workspaces=member_workspaces,
             member_organizations_truncated=member_organizations_truncated,
-            member_workspaces_truncated=member_workspaces_truncated,
+            member_workspaces_truncated=unvalidated_workspace_count > 0,
+            unvalidated_workspace_count=unvalidated_workspace_count,
             discovery_hints=discovery_hints,
         )
 

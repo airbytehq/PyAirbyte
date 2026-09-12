@@ -161,6 +161,9 @@ class CloudDefaultContextInfo(BaseModel):
     default_workspace_verified: bool
     """Whether the resolved default workspace was verified as accessible."""
 
+    unvalidated_workspace_count: int = 0
+    """Number of direct workspace grants not validated due to the validation cap."""
+
     default_organization_id: str | None
     """The organization containing the resolved default workspace, if available."""
 

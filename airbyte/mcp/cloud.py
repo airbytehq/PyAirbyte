@@ -21,9 +21,7 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
-from airbyte.cloud.client import (
-    CloudClient,
-)
+from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
@@ -306,6 +304,9 @@ class CloudDefaultContextResult(BaseModel):
 
     default_workspace_verified: bool
     """Whether the resolved default workspace was verified as accessible."""
+
+    unvalidated_workspace_count: int = 0
+    """Number of direct workspace grants not validated due to the validation cap."""
 
     default_organization_id: str | None
     """The organization containing the resolved default workspace, if available."""
@@ -1717,6 +1718,12 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
         message += (
             f" Only the first {' and '.join(truncated_memberships)} are shown; use "
             "list_cloud_organizations or list_cloud_workspaces to see the rest."
+        )
+    if context.unvalidated_workspace_count > 0:
+        message += (
+            f" {context.unvalidated_workspace_count} additional direct workspace grant(s) were "
+            f"not validated because this call checks at most {MAX_WORKSPACES_TO_VALIDATE}; use "
+            "list_cloud_workspaces to see them."
         )
     if resolved_default_workspace is not None:
         message = resolved_default_workspace + message

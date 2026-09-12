@@ -183,10 +183,10 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
     )
 
 
-def test_resolve_default_workspace_id_skips_probing_beyond_candidate_cap() -> None:
+def test_direct_workspace_validation_is_capped() -> None:
     permissions = [
         {"permissionType": "workspace_admin", "workspaceId": f"workspace-{index}"}
-        for index in range(11)
+        for index in range(26)
     ]
     patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
     with (
@@ -195,11 +195,27 @@ def test_resolve_default_workspace_id_skips_probing_beyond_candidate_cap() -> No
         patches[2],
         patches[3],
         patches[4],
-        patch("airbyte._util.api_util.get_workspace") as get_workspace,
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            side_effect=[
+                models.WorkspaceResponse(
+                    data_residency="auto",
+                    name=f"Workspace {index}",
+                    notifications=models.NotificationsConfig(),
+                    workspace_id=f"workspace-{index}",
+                )
+                for index in range(25)
+            ],
+        ) as get_workspace,
     ):
-        assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
+        client = CloudClient(bearer_token="token")
+        assert client.resolve_default_workspace_id() is None
+        context = client.get_default_context_for_user()
 
-    get_workspace.assert_not_called()
+    assert len(context.member_workspaces) == 25
+    assert context.member_workspaces_truncated is True
+    assert context.unvalidated_workspace_count == 1
+    assert get_workspace.call_count == 25
 
 
 def test_default_context_resolves_workspace_when_organization_lookup_fails() -> None:
@@ -413,7 +429,7 @@ def test_list_workspaces_defaults_to_direct_memberships_without_org_resolution()
         )
 
     assert [workspace.workspace_id for workspace in workspaces] == ["workspace-1"]
-    get_workspace.assert_called_once()
+    assert get_workspace.call_count == 3
 
 
 def test_list_workspaces_organization_admin_lists_all_member_organizations() -> None:
