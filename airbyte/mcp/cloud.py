@@ -1864,14 +1864,12 @@ def get_cloud_organization_billing_status(
     try:
         info = org.get_billing_status()
     except (AirbyteError, NotImplementedError) as error:
+        reason = error.message if isinstance(error, AirbyteError) and error.message else str(error)
         return CloudOrganizationBillingStatusResult(
             organization_id=org.organization_id,
             organization_name=org.organization_name,
             billing_info_available=False,
-            message=(
-                "Billing information could not be retrieved: "
-                f"{getattr(error, 'message', str(error))}"
-            ),
+            message=f"Billing information could not be retrieved: {reason}",
         )
     return CloudOrganizationBillingStatusResult(
         organization_id=org.organization_id,
