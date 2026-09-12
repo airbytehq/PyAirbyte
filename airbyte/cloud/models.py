@@ -155,6 +155,15 @@ class CloudDefaultContextInfo(BaseModel):
     default_workspace_id: str | None
     """The resolved default workspace ID, if available."""
 
+    default_workspace_name: str | None
+    """The resolved default workspace name, if available."""
+
+    default_organization_id: str | None
+    """The organization containing the resolved default workspace, if available."""
+
+    default_organization_name: str | None
+    """The name of the organization containing the resolved default workspace, if available."""
+
     configured_workspace_id: str | None
     """The explicitly configured workspace ID, if available."""
 

@@ -106,6 +106,7 @@ if TYPE_CHECKING:
 
 MAX_ORGANIZATION_CANDIDATES = 10
 MAX_MEMBER_WORKSPACES = 25
+MAX_DEFAULT_WORKSPACE_CANDIDATES = 10
 
 
 @dataclass(init=False, kw_only=True)
@@ -116,6 +117,7 @@ class CloudClient:
     _membership_organization_ids: tuple[str, ...] | None
     _user_permissions: tuple[dict[str, Any], ...] | None
     _direct_workspace_infos: dict[str, CloudWorkspaceInfo | None]
+    _workspace_organization_names: dict[str, str | None]
     _authenticated_user_info: dict[str, Any] | None = field(repr=False)
     _authenticated_user_id: str | None = field(repr=False)
     _authenticated_bearer_token: SecretString | None
@@ -145,6 +147,7 @@ class CloudClient:
         self._membership_organization_ids = None
         self._user_permissions = None
         self._direct_workspace_infos = {}
+        self._workspace_organization_names = {}
         self._authenticated_user_info = None
         self._authenticated_user_id = None
         self._authenticated_bearer_token = None
@@ -693,13 +696,17 @@ class CloudClient:
             direct_workspace_ids = self._get_direct_workspace_ids()
         except (AirbyteError, exc.PyAirbyteInputError):
             return None
-        if len(direct_workspace_ids) != 1:
+        if len(direct_workspace_ids) > MAX_DEFAULT_WORKSPACE_CANDIDATES:
             return None
         try:
-            workspace_info = self._get_direct_workspace_info(direct_workspace_ids[0])
+            live_workspace_ids = [
+                workspace_id
+                for workspace_id in direct_workspace_ids
+                if self._get_direct_workspace_info(workspace_id) is not None
+            ]
         except (AirbyteError, exc.PyAirbyteInputError):
             return None
-        return direct_workspace_ids[0] if workspace_info is not None else None
+        return live_workspace_ids[0] if len(live_workspace_ids) == 1 else None
 
     def _get_user_permissions(self) -> tuple[dict[str, Any], ...]:
         """Get and cache permissions for the authenticated user."""
@@ -760,7 +767,30 @@ class CloudClient:
         except exc.AirbyteMissingResourceError:
             self._direct_workspace_infos[workspace_id] = None
             return None
+        organization_id: str | None = None
+        organization_name: str | None = None
+        try:
+            organization = api_util.get_workspace_organization_info(
+                workspace_id=workspace_id,
+                api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self._get_config_api_bearer_token(),
+            )
+        except AirbyteError:
+            pass
+        else:
+            candidate_id = organization.get("organizationId")
+            if isinstance(candidate_id, str) and candidate_id:
+                organization_id = candidate_id
+            candidate_name = organization.get("organizationName")
+            if isinstance(candidate_name, str):
+                organization_name = candidate_name
+        self._workspace_organization_names[workspace_id] = organization_name
         workspace_info = CloudWorkspaceInfo.from_api_response(workspace)
+        if organization_id is not None:
+            workspace_info = workspace_info.model_copy(update={"organization_id": organization_id})
         self._direct_workspace_infos[workspace_id] = workspace_info
         return workspace_info
 
@@ -816,6 +846,29 @@ class CloudClient:
                 membership_organization_ids[:MAX_ORGANIZATION_CANDIDATES]
             )
         ]
+        default_workspace_info: CloudWorkspaceInfo | None = None
+        if default_workspace_id is not None:
+            try:
+                default_workspace_info = self._get_direct_workspace_info(default_workspace_id)
+            except (AirbyteError, exc.PyAirbyteInputError):
+                default_workspace_info = None
+            # The default workspace's organization may not be an explicit membership.
+            if (
+                default_workspace_info is not None
+                and default_workspace_info.organization_id is not None
+                and all(
+                    organization.organization_id != default_workspace_info.organization_id
+                    for organization in member_organizations
+                )
+            ):
+                member_organizations.append(
+                    CloudOrganizationInfo(
+                        organization_id=default_workspace_info.organization_id,
+                        organization_name=self._workspace_organization_names.get(
+                            default_workspace_id
+                        ),
+                    )
+                )
         discovery_hints: list[str] = []
         if any(permission.get("permissionType") == "instance_admin" for permission in permissions):
             discovery_hints.append(
@@ -834,6 +887,17 @@ class CloudClient:
             user_name=user_name,
             user_email=user_email,
             default_workspace_id=default_workspace_id,
+            default_workspace_name=(
+                default_workspace_info.name if default_workspace_info else None
+            ),
+            default_organization_id=(
+                default_workspace_info.organization_id if default_workspace_info else None
+            ),
+            default_organization_name=(
+                self._workspace_organization_names.get(default_workspace_id)
+                if default_workspace_id is not None and default_workspace_info is not None
+                else None
+            ),
             configured_workspace_id=self.default_workspace_id,
             configured_organization_id=self.organization_id,
             member_organizations=member_organizations,

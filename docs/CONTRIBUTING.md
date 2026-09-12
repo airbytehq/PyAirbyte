@@ -130,7 +130,7 @@ poe mcp-tool-test validate_config \
 poe mcp-tool-test run_sync \
     '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
-poe mcp-tool-test check_airbyte_cloud_workspace '{}'
+poe mcp-tool-test get_default_cloud_context '{}'
 poe mcp-tool-test list_deployed_cloud_connections '{}'
 ```
 

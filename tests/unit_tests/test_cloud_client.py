@@ -32,7 +32,10 @@ def _api_patches(
         ),
         patch(
             "airbyte._util.api_util.get_workspace_organization_info",
-            return_value={"organizationId": parent_organization_id},
+            return_value={
+                "organizationId": parent_organization_id,
+                "organizationName": "Organization",
+            },
         ),
         patch(
             "airbyte._util.api_util.list_permissions_for_user",
@@ -119,6 +122,143 @@ def test_resolve_default_workspace_id_uses_exactly_one_direct_grant(
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() == (
             expected_workspace_id
         )
+
+
+def test_resolve_default_workspace_id_skips_stale_grants() -> None:
+    permissions = [
+        {"permissionType": "workspace_admin", "workspaceId": "stale-1"},
+        {"permissionType": "workspace_admin", "workspaceId": "live-workspace"},
+        {"permissionType": "workspace_admin", "workspaceId": "stale-2"},
+    ]
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    stale_error = exc.AirbyteMissingResourceError(
+        resource_type="workspace",
+        resource_name_or_id="stale-workspace",
+    )
+
+    def get_workspace(
+        workspace_id: str,
+        **kwargs: object,
+    ) -> models.WorkspaceResponse:
+        if workspace_id == "live-workspace":
+            return models.WorkspaceResponse(
+                data_residency="auto",
+                name="Live Workspace",
+                notifications=models.NotificationsConfig(),
+                workspace_id="live-workspace",
+            )
+        raise stale_error
+
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3] as get_workspace_organization_info,
+        patches[4],
+        patch("airbyte._util.api_util.get_workspace", side_effect=get_workspace),
+    ):
+        get_workspace_organization_info.return_value = {
+            "organizationId": "org-1",
+            "organizationName": "Org One",
+        }
+        client = CloudClient(bearer_token="token")
+
+        assert client.resolve_default_workspace_id() == "live-workspace"
+        context = client.get_default_context_for_user()
+
+    assert context.default_workspace_id == "live-workspace"
+    assert context.default_workspace_name == "Live Workspace"
+    assert context.default_organization_id == "org-1"
+    assert context.default_organization_name == "Org One"
+    assert [item.organization_id for item in context.member_organizations] == ["org-1"]
+    assert context.member_organizations_truncated is False
+
+
+def test_resolve_default_workspace_id_skips_probing_beyond_candidate_cap() -> None:
+    permissions = [
+        {"permissionType": "workspace_admin", "workspaceId": f"workspace-{index}"}
+        for index in range(11)
+    ]
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch("airbyte._util.api_util.get_workspace") as get_workspace,
+    ):
+        assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
+
+    get_workspace.assert_not_called()
+
+
+def test_default_context_resolves_workspace_when_organization_lookup_fails() -> None:
+    permissions = [{"permissionType": "workspace_admin", "workspaceId": "workspace-1"}]
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3] as get_workspace_organization_info,
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Workspace 1",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-1",
+            ),
+        ),
+    ):
+        get_workspace_organization_info.side_effect = exc.AirbyteError(
+            message="Organization lookup failed."
+        )
+        client = CloudClient(bearer_token="token")
+
+        assert client.resolve_default_workspace_id() == "workspace-1"
+        context = client.get_default_context_for_user()
+
+    assert context.default_workspace_id == "workspace-1"
+    assert context.default_workspace_name == "Workspace 1"
+    assert context.default_organization_id is None
+    assert context.default_organization_name is None
+    assert context.member_organizations == []
+
+
+def test_default_context_enriches_configured_workspace() -> None:
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3] as get_workspace_organization_info,
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Configured",
+                notifications=models.NotificationsConfig(),
+                workspace_id="configured-workspace",
+            ),
+        ),
+    ):
+        get_workspace_organization_info.return_value = {
+            "organizationId": "org-1",
+            "organizationName": "Org One",
+        }
+        context = CloudClient(
+            bearer_token="token",
+            workspace_id="configured-workspace",
+        ).get_default_context_for_user()
+
+    assert context.default_workspace_id == "configured-workspace"
+    assert context.default_workspace_name == "Configured"
+    assert context.default_organization_id == "org-1"
+    assert context.default_organization_name == "Org One"
+    assert [item.organization_id for item in context.member_organizations] == ["org-1"]
 
 
 def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> None:

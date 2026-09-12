@@ -497,7 +497,10 @@ def test_get_default_cloud_context_returns_context_model(
         user_id="user-id",
         user_name="User",
         user_email="user@example.com",
-        default_workspace_id=None,
+        default_workspace_id="workspace-id",
+        default_workspace_name="Workspace",
+        default_organization_id="organization-id",
+        default_organization_name="Organization",
         configured_workspace_id=None,
         configured_organization_id=None,
         member_organizations=[
@@ -522,6 +525,10 @@ def test_get_default_cloud_context_returns_context_model(
 
     assert result.user_id == "user-id"
     assert result.member_organizations[0].organization_id == "organization-id"
+    assert result.message.startswith(
+        "Resolved default workspace Workspace (workspace-id) "
+        "in organization Organization (organization-id). "
+    )
     assert "membership-based, not access-based" in result.message
     assert (
         "Only the first 1 organization memberships and 0 workspace memberships are shown"
