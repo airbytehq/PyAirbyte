@@ -20,6 +20,7 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
+from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -221,16 +222,6 @@ class CloudOrganizationResult(BaseModel):
     """Display name of the organization, when available."""
     email: str | None = None
     """Email associated with the organization, when available."""
-    payment_status: str | None = None
-    """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
-    When 'disabled', syncs are blocked due to unpaid invoices."""
-    subscription_status: str | None = None
-    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
-    'unsubscribed')."""
-    is_account_locked: bool = False
-    """Whether the account is locked due to billing issues.
-    True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
-    Defaults to False unless we have affirmative evidence of a locked state."""
 
 
 class CloudOrganizationListResult(BaseModel):
@@ -256,18 +247,19 @@ class CloudWorkspaceResult(BaseModel):
     """ID of the organization, if known and available."""
     organization_name: str | None = None
     """Name of the organization (requires ORGANIZATION_READER permission)."""
+
+
+class CloudOrganizationBillingStatusResult(BaseModel):
+    """Billing and account status for an Airbyte organization."""
+
+    organization_id: str
+    organization_name: str | None = None
+    billing_info_available: bool
+    """False when billing info could not be retrieved."""
     payment_status: str | None = None
-    """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
-    When 'disabled', syncs are blocked due to unpaid invoices.
-    Requires ORGANIZATION_READER permission."""
     subscription_status: str | None = None
-    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
-    'unsubscribed'). Requires ORGANIZATION_READER permission."""
     is_account_locked: bool = False
-    """Whether the account is locked due to billing issues.
-    True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
-    Defaults to False unless we have affirmative evidence of a locked state.
-    Requires ORGANIZATION_READER permission."""
+    message: str | None = None
 
 
 class CloudWorkspaceListResult(BaseModel):
@@ -1749,6 +1741,48 @@ def list_cloud_organizations(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
+def describe_cloud_workspace(
+    ctx: Context,
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Workspace ID. With no argument, resolves the configured default or the "
+                "authenticated user's default workspace."
+            ),
+            default=None,
+        ),
+    ],
+) -> CloudWorkspaceResult:
+    """Get basic details about a workspace (ID, name, URL, parent organization).
+
+    Does not include billing/account status; use `get_cloud_organization_billing_status` for that.
+    """
+    workspace = _get_cloud_workspace(ctx, workspace_id)
+    workspace_response = api_util.get_workspace(
+        workspace_id=workspace.workspace_id,
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    organization = workspace.get_organization(raise_on_error=False)
+    return CloudWorkspaceResult(
+        workspace_id=workspace_response.workspace_id,
+        workspace_name=workspace_response.name,
+        workspace_url=workspace.workspace_url,
+        organization_id=organization.organization_id if organization else None,
+        organization_name=organization.organization_name if organization else None,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
 def describe_cloud_organization(
     ctx: Context,
     *,
@@ -1774,7 +1808,9 @@ def describe_cloud_organization(
         ),
     ],
 ) -> CloudOrganizationResult:
-    """Get details about a specific organization including billing status.
+    """Get basic details about an organization (ID, name, email).
+
+    Billing/account status is available via `get_cloud_organization_billing_status`.
 
     With no arguments, resolves the organization from the configured default or the
     authenticated user's sole membership. With multiple memberships, the error lists
@@ -1786,14 +1822,62 @@ def describe_cloud_organization(
         organization_name=organization_name,
     )
 
-    # CloudOrganization has lazy loading of billing properties
     return CloudOrganizationResult(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
-        payment_status=org.payment_status,
-        subscription_status=org.subscription_status,
-        is_account_locked=org.is_account_locked,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_cloud_organization_billing_status(
+    ctx: Context,
+    *,
+    organization_id: Annotated[
+        str | None,
+        Field(
+            description="Organization ID, when known.",
+            default=None,
+        ),
+    ],
+    organization_name: Annotated[
+        str | None,
+        Field(
+            description="Organization name for an exact match, when ID is not provided.",
+            default=None,
+        ),
+    ],
+) -> CloudOrganizationBillingStatusResult:
+    """Get billing and account status for an organization.
+
+    This generally requires elevated `ORGANIZATION_READER` or administrator permissions.
+    """
+    org = _get_cloud_client(ctx).get_organization(
+        organization_id=organization_id,
+        organization_name=organization_name,
+    )
+    try:
+        info = org.get_billing_status()
+    except (AirbyteError, NotImplementedError) as error:
+        reason = error.message if isinstance(error, AirbyteError) and error.message else str(error)
+        return CloudOrganizationBillingStatusResult(
+            organization_id=org.organization_id,
+            organization_name=org.organization_name,
+            billing_info_available=False,
+            message=f"Billing information could not be retrieved: {reason}",
+        )
+    return CloudOrganizationBillingStatusResult(
+        organization_id=org.organization_id,
+        organization_name=org.organization_name,
+        billing_info_available=True,
+        payment_status=info.payment_status,
+        subscription_status=info.subscription_status,
+        is_account_locked=info.is_account_locked,
     )
 
 
