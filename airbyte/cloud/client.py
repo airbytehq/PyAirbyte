@@ -325,6 +325,7 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
         all_organizations: bool = False,
+        member_only: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
@@ -340,10 +341,11 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
         all_organizations: bool = False,
+        member_only: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
-    def list_workspaces(  # noqa: PLR0912
+    def list_workspaces(  # noqa: PLR0912, PLR0913, PLR0915
         self,
         name: str | None = None,
         *,
@@ -354,10 +356,14 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
         all_organizations: bool = False,
+        member_only: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces available to this client.
 
         See the module docstring for how the organization context is resolved.
+
+        When `member_only` is enabled, return only the caller's direct workspace
+        grants and do not resolve or enumerate organizations.
         """
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
@@ -368,6 +374,15 @@ class CloudClient:
         has_explicit_organization = organization_id is not None or organization_name is not None
         has_explicit_workspace = workspace_id is not None
 
+        if member_only and (
+            has_explicit_organization or has_explicit_workspace or all_organizations
+        ):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "The member_only option cannot be combined with an organization, "
+                    "workspace, or all_organizations option."
+                )
+            )
         if all_organizations and (has_explicit_organization or has_explicit_workspace):
             raise exc.PyAirbyteInputError(
                 message=(
@@ -383,6 +398,31 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="You can provide name or name_contains, but not both."
             )
+        if member_only:
+            workspaces = [
+                CloudWorkspaceInfo.from_api_response(
+                    api_util.get_workspace(
+                        workspace_id=workspace_id,
+                        api_root=self.public_api_root,
+                        client_id=self.client_id,
+                        client_secret=self.client_secret,
+                        bearer_token=self.bearer_token,
+                    )
+                )
+                for workspace_id in self._get_direct_workspace_ids()
+            ]
+            if name is not None:
+                workspaces = [workspace for workspace in workspaces if workspace.name == name]
+            elif name_contains is not None:
+                name_substring = name_contains.casefold()
+                workspaces = [
+                    workspace
+                    for workspace in workspaces
+                    if name_substring in workspace.name.casefold()
+                ]
+            elif name_filter is not None:
+                workspaces = [workspace for workspace in workspaces if name_filter(workspace.name)]
+            return workspaces if limit is None else workspaces[:limit]
         if all_organizations:
             resolved_organization_id = None
         else:
@@ -393,7 +433,7 @@ class CloudClient:
                     workspace_id=workspace_id,
                 )
             except exc.PyAirbyteInputError:
-                direct_workspaces = self._try_list_direct_workspaces(
+                direct_workspaces = self._try_list_member_workspaces(
                     name=name,
                     name_contains=name_contains,
                     name_filter=name_filter,
@@ -403,7 +443,7 @@ class CloudClient:
                     return direct_workspaces
                 raise
         if resolved_organization_id is None and not all_organizations:
-            direct_workspaces = self._try_list_direct_workspaces(
+            direct_workspaces = self._try_list_member_workspaces(
                 name=name,
                 name_contains=name_contains,
                 name_filter=name_filter,
@@ -411,7 +451,7 @@ class CloudClient:
             )
             if direct_workspaces:
                 return direct_workspaces
-            if not all_organizations and self._try_is_instance_admin():
+            if self._try_is_instance_admin():
                 raise exc.PyAirbyteInputError(
                     message=(
                         "Call `get_default_cloud_context` first. An organization or "
@@ -466,7 +506,7 @@ class CloudClient:
             workspace_infos = workspace_infos[:limit]
         return workspace_infos
 
-    def list_direct_workspaces(
+    def _try_list_member_workspaces(
         self,
         *,
         name: str | None = None,
@@ -474,53 +514,14 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
     ) -> list[CloudWorkspaceInfo]:
-        """List workspaces granted directly to the authenticated user."""
-        if name is not None and name_contains is not None:
-            raise exc.PyAirbyteInputError(
-                message="You can provide name or name_contains, but not both."
-            )
-        if name_contains is not None and name_filter is not None:
-            raise exc.PyAirbyteInputError(
-                message="You can provide name_contains or name_filter, but not both."
-            )
-        workspaces = [
-            CloudWorkspaceInfo.from_api_response(
-                api_util.get_workspace(
-                    workspace_id=workspace_id,
-                    api_root=self.public_api_root,
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    bearer_token=self.bearer_token,
-                )
-            )
-            for workspace_id in self._get_direct_workspace_ids()
-        ]
-        if name is not None:
-            workspaces = [workspace for workspace in workspaces if workspace.name == name]
-        elif name_contains is not None:
-            name_substring = name_contains.casefold()
-            workspaces = [
-                workspace for workspace in workspaces if name_substring in workspace.name.casefold()
-            ]
-        elif name_filter is not None:
-            workspaces = [workspace for workspace in workspaces if name_filter(workspace.name)]
-        return workspaces if limit is None else workspaces[:limit]
-
-    def _try_list_direct_workspaces(
-        self,
-        *,
-        name: str | None = None,
-        name_contains: str | None = None,
-        name_filter: Callable[[str], bool] | None = None,
-        limit: int | None = None,
-    ) -> list[CloudWorkspaceInfo]:
-        """List direct workspaces, degrading to an empty result on lookup errors."""
+        """List member workspaces, degrading to an empty result on lookup errors."""
         try:
-            return self.list_direct_workspaces(
+            return self.list_workspaces(
                 name=name,
                 name_contains=name_contains,
                 name_filter=name_filter,
                 limit=limit,
+                member_only=True,
             )
         except (AirbyteError, exc.PyAirbyteInputError):
             return []
@@ -755,7 +756,7 @@ class CloudClient:
         else:
             membership_organization_ids = self._get_membership_organization_ids()
             try:
-                member_workspaces = self.list_direct_workspaces(limit=25)
+                member_workspaces = self.list_workspaces(member_only=True, limit=25)
             except (AirbyteError, exc.PyAirbyteInputError):
                 member_workspaces = []
 

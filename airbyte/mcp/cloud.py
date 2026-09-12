@@ -1586,9 +1586,10 @@ def list_cloud_workspaces(
         if not isinstance(candidates, list):
             raise
         try:
-            direct_workspaces = client.list_direct_workspaces(
+            direct_workspaces = client.list_workspaces(
                 name_contains=name_contains,
                 limit=limit,
+                member_only=True,
             )
         except (AirbyteError, PyAirbyteInputError):
             direct_workspaces = []

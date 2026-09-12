@@ -112,6 +112,14 @@ def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> Non
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
 
 
+def test_list_workspaces_member_only_rejects_organization_context() -> None:
+    with pytest.raises(exc.PyAirbyteInputError, match="member_only"):
+        CloudClient(bearer_token="token").list_workspaces(
+            member_only=True,
+            organization_id="organization-id",
+        )
+
+
 def test_get_workspace_raises_when_authenticated_user_has_no_default_workspace() -> (
     None
 ):
