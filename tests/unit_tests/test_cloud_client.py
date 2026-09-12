@@ -950,12 +950,73 @@ def test_get_default_context_for_user_degrades_without_token_identity() -> None:
         context = CloudClient(bearer_token="token").get_default_context_for_user()
 
     assert context.user_id is None
+    assert context.discovery_hints == []
+
+
+def test_get_default_context_for_user_hints_setter_when_stored_default_missing() -> (
+    None
+):
+    """An inferred single-grant workspace is not a stored default; still hint."""
+    patches = _api_patches(
+        user={"userId": "user-id"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-1"}
+        ],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Workspace 1",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-1",
+            ),
+        ),
+    ):
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
+
+    assert context.default_workspace_id == "workspace-1"
     assert context.discovery_hints == [
         "No default workspace is set. Use "
         "set_default_cloud_workspace(user_email=<your email>, "
         "workspace_id=<id>) to durably set one; it applies to both MCP "
         "sessions and the Airbyte Cloud web app."
     ]
+
+
+def test_get_default_context_for_user_omits_setter_hint_when_default_stored() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id", "defaultWorkspaceId": "workspace-1"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-1"}
+        ],
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Workspace 1",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-1",
+            ),
+        ),
+    ):
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
+
+    assert context.default_workspace_id == "workspace-1"
+    assert context.discovery_hints == []
 
 
 def _set_default_workspace_patches(
