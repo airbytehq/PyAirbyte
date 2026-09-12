@@ -422,25 +422,6 @@ class CloudClient:
                         "or organization_name, or set all_organizations=True."
                     ),
                 )
-            if name_contains is not None:
-                name_substring = name_contains.casefold()
-
-                def matches_name(workspace_name: str) -> bool:
-                    return name_substring in workspace_name.casefold()
-
-                name_filter = matches_name
-                name = None
-            workspaces = api_util.list_workspaces(
-                workspace_id="",
-                api_root=self.public_api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-                name_filter=name_filter,
-                name=name,
-                limit=limit,
-            )
-            return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
 
         if resolved_organization_id is None:
             if name_contains is not None:
@@ -759,7 +740,7 @@ class CloudClient:
         else:
             user_id_value = user.get("userId")
             user_id = user_id_value if isinstance(user_id_value, str) else None
-            user_name_value = user.get("userName", user.get("name"))
+            user_name_value = user.get("name")
             user_name = user_name_value if isinstance(user_name_value, str) else None
             user_email_value = user.get("email")
             user_email = user_email_value if isinstance(user_email_value, str) else None

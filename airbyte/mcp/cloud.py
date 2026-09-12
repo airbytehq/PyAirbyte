@@ -1534,7 +1534,7 @@ def list_deployed_cloud_connections(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def list_cloud_workspaces(  # noqa: PLR0912
+def list_cloud_workspaces(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -1585,16 +1585,12 @@ def list_cloud_workspaces(  # noqa: PLR0912
         candidates = context.get("organization_candidates")
         if not isinstance(candidates, list):
             raise
-        direct_workspace_lister = getattr(client, "list_direct_workspaces", None)
-        if callable(direct_workspace_lister):
-            try:
-                direct_workspaces = direct_workspace_lister(
-                    name_contains=name_contains,
-                    limit=limit,
-                )
-            except (AirbyteError, PyAirbyteInputError):
-                direct_workspaces = []
-        else:
+        try:
+            direct_workspaces = client.list_direct_workspaces(
+                name_contains=name_contains,
+                limit=limit,
+            )
+        except (AirbyteError, PyAirbyteInputError):
             direct_workspaces = []
         available_organizations: list[CloudOrganizationResult] = []
         for candidate in candidates:

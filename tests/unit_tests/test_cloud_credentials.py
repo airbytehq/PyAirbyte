@@ -1557,6 +1557,9 @@ def test_mcp_list_cloud_workspaces_reports_available_organizations(
                 },
             )
 
+        def list_direct_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
+            return []
+
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
     result = mcp_cloud.list_cloud_workspaces(
