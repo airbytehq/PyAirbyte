@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import NoReturn
 
 import pytest
+import requests
 from airbyte_api import models
 
 from airbyte import constants
@@ -1766,3 +1767,26 @@ def test_cloud_organization_get_billing_status(monkeypatch: pytest.MonkeyPatch) 
     assert result.payment_status == "okay"
     assert result.subscription_status == "subscribed"
     assert result.is_account_locked is False
+
+
+def test_cloud_organization_get_billing_status_requires_billing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_util, "get_organization_info", lambda **_: {"organizationId": "org-1"}
+    )
+    organization = CloudOrganization(organization_id="organization-id")
+    with pytest.raises(AirbyteError, match="billing details"):
+        organization.get_billing_status()
+
+
+def test_cloud_organization_get_billing_status_wraps_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get_organization_info(**_: object) -> None:
+        raise requests.ConnectionError("reset")
+
+    monkeypatch.setattr(api_util, "get_organization_info", get_organization_info)
+    organization = CloudOrganization(organization_id="organization-id")
+    with pytest.raises(AirbyteError, match="Failed to retrieve organization billing"):
+        organization.get_billing_status()
