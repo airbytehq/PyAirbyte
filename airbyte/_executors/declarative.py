@@ -86,6 +86,17 @@ class DeclarativeExecutor(Executor):
         self.reported_version: str | None = self._manifest_dict.get("version", None)
         self._config_dict = config_dict
 
+    @staticmethod
+    def _path_from_args(args: list[str], flag: str) -> Path | None:
+        """The readable file named by `flag`, or None."""
+        if flag not in args:
+            return None
+        index = args.index(flag) + 1
+        if index >= len(args):
+            return None
+        path = Path(args[index])
+        return path if path.is_file() else None
+
     def _config_from_args(self, args: list[str]) -> dict[str, Any]:
         """Read the connector config from the `--config <path>` CLI arg.
 
@@ -94,15 +105,8 @@ class DeclarativeExecutor(Executor):
         Argument parsing and validation remain the responsibility of the CDK
         entrypoint.
         """
-        if "--config" not in args:
-            return {}
-
-        config_index = args.index("--config") + 1
-        if config_index >= len(args):
-            return {}
-
-        config_path = Path(args[config_index])
-        if not config_path.is_file():
+        config_path = self._path_from_args(args, "--config")
+        if config_path is None:
             return {}
 
         try:
@@ -136,17 +140,6 @@ class DeclarativeExecutor(Executor):
             return Source.read_catalog(str(path))
         except (OSError, ValueError):
             return None
-
-    @staticmethod
-    def _path_from_args(args: list[str], flag: str) -> Path | None:
-        """The readable file named by `flag`, or None."""
-        if flag not in args:
-            return None
-        index = args.index(flag) + 1
-        if index >= len(args):
-            return None
-        path = Path(args[index])
-        return path if path.is_file() else None
 
     def _build_declarative_source(
         self,
@@ -200,15 +193,9 @@ class DeclarativeExecutor(Executor):
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin, suppress_stderr  # Not used
-        # The declarative source resolves `{{ config[...] }}` interpolations when it is
-        # constructed, so the connector config has to be supplied here rather than left
-        # for the entrypoint to read later.
-        # State and catalog are constructor arguments for the same reason config is:
-        # `ConcurrentDeclarativeSource` creates its `ConnectorStateManager` in
-        # `__init__` and its cursors in `streams()`, and its `read()` accepts a
-        # `state` argument that it never uses. A source built without state
-        # therefore re-reads every stream from the beginning, so incremental sync
-        # silently degrades to a full refresh for every manifest-based connector.
+        # Config, state and catalog are constructor args: the declarative source
+        # resolves interpolations and builds its state manager/cursors at
+        # construction, and its `read()` ignores the `state` it is passed.
         source_entrypoint = AirbyteEntrypoint(
             self._build_declarative_source(
                 self._config_from_args(args),
