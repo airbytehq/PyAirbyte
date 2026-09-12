@@ -286,7 +286,7 @@ class CloudWorkspaceListResult(BaseModel):
 
 
 class CloudDefaultContextResult(BaseModel):
-    """Current authenticated Cloud user context and resolution guidance."""
+    """Explicit authenticated Cloud affinities and discovery guidance."""
 
     user_id: str | None
     """The Airbyte user ID, if available."""
@@ -297,23 +297,23 @@ class CloudDefaultContextResult(BaseModel):
     user_email: str | None
     """The authenticated user's email, if available."""
 
-    is_instance_admin: bool
-    """Whether the authenticated user has an instance-admin permission."""
-
     default_workspace_id: str | None
     """The resolved default workspace ID, if available."""
+
+    configured_workspace_id: str | None
+    """The explicitly configured workspace ID, if available."""
 
     configured_organization_id: str | None
     """The configured organization ID, if available."""
 
-    membership_organizations: list[CloudOrganizationInfo]
-    """Organizations identified by organization-scoped permissions."""
+    member_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by explicit organization membership grants."""
 
-    direct_workspaces: list[CloudWorkspaceInfo]
-    """Workspaces identified by direct workspace-scoped permissions."""
+    member_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by explicit workspace membership grants."""
 
-    resolution_notes: list[str]
-    """Notes about unavailable identity or context resolution data."""
+    discovery_hints: list[str]
+    """Hints for discovering additional organizations or workspaces."""
 
     message: str
     """Guidance for selecting a workspace or organization context."""
@@ -1691,8 +1691,10 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     return CloudDefaultContextResult(
         **context.model_dump(),
         message=(
-            "Use default_workspace_id, pass workspace_id from direct_workspaces, "
-            "or pick an organization from membership_organizations."
+            "These lists are membership-based, not access-based: they show explicit "
+            "organization and workspace memberships only. Use default_workspace_id, "
+            "pass workspace_id from member_workspaces, or pick an organization from "
+            "member_organizations."
         ),
     )
 

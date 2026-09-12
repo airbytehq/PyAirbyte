@@ -132,7 +132,7 @@ class CloudOrganizationInfo(BaseModel):
 
 
 class CloudDefaultContextInfo(BaseModel):
-    """Information about the authenticated Cloud user's current context."""
+    """Explicit organization and workspace affinities for the authenticated user."""
 
     user_id: str | None
     """The Airbyte user ID, if available."""
@@ -143,23 +143,23 @@ class CloudDefaultContextInfo(BaseModel):
     user_email: str | None
     """The authenticated user's email, if available."""
 
-    is_instance_admin: bool
-    """Whether the authenticated user has an instance-admin permission."""
-
     default_workspace_id: str | None
     """The resolved default workspace ID, if available."""
+
+    configured_workspace_id: str | None
+    """The explicitly configured workspace ID, if available."""
 
     configured_organization_id: str | None
     """The configured organization ID, if available."""
 
-    membership_organizations: list[CloudOrganizationInfo]
-    """Organizations identified by organization-scoped permissions."""
+    member_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by explicit organization membership grants."""
 
-    direct_workspaces: list[CloudWorkspaceInfo]
-    """Workspaces identified by direct workspace-scoped permissions."""
+    member_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by explicit workspace membership grants."""
 
-    resolution_notes: list[str]
-    """Notes about unavailable identity or context resolution data."""
+    discovery_hints: list[str]
+    """Hints for discovering additional organizations or workspaces."""
 
 
 class CloudConnectionInfo(BaseModel):

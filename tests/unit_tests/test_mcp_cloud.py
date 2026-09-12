@@ -497,17 +497,17 @@ def test_get_default_cloud_context_returns_context_model(
         user_id="user-id",
         user_name="User",
         user_email="user@example.com",
-        is_instance_admin=True,
         default_workspace_id=None,
+        configured_workspace_id=None,
         configured_organization_id=None,
-        membership_organizations=[
+        member_organizations=[
             CloudOrganizationInfo(
                 organization_id="organization-id",
                 organization_name="Organization",
             )
         ],
-        direct_workspaces=[],
-        resolution_notes=["No default workspace on user record"],
+        member_workspaces=[],
+        discovery_hints=[],
     )
 
     class ContextClient:
@@ -519,6 +519,5 @@ def test_get_default_cloud_context_returns_context_model(
     result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
 
     assert result.user_id == "user-id"
-    assert result.is_instance_admin is True
-    assert result.membership_organizations[0].organization_id == "organization-id"
-    assert "default_workspace_id" in result.message
+    assert result.member_organizations[0].organization_id == "organization-id"
+    assert "membership-based, not access-based" in result.message

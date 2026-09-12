@@ -304,15 +304,15 @@ def test_get_default_context_is_bounded_to_permission_derived_scope() -> None:
         context = CloudClient(bearer_token="token").get_default_context()
 
     assert context.user_id == "user-id"
-    assert context.is_instance_admin is True
     assert context.default_workspace_id is None
-    assert [item.organization_id for item in context.membership_organizations] == [
+    assert [item.organization_id for item in context.member_organizations] == [
         "organization-1",
         "organization-2",
     ]
-    assert [item.workspace_id for item in context.direct_workspaces] == [
+    assert [item.workspace_id for item in context.member_workspaces] == [
         f"workspace-{index}" for index in range(1, 7)
     ]
+    assert len(context.discovery_hints) == 2
 
 
 def test_get_default_context_degrades_without_token_identity() -> None:
@@ -330,4 +330,4 @@ def test_get_default_context_degrades_without_token_identity() -> None:
         context = CloudClient(bearer_token="token").get_default_context()
 
     assert context.user_id is None
-    assert any("no user identity claim" in note for note in context.resolution_notes)
+    assert context.discovery_hints == []

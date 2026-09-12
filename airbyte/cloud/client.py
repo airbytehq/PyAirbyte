@@ -748,19 +748,13 @@ class CloudClient:
         )
 
     def get_default_context(self) -> CloudDefaultContextInfo:
-        """Describe the authenticated user's resolvable Cloud context."""
-        notes: list[str] = []
+        """Describe the authenticated user's explicit Cloud affinities."""
         user_id: str | None = None
         user_name: str | None = None
         user_email: str | None = None
         try:
             user = self._get_authenticated_user_info()
-        except (AirbyteError, exc.PyAirbyteInputError) as error:
-            notes.append(
-                "Bearer token has no user identity claim; membership resolution unavailable."
-                if isinstance(error, exc.PyAirbyteInputError)
-                else "Authenticated user lookup unavailable; membership resolution unavailable."
-            )
+        except (AirbyteError, exc.PyAirbyteInputError):
             user = {}
         else:
             user_id_value = user.get("userId")
@@ -771,41 +765,48 @@ class CloudClient:
             user_email = user_email_value if isinstance(user_email_value, str) else None
 
         default_workspace_id = self.resolve_default_workspace_id()
-        if default_workspace_id is None:
-            notes.append("No default workspace on user record")
-
         try:
-            membership_organization_ids = self._get_membership_organization_ids()
+            permissions = self._get_user_permissions()
         except (AirbyteError, exc.PyAirbyteInputError):
+            permissions = ()
             membership_organization_ids = ()
-            notes.append("Membership permissions unavailable")
-        try:
-            is_instance_admin = self._is_instance_admin()
-        except (AirbyteError, exc.PyAirbyteInputError):
-            is_instance_admin = False
-            notes.append("Instance-admin permission status unavailable")
-        try:
-            direct_workspaces = self.list_direct_workspaces(limit=25)
-        except (AirbyteError, exc.PyAirbyteInputError):
-            direct_workspaces = []
-            notes.append("Direct workspace permissions unavailable")
+            member_workspaces = []
+        else:
+            membership_organization_ids = self._get_membership_organization_ids()
+            try:
+                member_workspaces = self.list_direct_workspaces(limit=25)
+            except (AirbyteError, exc.PyAirbyteInputError):
+                member_workspaces = []
 
-        membership_organizations = [
+        member_organizations = [
             CloudOrganizationInfo.model_validate(candidate)
             for candidate in self._get_organization_candidates(
                 membership_organization_ids[:MAX_ORGANIZATION_CANDIDATES]
             )
         ]
+        discovery_hints: list[str] = []
+        if any(permission.get("permissionType") == "instance_admin" for permission in permissions):
+            discovery_hints.append(
+                "Instance-admin access may include every organization and workspace in the "
+                "instance. Use list_cloud_organizations(name_contains=...) or "
+                "list_cloud_workspaces(organization_id=...) to discover others."
+            )
+        if membership_organization_ids:
+            discovery_hints.append(
+                "Organization membership grants access to every workspace in those "
+                "organizations. Use list_cloud_workspaces(organization_id=<id>) to "
+                "discover workspaces."
+            )
         return CloudDefaultContextInfo(
             user_id=user_id,
             user_name=user_name,
             user_email=user_email,
-            is_instance_admin=is_instance_admin,
             default_workspace_id=default_workspace_id,
+            configured_workspace_id=self.default_workspace_id,
             configured_organization_id=self.organization_id,
-            membership_organizations=membership_organizations,
-            direct_workspaces=direct_workspaces,
-            resolution_notes=notes,
+            member_organizations=member_organizations,
+            member_workspaces=member_workspaces,
+            discovery_hints=discovery_hints,
         )
 
     def _get_organization_candidates(
