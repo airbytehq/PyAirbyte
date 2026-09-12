@@ -779,6 +779,9 @@ class CloudClient:
                 bearer_token=self._get_config_api_bearer_token(),
             )
         except AirbyteError:
+            # The workspace is readable via the public API but its organization is not
+            # (e.g. the caller lacks org-level read, or the Config API endpoint is
+            # unavailable). Keep the live workspace and leave the organization unknown.
             pass
         else:
             candidate_id = organization.get("organizationId")
