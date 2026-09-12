@@ -371,10 +371,7 @@ class CloudClient:
         if all_organizations:
             if privilege_scope is not WorkspacePrivilegeScope.MEMBER_OF:
                 raise exc.PyAirbyteInputError(
-                    message=(
-                        "The all_organizations option conflicts with the "
-                        "privilege_scope option."
-                    )
+                    message="all_organizations cannot be combined with privilege_scope."
                 )
             warnings.warn(
                 "`all_organizations` is deprecated; use `privilege_scope` instead.",
