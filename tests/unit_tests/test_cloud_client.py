@@ -867,7 +867,10 @@ def test_get_default_context_for_user_is_bounded_to_permission_derived_scope() -
     ]
     assert context.member_organizations_truncated is False
     assert context.member_workspaces_truncated is False
-    assert len(context.discovery_hints) == 2
+    assert len(context.discovery_hints) == 3
+    assert any(
+        "set_default_cloud_workspace" in hint for hint in context.discovery_hints
+    )
 
 
 def test_get_default_context_for_user_truncates_organization_memberships() -> None:
@@ -947,4 +950,339 @@ def test_get_default_context_for_user_degrades_without_token_identity() -> None:
         context = CloudClient(bearer_token="token").get_default_context_for_user()
 
     assert context.user_id is None
-    assert context.discovery_hints == []
+    assert context.discovery_hints == [
+        "No default workspace is set. Use "
+        "set_default_cloud_workspace(user_email=<your email>, "
+        "workspace_id=<id>) to durably set one; it applies to both MCP "
+        "sessions and the Airbyte Cloud web app."
+    ]
+
+
+def _set_default_workspace_patches(
+    *,
+    workspace: dict[str, object] | BaseException = ...,
+    organizations: list[dict[str, object]] | None = None,
+    updated_user: dict[str, object] | None = None,
+):
+    """Patches for the API calls made by `set_default_workspace_for_user`."""
+    workspace_patch = (
+        patch(
+            "airbyte._util.api_util.get_workspace_config_api",
+            side_effect=workspace,
+        )
+        if isinstance(workspace, BaseException)
+        else patch(
+            "airbyte._util.api_util.get_workspace_config_api",
+            return_value=(
+                {
+                    "workspaceId": "workspace-id",
+                    "name": "Workspace",
+                    "organizationId": "organization-id",
+                    "tombstone": False,
+                }
+                if workspace is ...
+                else workspace
+            ),
+        )
+    )
+    return (
+        workspace_patch,
+        patch(
+            "airbyte._util.api_util.list_organizations_for_user_id",
+            return_value=(
+                [{"organizationId": "organization-id"}]
+                if organizations is None
+                else organizations
+            ),
+        ),
+        patch(
+            "airbyte._util.api_util.update_user_default_workspace",
+            return_value=(
+                {"userId": "user-id", "defaultWorkspaceId": "workspace-id"}
+                if updated_user is None
+                else updated_user
+            ),
+        ),
+    )
+
+
+def test_set_default_workspace_for_user_with_direct_grant() -> None:
+    patches = _api_patches(
+        user={
+            "userId": "user-id",
+            "email": "user@example.com",
+            "defaultWorkspaceId": "old-workspace",
+        },
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-id"}
+        ],
+    )
+    extra = _set_default_workspace_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0] as get_workspace,
+        extra[1],
+        extra[2] as update_user,
+    ):
+        result = CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    assert result.user_id == "user-id"
+    assert result.user_email == "user@example.com"
+    assert result.previous_default_workspace_id == "old-workspace"
+    assert result.default_workspace_id == "workspace-id"
+    assert result.default_workspace_name == "Workspace"
+    assert result.organization_id == "organization-id"
+    assert result.organization_name == "Organization"
+    assert result.membership_basis == "workspace"
+    get_workspace.assert_called_once()
+    update_user.assert_called_once()
+    assert update_user.call_args.args == ("user-id", "workspace-id")
+
+
+def test_set_default_workspace_for_user_with_organization_grant() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id", "email": "user@example.com"},
+        permissions=[
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-id",
+            }
+        ],
+    )
+    extra = _set_default_workspace_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0],
+        extra[1],
+        extra[2],
+    ):
+        result = CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email=" User@Example.com ",
+            workspace_id="workspace-id",
+        )
+
+    assert result.default_workspace_id == "workspace-id"
+    assert result.membership_basis == "organization"
+
+
+def test_set_default_workspace_for_user_rejects_email_mismatch() -> None:
+    patches = _api_patches(
+        user={
+            "userId": "user-id",
+            "email": "user@example.com",
+            "name": "User",
+        }
+    )
+    extra = _set_default_workspace_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0] as get_workspace,
+        extra[1],
+        extra[2] as update_user,
+        pytest.raises(exc.PyAirbyteInputError) as exc_info,
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="other@example.com",
+            workspace_id="workspace-id",
+        )
+
+    assert "does not match the authenticated user" in str(exc_info.value)
+    assert "user@example.com" in str(exc_info.value.context)
+    assert "get_default_cloud_context" in str(exc_info.value.guidance)
+    get_workspace.assert_not_called()
+    update_user.assert_not_called()
+
+
+def test_set_default_workspace_for_user_rejects_disabled_user() -> None:
+    patches = _api_patches(
+        user={
+            "userId": "user-id",
+            "email": "user@example.com",
+            "status": "disabled",
+        }
+    )
+    extra = _set_default_workspace_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0] as get_workspace,
+        extra[1],
+        extra[2] as update_user,
+        pytest.raises(exc.PyAirbyteInputError, match="disabled"),
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    get_workspace.assert_not_called()
+    update_user.assert_not_called()
+
+
+def test_set_default_workspace_for_user_rejects_missing_workspace() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id", "email": "user@example.com"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-id"}
+        ],
+    )
+    extra = _set_default_workspace_patches(
+        workspace=exc.AirbyteMissingResourceError(
+            resource_type="workspace",
+            resource_name_or_id="workspace-id",
+        )
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0],
+        extra[1],
+        extra[2] as update_user,
+        pytest.raises(exc.PyAirbyteInputError, match="not found"),
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    update_user.assert_not_called()
+
+
+def test_set_default_workspace_for_user_rejects_tombstoned_workspace() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id", "email": "user@example.com"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-id"}
+        ],
+    )
+    extra = _set_default_workspace_patches(
+        workspace={
+            "workspaceId": "workspace-id",
+            "name": "Deleted workspace",
+            "organizationId": "organization-id",
+            "tombstone": True,
+        }
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0],
+        extra[1],
+        extra[2] as update_user,
+        pytest.raises(exc.PyAirbyteInputError, match="tombstoned"),
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    update_user.assert_not_called()
+
+
+def test_set_default_workspace_for_user_rejects_instance_admin_only() -> None:
+    """Instance-admin access alone must not count as membership."""
+    patches = _api_patches(
+        user={"userId": "user-id", "email": "user@example.com"},
+        permissions=[{"permissionType": "instance_admin"}],
+    )
+    extra = _set_default_workspace_patches()
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0],
+        extra[1],
+        extra[2] as update_user,
+        pytest.raises(exc.PyAirbyteInputError, match="not an explicit member"),
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    update_user.assert_not_called()
+
+
+def test_set_default_workspace_for_user_rejects_tombstoned_organization() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id", "email": "user@example.com"},
+        permissions=[
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-id",
+            }
+        ],
+    )
+    extra = _set_default_workspace_patches(
+        organizations=[{"organizationId": "other-organization"}]
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0],
+        extra[1],
+        extra[2] as update_user,
+        pytest.raises(exc.PyAirbyteInputError, match="tombstoned or no longer"),
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    update_user.assert_not_called()
+
+
+def test_set_default_workspace_for_user_fails_when_update_does_not_persist() -> None:
+    patches = _api_patches(
+        user={"userId": "user-id", "email": "user@example.com"},
+        permissions=[
+            {"permissionType": "workspace_admin", "workspaceId": "workspace-id"}
+        ],
+    )
+    extra = _set_default_workspace_patches(
+        updated_user={"userId": "user-id", "defaultWorkspaceId": "other-workspace"}
+    )
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        extra[0],
+        extra[1],
+        extra[2],
+        pytest.raises(exc.AirbyteError, match="did not persist"),
+    ):
+        CloudClient(bearer_token="token").set_default_workspace_for_user(
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )

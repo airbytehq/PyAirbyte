@@ -2935,6 +2935,78 @@ def get_user_by_auth_id(
     )
 
 
+def update_user_default_workspace(
+    user_id: str,
+    workspace_id: str,
+    *,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Update an Airbyte user's stored default workspace.
+
+    Uses the Config API endpoint: POST /v1/users/update
+    """
+    result = _make_config_api_request(
+        path="/users/update",
+        json={
+            "userId": user_id,
+            "defaultWorkspaceId": workspace_id,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+
+    raise AirbyteError(
+        message="The user API returned an unexpected response.",
+        context={"response": result},
+    )
+
+
+def get_workspace_config_api(
+    workspace_id: str,
+    *,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get a workspace record via the Config API, including tombstoned rows.
+
+    Uses the Config API endpoint: POST /v1/workspaces/get
+
+    Tombstoned rows are requested explicitly so callers can distinguish a
+    deleted workspace from one that was never found.
+    """
+    result = _make_config_api_request(
+        path="/workspaces/get",
+        json={
+            "workspaceId": workspace_id,
+            "includeTombstone": True,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    if isinstance(result, dict):
+        return result
+
+    raise AirbyteError(
+        message="The workspace API returned an unexpected response.",
+        context={"response": result},
+    )
+
+
 def list_permissions_for_user(
     user_id: str,
     *,
