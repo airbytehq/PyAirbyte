@@ -849,6 +849,7 @@ class CloudClient:
         user_id: str | None = None
         user_name: str | None = None
         user_email: str | None = None
+        user: dict[str, Any] | None = None
         try:
             user = self._get_authenticated_user_info()
         except (AirbyteError, exc.PyAirbyteInputError):
@@ -909,7 +910,7 @@ class CloudClient:
                 "organizations. Use list_cloud_workspaces(organization_id=<id>) to "
                 "discover workspaces."
             )
-        if default_workspace_id is None:
+        if user is not None and not isinstance(user.get("defaultWorkspaceId"), str):
             discovery_hints.append(
                 "No default workspace is set. Use "
                 "set_default_cloud_workspace(user_email=<your email>, "
