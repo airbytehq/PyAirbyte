@@ -102,6 +102,9 @@ class CloudWorkspaceInfo(BaseModel):
     organization_id: str | None = Field(default=None, alias="organizationId")
     """The organization ID for the workspace, if available."""
 
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name for the workspace, if available."""
+
     notifications: dict[str, object | None] | list[dict[str, object | None]] = Field(
         default_factory=dict
     )
@@ -154,6 +157,21 @@ class CloudDefaultContextInfo(BaseModel):
 
     default_workspace_id: str | None
     """The resolved default workspace ID, if available."""
+
+    default_workspace_name: str | None
+    """The resolved default workspace name, if available."""
+
+    default_workspace_verified: bool
+    """Whether the resolved default workspace was verified as accessible."""
+
+    unvalidated_workspace_count: int = 0
+    """Number of direct workspace grants not validated due to the validation cap."""
+
+    default_organization_id: str | None
+    """The organization containing the resolved default workspace, if available."""
+
+    default_organization_name: str | None
+    """The name of the organization containing the resolved default workspace, if available."""
 
     configured_workspace_id: str | None
     """The explicitly configured workspace ID, if available."""
