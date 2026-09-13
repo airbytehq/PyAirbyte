@@ -1702,7 +1702,7 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
 
 @mcp_tool(
     idempotent=True,
-    destructive=False,
+    destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
