@@ -6,8 +6,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import requests
+
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.models import CloudOrganizationBillingInfo
+from airbyte.exceptions import AirbyteError
 from airbyte.secrets.base import SecretString
 
 
@@ -97,6 +101,38 @@ class CloudOrganization:
             return self._email
         info = self._fetch_organization_info()
         return info.get("email")
+
+    def get_billing_status(self) -> CloudOrganizationBillingInfo:
+        """Fetch billing status for the organization or raise on failure."""
+        try:
+            info = api_util.get_organization_info(
+                organization_id=self.organization_id,
+                api_root=self._credentials.public_api_root,
+                config_api_root=self._credentials.config_api_root,
+                client_id=self._credentials.client_id,
+                client_secret=self._credentials.client_secret,
+                bearer_token=self._credentials.bearer_token,
+            )
+        except (requests.RequestException, ValueError) as ex:
+            raise AirbyteError(
+                message="Failed to retrieve organization billing information.",
+                context={"organization_id": self.organization_id},
+            ) from ex
+        billing = info.get("billing")
+        if not isinstance(billing, dict):
+            raise AirbyteError(
+                message="Organization info did not include billing details.",
+                context={"organization_id": self.organization_id},
+            )
+        payment_status = billing.get("paymentStatus")
+        subscription_status = billing.get("subscriptionStatus")
+        return CloudOrganizationBillingInfo(
+            payment_status=payment_status if isinstance(payment_status, str) else None,
+            subscription_status=(
+                subscription_status if isinstance(subscription_status, str) else None
+            ),
+            is_account_locked=api_util.is_account_locked(payment_status, subscription_status),
+        )
 
     @property
     def payment_status(self) -> str | None:

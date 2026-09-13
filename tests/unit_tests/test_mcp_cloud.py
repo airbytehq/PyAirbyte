@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Callable, cast
 
 import pytest
@@ -572,3 +573,129 @@ def test_get_default_cloud_context_flags_unverified_default_workspace(
         "Default workspace ID deleted-workspace could not be verified "
         "(it may have been deleted or is not accessible with these credentials). These"
     )
+
+
+def test_describe_cloud_workspace_includes_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = SimpleNamespace(
+        organization_id="org-id", organization_name="Organization"
+    )
+    workspace = SimpleNamespace(
+        workspace_id="workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        workspace_url="https://cloud.airbyte.com/workspaces/workspace-id",
+        get_organization=lambda **_: organization,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp.api_util,
+        "get_workspace",
+        lambda **_: SimpleNamespace(workspace_id="workspace-id", name="Workspace"),
+    )
+    result = cloud_mcp.describe_cloud_workspace(
+        cast(Context, object()), workspace_id=None
+    )
+    assert result.organization_id == "org-id"
+    assert result.organization_name == "Organization"
+
+
+def test_describe_cloud_workspace_allows_missing_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = SimpleNamespace(
+        workspace_id="workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        workspace_url=None,
+        get_organization=lambda **_: None,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp.api_util,
+        "get_workspace",
+        lambda **_: SimpleNamespace(workspace_id="workspace-id", name="Workspace"),
+    )
+    result = cloud_mcp.describe_cloud_workspace(
+        cast(Context, object()), workspace_id=None
+    )
+    assert result.organization_id is None
+    assert result.organization_name is None
+
+
+def test_get_cloud_organization_billing_status_returns_billing_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=lambda: SimpleNamespace(
+            payment_status="okay",
+            subscription_status="subscribed",
+            is_account_locked=False,
+        ),
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    result = cloud_mcp.get_cloud_organization_billing_status(
+        cast(Context, object()), organization_id=None, organization_name=None
+    )
+    assert result.billing_info_available is True
+    assert result.payment_status == "okay"
+    assert result.subscription_status == "subscribed"
+    assert result.is_account_locked is False
+
+
+def test_get_cloud_organization_billing_status_handles_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get_billing_status() -> None:
+        raise cloud_mcp.AirbyteError(message="not allowed")
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=get_billing_status,
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    result = cloud_mcp.get_cloud_organization_billing_status(
+        cast(Context, object()), organization_id=None, organization_name=None
+    )
+    assert result.billing_info_available is False
+    assert result.payment_status is None
+    assert result.is_account_locked is False
+    assert result.message == "Billing information could not be retrieved: not allowed"
+
+
+def test_describe_cloud_organization_excludes_billing_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        email="org@example.com",
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    result = cloud_mcp.describe_cloud_organization(
+        cast(Context, object()), organization_id=None, organization_name=None
+    )
+    assert result.id == "org-id"
+    assert not hasattr(result, "payment_status")
+    assert not hasattr(result, "subscription_status")
+    assert not hasattr(result, "is_account_locked")
