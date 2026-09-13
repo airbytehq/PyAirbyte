@@ -1713,8 +1713,9 @@ def set_default_cloud_workspace(
         Field(
             description=(
                 "Email of the authenticated Airbyte Cloud user this change applies to. "
-                "Must exactly match the current credentials' user (see "
-                "get_default_cloud_context); mismatches fail with a validation error. "
+                "Must match the current credentials' user (compared case-insensitively, "
+                "ignoring surrounding whitespace; see get_default_cloud_context); "
+                "mismatches fail with a validation error. "
                 "Required as a safety confirmation."
             ),
         ),
