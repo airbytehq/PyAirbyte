@@ -17,8 +17,13 @@ from typing import TYPE_CHECKING, Any, Literal
 import requests
 
 from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.constants import (
+    AGENTS_API_ROOT_ENV_VAR,
+    CLOUD_API_ROOT,
+    CLOUD_CONFIG_API_ROOT,
+)
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.secrets.util import try_get_secret
 
 
 if TYPE_CHECKING:
@@ -26,10 +31,9 @@ if TYPE_CHECKING:
 
 
 _AGENTS_API_ROOT = "https://api.airbyte.ai/api/v1"
-"""The Airbyte Agents API root URL.
+"""The default hosted Airbyte Agents API root URL.
 
-This is deliberately private and not configurable: the Agents API is a hosted Airbyte
-service with a single root, so there is nothing for callers to override.
+The `AIRBYTE_AGENTS_API_URL` environment variable can override this root.
 """
 
 _REQUEST_TIMEOUT_SECONDS = 300
@@ -43,6 +47,26 @@ _MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
 """Fragment of the Agents API error returned when credentials span several organizations."""
 
 
+def get_overridden_cloud_api_roots(
+    *,
+    public_api_root: str | None,
+    config_api_root: str | None,
+) -> dict[str, str]:
+    """Return the Cloud API roots that point away from public Airbyte Cloud.
+
+    Keys are `"api_root"` / `"config_api_root"`; blank or `None` values count as the public
+    default, and a trailing `/` is ignored.
+    """
+    return {
+        name: value
+        for name, value, default in (
+            ("api_root", public_api_root, CLOUD_API_ROOT),
+            ("config_api_root", config_api_root, CLOUD_CONFIG_API_ROOT),
+        )
+        if value and value.rstrip("/") != default
+    }
+
+
 def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
     """Raise `PyAirbyteInputError` unless the credentials use the public Cloud API roots.
 
@@ -50,14 +74,10 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
     own. Converting from a Cloud object that points somewhere other than public Airbyte
     Cloud would therefore silently discard those roots, so the conversion is refused.
     """
-    overridden = {
-        name: value
-        for name, value, default in (
-            ("api_root", credentials.public_api_root, CLOUD_API_ROOT),
-            ("config_api_root", credentials.config_api_root, CLOUD_CONFIG_API_ROOT),
-        )
-        if value is not None and value.rstrip("/") != default
-    }
+    overridden = get_overridden_cloud_api_roots(
+        public_api_root=credentials.public_api_root,
+        config_api_root=credentials.config_api_root,
+    )
     if overridden:
         raise PyAirbyteInputError(
             message="The Airbyte Agents API is only available on Airbyte Cloud.",
@@ -68,6 +88,21 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
             ),
             context=overridden,
         )
+
+
+def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
+    """Resolve the Agents API root for `credentials`.
+
+    Resolution order:
+    1. `AIRBYTE_AGENTS_API_URL`, if set.
+    2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
+    3. Otherwise raise `PyAirbyteInputError`: a non-Cloud deployment has no Agents API.
+    """
+    override = try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None)
+    if override:
+        return str(override).rstrip("/")
+    check_public_cloud_api_roots(credentials)
+    return _AGENTS_API_ROOT
 
 
 def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
@@ -112,7 +147,7 @@ def make_agents_api_request(
     if organization_id:
         headers["X-Organization-Id"] = organization_id
 
-    full_url = _AGENTS_API_ROOT + path
+    full_url = get_agents_api_root(credentials) + path
     response = requests.request(
         method=method,
         url=full_url,

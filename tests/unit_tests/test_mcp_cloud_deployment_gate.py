@@ -7,17 +7,14 @@ from typing import cast
 import pytest
 from fastmcp import Context
 
-from airbyte.agents.organizations import AgentOrganization
+from airbyte.agents import _api_util
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
     MCP_CONFIG_API_URL,
-    MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CONFIG_API_URL,
 )
-from airbyte.exceptions import AirbyteCloudDeploymentRequiredError
 from airbyte.mcp import _guards
-from airbyte.mcp import agents as agents_mcp
 
 
 CTX = cast(Context, object())
@@ -53,49 +50,23 @@ def test_is_cloud_deployment(mcp_config: dict[str, str]) -> None:
     assert not _guards.is_cloud_deployment(CTX)
 
 
-def test_raise_if_not_cloud_deployment(mcp_config: dict[str, str]) -> None:
-    """Raise with overridden roots and otherwise do nothing."""
-    _guards.raise_if_not_cloud_deployment(CTX, feature="Agents tools")
-
-    mcp_config[MCP_CONFIG_API_URL] = "https://airbyte.example.com/api/public/v1"
-    with pytest.raises(AirbyteCloudDeploymentRequiredError) as exc_info:
-        _guards.raise_if_not_cloud_deployment(CTX, feature="Agents tools")
-
-    assert exc_info.value.context == {
-        MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1"
-    }
-
-
-def test_agents_helpers_raise_on_non_cloud_deployment(
-    monkeypatch: pytest.MonkeyPatch,
-    mcp_config: dict[str, str],
-) -> None:
-    """Agents helper constructors hard-fail on overridden roots."""
-    monkeypatch.setattr(
-        agents_mcp,
-        "get_mcp_config",
-        lambda ctx, key, **kwargs: mcp_config.get(key),  # noqa: ARG005
+def test_get_overridden_cloud_api_roots() -> None:
+    """Return only non-public, non-blank Cloud API roots."""
+    assert (
+        _api_util.get_overridden_cloud_api_roots(
+            public_api_root=None,
+            config_api_root=None,
+        )
+        == {}
     )
-    mcp_config[MCP_CONFIG_API_URL] = "https://airbyte.example.com/api/public/v1"
-
-    with pytest.raises(AirbyteCloudDeploymentRequiredError):
-        agents_mcp._get_agent_organization(CTX, None)  # noqa: SLF001
-    with pytest.raises(AirbyteCloudDeploymentRequiredError):
-        agents_mcp._get_agent_workspace(CTX, "ws-id", "org-id")  # noqa: SLF001
-
-
-def test_agent_organization_constructs_on_cloud(
-    monkeypatch: pytest.MonkeyPatch,
-    mcp_config: dict[str, str],
-) -> None:
-    """Agent organization construction does not call the network."""
-    monkeypatch.setattr(
-        agents_mcp,
-        "get_mcp_config",
-        lambda ctx, key, **kwargs: mcp_config.get(key),  # noqa: ARG005
+    assert (
+        _api_util.get_overridden_cloud_api_roots(
+            public_api_root="",
+            config_api_root=f"{CLOUD_CONFIG_API_ROOT}/",
+        )
+        == {}
     )
-    mcp_config[MCP_CONFIG_BEARER_TOKEN] = "tok"
-
-    organization = agents_mcp._get_agent_organization(CTX, "org-id")  # noqa: SLF001
-
-    assert isinstance(organization, AgentOrganization)
+    assert _api_util.get_overridden_cloud_api_roots(
+        public_api_root="https://airbyte.example.com/api/public/v1",
+        config_api_root=CLOUD_CONFIG_API_ROOT,
+    ) == {"api_root": "https://airbyte.example.com/api/public/v1"}

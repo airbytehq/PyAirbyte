@@ -181,6 +181,41 @@ def test_make_agents_api_request(captured_requests: list[dict[str, Any]]) -> Non
     assert "X-Organization-Id" not in captured_requests[1]["headers"]
 
 
+def test_get_agents_api_root_for_public_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Public Cloud credentials use the hosted Agents API root."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+
+    assert (
+        _api_util.get_agents_api_root(_credentials()) == "https://api.airbyte.ai/api/v1"
+    )
+
+
+def test_get_agents_api_root_rejects_overridden_cloud_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-Cloud credentials cannot use the hosted Agents API."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+
+    with pytest.raises(PyAirbyteInputError, match="only available on Airbyte Cloud"):
+        _api_util.get_agents_api_root(
+            _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
+        )
+
+
+def test_get_agents_api_root_uses_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit Agents API root overrides deployment detection."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1/")
+
+    assert (
+        _api_util.get_agents_api_root(
+            _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
+        )
+        == "https://agents.example.com/api/v1"
+    )
+
+
 @pytest.mark.parametrize(
     ("response", "expected_match", "expected_status"),
     [

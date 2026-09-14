@@ -248,6 +248,12 @@ the public API URL has been overridden and the Config API cannot be derived
 from it automatically.
 """
 
+AGENTS_API_ROOT_ENV_VAR: str = "AIRBYTE_AGENTS_API_URL"
+"""Environment variable to override the Airbyte Agents API root.
+
+Normally unset: the Agents API is a hosted Airbyte Cloud service with a single root.
+"""
+
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
 
@@ -349,9 +355,9 @@ the include list.
 MCP_CLOUD_ONLY_MODULES: frozenset[str] = frozenset({"agents"})
 """MCP tool modules that exist only on Airbyte Cloud.
 
-They are hidden, and their backend helpers hard-fail, whenever the server's Cloud API roots
-(`AIRBYTE_CLOUD_API_URL` / `AIRBYTE_CLOUD_CONFIG_API_URL`) are overridden away from the public
-Airbyte Cloud roots, since that indicates an OSS or self-managed deployment.
+They are hidden whenever the server's Cloud API roots (`AIRBYTE_CLOUD_API_URL` /
+`AIRBYTE_CLOUD_CONFIG_API_URL`) are overridden away from the public Airbyte Cloud roots, since
+that indicates an OSS or self-managed deployment.
 """
 
 MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
