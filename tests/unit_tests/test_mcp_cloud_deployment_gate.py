@@ -13,7 +13,7 @@ from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_CONFIG_API_URL,
 )
-from airbyte.mcp import _guards
+from airbyte.mcp import _tool_utils
 
 
 CTX = cast(Context, object())
@@ -24,7 +24,7 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
     config: dict[str, str] = {}
     monkeypatch.setattr(
-        _guards,
+        _tool_utils,
         "get_mcp_config",
         lambda ctx, key, **kwargs: config.get(key),  # noqa: ARG005
     )
@@ -37,20 +37,20 @@ def test_is_agents_api_available(
 ) -> None:
     """Recognize public Cloud roots and explicit Agents API roots."""
     monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
-    assert _guards.is_agents_api_available(CTX)
+    assert _tool_utils.is_agents_api_available(CTX)
 
     mcp_config.update({
         MCP_CONFIG_API_URL: f"{CLOUD_API_ROOT}/",
         MCP_CONFIG_CONFIG_API_URL: f"{CLOUD_CONFIG_API_ROOT}/",
     })
-    assert _guards.is_agents_api_available(CTX)
+    assert _tool_utils.is_agents_api_available(CTX)
 
     mcp_config[MCP_CONFIG_API_URL] = "https://airbyte.example.com/api/public/v1"
-    assert not _guards.is_agents_api_available(CTX)
+    assert not _tool_utils.is_agents_api_available(CTX)
 
     mcp_config.pop(MCP_CONFIG_API_URL)
     mcp_config[MCP_CONFIG_CONFIG_API_URL] = "https://airbyte.example.com/api/v1"
-    assert not _guards.is_agents_api_available(CTX)
+    assert not _tool_utils.is_agents_api_available(CTX)
 
     monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
-    assert _guards.is_agents_api_available(CTX)
+    assert _tool_utils.is_agents_api_available(CTX)

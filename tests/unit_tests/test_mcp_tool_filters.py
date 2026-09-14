@@ -20,7 +20,6 @@ from airbyte.constants import (
     MCP_INSIDERS_MODULES,
     _str_to_bool,
 )
-from airbyte.mcp import _guards
 from airbyte.mcp import _tool_utils
 from fastmcp import FastMCP
 from mcp.types import Tool
@@ -44,11 +43,6 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     config: dict[str, str] = {}
     monkeypatch.setattr(
         _tool_utils,
-        "get_mcp_config",
-        lambda app, key, **kwargs: config.get(key),  # noqa: ARG005
-    )
-    monkeypatch.setattr(
-        _guards,
         "get_mcp_config",
         lambda app, key, **kwargs: config.get(key),  # noqa: ARG005
     )

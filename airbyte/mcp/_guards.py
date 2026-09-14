@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Deployment guards for Airbyte MCP backend helpers.
+"""Trusted-execution guards for Airbyte MCP backend helpers.
 
 Trusted execution is the master gate for the MCP server's *trusted-machine* capabilities:
 local filesystem access, local connector installation/execution, and server-side secret
@@ -13,28 +13,14 @@ gate is off, but that is a *visibility* control. The guards here are an independ
 call hard-fails when the gate is disabled, even if a future registration mistake left the
 tool visible. Because the two layers are independent, a mistake in either one alone cannot
 expose a trusted-machine capability to an untrusted (for example hosted HTTP) caller.
-
-This module also holds the Agents-availability visibility check for the Agents MCP module.
 """
 
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
 
-from fastmcp_extensions import get_mcp_config
-
-from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
-from airbyte.constants import (
-    MCP_CONFIG_API_URL,
-    MCP_CONFIG_CONFIG_API_URL,
-    MCP_TRUSTED_EXECUTION_ENV_VAR,
-)
+from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import AirbyteTrustedExecutionRequiredError
-
-
-if TYPE_CHECKING:
-    from fastmcp import Context, FastMCP
 
 
 _TRUTHY_VALUES = frozenset({"1", "true", "yes"})
@@ -61,11 +47,3 @@ def raise_if_untrusted_execution_context(feature: str) -> None:
     """
     if not is_trusted_execution_enabled():
         raise AirbyteTrustedExecutionRequiredError(feature=feature)
-
-
-def is_agents_api_available(config_source: FastMCP | Context) -> bool:
-    """Return whether the MCP server's deployment has an Agents API."""
-    return _is_agents_api_available(
-        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
-    )
