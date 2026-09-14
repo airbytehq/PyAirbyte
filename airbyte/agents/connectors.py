@@ -34,10 +34,7 @@ inside the transport layer.
 
 
 class AgentAction(str, Enum):
-    """Connector actions accepted by `AgentConnector.execute()`.
-
-    `SEARCH` is the connector's native API search, parallel to `GET` and `LIST`.
-    """
+    """Connector actions accepted by `AgentConnector.execute()`."""
 
     # Read-Only Actions (APIs):
     LIST = "list"
