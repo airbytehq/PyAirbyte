@@ -13,8 +13,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.agents import _api_util
+from airbyte.agents import skills as _skills
 from airbyte.agents.connectors import AgentConnector, _resolve_connector_lookup
-from airbyte.agents.models import AgentConnectorInfo, AgentWorkspaceInfo
+from airbyte.agents.models import (
+    AgentConnectorInfo,
+    AgentSkillDocs,
+    AgentWorkspaceInfo,
+)
+from airbyte.agents.skills import AgentSkill
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
@@ -131,6 +137,59 @@ class AgentWorkspace:
                 )
             )
         ]
+
+    def list_skills(self) -> list[AgentSkill]:
+        """List all skills available to this workspace, following pagination."""
+        return [
+            AgentSkill(
+                skill_id=info.id,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+                info=info,
+            )
+            for info in _skills.iter_skills(
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+            )
+        ]
+
+    def search_skills(self, query: str) -> list[AgentSkill]:
+        """Search skills by keyword, returning all matching skills across pages."""
+        return [
+            AgentSkill(
+                skill_id=info.id,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+                info=info,
+            )
+            for info in _skills.iter_skill_search(
+                query,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+            )
+        ]
+
+    def get_skill(self, skill_id: str) -> AgentSkill:
+        """Get a skill by ID, without calling the Agents API."""
+        return AgentSkill(
+            skill_id,
+            credentials=self._credentials,
+            workspace_id=self.workspace_id,
+        )
+
+    def read_skill_docs(
+        self,
+        skill_id: str,
+        *,
+        section: str | None = None,
+    ) -> AgentSkillDocs:
+        """Read a skill's docs, optionally scoped to a single section.
+
+        Omit `section` for metadata, guidance, and the outline of available sections, or
+        pass an exact section `id` from the outline to read that section. Connector usage
+        docs use the `docs_skill_id` reported by `AgentConnector.inspect()`.
+        """
+        return self.get_skill(skill_id).read_docs(section=section)
 
     def get_connector(
         self,

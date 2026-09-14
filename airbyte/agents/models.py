@@ -74,6 +74,78 @@ class AgentContextStoreReadiness(BaseModel):
     """The entities currently configured for caching, with their sync status."""
 
 
+class AgentSkillInfo(BaseModel):
+    """Summary information about a skill, as returned by the Agents API."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    """The skill ID. Pass it to `read_skill_docs` to read this skill's docs."""
+
+    kind: str | None = None
+    """The skill category, for example `static` or `connector_source`."""
+
+    title: str | None = None
+    """The human-readable skill title."""
+
+    summary: str | None = None
+    """A short summary of what the skill documents."""
+
+    tags: list[str] = Field(default_factory=list)
+    """Search and categorization tags for the skill."""
+
+    warnings: list[Any] = Field(default_factory=list)
+    """Non-fatal issues reported while building or reading the skill's docs."""
+
+
+class AgentSkillList(BaseModel):
+    """A page of skills, as returned by the Agents API."""
+
+    model_config = ConfigDict(extra="allow")
+
+    data: list[AgentSkillInfo]
+    """The skills on this page."""
+
+    next_cursor: str | None = None
+    """The cursor to pass as `cursor` to fetch the next page, when one is available."""
+
+
+class AgentSkillSection(BaseModel):
+    """A section of a skill's docs, as listed in the docs outline."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    """The section ID. Pass it as `section` to read this section."""
+
+    title: str | None = None
+    """The human-readable section title."""
+
+    summary: str | None = None
+    """A short summary of the section content."""
+
+    available: bool = True
+    """Whether this section can currently be read."""
+
+
+class AgentSkillDocs(BaseModel):
+    """Documentation for a single skill, as returned by the Agents API."""
+
+    model_config = ConfigDict(extra="allow")
+
+    metadata: AgentSkillInfo
+    """Metadata for the requested skill."""
+
+    outline: list[AgentSkillSection] = Field(default_factory=list)
+    """The sections available for this skill."""
+
+    section_id: str | None = None
+    """The requested section ID, or `None` for the default docs response."""
+
+    content: list[dict[str, Any]] = Field(default_factory=list)
+    """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
+
+
 class AgentConnectorDetails(BaseModel):
     """Connector metadata returned by the Agents API `inspect` endpoint."""
 
@@ -98,7 +170,8 @@ class AgentConnectorDetails(BaseModel):
     """The name of the underlying Airbyte source definition, for example `GitHub`."""
 
     docs_skill_id: str | None = None
-    """Skill ID to pass to `read_skill_docs` for this connector's usage docs."""
+    """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
+    `read_agent_skill_docs`) for this connector's usage docs."""
 
     context_store_readiness: AgentContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""

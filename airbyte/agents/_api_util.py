@@ -274,6 +274,96 @@ def execute_agent_connector_action(
     )
 
 
+def list_agent_skills(
+    *,
+    credentials: _AirbyteCredentials,
+    organization_id: str | None = None,
+    workspace_id: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """List the skills available to an organization or workspace.
+
+    The raw response is returned so the caller keeps `next_cursor`, which
+    `_records_from_response` would drop.
+    """
+    params = {
+        key: value
+        for key, value in {
+            "limit": limit,
+            "cursor": cursor,
+            "organization_id": organization_id,
+            "workspace_id": workspace_id,
+        }.items()
+        if value is not None
+    }
+    return make_agents_api_request(
+        method="GET",
+        path="/skills",
+        params=params or None,
+        credentials=credentials,
+        organization_id=organization_id,
+    )
+
+
+def search_agent_skills(
+    *,
+    query: str,
+    credentials: _AirbyteCredentials,
+    organization_id: str | None = None,
+    workspace_id: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Search skills by keyword, returning the raw paginated response."""
+    params = {
+        key: value
+        for key, value in {
+            "query": query,
+            "limit": limit,
+            "cursor": cursor,
+            "organization_id": organization_id,
+            "workspace_id": workspace_id,
+        }.items()
+        if value is not None
+    }
+    return make_agents_api_request(
+        method="GET",
+        path="/skills/search",
+        params=params,
+        credentials=credentials,
+        organization_id=organization_id,
+    )
+
+
+def read_agent_skill_docs(
+    *,
+    skill_id: str,
+    credentials: _AirbyteCredentials,
+    organization_id: str | None = None,
+    workspace_id: str | None = None,
+    section: str | None = None,
+) -> dict[str, Any]:
+    """Read a skill's docs, optionally scoped to a single section."""
+    params = {
+        key: value
+        for key, value in {
+            "id": skill_id,
+            "section": section,
+            "organization_id": organization_id,
+            "workspace_id": workspace_id,
+        }.items()
+        if value is not None
+    }
+    return make_agents_api_request(
+        method="GET",
+        path="/skills/docs",
+        params=params,
+        credentials=credentials,
+        organization_id=organization_id,
+    )
+
+
 def _records_from_response(*, response: dict[str, Any], path: str) -> list[dict[str, Any]]:
     """Return the `data` array from a list response, validating its shape."""
     records: Any = response.get("data")
