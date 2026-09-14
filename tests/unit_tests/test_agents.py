@@ -278,6 +278,16 @@ def test_agents_api_request_failures(
             },
             id="all_pyairbyte_args",
         ),
+        pytest.param(
+            {"action": "search", "api_args": {"query": "is:open"}},
+            {
+                "entity": "issues",
+                "action": "api_search",
+                "params": {"query": "is:open"},
+                "skip_truncation": True,
+            },
+            id="search_sent_as_api_search",
+        ),
     ],
 )
 def test_execute_request_body(
@@ -286,7 +296,8 @@ def test_execute_request_body(
     expected_body: dict[str, Any],
 ) -> None:
     """`execute()` builds the Agents API request body from its arguments."""
-    result = _connector().execute("issues", "list", **kwargs)
+    action = kwargs.pop("action", "list")
+    result = _connector().execute("issues", action, **kwargs)
 
     assert captured_requests[0]["json"] == expected_body
     assert captured_requests[0]["url"].endswith("/connectors/connector-id/execute")
@@ -330,7 +341,7 @@ def test_execute_rejects_invalid_args(
     ("method_name", "expected_action"),
     [
         pytest.param("list_entities", "list", id="list"),
-        pytest.param("search_entities", "search", id="search"),
+        pytest.param("search_entities", "api_search", id="search"),
         pytest.param("get_entity", "get", id="get"),
         pytest.param("create_entity", "create", id="create"),
         pytest.param("update_entity", "update", id="update"),

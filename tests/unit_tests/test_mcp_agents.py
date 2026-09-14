@@ -349,7 +349,8 @@ def test_read_only_tool_action_type_excludes_writes() -> None:
     """Verify the read-only tool's action type offers no write or download actions."""
     read_actions = set(agents_mcp.get_args(agents_mcp.AgentReadAction))
 
-    assert read_actions == {"list", "get", "search", "api_search", "sql_select"}
+    assert read_actions == {"list", "get", "search", "sql_select"}
+    assert "api_search" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
     assert "download" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
 
 

@@ -55,8 +55,11 @@ from airbyte.mcp.cloud import (
 )
 
 
-AgentReadAction = Literal["list", "get", "search", "api_search", "sql_select"]
+AgentReadAction = Literal["list", "get", "search", "sql_select"]
 """The connector actions that only read data.
+
+The `search` action is the connector's native API search (for example GitHub's search
+endpoints), parallel to `get` and `list`.
 
 The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
 engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
@@ -66,9 +69,7 @@ The `download` action is deliberately absent even though it reads: it returns a 
 stream rather than JSON, which PyAirbyte does not yet support.
 """
 
-AgentAction = Literal[
-    "list", "get", "search", "api_search", "sql_select", "create", "update", "delete"
-]
+AgentAction = Literal["list", "get", "search", "sql_select", "create", "update", "delete"]
 """Every connector action callable through the MCP layer, including writes."""
 
 AGENTS_AUTH_TIP_TEXT = (

@@ -31,6 +31,14 @@ streaming responses, so it is rejected with actionable guidance instead of faili
 inside the transport layer.
 """
 
+_AGENTS_API_ACTION_NAMES: dict[str, str] = {"search": "api_search"}
+"""PyAirbyte action names that the Agents API still knows by a different name.
+
+PyAirbyte exposes `search` for a connector's native API search. Until the Agents API
+adopts that name (it currently expects `api_search`), the request is rewritten on the way
+out. TODO: delete this mapping and its use in `execute()` once the Agents API accepts `search`.
+"""
+
 _PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
 """Pagination conveniences PyAirbyte merges into the connector's `params`.
 
@@ -215,7 +223,7 @@ class AgentConnector:
 
         request_body: dict[str, Any] = {
             "entity": entity_type,
-            "action": action,
+            "action": _AGENTS_API_ACTION_NAMES.get(action, action),
             "params": _build_params(api_args=api_args, page_size=page_size, cursor=cursor),
             "skip_truncation": skip_truncation,
         }
