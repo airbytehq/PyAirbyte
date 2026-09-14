@@ -131,8 +131,8 @@ def _iter_skill_pages(
 ) -> Iterator[AgentSkillInfo]:
     """Yield skills across pages, following `next_cursor` until it is `None`.
 
-    Stops early if the server returns a cursor already seen, rather than requesting the
-    same page forever.
+    Stops early if the server returns a blank cursor or one already seen, rather than
+    requesting the same page forever.
     """
     cursor: str | None = None
     seen_cursors: set[str] = set()
@@ -140,7 +140,7 @@ def _iter_skill_pages(
         page = fetch_page(cursor)
         yield from page.data
         cursor = page.next_cursor
-        if cursor is None or cursor in seen_cursors:
+        if cursor is None or not cursor.strip() or cursor in seen_cursors:
             return
         seen_cursors.add(cursor)
 

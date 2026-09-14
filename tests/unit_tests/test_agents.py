@@ -974,6 +974,12 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
             2,
             id="stops_when_cursor_does_not_advance",
         ),
+        pytest.param(
+            [(["s1"], "  ")],
+            ["s1"],
+            1,
+            id="stops_on_blank_cursor",
+        ),
     ],
 )
 def test_iter_skills(

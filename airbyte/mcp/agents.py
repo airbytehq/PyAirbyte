@@ -924,7 +924,7 @@ def read_agent_skill_docs(
         Field(
             description=(
                 "Skill ID, e.g. the `docs_skill_id` reported by `inspect_agent_connector`, "
-                "or an `id` from `list_agent_skills`."
+                "or a `skill_id` from `list_agent_skills`."
             ),
         ),
     ],
