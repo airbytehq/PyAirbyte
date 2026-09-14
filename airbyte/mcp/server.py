@@ -73,6 +73,7 @@ from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
+from airbyte.mcp._error_handling import UserFacingErrorMiddleware
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -369,6 +370,7 @@ app = mcp_server(
         extra_properties=lambda: {"is_hosted_mcp": is_hosted_mcp_mode()},
     ),
 )
+app.add_middleware(UserFacingErrorMiddleware())
 """The Airbyte MCP Server application instance."""
 
 # Register tools from each module

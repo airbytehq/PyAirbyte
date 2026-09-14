@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import pytest
-from fastmcp.exceptions import ToolError
-
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
     AirbyteTrustedExecutionRequiredError,
@@ -166,27 +164,17 @@ def test_resolve_connector_config_allows_when_trusted(
     assert resolve_connector_config(**kwargs) == expected
 
 
-_UNTRUSTED_LOCAL_HELPERS: list[tuple[Callable[[], object], type[Exception]]] = [
+_UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
     pytest.param(
         lambda: local._get_mcp_source("source-faker", manifest_path=None),
-        AirbyteTrustedExecutionRequiredError,
         id="_get_mcp_source",
     ),
-    pytest.param(
-        lambda: local.list_cached_streams(), ToolError, id="list_cached_streams"
-    ),
-    pytest.param(
-        lambda: local.describe_default_cache(), ToolError, id="describe_default_cache"
-    ),
-    pytest.param(
-        lambda: local.run_sql_query("SELECT 1", 10), ToolError, id="run_sql_query"
-    ),
-    pytest.param(
-        lambda: local.list_dotenv_secrets(), ToolError, id="list_dotenv_secrets"
-    ),
+    pytest.param(lambda: local.list_cached_streams(), id="list_cached_streams"),
+    pytest.param(lambda: local.describe_default_cache(), id="describe_default_cache"),
+    pytest.param(lambda: local.run_sql_query("SELECT 1", 10), id="run_sql_query"),
+    pytest.param(lambda: local.list_dotenv_secrets(), id="list_dotenv_secrets"),
     pytest.param(
         lambda: local.list_connector_config_secrets("source-faker"),
-        ToolError,
         id="list_connector_config_secrets",
     ),
     pytest.param(
@@ -202,17 +190,15 @@ _UNTRUSTED_LOCAL_HELPERS: list[tuple[Callable[[], object], type[Exception]]] = [
             None,
             False,
         ),
-        ToolError,
         id="destination_smoke_test",
     ),
 ]
 
 
-@pytest.mark.parametrize("call_helper,expected_error", _UNTRUSTED_LOCAL_HELPERS)
+@pytest.mark.parametrize("call_helper", _UNTRUSTED_LOCAL_HELPERS)
 def test_local_helpers_reject_when_untrusted(
     monkeypatch: MonkeyPatch,
     call_helper: Callable[[], object],
-    expected_error: type[Exception],
 ) -> None:
     """Trusted-machine local helpers hard-fail when trusted execution is disabled.
 
@@ -220,7 +206,7 @@ def test_local_helpers_reject_when_untrusted(
     though a registration mistake could leave the tool listed.
     """
     _set_trusted(monkeypatch, enabled=False)
-    with pytest.raises(expected_error):
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
         call_helper()
 
 

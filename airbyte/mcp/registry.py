@@ -18,13 +18,12 @@ from typing import Annotated, Any, Literal
 
 import requests
 from fastmcp import FastMCP
-from fastmcp_extensions import register_mcp_tools
+from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
-from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
     ApiDocsUrl,

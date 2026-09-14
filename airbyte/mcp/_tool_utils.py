@@ -9,14 +9,12 @@ This module provides:
 
 from __future__ import annotations
 
-import functools
 import inspect
 import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar
 
-from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp_extensions import (
     ANNOTATION_INTERACTIVE_UI,
@@ -68,12 +66,7 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import (
-    AirbyteAgentsUnavailableError,
-    AirbyteMCPError,
-    PyAirbyteError,
-    PyAirbyteInputError,
-)
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.mcp._guards import is_agents_api_available
 
 
@@ -86,17 +79,6 @@ _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
 _AGENTS_MCP_MODULE = "agents"
 """Module whose tools are only advertised when an Agents API is available."""
-
-MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
-    PyAirbyteInputError,
-    AirbyteMCPError,
-    AirbyteAgentsUnavailableError,
-)
-"""Exception bases whose message and guidance are returned to the MCP client as-is.
-
-Tools raising one of these get a concise `ToolError` (message plus guidance) instead of
-the full exception rendering; other exceptions are left untouched.
-"""
 
 INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 """Annotation indicating the tool requires MCP Apps UI support."""
@@ -371,7 +353,7 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def mcp_tool(  # noqa: PLR0913
+def mcp_tool(
     *,
     read_only: bool = False,
     destructive: bool = False,
@@ -380,7 +362,6 @@ def mcp_tool(  # noqa: PLR0913
     annotations: Mapping[str, object] | None = None,
     meta: Mapping[str, object] | None = None,
     app: object | None = None,
-    requires_client_filesystem: bool = False,
     extra_help_text: str | None = None,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata."""
@@ -389,12 +370,11 @@ def mcp_tool(  # noqa: PLR0913
         destructive=destructive,
         idempotent=idempotent,
         open_world=open_world,
-        requires_client_filesystem=requires_client_filesystem,
         extra_help_text=extra_help_text,
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
-        decorated = base_decorator(_wrap_user_facing_errors(func))
+        decorated = base_decorator(func)
         registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
         if registered_func is not decorated:
             raise RuntimeError("Unexpected MCP tool registration state.")
@@ -407,27 +387,6 @@ def mcp_tool(  # noqa: PLR0913
         return decorated
 
     return decorator
-
-
-def _concise_tool_error(error: PyAirbyteError) -> ToolError:
-    text = error.get_message()
-    if error.guidance:
-        text = f"{text} {error.guidance}"
-    return ToolError(text)
-
-
-def _wrap_user_facing_errors(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
-    if inspect.iscoroutinefunction(func):
-        raise TypeError("Async MCP tools are not supported by `mcp_tool`.")
-
-    @functools.wraps(func)
-    def wrapper(*args: object, **kwargs: object) -> object:
-        try:
-            return func(*args, **kwargs)
-        except MCP_TOOL_USER_FACING_ERRORS as error:
-            raise _concise_tool_error(error) from None
-
-    return cast("_MCP_TOOL_FUNC", wrapper)
 
 
 def _mcp_module_for_tool(func: Callable[..., object]) -> str:

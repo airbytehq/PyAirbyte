@@ -7,7 +7,6 @@ import asyncio
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from fastmcp.exceptions import ToolError
 from mcp.types import TextContent
 
 from airbyte import exceptions as exc
@@ -401,7 +400,9 @@ def test_list_public_registry_connectors_applies_filters(
 
 def test_show_connectors_list_rejects_negative_limit() -> None:
     """Test that negative connector limits fail clearly."""
-    with pytest.raises(ToolError, match="Limit parameter must be non-negative."):
+    with pytest.raises(
+        exc.PyAirbyteInputError, match="Limit parameter must be non-negative."
+    ):
         show_connectors_list(limit=-1)
 
 

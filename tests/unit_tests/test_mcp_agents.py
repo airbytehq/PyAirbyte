@@ -31,7 +31,6 @@ from airbyte.constants import (
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
-from fastmcp.exceptions import ToolError
 
 
 class _AgentConnectorLike:
@@ -311,7 +310,7 @@ def test_argument_coercion(
 ) -> None:
     """Verify agent-supplied arguments are coerced, or rejected when unusable."""
     if expected_forwarded is None:
-        with pytest.raises(ToolError):
+        with pytest.raises(PyAirbyteInputError):
             _execute_ro(**tool_kwargs)
         assert connector.calls == []
         return
@@ -339,7 +338,7 @@ def test_write_tool_read_only_enforcement(
 ) -> None:
     """Verify the write-capable tool honors the caller's `read_only` request."""
     if is_rejected:
-        with pytest.raises(ToolError):
+        with pytest.raises(PyAirbyteInputError):
             _execute(action=action, read_only=read_only)
         assert connector.calls == []
         return
