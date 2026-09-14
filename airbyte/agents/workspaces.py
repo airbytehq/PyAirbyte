@@ -54,11 +54,15 @@ class AgentWorkspace:
         client_id: str | SecretString | None = None,
         client_secret: str | SecretString | None = None,
         bearer_token: str | SecretString | None = None,
+        public_api_root: str | None = None,
+        config_api_root: str | None = None,
     ) -> None:
         """Initialize an `AgentWorkspace`.
 
         Credentials fall back to the `AIRBYTE_CLOUD_*` environment variables when they are
-        not passed explicitly.
+        not passed explicitly. API roots default to the `AIRBYTE_CLOUD_API_URL` /
+        `AIRBYTE_CLOUD_CONFIG_API_URL` environment variables (public Airbyte Cloud when unset);
+        custom roots require `AIRBYTE_AGENTS_API_URL`.
         """
         credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
@@ -66,6 +70,8 @@ class AgentWorkspace:
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
             # Mirrors `CloudWorkspace.__init__`: any explicit credential disables env
             # fallback, since an env bearer token plus explicit client creds is rejected
             # as mutually exclusive auth.
@@ -290,7 +296,8 @@ class AgentWorkspace:
         skip that call.
 
         Raises `AirbyteAgentsUnavailableError` when the Cloud workspace uses non-public Cloud API
-        roots, since an `AgentWorkspace` cannot carry them.
+        roots unless `AIRBYTE_AGENTS_API_URL` is set; the Cloud API roots are carried over so the
+        token exchange stays on the same deployment.
         """
         _api_util.check_public_cloud_api_roots(
             cloud_workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
@@ -301,6 +308,8 @@ class AgentWorkspace:
             client_id=cloud_workspace.client_id,
             client_secret=cloud_workspace.client_secret,
             bearer_token=cloud_workspace.bearer_token,
+            public_api_root=cloud_workspace._credentials.public_api_root,  # noqa: SLF001
+            config_api_root=cloud_workspace._credentials.config_api_root,  # noqa: SLF001
         )
         if verify:
             workspace.get_info()

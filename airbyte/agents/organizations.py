@@ -91,18 +91,24 @@ class AgentOrganization:
         client_id: str | SecretString | None = None,
         client_secret: str | SecretString | None = None,
         bearer_token: str | SecretString | None = None,
+        public_api_root: str | None = None,
+        config_api_root: str | None = None,
     ) -> None:
         """Initialize an `AgentOrganization`.
 
         Credentials fall back to the `AIRBYTE_CLOUD_*` environment variables when they are
-        not passed explicitly. The organization ID is optional: the Agents API infers it
-        when the credentials belong to exactly one organization.
+        not passed explicitly. API roots default to the `AIRBYTE_CLOUD_API_URL` /
+        `AIRBYTE_CLOUD_CONFIG_API_URL` environment variables (public Airbyte Cloud when unset);
+        custom roots require `AIRBYTE_AGENTS_API_URL`. The organization ID is optional: the
+        Agents API infers it when the credentials belong to exactly one organization.
         """
         self._credentials = _AirbyteCredentials.from_auth(
             organization_id=organization_id,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
             # Mirrors `CloudWorkspace.__init__`: any explicit credential disables env
             # fallback, since an env bearer token plus explicit client creds is rejected
             # as mutually exclusive auth.
@@ -221,8 +227,9 @@ class AgentOrganization:
         Airbyte Agents subscription, which is only knowable per workspace. Use
         `AgentWorkspace.from_cloud_workspace()` for an authoritative eligibility check.
 
-        Raises `AirbyteAgentsUnavailableError` when the Cloud organization uses non-public Cloud API
-        roots, since an `AgentOrganization` cannot carry them.
+        Raises `AirbyteAgentsUnavailableError` when the Cloud organization uses non-public Cloud
+        API roots unless `AIRBYTE_AGENTS_API_URL` is set; the Cloud API roots are carried over so
+        the token exchange stays on the same deployment.
         """
         credentials = cloud_organization._credentials  # noqa: SLF001  # Same-domain conversion.
         _api_util.check_public_cloud_api_roots(credentials)
@@ -231,6 +238,8 @@ class AgentOrganization:
             client_id=credentials.client_id,
             client_secret=credentials.client_secret,
             bearer_token=credentials.bearer_token,
+            public_api_root=credentials.public_api_root,
+            config_api_root=credentials.config_api_root,
         )
 
     def _workspace_from_info(self, info: AgentWorkspaceInfo) -> AgentWorkspace:
@@ -242,4 +251,6 @@ class AgentOrganization:
             client_id=self._credentials.client_id,
             client_secret=self._credentials.client_secret,
             bearer_token=self._credentials.bearer_token,
+            public_api_root=self._credentials.public_api_root,
+            config_api_root=self._credentials.config_api_root,
         )

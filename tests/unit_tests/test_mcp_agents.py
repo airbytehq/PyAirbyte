@@ -22,7 +22,9 @@ from airbyte.agents.models import (
 from airbyte.agents.connectors import AgentConnector
 from airbyte.cloud.client import CloudClient
 from airbyte.constants import (
+    MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
 )
@@ -735,6 +737,38 @@ def test_workspace_organization_id_comes_from_mcp_config(
     assert workspace.workspace_id == "workspace-from-config"
     assert workspace.organization_id == "org-from-config"
     assert workspace._credentials.organization_id == "org-from-config"  # noqa: SLF001
+
+
+def test_workspace_api_roots_come_from_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify configured API roots are forwarded into Agent credentials."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: {
+            MCP_CONFIG_API_URL: "https://proxy.example/v1",
+            MCP_CONFIG_CONFIG_API_URL: "https://config.proxy.example/v1",
+            MCP_CONFIG_BEARER_TOKEN: "fake-token",
+            MCP_CONFIG_ORGANIZATION_ID: "org-from-config",
+            MCP_CONFIG_WORKSPACE_ID: "workspace-from-config",
+        }.get(key),
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: pytest.fail("CloudClient lookup should not be called"),
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+    assert (
+        workspace._credentials.config_api_root == "https://config.proxy.example/v1"  # noqa: SLF001
+    )
 
 
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -860,6 +860,44 @@ def test_cloud_conversions(
         assert captured_requests[0]["url"].endswith(expected_request_path)
 
 
+def test_agent_workspace_preserves_explicit_api_root() -> None:
+    """Pass explicit API roots through Agent workspace credentials."""
+    workspace = AgentWorkspace(
+        workspace_id="workspace-id",
+        client_id="client-id",
+        client_secret="client-secret",
+        public_api_root="https://proxy.example/v1",
+    )
+
+    assert workspace._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+
+
+def test_cloud_conversions_preserve_custom_api_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cloud-to-Agents conversions retain custom roots when an Agents API is configured."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+
+    workspace = AgentWorkspace.from_cloud_workspace(
+        CloudWorkspace(
+            workspace_id="workspace-id",
+            bearer_token="test-token",
+            api_root="https://proxy.example/v1",
+        ),
+        verify=False,
+    )
+    assert workspace._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+
+    organization = AgentOrganization.from_cloud_organization(
+        CloudOrganization(
+            organization_id="org-id",
+            bearer_token="test-token",
+            public_api_root="https://proxy.example/v1",
+        )
+    )
+    assert organization._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     "convert",
     [
