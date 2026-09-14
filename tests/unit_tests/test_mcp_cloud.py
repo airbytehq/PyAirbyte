@@ -518,6 +518,7 @@ def test_get_default_cloud_context_returns_context_model(
                 workspace_id="workspace-id",
                 name="Workspace",
                 organization_id="organization-id",
+                organization_name="Organization",
                 notifications={"webhook": {"enabled": True}},
             )
         ],
@@ -536,8 +537,10 @@ def test_get_default_cloud_context_returns_context_model(
 
     assert result.user_id == "user-id"
     assert result.member_organizations[0].organization_id == "organization-id"
+    assert result.member_workspaces[0].workspace_id == "workspace-id"
     assert result.member_workspaces[0].workspace_name == "Workspace"
     assert result.member_workspaces[0].organization_id == "organization-id"
+    assert result.member_workspaces[0].organization_name == "Organization"
     assert "notifications" not in result.model_dump(mode="json")["member_workspaces"][0]
     assert result.message.startswith(
         "Resolved default workspace Workspace (workspace-id) "
