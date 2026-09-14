@@ -39,13 +39,18 @@ class AgentAction(str, Enum):
     `SEARCH` is the connector's native API search, parallel to `GET` and `LIST`.
     """
 
+    # Read-Only Actions (APIs):
     LIST = "list"
     GET = "get"
     SEARCH = "search"
-    SQL_SELECT = "sql_select"
+
+    # Read-Write Actions (APIs):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+
+    # Read-Only Queries (SQL Databases):
+    SQL_SELECT = "sql_select"
 
 
 _PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
