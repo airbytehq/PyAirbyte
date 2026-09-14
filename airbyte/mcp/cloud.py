@@ -1748,7 +1748,7 @@ def set_default_cloud_workspace(
             description=(
                 "ID of the workspace to make the durable default. The user must be an "
                 "explicit member of the workspace or its organization; tombstoned "
-                "workspaces/organizations are rejected."
+                "workspaces are rejected."
             ),
         ),
     ],
