@@ -7,7 +7,6 @@ from typing import cast
 import pytest
 from fastmcp import Context
 
-from airbyte.agents import _api_util
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
@@ -55,25 +54,3 @@ def test_is_agents_api_available(
 
     monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
     assert _guards.is_agents_api_available(CTX)
-
-
-def test_get_overridden_cloud_api_roots() -> None:
-    """Return only non-public, non-blank Cloud API roots."""
-    assert (
-        _api_util.get_overridden_cloud_api_roots(
-            public_api_root=None,
-            config_api_root=None,
-        )
-        == {}
-    )
-    assert (
-        _api_util.get_overridden_cloud_api_roots(
-            public_api_root="",
-            config_api_root=f"{CLOUD_CONFIG_API_ROOT}/",
-        )
-        == {}
-    )
-    assert _api_util.get_overridden_cloud_api_roots(
-        public_api_root="https://airbyte.example.com/api/public/v1",
-        config_api_root=CLOUD_CONFIG_API_ROOT,
-    ) == {"api_root": "https://airbyte.example.com/api/public/v1"}

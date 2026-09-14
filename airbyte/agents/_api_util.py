@@ -17,13 +17,12 @@ from typing import TYPE_CHECKING, Any, Literal
 import requests
 
 from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte.constants import (
-    AGENTS_API_ROOT_ENV_VAR,
-    CLOUD_API_ROOT,
-    CLOUD_CONFIG_API_ROOT,
+from airbyte._util.deployment import (
+    get_agents_api_root_override,
+    get_overridden_cloud_api_roots,
 )
+from airbyte.constants import CLOUD_API_ROOT
 from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
-from airbyte.secrets.util import try_get_secret
 
 
 if TYPE_CHECKING:
@@ -47,34 +46,6 @@ _MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
 """Fragment of the Agents API error returned when credentials span several organizations."""
 
 
-def _get_agents_api_root_override() -> str | None:
-    """Return the configured Agents API root override, if it is non-blank."""
-    value = try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None)
-    text = str(value).strip() if value is not None else ""
-    return text.rstrip("/") or None
-
-
-def get_overridden_cloud_api_roots(
-    *,
-    public_api_root: str | None,
-    config_api_root: str | None,
-) -> dict[str, str]:
-    """Return the Cloud API roots that point away from public Airbyte Cloud.
-
-    Keys are `"api_root"` / `"config_api_root"`; blank or `None` values count as the public
-    default, and a trailing `/` is ignored.
-    """
-    overridden: dict[str, str] = {}
-    for name, value, default in (
-        ("api_root", public_api_root, CLOUD_API_ROOT),
-        ("config_api_root", config_api_root, CLOUD_CONFIG_API_ROOT),
-    ):
-        text = value.strip().rstrip("/") if value else ""
-        if text and text != default:
-            overridden[name] = text
-    return overridden
-
-
 def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
     """Raise `AirbyteAgentsUnavailableError` unless an Agents API is available.
 
@@ -83,7 +54,7 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
     Cloud would therefore silently discard those roots, so the conversion is refused unless
     `AIRBYTE_AGENTS_API_URL` explicitly configures the Agents API root.
     """
-    if _get_agents_api_root_override():
+    if get_agents_api_root_override():
         return
     overridden = get_overridden_cloud_api_roots(
         public_api_root=credentials.public_api_root,
@@ -96,24 +67,6 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
         )
 
 
-def is_agents_api_available(
-    *,
-    public_api_root: str | None,
-    config_api_root: str | None,
-) -> bool:
-    """Return whether an Agents API exists for these Cloud API roots.
-
-    True when `AIRBYTE_AGENTS_API_URL` is set explicitly, or when the roots are the public
-    Airbyte Cloud roots (which have the hosted Agents API).
-    """
-    if _get_agents_api_root_override():
-        return True
-    return not get_overridden_cloud_api_roots(
-        public_api_root=public_api_root,
-        config_api_root=config_api_root,
-    )
-
-
 def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     """Resolve the Agents API root for `credentials`.
 
@@ -122,7 +75,7 @@ def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
     3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
     """
-    override = _get_agents_api_root_override()
+    override = get_agents_api_root_override()
     if override:
         return override
     check_public_cloud_api_roots(credentials)

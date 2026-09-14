@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 from fastmcp_extensions import get_mcp_config
 
-from airbyte.agents._api_util import is_agents_api_available as _is_agents_api_available
+from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_CONFIG_API_URL,

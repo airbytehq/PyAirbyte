@@ -233,10 +233,6 @@ def test_blank_agents_api_root_override_is_unavailable(
         public_api_root="https://airbyte.example.com/api/public/v1"
     )
 
-    assert not _api_util.is_agents_api_available(
-        public_api_root=credentials.public_api_root,
-        config_api_root=credentials.config_api_root,
-    )
     with pytest.raises(AirbyteAgentsUnavailableError):
         _api_util.get_agents_api_root(credentials)
 
@@ -279,53 +275,6 @@ def test_agents_root_is_checked_before_authentication(
         )
 
     assert token_requests == 0
-
-
-def test_is_agents_api_available(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An explicit Agents API root makes custom Cloud roots available."""
-    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
-    assert _api_util.is_agents_api_available(
-        public_api_root="https://api.airbyte.com/v1",
-        config_api_root=None,
-    )
-    assert not _api_util.is_agents_api_available(
-        public_api_root="https://airbyte.example.com/api/public/v1",
-        config_api_root=None,
-    )
-
-    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
-    assert _api_util.is_agents_api_available(
-        public_api_root="https://airbyte.example.com/api/public/v1",
-        config_api_root=None,
-    )
-
-
-@pytest.mark.parametrize(
-    ("public_api_root", "config_api_root"),
-    [
-        pytest.param("   ", None, id="whitespace_public_root"),
-        pytest.param(None, "   ", id="whitespace_config_root"),
-    ],
-)
-def test_whitespace_cloud_roots_are_unset(
-    monkeypatch: pytest.MonkeyPatch,
-    public_api_root: str | None,
-    config_api_root: str | None,
-) -> None:
-    """Whitespace-only Cloud API roots count as unset."""
-    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
-
-    assert (
-        _api_util.get_overridden_cloud_api_roots(
-            public_api_root=public_api_root,
-            config_api_root=config_api_root,
-        )
-        == {}
-    )
-    assert _api_util.is_agents_api_available(
-        public_api_root=public_api_root,
-        config_api_root=config_api_root,
-    )
 
 
 @pytest.mark.parametrize(
