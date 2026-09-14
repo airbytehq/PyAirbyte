@@ -77,7 +77,8 @@ class AgentSkill:
                 section=section,
             )
         )
-        self._info = docs.metadata
+        if self._info is None:
+            self._info = docs.metadata
         return docs
 
 

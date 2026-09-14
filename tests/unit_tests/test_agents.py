@@ -10,7 +10,11 @@ import requests
 from airbyte.agents import _api_util
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector
-from airbyte.agents.models import AgentConnectorMetadata, AgentExecuteResult
+from airbyte.agents.models import (
+    AgentConnectorMetadata,
+    AgentExecuteResult,
+    AgentSkillInfo,
+)
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.skills import AgentSkill
 from airbyte.agents.workspaces import AgentWorkspace
@@ -1056,3 +1060,28 @@ def test_agent_skill_info_is_cached(captured_requests: list[dict[str, Any]]) -> 
     assert skill.kind == "connector_source"
     assert skill.info.id == "connector:github"
     assert len(captured_requests) == 1
+
+
+def test_agent_skill_read_docs_keeps_listed_info(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """`read_docs()` does not replace richer metadata supplied at construction."""
+    listed_info = AgentSkillInfo(
+        id="connector:github",
+        kind="connector_source",
+        title="GitHub",
+        summary="Listed summary",
+        tags=["vcs"],
+    )
+    skill = AgentSkill(
+        "connector:github",
+        credentials=_credentials(),
+        info=listed_info,
+    )
+
+    skill.read_docs()
+
+    assert len(captured_requests) == 1
+    assert skill.info is listed_info
+    assert skill.info.summary == "Listed summary"
+    assert skill.info.tags == ["vcs"]
