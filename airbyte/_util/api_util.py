@@ -1844,17 +1844,28 @@ def get_bearer_token(
     https://reference.airbyte.com/reference/createaccesstoken
 
     """
-    response = requests.post(
-        url=api_root + "/applications/token",
-        headers={
-            "content-type": "application/json",
-            "accept": "application/json",
-        },
-        json={
-            "client_id": client_id,
-            "client_secret": client_secret,
-        },
-    )
+    token_url = api_root + "/applications/token"
+    try:
+        response = requests.post(
+            url=token_url,
+            headers={
+                "content-type": "application/json",
+                "accept": "application/json",
+            },
+            json={
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            timeout=CONFIG_API_REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as ex:
+        raise AirbyteError(
+            message="Failed to request bearer token.",
+            context={
+                "url": token_url,
+                "timeout_seconds": CONFIG_API_REQUEST_TIMEOUT_SECONDS,
+            },
+        ) from ex
     if not status_ok(response.status_code):
         response.raise_for_status()
 
@@ -1891,13 +1902,23 @@ def _make_config_api_request(
         "User-Agent": "PyAirbyte Client",
     }
     full_url = config_api_root + path
-    response = requests.request(
-        method="POST",
-        url=full_url,
-        headers=headers,
-        json=json,
-        timeout=CONFIG_API_REQUEST_TIMEOUT_SECONDS,
-    )
+    try:
+        response = requests.request(
+            method="POST",
+            url=full_url,
+            headers=headers,
+            json=json,
+            timeout=CONFIG_API_REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as ex:
+        raise AirbyteError(
+            message="Config API request failed.",
+            context={
+                "url": full_url,
+                "path": path,
+                "timeout_seconds": CONFIG_API_REQUEST_TIMEOUT_SECONDS,
+            },
+        ) from ex
     if not status_ok(response.status_code):
         try:
             response.raise_for_status()

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import requests
@@ -155,6 +156,89 @@ def test_get_user_id_from_bearer_token_falls_back_to_subject() -> None:
             SecretString("header.eyJzdWIiOiJhdXRoLXVzZXItaWQifQ.signature")
         )
         == "auth-user-id"
+    )
+
+
+def test_make_config_api_request_passes_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = {}
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(api_util.requests, "request", request)
+
+    api_util._make_config_api_request(
+        api_root="https://api.example",
+        config_api_root="https://config.example",
+        path="/users/get",
+        json={},
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("t"),
+    )
+
+    assert (
+        request.call_args.kwargs["timeout"]
+        == api_util.CONFIG_API_REQUEST_TIMEOUT_SECONDS
+    )
+
+
+def test_make_config_api_request_wraps_request_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = MagicMock(side_effect=requests.exceptions.ReadTimeout("timed out"))
+    monkeypatch.setattr(api_util.requests, "request", request)
+
+    with pytest.raises(AirbyteError, match="Config API request failed") as exc_info:
+        api_util._make_config_api_request(
+            api_root="https://api.example",
+            config_api_root="https://config.example",
+            path="/users/get",
+            json={},
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("t"),
+        )
+
+    assert exc_info.value.context["timeout_seconds"] == (
+        api_util.CONFIG_API_REQUEST_TIMEOUT_SECONDS
+    )
+
+
+def test_get_bearer_token_passes_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"access_token": "abc"}
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(api_util.requests, "post", request)
+
+    assert api_util.get_bearer_token(
+        client_id=SecretString("id"),
+        client_secret=SecretString("secret"),
+        api_root="https://api.example",
+    ) == SecretString("abc")
+    assert (
+        request.call_args.kwargs["timeout"]
+        == api_util.CONFIG_API_REQUEST_TIMEOUT_SECONDS
+    )
+
+
+def test_get_bearer_token_wraps_request_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = MagicMock(side_effect=requests.exceptions.ConnectTimeout("timed out"))
+    monkeypatch.setattr(api_util.requests, "post", request)
+
+    with pytest.raises(
+        AirbyteError, match="Failed to request bearer token"
+    ) as exc_info:
+        api_util.get_bearer_token(
+            client_id=SecretString("id"),
+            client_secret=SecretString("secret"),
+            api_root="https://api.example",
+        )
+
+    assert exc_info.value.context["timeout_seconds"] == (
+        api_util.CONFIG_API_REQUEST_TIMEOUT_SECONDS
     )
 
 
