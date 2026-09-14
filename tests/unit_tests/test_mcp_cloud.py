@@ -13,6 +13,7 @@ from airbyte.cloud.connectors import CheckResult
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
+    CloudWorkspaceInfo,
     JobStatusEnum,
 )
 from airbyte.mcp import cloud as cloud_mcp
@@ -512,7 +513,15 @@ def test_get_default_cloud_context_returns_context_model(
                 organization_name="Organization",
             )
         ],
-        member_workspaces=[],
+        member_workspaces=[
+            CloudWorkspaceInfo(
+                workspace_id="workspace-id",
+                name="Workspace",
+                organization_id="organization-id",
+                organization_name="Organization",
+                notifications={"webhook": {"enabled": True}},
+            )
+        ],
         member_organizations_truncated=True,
         member_workspaces_truncated=True,
         discovery_hints=[],
@@ -528,13 +537,18 @@ def test_get_default_cloud_context_returns_context_model(
 
     assert result.user_id == "user-id"
     assert result.member_organizations[0].organization_id == "organization-id"
+    assert result.member_workspaces[0].workspace_id == "workspace-id"
+    assert result.member_workspaces[0].workspace_name == "Workspace"
+    assert result.member_workspaces[0].organization_id == "organization-id"
+    assert result.member_workspaces[0].organization_name == "Organization"
+    assert "notifications" not in result.model_dump(mode="json")["member_workspaces"][0]
     assert result.message.startswith(
         "Resolved default workspace Workspace (workspace-id) "
         "in organization Organization (organization-id). "
     )
     assert "membership-based, not access-based" in result.message
     assert (
-        "Only the first 1 organization memberships and 0 workspace memberships are shown"
+        "Only the first 1 organization memberships and 1 workspace memberships are shown"
         in result.message
     )
 
