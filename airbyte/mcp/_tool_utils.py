@@ -408,9 +408,8 @@ def mcp_tool(
 
 def _concise_tool_error(error: PyAirbyteError) -> ToolError:
     text = error.get_message()
-    guidance = error.guidance or getattr(type(error), "guidance", None)
-    if guidance:
-        text = f"{text} {guidance}"
+    if error.guidance:
+        text = f"{text} {error.guidance}"
     return ToolError(text)
 
 
@@ -527,8 +526,8 @@ def _insiders_mode(app: FastMCP) -> bool | None:
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
-        When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
-        When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
+    When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
+    When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
 
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an

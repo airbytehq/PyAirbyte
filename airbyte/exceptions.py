@@ -578,7 +578,7 @@ class AirbyteAgentsUnavailableError(AirbyteError):
     there is no Agents API to call.
     """
 
-    guidance = (
+    guidance: str | None = (
         "The Airbyte Agents API is only available on Airbyte Cloud. Use the public Airbyte "
         "Cloud API roots, or set `AIRBYTE_AGENTS_API_URL` if your deployment provides an "
         "Agents API."

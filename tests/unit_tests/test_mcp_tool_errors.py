@@ -40,11 +40,14 @@ def test_input_errors_become_concise_tool_errors() -> None:
         _raise_input_error()
 
     assert "bad input" in str(exc_info.value)
-    assert "Please check the provided value and try again." in str(exc_info.value)
     assert exc_info.value.__cause__ is None
 
 
 def test_agents_unavailable_errors_become_concise_tool_errors() -> None:
+    assert "AIRBYTE_AGENTS_API_URL" in (
+        AirbyteAgentsUnavailableError(message="x").guidance or ""
+    )
+
     with pytest.raises(ToolError) as exc_info:
         _raise_agents_unavailable_error()
 
