@@ -28,7 +28,6 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
-    CloudWorkspaceInfo,
     JobTypeEnum,
     WorkspacePrivilegeScope,
 )
@@ -315,8 +314,8 @@ class CloudDefaultContextResult(BaseModel):
     member_organizations: list[CloudOrganizationInfo]
     """Organizations identified by explicit organization membership grants."""
 
-    member_workspaces: list[CloudWorkspaceInfo]
-    """Workspaces identified by explicit workspace membership grants."""
+    member_workspaces: list[CloudWorkspaceResult]
+    """Summary of workspace memberships without notification settings."""
 
     member_organizations_truncated: bool
     """True if organization memberships beyond the returned list were omitted."""
@@ -1695,7 +1694,29 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     if resolved_default_workspace is not None:
         message = resolved_default_workspace + message
     return CloudDefaultContextResult(
-        **context.model_dump(),
+        user_id=context.user_id,
+        user_name=context.user_name,
+        user_email=context.user_email,
+        default_workspace_id=context.default_workspace_id,
+        default_workspace_name=context.default_workspace_name,
+        default_workspace_verified=context.default_workspace_verified,
+        unvalidated_workspace_count=context.unvalidated_workspace_count,
+        default_organization_id=context.default_organization_id,
+        default_organization_name=context.default_organization_name,
+        configured_workspace_id=context.configured_workspace_id,
+        configured_organization_id=context.configured_organization_id,
+        member_organizations=context.member_organizations,
+        member_workspaces=[
+            CloudWorkspaceResult(
+                workspace_id=ws.workspace_id,
+                workspace_name=ws.name,
+                organization_id=ws.organization_id,
+            )
+            for ws in context.member_workspaces
+        ],
+        member_organizations_truncated=context.member_organizations_truncated,
+        member_workspaces_truncated=context.member_workspaces_truncated,
+        discovery_hints=context.discovery_hints,
         message=message,
     )
 
