@@ -959,7 +959,7 @@ class CloudClient:
         Airbyte Cloud web app. Validation fails closed: the requested email must
         match the authenticated user, the workspace must be live (not
         tombstoned), and the user must be an explicit member of the workspace or
-        of its (live) parent organization.
+        its parent organization.
         """
         user = self._get_authenticated_user_info()
         user_id = user.get("userId")
@@ -1064,30 +1064,6 @@ class CloudClient:
                 ),
                 context={"workspace_id": workspace_id},
             )
-        live_organizations = api_util.list_organizations_for_user_id(
-            user_id=user_id,
-            api_root=self.public_api_root,
-            config_api_root=self.config_api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self._get_config_api_bearer_token(),
-        )
-        if not any(
-            organization.get("organizationId") == workspace_organization_id
-            for organization in live_organizations
-        ):
-            raise exc.PyAirbyteInputError(
-                message=(
-                    f"Organization {workspace_organization_id} is tombstoned or no "
-                    "longer accessible to the authenticated user."
-                ),
-                guidance=("Call get_default_cloud_context to see your member_organizations."),
-                context={
-                    "workspace_id": workspace_id,
-                    "organization_id": workspace_organization_id,
-                },
-            )
-
         previous_default_workspace_id = user.get("defaultWorkspaceId")
         if not isinstance(previous_default_workspace_id, str):
             previous_default_workspace_id = None

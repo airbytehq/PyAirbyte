@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
+CONFIG_API_REQUEST_TIMEOUT_SECONDS: int = 120
 JWT_PART_COUNT = 3
 
 # Job ordering constants for list_jobs API
@@ -1895,6 +1896,7 @@ def _make_config_api_request(
         url=full_url,
         headers=headers,
         json=json,
+        timeout=CONFIG_API_REQUEST_TIMEOUT_SECONDS,
     )
     if not status_ok(response.status_code):
         try:
