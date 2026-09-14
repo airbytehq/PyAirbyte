@@ -230,6 +230,24 @@ def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
             [{"permissionType": "organization_member", "organizationId": "org-id"}],
             id="permissions-envelope",
         ),
+        pytest.param(
+            api_util.update_user_default_workspace,
+            {"user_id": "user-id", "workspace_id": "workspace-id"},
+            "/users/update",
+            {"userId": "user-id", "defaultWorkspaceId": "workspace-id"},
+            {"userId": "user-id", "defaultWorkspaceId": "workspace-id"},
+            {"userId": "user-id", "defaultWorkspaceId": "workspace-id"},
+            id="update-user-default-workspace",
+        ),
+        pytest.param(
+            api_util.get_workspace_config_api,
+            {"workspace_id": "workspace-id"},
+            "/workspaces/get",
+            {"workspaceId": "workspace-id", "includeTombstone": True},
+            {"workspaceId": "workspace-id", "organizationId": "org-id"},
+            {"workspaceId": "workspace-id", "organizationId": "org-id"},
+            id="workspace-get",
+        ),
     ],
 )
 def test_config_api_helpers_forward_requests(
@@ -336,6 +354,20 @@ def test_config_api_helpers_forward_requests(
             "unexpected",
             "workspace API returned an unexpected response",
             id="workspace-string",
+        ),
+        pytest.param(
+            api_util.update_user_default_workspace,
+            {"user_id": "user-id", "workspace_id": "workspace-id"},
+            "unexpected",
+            "user API returned an unexpected response",
+            id="update-user-string",
+        ),
+        pytest.param(
+            api_util.get_workspace_config_api,
+            {"workspace_id": "workspace-id"},
+            [],
+            "workspace API returned an unexpected response",
+            id="workspace-config-list",
         ),
     ],
 )
