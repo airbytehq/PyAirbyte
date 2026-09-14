@@ -64,14 +64,15 @@ def get_overridden_cloud_api_roots(
     Keys are `"api_root"` / `"config_api_root"`; blank or `None` values count as the public
     default, and a trailing `/` is ignored.
     """
-    return {
-        name: value
-        for name, value, default in (
-            ("api_root", public_api_root, CLOUD_API_ROOT),
-            ("config_api_root", config_api_root, CLOUD_CONFIG_API_ROOT),
-        )
-        if value and value.rstrip("/") != default
-    }
+    overridden: dict[str, str] = {}
+    for name, value, default in (
+        ("api_root", public_api_root, CLOUD_API_ROOT),
+        ("config_api_root", config_api_root, CLOUD_CONFIG_API_ROOT),
+    ):
+        text = value.strip().rstrip("/") if value else ""
+        if text and text != default:
+            overridden[name] = text
+    return overridden
 
 
 def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:

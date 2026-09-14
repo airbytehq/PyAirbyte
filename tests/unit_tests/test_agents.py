@@ -301,6 +301,34 @@ def test_is_agents_api_available(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
+    ("public_api_root", "config_api_root"),
+    [
+        pytest.param("   ", None, id="whitespace_public_root"),
+        pytest.param(None, "   ", id="whitespace_config_root"),
+    ],
+)
+def test_whitespace_cloud_roots_are_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    public_api_root: str | None,
+    config_api_root: str | None,
+) -> None:
+    """Whitespace-only Cloud API roots count as unset."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+
+    assert (
+        _api_util.get_overridden_cloud_api_roots(
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
+        )
+        == {}
+    )
+    assert _api_util.is_agents_api_available(
+        public_api_root=public_api_root,
+        config_api_root=config_api_root,
+    )
+
+
+@pytest.mark.parametrize(
     ("response", "expected_match", "expected_status"),
     [
         pytest.param(
