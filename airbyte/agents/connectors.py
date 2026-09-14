@@ -239,6 +239,7 @@ class AgentConnector:
 
         # The Agents API still names the native search `api_search`.
         # TODO: send `action` unchanged once the Agents API accepts `search`.
+        # https://linear.app/airbyteio/issue/AGENTIC-2234
         request_body: dict[str, Any] = {
             "entity": entity_type,
             "action": "api_search" if action == AgentAction.SEARCH else action,
