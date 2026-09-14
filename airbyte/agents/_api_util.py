@@ -20,7 +20,6 @@ from airbyte._util.api_util import get_bearer_token, status_ok
 from airbyte._util.deployment import (
     get_agents_api_root_override,
     is_agents_api_available,
-    is_public_cloud,
 )
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
@@ -79,11 +78,7 @@ def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     override = get_agents_api_root_override()
     if override:
         return override
-    if not is_public_cloud(
-        public_api_root=credentials.public_api_root,
-        config_api_root=credentials.config_api_root,
-    ):
-        check_public_cloud_api_roots(credentials)
+    check_public_cloud_api_roots(credentials)
     return _AGENTS_API_ROOT
 
 
