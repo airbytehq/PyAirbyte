@@ -32,22 +32,29 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     return config
 
 
-def test_is_cloud_deployment(mcp_config: dict[str, str]) -> None:
-    """Recognize public Cloud roots and reject either override."""
-    assert _guards.is_cloud_deployment(CTX)
+def test_is_agents_api_available(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """Recognize public Cloud roots and explicit Agents API roots."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+    assert _guards.is_agents_api_available(CTX)
 
     mcp_config.update({
         MCP_CONFIG_API_URL: f"{CLOUD_API_ROOT}/",
         MCP_CONFIG_CONFIG_API_URL: f"{CLOUD_CONFIG_API_ROOT}/",
     })
-    assert _guards.is_cloud_deployment(CTX)
+    assert _guards.is_agents_api_available(CTX)
 
     mcp_config[MCP_CONFIG_API_URL] = "https://airbyte.example.com/api/public/v1"
-    assert not _guards.is_cloud_deployment(CTX)
+    assert not _guards.is_agents_api_available(CTX)
 
     mcp_config.pop(MCP_CONFIG_API_URL)
     mcp_config[MCP_CONFIG_CONFIG_API_URL] = "https://airbyte.example.com/api/v1"
-    assert not _guards.is_cloud_deployment(CTX)
+    assert not _guards.is_agents_api_available(CTX)
+
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+    assert _guards.is_agents_api_available(CTX)
 
 
 def test_get_overridden_cloud_api_roots() -> None:

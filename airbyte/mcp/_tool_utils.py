@@ -9,12 +9,14 @@ This module provides:
 
 from __future__ import annotations
 
+import functools
 import inspect
 import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
+from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp_extensions import (
     ANNOTATION_INTERACTIVE_UI,
@@ -67,8 +69,13 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import PyAirbyteInputError
-from airbyte.mcp._guards import is_cloud_deployment
+from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
+    AirbyteMCPError,
+    PyAirbyteError,
+    PyAirbyteInputError,
+)
+from airbyte.mcp._guards import is_agents_api_available
 
 
 if TYPE_CHECKING:
@@ -78,6 +85,17 @@ if TYPE_CHECKING:
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
+
+MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
+    PyAirbyteInputError,
+    AirbyteMCPError,
+    AirbyteAgentsUnavailableError,
+)
+"""Exception bases whose message and guidance are returned to the MCP client as-is.
+
+Tools raising one of these get a concise `ToolError` (message plus guidance) instead of
+the full exception rendering; other exceptions are left untouched.
+"""
 
 INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 """Annotation indicating the tool requires MCP Apps UI support."""
@@ -373,7 +391,7 @@ def mcp_tool(
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
-        decorated = base_decorator(func)
+        decorated = base_decorator(_wrap_user_facing_errors(func))
         registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
         if registered_func is not decorated:
             raise RuntimeError("Unexpected MCP tool registration state.")
@@ -386,6 +404,28 @@ def mcp_tool(
         return decorated
 
     return decorator
+
+
+def _concise_tool_error(error: PyAirbyteError) -> ToolError:
+    text = error.get_message()
+    guidance = error.guidance or getattr(type(error), "guidance", None)
+    if guidance:
+        text = f"{text} {guidance}"
+    return ToolError(text)
+
+
+def _wrap_user_facing_errors(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+    if inspect.iscoroutinefunction(func):
+        raise TypeError("Async MCP tools are not supported by `mcp_tool`.")
+
+    @functools.wraps(func)
+    def wrapper(*args: object, **kwargs: object) -> object:
+        try:
+            return func(*args, **kwargs)
+        except MCP_TOOL_USER_FACING_ERRORS as error:
+            raise _concise_tool_error(error) from None
+
+    return cast("_MCP_TOOL_FUNC", wrapper)
 
 
 def _mcp_module_for_tool(func: Callable[..., object]) -> str:
@@ -487,14 +527,14 @@ def _insiders_mode(app: FastMCP) -> bool | None:
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
-    When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
-    When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
+        When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
+        When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
 
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
     Modules in `MCP_CLOUD_ONLY_MODULES` are hidden whenever the Cloud API roots are overridden,
-    regardless of insiders/include settings.
+    unless `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
@@ -509,7 +549,7 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     if exclude_modules and tool_module and tool_module in exclude_modules:
         return False
 
-    if tool_module in MCP_CLOUD_ONLY_MODULES and not is_cloud_deployment(app):
+    if tool_module in MCP_CLOUD_ONLY_MODULES and not is_agents_api_available(app):
         return False
 
     if tool_module in MCP_INSIDERS_MODULES:

@@ -22,7 +22,7 @@ from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
 from airbyte.secrets.util import try_get_secret
 
 
@@ -68,7 +68,7 @@ def get_overridden_cloud_api_roots(
 
 
 def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
-    """Raise `PyAirbyteInputError` unless the credentials use the public Cloud API roots.
+    """Raise `AirbyteAgentsUnavailableError` unless credentials use public Cloud API roots.
 
     The Agents API has a single hosted root, so an Agents object carries no API root of its
     own. Converting from a Cloud object that points somewhere other than public Airbyte
@@ -79,15 +79,28 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
         config_api_root=credentials.config_api_root,
     )
     if overridden:
-        raise PyAirbyteInputError(
+        raise AirbyteAgentsUnavailableError(
             message="The Airbyte Agents API is only available on Airbyte Cloud.",
-            guidance=(
-                "Agents objects always use the hosted Agents API, so a custom Cloud API "
-                "root cannot be honored. Convert from a Cloud object using the public "
-                "Airbyte Cloud API roots instead."
-            ),
             context=overridden,
         )
+
+
+def is_agents_api_available(
+    *,
+    public_api_root: str | None,
+    config_api_root: str | None,
+) -> bool:
+    """Return whether an Agents API exists for these Cloud API roots.
+
+    True when `AIRBYTE_AGENTS_API_URL` is set explicitly, or when the roots are the public
+    Airbyte Cloud roots (which have the hosted Agents API).
+    """
+    if try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None):
+        return True
+    return not get_overridden_cloud_api_roots(
+        public_api_root=public_api_root,
+        config_api_root=config_api_root,
+    )
 
 
 def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
@@ -96,7 +109,7 @@ def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     Resolution order:
     1. `AIRBYTE_AGENTS_API_URL`, if set.
     2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
-    3. Otherwise raise `PyAirbyteInputError`: a non-Cloud deployment has no Agents API.
+    3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
     """
     override = try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None)
     if override:

@@ -14,7 +14,7 @@ call hard-fails when the gate is disabled, even if a future registration mistake
 tool visible. Because the two layers are independent, a mistake in either one alone cannot
 expose a trusted-machine capability to an untrusted (for example hosted HTTP) caller.
 
-This module also holds the Cloud-deployment visibility check for `MCP_CLOUD_ONLY_MODULES`.
+This module also holds the Agents-availability visibility check for `MCP_CLOUD_ONLY_MODULES`.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 from fastmcp_extensions import get_mcp_config
 
-from airbyte.agents._api_util import get_overridden_cloud_api_roots
+from airbyte.agents._api_util import is_agents_api_available as _is_agents_api_available
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_CONFIG_API_URL,
@@ -63,9 +63,9 @@ def raise_if_untrusted_execution_context(feature: str) -> None:
         raise AirbyteTrustedExecutionRequiredError(feature=feature)
 
 
-def is_cloud_deployment(config_source: FastMCP | Context) -> bool:
-    """Return whether the MCP server targets public Airbyte Cloud."""
-    return not get_overridden_cloud_api_roots(
+def is_agents_api_available(config_source: FastMCP | Context) -> bool:
+    """Return whether the MCP server's deployment has an Agents API."""
+    return _is_agents_api_available(
         public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
         config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
     )

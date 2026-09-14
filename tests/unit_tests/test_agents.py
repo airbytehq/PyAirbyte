@@ -21,7 +21,11 @@ from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
+    AirbyteError,
+    PyAirbyteInputError,
+)
 from airbyte.secrets.base import SecretString
 
 
@@ -196,7 +200,9 @@ def test_get_agents_api_root_rejects_overridden_cloud_root(
     """Non-Cloud credentials cannot use the hosted Agents API."""
     monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
 
-    with pytest.raises(PyAirbyteInputError, match="only available on Airbyte Cloud"):
+    with pytest.raises(
+        AirbyteAgentsUnavailableError, match="only available on Airbyte Cloud"
+    ):
         _api_util.get_agents_api_root(
             _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
         )
@@ -213,6 +219,25 @@ def test_get_agents_api_root_uses_environment_override(
             _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
         )
         == "https://agents.example.com/api/v1"
+    )
+
+
+def test_is_agents_api_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit Agents API root makes custom Cloud roots available."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+    assert _api_util.is_agents_api_available(
+        public_api_root="https://api.airbyte.com/v1",
+        config_api_root=None,
+    )
+    assert not _api_util.is_agents_api_available(
+        public_api_root="https://airbyte.example.com/api/public/v1",
+        config_api_root=None,
+    )
+
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+    assert _api_util.is_agents_api_available(
+        public_api_root="https://airbyte.example.com/api/public/v1",
+        config_api_root=None,
     )
 
 
@@ -841,7 +866,9 @@ def test_conversion_rejects_non_public_cloud_api_roots(
     convert: Any,
 ) -> None:
     """A Cloud object with custom API roots cannot become an Agents object."""
-    with pytest.raises(PyAirbyteInputError, match="only available on Airbyte Cloud"):
+    with pytest.raises(
+        AirbyteAgentsUnavailableError, match="only available on Airbyte Cloud"
+    ):
         convert()
 
     assert captured_requests == []

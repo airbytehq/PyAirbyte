@@ -167,6 +167,21 @@ def test_module_visibility(
     } == expected_visibility
 
 
+def test_explicit_agents_api_root_keeps_agents_visible(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """An explicit Agents API root keeps Agents tools visible on custom Cloud roots."""
+    monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, "1")
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+    mcp_config.update({
+        MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
+        MCP_CONFIG_INSIDERS: "1",
+    })
+
+    assert _visible("agents")
+
+
 @pytest.mark.parametrize(
     ("env_value", "config", "expected_agents_visibility"),
     [
