@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from airbyte.agents import _api_util
@@ -31,14 +32,21 @@ streaming responses, so it is rejected with actionable guidance instead of faili
 inside the transport layer.
 """
 
-_AGENTS_API_ACTION_NAMES: dict[str, str] = {"search": "api_search"}
-"""PyAirbyte action names that the Agents API still knows by a different name.
 
-PyAirbyte exposes `search` for a connector's native API search. Until the Agents API
-adopts that name (it currently expects `api_search`), the request is rewritten on the way
-out, and the API-side name is rejected as input so callers standardize on `search` now.
-TODO: delete this mapping and its uses in `execute()` once the Agents API accepts `search`.
-"""
+class AgentAction(str, Enum):
+    """Connector actions accepted by `AgentConnector.execute()`.
+
+    `SEARCH` is the connector's native API search, parallel to `GET` and `LIST`.
+    """
+
+    LIST = "list"
+    GET = "get"
+    SEARCH = "search"
+    SQL_SELECT = "sql_select"
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
 
 _PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
 """Pagination conveniences PyAirbyte merges into the connector's `params`.
@@ -222,16 +230,18 @@ class AgentConnector:
                 context={"entity_type": entity_type, "action": action},
             )
 
-        if action in _AGENTS_API_ACTION_NAMES.values():
+        if action not in {member.value for member in AgentAction}:
             raise PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid action name for `execute`.",
-                guidance="Use `search` for a connector's native API search.",
+                guidance=f"Use one of: {', '.join(member.value for member in AgentAction)}.",
                 context={"entity_type": entity_type, "action": action},
             )
 
+        # The Agents API still names the native search `api_search`.
+        # TODO: send `action` unchanged once the Agents API accepts `search`.
         request_body: dict[str, Any] = {
             "entity": entity_type,
-            "action": _AGENTS_API_ACTION_NAMES.get(action, action),
+            "action": "api_search" if action == AgentAction.SEARCH else action,
             "params": _build_params(api_args=api_args, page_size=page_size, cursor=cursor),
             "skip_truncation": skip_truncation,
         }
