@@ -222,6 +222,65 @@ def test_get_agents_api_root_uses_environment_override(
     )
 
 
+@pytest.mark.parametrize("override", ["", "   "])
+def test_blank_agents_api_root_override_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    override: str,
+) -> None:
+    """Blank Agents API root overrides do not enable a non-Cloud deployment."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", override)
+    credentials = _credentials(
+        public_api_root="https://airbyte.example.com/api/public/v1"
+    )
+
+    assert not _api_util.is_agents_api_available(
+        public_api_root=credentials.public_api_root,
+        config_api_root=credentials.config_api_root,
+    )
+    with pytest.raises(AirbyteAgentsUnavailableError):
+        _api_util.get_agents_api_root(credentials)
+
+
+def test_agents_api_root_override_allows_cloud_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit Agents API root allows conversion from custom Cloud roots."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+
+    _api_util.check_public_cloud_api_roots(
+        _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
+    )
+
+
+def test_agents_root_is_checked_before_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unavailable Agents deployments fail before exchanging client credentials."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+    token_requests = 0
+
+    def _unexpected_token_request(**_: Any) -> str:
+        nonlocal token_requests
+        token_requests += 1
+        return "unexpected-token"
+
+    monkeypatch.setattr(_api_util, "get_bearer_token", _unexpected_token_request)
+
+    with pytest.raises(AirbyteAgentsUnavailableError):
+        _api_util.make_agents_api_request(
+            method="GET",
+            path="/workspaces",
+            credentials=_credentials(
+                public_api_root="https://airbyte.example.com/api/public/v1",
+                bearer_token=None,
+                client_id="client-id",
+                client_secret="client-secret",
+            ),
+        )
+
+    assert token_requests == 0
+
+
 def test_is_agents_api_available(monkeypatch: pytest.MonkeyPatch) -> None:
     """An explicit Agents API root makes custom Cloud roots available."""
     monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)

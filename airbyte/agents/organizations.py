@@ -221,7 +221,7 @@ class AgentOrganization:
         Airbyte Agents subscription, which is only knowable per workspace. Use
         `AgentWorkspace.from_cloud_workspace()` for an authoritative eligibility check.
 
-        Raises `PyAirbyteInputError` when the Cloud organization uses non-public Cloud API
+        Raises `AirbyteAgentsUnavailableError` when the Cloud organization uses non-public Cloud API
         roots, since an `AgentOrganization` cannot carry them.
         """
         credentials = cloud_organization._credentials  # noqa: SLF001  # Same-domain conversion.

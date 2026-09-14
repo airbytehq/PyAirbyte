@@ -46,7 +46,6 @@ from airbyte.constants import (
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_CLOUD_ONLY_MODULES,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -85,6 +84,8 @@ if TYPE_CHECKING:
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
+_AGENTS_MCP_MODULE = "agents"
+"""Module whose tools are only advertised when an Agents API is available."""
 
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
     PyAirbyteInputError,
@@ -370,7 +371,7 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def mcp_tool(
+def mcp_tool(  # noqa: PLR0913
     *,
     read_only: bool = False,
     destructive: bool = False,
@@ -379,6 +380,7 @@ def mcp_tool(
     annotations: Mapping[str, object] | None = None,
     meta: Mapping[str, object] | None = None,
     app: object | None = None,
+    requires_client_filesystem: bool = False,
     extra_help_text: str | None = None,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata."""
@@ -387,6 +389,7 @@ def mcp_tool(
         destructive=destructive,
         idempotent=idempotent,
         open_world=open_world,
+        requires_client_filesystem=requires_client_filesystem,
         extra_help_text=extra_help_text,
     )
 
@@ -532,8 +535,8 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
-    Modules in `MCP_CLOUD_ONLY_MODULES` are hidden whenever the Cloud API roots are overridden,
-    unless `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
+    Agents tools are hidden whenever the Cloud API roots are overridden, unless
+    `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
@@ -548,7 +551,7 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     if exclude_modules and tool_module and tool_module in exclude_modules:
         return False
 
-    if tool_module in MCP_CLOUD_ONLY_MODULES and not is_agents_api_available(app):
+    if tool_module == _AGENTS_MCP_MODULE and not is_agents_api_available(app):
         return False
 
     if tool_module in MCP_INSIDERS_MODULES:

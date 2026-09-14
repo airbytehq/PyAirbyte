@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
-from fastmcp_extensions import mcp_tool, register_mcp_tools
+from fastmcp_extensions import register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
@@ -30,6 +30,7 @@ from airbyte.caches.util import get_default_cache
 from airbyte.destinations.util import get_destination
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager

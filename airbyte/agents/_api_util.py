@@ -47,6 +47,13 @@ _MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
 """Fragment of the Agents API error returned when credentials span several organizations."""
 
 
+def _get_agents_api_root_override() -> str | None:
+    """Return the configured Agents API root override, if it is non-blank."""
+    value = try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None)
+    text = str(value).strip() if value is not None else ""
+    return text.rstrip("/") or None
+
+
 def get_overridden_cloud_api_roots(
     *,
     public_api_root: str | None,
@@ -68,12 +75,15 @@ def get_overridden_cloud_api_roots(
 
 
 def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
-    """Raise `AirbyteAgentsUnavailableError` unless credentials use public Cloud API roots.
+    """Raise `AirbyteAgentsUnavailableError` unless an Agents API is available.
 
     The Agents API has a single hosted root, so an Agents object carries no API root of its
     own. Converting from a Cloud object that points somewhere other than public Airbyte
-    Cloud would therefore silently discard those roots, so the conversion is refused.
+    Cloud would therefore silently discard those roots, so the conversion is refused unless
+    `AIRBYTE_AGENTS_API_URL` explicitly configures the Agents API root.
     """
+    if _get_agents_api_root_override():
+        return
     overridden = get_overridden_cloud_api_roots(
         public_api_root=credentials.public_api_root,
         config_api_root=credentials.config_api_root,
@@ -95,7 +105,7 @@ def is_agents_api_available(
     True when `AIRBYTE_AGENTS_API_URL` is set explicitly, or when the roots are the public
     Airbyte Cloud roots (which have the hosted Agents API).
     """
-    if try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None):
+    if _get_agents_api_root_override():
         return True
     return not get_overridden_cloud_api_roots(
         public_api_root=public_api_root,
@@ -111,9 +121,9 @@ def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
     3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
     """
-    override = try_get_secret(AGENTS_API_ROOT_ENV_VAR, default=None)
+    override = _get_agents_api_root_override()
     if override:
-        return str(override).rstrip("/")
+        return override
     check_public_cloud_api_roots(credentials)
     return _AGENTS_API_ROOT
 
@@ -151,6 +161,7 @@ def make_agents_api_request(
     The `organization_id` is sent as the `X-Organization-Id` header, which the Agents API
     requires when the caller's credentials map to more than one organization.
     """
+    full_url = get_agents_api_root(credentials) + path
     headers: dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -160,7 +171,6 @@ def make_agents_api_request(
     if organization_id:
         headers["X-Organization-Id"] = organization_id
 
-    full_url = get_agents_api_root(credentials) + path
     response = requests.request(
         method=method,
         url=full_url,

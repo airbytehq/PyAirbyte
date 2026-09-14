@@ -14,7 +14,7 @@ call hard-fails when the gate is disabled, even if a future registration mistake
 tool visible. Because the two layers are independent, a mistake in either one alone cannot
 expose a trusted-machine capability to an untrusted (for example hosted HTTP) caller.
 
-This module also holds the Agents-availability visibility check for `MCP_CLOUD_ONLY_MODULES`.
+This module also holds the Agents-availability visibility check for the Agents MCP module.
 """
 
 from __future__ import annotations

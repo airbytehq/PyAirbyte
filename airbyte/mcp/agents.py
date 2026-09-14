@@ -27,7 +27,7 @@ from http import HTTPStatus
 from typing import Annotated, Any, Literal, get_args
 
 from fastmcp import Context, FastMCP
-from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
+from fastmcp_extensions import get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte.agents.connectors import AgentConnector
@@ -51,7 +51,7 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
-from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
+from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET, mcp_tool
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
     _get_cloud_client,

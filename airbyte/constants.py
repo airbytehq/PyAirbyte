@@ -352,15 +352,6 @@ Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the mod
 the include list.
 """
 
-MCP_CLOUD_ONLY_MODULES: frozenset[str] = frozenset({"agents"})
-"""MCP tool modules that exist only on Airbyte Cloud.
-
-They are hidden whenever the server's Cloud API roots (`AIRBYTE_CLOUD_API_URL` /
-`AIRBYTE_CLOUD_CONFIG_API_URL`) are overridden away from the public Airbyte Cloud roots, since
-that indicates an OSS or self-managed deployment. Setting `AIRBYTE_AGENTS_API_URL` explicitly
-re-enables them.
-"""
-
 MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
 """Environment variable that advertises insiders MCP tools. Off by default.
 

@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import inspect
+from typing import cast
 
 import pytest
+from fastmcp import Context
 from fastmcp.exceptions import ToolError
 
 from airbyte.exceptions import AirbyteAgentsUnavailableError, PyAirbyteInputError
+from airbyte.mcp import agents as agents_mcp
 from airbyte.mcp._tool_utils import mcp_tool
 
 
@@ -58,6 +61,34 @@ def test_agents_unavailable_errors_become_concise_tool_errors() -> None:
 def test_other_errors_propagate_unchanged() -> None:
     with pytest.raises(RuntimeError, match="boom"):
         _raise_runtime_error()
+
+
+def test_real_agents_tools_return_tool_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeConnector:
+        def execute(self, **_: object) -> None:
+            raise AssertionError("invalid API args should fail before execution")
+
+    monkeypatch.setattr(
+        agents_mcp, "_get_agent_connector", lambda **_: _FakeConnector()
+    )
+
+    with pytest.raises(ToolError, match="JSON object"):
+        agents_mcp.execute_agent_connector_ro(
+            ctx=cast(Context, object()),
+            connector_id="connector-id",
+            entity_type="issues",
+            action="list",
+            api_args="[1, 2]",
+            select_fields=None,
+            exclude_fields=None,
+            page_size=None,
+            cursor=None,
+            intent=None,
+            workspace_id="workspace-id",
+            organization_id=None,
+        )
 
 
 def test_return_values_and_signatures_are_preserved() -> None:

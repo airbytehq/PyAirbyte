@@ -289,7 +289,7 @@ class AgentWorkspace:
         API, which raises `AirbyteError` when it is not eligible. Pass `verify=False` to
         skip that call.
 
-        Raises `PyAirbyteInputError` when the Cloud workspace uses non-public Cloud API
+        Raises `AirbyteAgentsUnavailableError` when the Cloud workspace uses non-public Cloud API
         roots, since an `AgentWorkspace` cannot carry them.
         """
         _api_util.check_public_cloud_api_roots(
