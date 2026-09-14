@@ -44,6 +44,7 @@ from airbyte.constants import (
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CLOUD_ONLY_MODULES,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -67,6 +68,7 @@ from airbyte.constants import (
     _str_to_bool,
 )
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.mcp._guards import is_cloud_deployment
 
 
 if TYPE_CHECKING:
@@ -491,6 +493,8 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
+    Modules in `MCP_CLOUD_ONLY_MODULES` are hidden whenever the Cloud API roots are overridden,
+    regardless of insiders/include settings.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
@@ -503,6 +507,9 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
 
     # Hide tools from excluded modules
     if exclude_modules and tool_module and tool_module in exclude_modules:
+        return False
+
+    if tool_module in MCP_CLOUD_ONLY_MODULES and not is_cloud_deployment(app):
         return False
 
     if tool_module in MCP_INSIDERS_MODULES:

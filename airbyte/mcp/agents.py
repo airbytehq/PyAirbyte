@@ -8,6 +8,9 @@
 > for hosted servers) or when the include-modules setting explicitly names `agents`. Tool names,
 > arguments, and result shapes may change or be removed without notice between minor versions of
 > PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
+>
+> These tools are also Cloud-only: they are hidden and hard-failing whenever
+> `AIRBYTE_CLOUD_API_URL` / `AIRBYTE_CLOUD_CONFIG_API_URL` are overridden.
 
 .. include:: ../../docs/mcp-generated/agents.md
 """
@@ -47,6 +50,7 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
+from airbyte.mcp._guards import raise_if_not_cloud_deployment
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
@@ -319,6 +323,7 @@ def _agents_access_message(error: AirbyteError) -> str | None:
 
 def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentOrganization:
     """Build an `AgentOrganization` from MCP config."""
+    raise_if_not_cloud_deployment(ctx, feature="Airbyte Agents organization tools")
     return AgentOrganization(
         organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
@@ -333,6 +338,7 @@ def _get_agent_workspace(
     organization_id: str | None = None,
 ) -> AgentWorkspace:
     """Build an `AgentWorkspace`, deriving an absent organization from its workspace."""
+    raise_if_not_cloud_deployment(ctx, feature="Airbyte Agents workspace tools")
     resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
     resolved_organization_id = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
     if not resolved_workspace_id or not resolved_organization_id:

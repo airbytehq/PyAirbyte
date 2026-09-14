@@ -10,6 +10,9 @@ import pytest
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
+    MCP_CLOUD_ONLY_MODULES,
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_INSIDERS,
@@ -18,6 +21,7 @@ from airbyte.constants import (
     MCP_INSIDERS_MODULES,
     _str_to_bool,
 )
+from airbyte.mcp import _guards
 from airbyte.mcp import _tool_utils
 from fastmcp import FastMCP
 from mcp.types import Tool
@@ -41,6 +45,11 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     config: dict[str, str] = {}
     monkeypatch.setattr(
         _tool_utils,
+        "get_mcp_config",
+        lambda app, key, **kwargs: config.get(key),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        _guards,
         "get_mcp_config",
         lambda app, key, **kwargs: config.get(key),  # noqa: ARG005
     )
@@ -110,6 +119,39 @@ def _visible(module: str) -> bool:
             {"agents": True},
             id="include_agents_via_library_config",
         ),
+        pytest.param(
+            {
+                MCP_CONFIG_INSIDERS: "1",
+                MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
+            },
+            {"agents": False, "cloud": True},
+            id="api_url_override_hides_agents",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INSIDERS: "1",
+                MCP_CONFIG_CONFIG_API_URL: "https://airbyte.example.com/api/v1",
+            },
+            {"agents": False, "cloud": True},
+            id="config_api_url_override_hides_agents",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INCLUDE_MODULES: "agents",
+                MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
+            },
+            {"agents": False},
+            id="api_url_override_beats_include_list",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INSIDERS: "1",
+                MCP_CONFIG_API_URL: "https://api.airbyte.com/v1/",
+                MCP_CONFIG_CONFIG_API_URL: "https://cloud.airbyte.com/api/v1/",
+            },
+            {"agents": True},
+            id="public_cloud_roots_with_trailing_slash_keep_agents",
+        ),
     ],
 )
 def test_module_visibility(
@@ -167,6 +209,12 @@ def test_module_visibility(
             False,
             id="exclude_still_narrows_hosted_on",
         ),
+        pytest.param(
+            "1",
+            {MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1"},
+            False,
+            id="api_url_override_beats_hosted_insiders_on",
+        ),
         *(
             pytest.param(
                 env_value,
@@ -213,6 +261,7 @@ def test_insiders_gate_is_off_by_default() -> None:
     config_arg: Any = _tool_utils.INSIDERS_CONFIG_ARG
 
     assert set(MCP_INSIDERS_MODULES) == {"agents"}
+    assert set(MCP_CLOUD_ONLY_MODULES) == {"agents"}
     assert _str_to_bool(config_arg.default) is None
     assert not config_arg.required
     assert config_arg.http_header_key == MCP_INSIDERS_HEADER

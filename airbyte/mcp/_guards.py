@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Trusted-execution guards for Airbyte MCP backend helpers.
+"""Deployment guards for Airbyte MCP backend helpers.
 
 Trusted execution is the master gate for the MCP server's *trusted-machine* capabilities:
 local filesystem access, local connector installation/execution, and server-side secret
@@ -13,14 +13,32 @@ gate is off, but that is a *visibility* control. The guards here are an independ
 call hard-fails when the gate is disabled, even if a future registration mistake left the
 tool visible. Because the two layers are independent, a mistake in either one alone cannot
 expose a trusted-machine capability to an untrusted (for example hosted HTTP) caller.
+
+This module also holds the Cloud-deployment gate for `MCP_CLOUD_ONLY_MODULES`.
 """
 
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
-from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
-from airbyte.exceptions import AirbyteTrustedExecutionRequiredError
+from fastmcp_extensions import get_mcp_config
+
+from airbyte.constants import (
+    CLOUD_API_ROOT,
+    CLOUD_CONFIG_API_ROOT,
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_CONFIG_API_URL,
+    MCP_TRUSTED_EXECUTION_ENV_VAR,
+)
+from airbyte.exceptions import (
+    AirbyteCloudDeploymentRequiredError,
+    AirbyteTrustedExecutionRequiredError,
+)
+
+
+if TYPE_CHECKING:
+    from fastmcp import Context, FastMCP
 
 
 _TRUTHY_VALUES = frozenset({"1", "true", "yes"})
@@ -47,3 +65,28 @@ def raise_if_untrusted_execution_context(feature: str) -> None:
     """
     if not is_trusted_execution_enabled():
         raise AirbyteTrustedExecutionRequiredError(feature=feature)
+
+
+def get_overridden_cloud_api_roots(config_source: FastMCP | Context) -> dict[str, str]:
+    """Return Cloud API roots that point away from public Airbyte Cloud."""
+    overridden: dict[str, str] = {}
+    for key, default in (
+        (MCP_CONFIG_API_URL, CLOUD_API_ROOT),
+        (MCP_CONFIG_CONFIG_API_URL, CLOUD_CONFIG_API_ROOT),
+    ):
+        value = (get_mcp_config(config_source, key) or "").strip()
+        if value and value.rstrip("/") != default:
+            overridden[key] = value
+    return overridden
+
+
+def is_cloud_deployment(config_source: FastMCP | Context) -> bool:
+    """Return whether the MCP server targets public Airbyte Cloud."""
+    return not get_overridden_cloud_api_roots(config_source)
+
+
+def raise_if_not_cloud_deployment(config_source: FastMCP | Context, feature: str) -> None:
+    """Hard-fail when `feature` is invoked on a non-Cloud deployment."""
+    overridden = get_overridden_cloud_api_roots(config_source)
+    if overridden:
+        raise AirbyteCloudDeploymentRequiredError(feature=feature, context=overridden)

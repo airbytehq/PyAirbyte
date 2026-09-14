@@ -27,6 +27,7 @@ from airbyte.constants import (
     MCP_CONFIG_WORKSPACE_ID,
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.mcp import _guards
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
 
@@ -508,6 +509,16 @@ def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
             MCP_CONFIG_BEARER_TOKEN: "fake-token",
             MCP_CONFIG_ORGANIZATION_ID: "org-from-config",
         }.get(key),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _patch_cloud_deployment_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep helper tests on the public Cloud deployment by default."""
+    monkeypatch.setattr(
+        _guards,
+        "get_mcp_config",
+        lambda ctx, key: None,  # noqa: ARG005
     )
 
 

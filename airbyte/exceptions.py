@@ -331,6 +331,25 @@ class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     feature: str | None = None
 
 
+@dataclass
+class AirbyteCloudDeploymentRequiredError(AirbyteMCPError):
+    """A Cloud-only capability was invoked while the MCP server targets a non-Cloud deployment.
+
+    The Airbyte Agents tools call the hosted Agents API, which exists only for Airbyte
+    Cloud. When `AIRBYTE_CLOUD_API_URL` or `AIRBYTE_CLOUD_CONFIG_API_URL` points anywhere
+    other than the public Airbyte Cloud roots, the server is assumed to be OSS or
+    self-managed and those helpers hard-fail -- independently of whether the corresponding
+    tool was hidden from the tool listing.
+    """
+
+    guidance = (
+        "The Airbyte Agents tools are only available when the MCP server targets Airbyte "
+        "Cloud. Unset `AIRBYTE_CLOUD_API_URL` and `AIRBYTE_CLOUD_CONFIG_API_URL` (or point "
+        "them at the public Airbyte Cloud API roots) and restart the server."
+    )
+    feature: str | None = None
+
+
 # Normalization Errors
 
 
