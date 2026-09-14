@@ -20,7 +20,12 @@ from airbyte.agents.models import (
     AgentSkillSection,
 )
 from airbyte.agents.connectors import AgentConnector
-from airbyte.constants import MCP_CONFIG_BEARER_TOKEN, MCP_CONFIG_ORGANIZATION_ID
+from airbyte.cloud.client import CloudClient
+from airbyte.constants import (
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_ORGANIZATION_ID,
+    MCP_CONFIG_WORKSPACE_ID,
+)
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
@@ -34,14 +39,14 @@ class _AgentConnectorLike:
 
     def execute(
         self,
-        entity: str,
+        entity_type: str,
         action: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
     ) -> AgentExecuteResult:
         """Record the call and return a fixed successful result."""
         self.calls.append({
-            "entity": entity,
+            "entity": entity_type,
             "action": action,
             "api_args": api_args,
             **kwargs,
@@ -116,7 +121,7 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None: stub,
+        lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
     )
     return stub
 
@@ -135,6 +140,7 @@ def _execute_ro(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: AN
         cursor=kwargs.pop("cursor", None),
         intent=kwargs.pop("intent", None),
         workspace_id=kwargs.pop("workspace_id", "workspace-id"),
+        organization_id=kwargs.pop("organization_id", None),
     )
 
 
@@ -153,6 +159,7 @@ def _execute(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: ANN40
         intent=kwargs.pop("intent", None),
         read_only=kwargs.pop("read_only", None),
         workspace_id=kwargs.pop("workspace_id", "workspace-id"),
+        organization_id=kwargs.pop("organization_id", None),
     )
 
 
@@ -165,6 +172,103 @@ def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> 
     assert result.has_next_page is True
     assert result.end_cursor == "cursor-2"
     assert result.execution_time_ms == 42
+
+
+def test_execute_sql_select_falls_back_to_cloud_destinations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `sql_select` falls back to Cloud destinations when Agents listing omits one."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudDestination:
+        connector_id = "connector-id"
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[_CloudDestination]:
+            return [_CloudDestination()]
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+    monkeypatch.setattr(
+        agents_mcp.AgentConnector,
+        "execute",
+        lambda self, *args, **kwargs: AgentExecuteResult(status="success", result=[]),
+    )
+
+    result = _execute(
+        action="sql_select",
+        api_args={"sql": "SELECT 1", "sql_dialect": "snowflake"},
+    )
+
+    assert result.status == "success"
+
+
+def test_execute_unknown_connector_raises_when_not_a_cloud_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an unknown connector still raises after the Cloud destination fallback."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
+    with pytest.raises(
+        AirbyteError, match="No connector found with the given ID or name"
+    ):
+        _execute(action="sql_select")
+
+
+def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify unrelated connector lookup errors do not trigger Cloud destination fallback."""
+    _patch_mcp_config(monkeypatch)
+
+    def raise_lookup_error(self: Any) -> list[Any]:
+        raise AirbyteError(message="Connector listing failed.")
+
+    monkeypatch.setattr(
+        agents_mcp.AgentWorkspace, "list_connectors", raise_lookup_error
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: pytest.fail("Cloud fallback should not run"),
+    )
+
+    with pytest.raises(AirbyteError, match="Connector listing failed"):
+        _execute(action="sql_select")
+
+
+def test_execute_list_uses_positional_connector_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-SQL actions keep the workspace-validating connector lookup."""
+    _patch_mcp_config(monkeypatch)
+    connector = _AgentConnectorLike()
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def get_connector(self, *args: Any, **kwargs: Any) -> _AgentConnectorLike:
+        calls.append((args, kwargs))
+        return connector
+
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "get_connector", get_connector)
+
+    _execute(action="list")
+
+    assert calls == [(("connector-id",), {})]
 
 
 @pytest.mark.parametrize(
@@ -245,7 +349,7 @@ def test_read_only_tool_action_type_excludes_writes() -> None:
     """Verify the read-only tool's action type offers no write or download actions."""
     read_actions = set(agents_mcp.get_args(agents_mcp.AgentReadAction))
 
-    assert read_actions == {"list", "get", "search", "api_search"}
+    assert read_actions == {"list", "get", "search", "api_search", "sql_select"}
     assert "download" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
 
 
@@ -273,13 +377,17 @@ def test_inspect_tool_reports_context_store_entities(
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None: _InspectableConnector(),
+        lambda ctx,
+        connector_id,
+        workspace_id=None,
+        organization_id=None: _InspectableConnector(),
     )
 
     result = agents_mcp.inspect_agent_connector(
         ctx=cast(Context, object()),
         connector_id="connector-id",
         workspace_id="workspace-id",
+        organization_id=None,
     )
 
     assert result.context_store_entities == ["issues"]
@@ -337,12 +445,33 @@ def test_connector_resolution_validates_workspace_scope(
         lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
     )
     monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: type(
+            "_CloudClient",
+            (),
+            {
+                "resolve_default_workspace_id": lambda self: None,
+                "get_workspace_parent_organization_id": lambda self, workspace_id: None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
         agents_mcp.AgentWorkspace,
         "list_connectors",
         lambda self: [
             AgentConnector(connector_id=connector_id, credentials=self._credentials)  # noqa: SLF001
             for connector_id in workspace_connector_ids
         ],
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: type(
+            "_CloudWorkspace",
+            (),
+            {"list_destinations": lambda self: []},
+        )(),
     )
 
     if expect_error:
@@ -399,6 +528,7 @@ _ACCESS_FAILURE_CASES = [
         lambda: agents_mcp.list_agent_connectors(
             ctx=cast(Context, object()),
             workspace_id="workspace-1",
+            organization_id=None,
         ),
         {"connectors": []},
         id="list_connectors",
@@ -450,6 +580,7 @@ _ACCESS_FAILURE_CASES = [
             ctx=cast(Context, object()),
             connector_id="connector-id",
             workspace_id="workspace-1",
+            organization_id=None,
         ),
         {"context_store_entities": [], "connector_id": "connector-id"},
         id="inspect",
@@ -537,17 +668,70 @@ def test_organization_id_resolution(
     assert organization.organization_id == expected_organization_id
 
 
+@pytest.mark.parametrize(
+    ("explicit_organization_id", "expected_organization_id"),
+    [
+        pytest.param(None, "org-from-config", id="falls_back_to_config"),
+        pytest.param("org-from-argument", "org-from-argument", id="explicit_wins"),
+    ],
+)
+def test_list_agent_connectors_threads_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_organization_id: str | None,
+    expected_organization_id: str,
+) -> None:
+    """Verify `list_agent_connectors` passes `organization_id` to the workspace."""
+    _patch_mcp_config(monkeypatch)
+    constructed: list[dict[str, Any]] = []
+
+    class _RecordingWorkspace:
+        def __init__(self, **kwargs: Any) -> None:
+            constructed.append(kwargs)
+
+        def list_connectors(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(agents_mcp, "AgentWorkspace", _RecordingWorkspace)
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id=explicit_organization_id,
+    )
+
+    assert constructed[0]["organization_id"] == expected_organization_id
+    assert result.connectors == []
+
+
 def test_workspace_organization_id_comes_from_mcp_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify workspace-scoped tools send the configured organization ID too."""
-    _patch_mcp_config(monkeypatch)
+    """Verify configured workspace and organization IDs avoid CloudClient lookup."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (
+            "workspace-from-config"
+            if key == MCP_CONFIG_WORKSPACE_ID
+            else "org-from-config"
+            if key == MCP_CONFIG_ORGANIZATION_ID
+            else "fake-token"
+            if key == MCP_CONFIG_BEARER_TOKEN
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: pytest.fail("CloudClient lookup should not be called"),
+    )
 
     workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
         cast(Context, object()),
-        "workspace-1",
+        None,
     )
 
+    assert workspace.workspace_id == "workspace-from-config"
     assert workspace.organization_id == "org-from-config"
     assert workspace._credentials.organization_id == "org-from-config"  # noqa: SLF001
 
@@ -643,3 +827,176 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
     assert docs.outline[1].available is False
     assert docs.content == [{"type": "paragraph", "text": "Hello"}]
     assert docs.warnings == ["Partial runtime metadata."]
+
+
+def test_explicit_workspace_derives_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an explicit workspace derives its parent organization."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            pytest.fail("default workspace lookup should not be called")
+
+        def get_workspace_parent_organization_id(self, workspace_id: str) -> str:
+            assert workspace_id == "workspace-explicit"
+            return "org-parent"
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_client", lambda ctx: _CloudClient())
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        "workspace-explicit",
+    )
+
+    assert workspace.workspace_id == "workspace-explicit"
+    assert workspace.organization_id == "org-parent"
+
+
+def test_configured_workspace_derives_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a configured workspace derives its parent organization."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (
+            "workspace-from-config"
+            if key == MCP_CONFIG_WORKSPACE_ID
+            else "fake-token"
+            if key == MCP_CONFIG_BEARER_TOKEN
+            else None
+        ),
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            pytest.fail("default workspace lookup should not be called")
+
+        def get_workspace_parent_organization_id(self, workspace_id: str) -> str:
+            assert workspace_id == "workspace-from-config"
+            return "org-parent"
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_client", lambda ctx: _CloudClient())
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "workspace-from-config"
+    assert workspace.organization_id == "org-parent"
+
+
+def test_workspace_fallback_uses_user_default_workspace_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify workspace fallback derives the parent organization."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            return "ws-default"
+
+        def get_workspace_parent_organization_id(self, _workspace_id: str) -> str:
+            return "org-parent"
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: _CloudClient(),
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "ws-default"
+    assert workspace.organization_id == "org-parent"
+
+
+def test_workspace_fallback_preserves_configured_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a configured organization wins over parent organization lookup."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (
+            "fake-token"
+            if key == MCP_CONFIG_BEARER_TOKEN
+            else "org-cfg"
+            if key == MCP_CONFIG_ORGANIZATION_ID
+            else None
+        ),
+    )
+
+    class _CloudClient:
+        def resolve_default_workspace_id(self) -> str:
+            return "ws-default"
+
+        def get_workspace_parent_organization_id(self, _workspace_id: str) -> str:
+            pytest.fail("parent organization lookup should not be called")
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: _CloudClient(),
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "ws-default"
+    assert workspace.organization_id == "org-cfg"
+
+
+def test_workspace_fallback_ignores_parent_organization_lookup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify parent organization lookup errors leave the organization unset."""
+    client = CloudClient(bearer_token="token")
+
+    def raise_parent_organization_error(_workspace_id: str) -> str:
+        raise AirbyteError(message="lookup failed")
+
+    monkeypatch.setattr(
+        client,
+        "resolve_default_workspace_id",
+        lambda: "ws-default",
+    )
+    monkeypatch.setattr(
+        client,
+        "_get_workspace_parent_organization_id",
+        raise_parent_organization_error,
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: "fake-token" if key == MCP_CONFIG_BEARER_TOKEN else None,
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_client",
+        lambda ctx: client,
+    )
+
+    workspace = agents_mcp._get_agent_workspace(  # noqa: SLF001
+        cast(Context, object()),
+        None,
+    )
+
+    assert workspace.workspace_id == "ws-default"
+    assert workspace.organization_id is None

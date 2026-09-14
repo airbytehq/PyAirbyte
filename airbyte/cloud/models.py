@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -76,6 +76,28 @@ class JobTypeEnum(str, Enum):
     CLEAR = "clear"
 
 
+class WorkspacePrivilegeScope(str, Enum):
+    """How broadly `list_workspaces` searches for workspaces."""
+
+    MEMBER_OF = "member_of"
+    ORGANIZATION_ADMIN = "organization_admin"
+    INSTANCE_ADMIN = "instance_admin"
+    ANY = "any"
+
+
+class CloudOrganizationBillingInfo(BaseModel):
+    """Billing status information for an Airbyte organization."""
+
+    payment_status: str | None = None
+    """Payment status of the organization."""
+
+    subscription_status: str | None = None
+    """Subscription status of the organization."""
+
+    is_account_locked: bool = False
+    """Whether the organization account is locked."""
+
+
 class CloudWorkspaceInfo(BaseModel):
     """Information about an Airbyte workspace."""
 
@@ -92,6 +114,9 @@ class CloudWorkspaceInfo(BaseModel):
 
     organization_id: str | None = Field(default=None, alias="organizationId")
     """The organization ID for the workspace, if available."""
+
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name for the workspace, if available."""
 
     notifications: dict[str, object | None] | list[dict[str, object | None]] = Field(
         default_factory=dict
@@ -117,6 +142,98 @@ class CloudWorkspaceInfo(BaseModel):
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable dictionary."""
         return self.model_dump(mode="json")
+
+
+class CloudOrganizationInfo(BaseModel):
+    """Information about an Airbyte organization."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    organization_id: str = Field(alias="organizationId")
+    """The organization ID."""
+
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name, if available."""
+
+
+class CloudDefaultContextInfo(BaseModel):
+    """Explicit organization and workspace affinities for the authenticated user."""
+
+    user_id: str | None
+    """The Airbyte user ID, if available."""
+
+    user_name: str | None
+    """The authenticated user's name, if available."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    default_workspace_id: str | None
+    """The resolved default workspace ID, if available."""
+
+    default_workspace_name: str | None
+    """The resolved default workspace name, if available."""
+
+    default_workspace_verified: bool
+    """Whether the resolved default workspace was verified as accessible."""
+
+    unvalidated_workspace_count: int = 0
+    """Number of direct workspace grants not validated due to the validation cap."""
+
+    default_organization_id: str | None
+    """The organization containing the resolved default workspace, if available."""
+
+    default_organization_name: str | None
+    """The name of the organization containing the resolved default workspace, if available."""
+
+    configured_workspace_id: str | None
+    """The explicitly configured workspace ID, if available."""
+
+    configured_organization_id: str | None
+    """The configured organization ID, if available."""
+
+    member_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by explicit organization membership grants."""
+
+    member_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by explicit workspace membership grants."""
+
+    member_organizations_truncated: bool
+    """True if organization memberships beyond the returned list were omitted."""
+
+    member_workspaces_truncated: bool
+    """True if workspace memberships beyond the returned list were omitted."""
+
+    discovery_hints: list[str]
+    """Hints for discovering additional organizations or workspaces."""
+
+
+class CloudDefaultWorkspaceUpdateInfo(BaseModel):
+    """Result of durably updating the authenticated user's default workspace."""
+
+    user_id: str
+    """The Airbyte user ID the update applied to."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    previous_default_workspace_id: str | None
+    """The user's previous default workspace ID, if one was set."""
+
+    default_workspace_id: str
+    """The new default workspace ID."""
+
+    default_workspace_name: str | None
+    """The new default workspace name, if available."""
+
+    organization_id: str | None
+    """The ID of the organization containing the new default workspace, if available."""
+
+    organization_name: str | None
+    """The name of the organization containing the new default workspace, if available."""
+
+    membership_basis: Literal["workspace", "organization"]
+    """Whether access was established via a direct workspace grant or an organization grant."""
 
 
 class CloudConnectionInfo(BaseModel):

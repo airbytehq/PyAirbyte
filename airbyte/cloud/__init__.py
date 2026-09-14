@@ -87,7 +87,13 @@ from typing import TYPE_CHECKING
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.models import CloudWorkspaceInfo, JobStatusEnum, JobTypeEnum
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudWorkspaceInfo,
+    JobStatusEnum,
+    JobTypeEnum,
+    WorkspacePrivilegeScope,
+)
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -122,9 +128,11 @@ __all__ = [
     "CloudWorkspace",
     "CloudConnection",
     "CloudClientConfig",
+    "CloudDefaultContextInfo",
     "CloudWorkspaceInfo",
     "SyncResult",
     # Enums
     "JobStatusEnum",
     "JobTypeEnum",
+    "WorkspacePrivilegeScope",
 ]

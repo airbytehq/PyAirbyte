@@ -5,11 +5,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Callable, cast
 
 import pytest
 from airbyte.cloud.connectors import CheckResult
-from airbyte.cloud.models import JobStatusEnum
+from airbyte.cloud.models import (
+    CloudDefaultContextInfo,
+    CloudOrganizationInfo,
+    CloudWorkspaceInfo,
+    JobStatusEnum,
+)
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
@@ -484,3 +490,271 @@ def test_cancel_cloud_sync_forwards_missing_job_id(
     )
 
     assert connection.received_job_id is None
+
+
+def test_get_default_cloud_context_returns_context_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = CloudDefaultContextInfo(
+        user_id="user-id",
+        user_name="User",
+        user_email="user@example.com",
+        default_workspace_id="workspace-id",
+        default_workspace_name="Workspace",
+        default_workspace_verified=True,
+        unvalidated_workspace_count=0,
+        default_organization_id="organization-id",
+        default_organization_name="Organization",
+        configured_workspace_id=None,
+        configured_organization_id=None,
+        member_organizations=[
+            CloudOrganizationInfo(
+                organization_id="organization-id",
+                organization_name="Organization",
+            )
+        ],
+        member_workspaces=[
+            CloudWorkspaceInfo(
+                workspace_id="workspace-id",
+                name="Workspace",
+                organization_id="organization-id",
+                organization_name="Organization",
+                notifications={"webhook": {"enabled": True}},
+            )
+        ],
+        member_organizations_truncated=True,
+        member_workspaces_truncated=True,
+        discovery_hints=[],
+    )
+
+    class ContextClient:
+        def get_default_context_for_user(self) -> CloudDefaultContextInfo:
+            return context
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+
+    assert result.user_id == "user-id"
+    assert result.member_organizations[0].organization_id == "organization-id"
+    assert result.member_workspaces[0].workspace_id == "workspace-id"
+    assert result.member_workspaces[0].workspace_name == "Workspace"
+    assert result.member_workspaces[0].organization_id == "organization-id"
+    assert result.member_workspaces[0].organization_name == "Organization"
+    assert "notifications" not in result.model_dump(mode="json")["member_workspaces"][0]
+    assert result.message.startswith(
+        "Resolved default workspace Workspace (workspace-id) "
+        "in organization Organization (organization-id). "
+    )
+    assert "membership-based, not access-based" in result.message
+    assert (
+        "Only the first 1 organization memberships and 1 workspace memberships are shown"
+        in result.message
+    )
+
+
+def test_get_default_cloud_context_flags_unverified_default_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = CloudDefaultContextInfo(
+        user_id="user-id",
+        user_name="User",
+        user_email="user@example.com",
+        default_workspace_id="deleted-workspace",
+        default_workspace_name=None,
+        default_workspace_verified=False,
+        unvalidated_workspace_count=0,
+        default_organization_id=None,
+        default_organization_name=None,
+        configured_workspace_id="deleted-workspace",
+        configured_organization_id=None,
+        member_organizations=[],
+        member_workspaces=[],
+        member_organizations_truncated=False,
+        member_workspaces_truncated=False,
+        discovery_hints=[],
+    )
+
+    class ContextClient:
+        def get_default_context_for_user(self) -> CloudDefaultContextInfo:
+            return context
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+
+    assert result.message.startswith(
+        "Default workspace ID deleted-workspace could not be verified "
+        "(it may have been deleted or is not accessible with these credentials). These"
+    )
+
+
+def test_describe_cloud_workspace_includes_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = SimpleNamespace(
+        organization_id="org-id", organization_name="Organization"
+    )
+    workspace = SimpleNamespace(
+        workspace_id="workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        workspace_url="https://cloud.airbyte.com/workspaces/workspace-id",
+        get_organization=lambda **_: organization,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp.api_util,
+        "get_workspace",
+        lambda **_: SimpleNamespace(workspace_id="workspace-id", name="Workspace"),
+    )
+    result = cloud_mcp.describe_cloud_workspace(
+        cast(Context, object()), workspace_id=None
+    )
+    assert result.organization_id == "org-id"
+    assert result.organization_name == "Organization"
+
+
+def test_describe_cloud_workspace_allows_missing_parent_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = SimpleNamespace(
+        workspace_id="workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        workspace_url=None,
+        get_organization=lambda **_: None,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp.api_util,
+        "get_workspace",
+        lambda **_: SimpleNamespace(workspace_id="workspace-id", name="Workspace"),
+    )
+    result = cloud_mcp.describe_cloud_workspace(
+        cast(Context, object()), workspace_id=None
+    )
+    assert result.organization_id is None
+    assert result.organization_name is None
+
+
+def test_get_cloud_organization_billing_status_returns_billing_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=lambda: SimpleNamespace(
+            payment_status="okay",
+            subscription_status="subscribed",
+            is_account_locked=False,
+        ),
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    result = cloud_mcp.get_cloud_organization_billing_status(
+        cast(Context, object()), organization_id=None, organization_name=None
+    )
+    assert result.billing_info_available is True
+    assert result.payment_status == "okay"
+    assert result.subscription_status == "subscribed"
+    assert result.is_account_locked is False
+
+
+def test_get_cloud_organization_billing_status_handles_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get_billing_status() -> None:
+        raise cloud_mcp.AirbyteError(message="not allowed")
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=get_billing_status,
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    result = cloud_mcp.get_cloud_organization_billing_status(
+        cast(Context, object()), organization_id=None, organization_name=None
+    )
+    assert result.billing_info_available is False
+    assert result.payment_status is None
+    assert result.is_account_locked is False
+    assert result.message == "Billing information could not be retrieved: not allowed"
+
+
+def test_describe_cloud_organization_excludes_billing_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        email="org@example.com",
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    result = cloud_mcp.describe_cloud_organization(
+        cast(Context, object()), organization_id=None, organization_name=None
+    )
+    assert result.id == "org-id"
+    assert not hasattr(result, "payment_status")
+    assert not hasattr(result, "subscription_status")
+    assert not hasattr(result, "is_account_locked")
+
+
+def test_set_default_cloud_workspace_returns_update_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the tool maps the client result and states the durable impact."""
+    update = cloud_mcp.CloudDefaultWorkspaceUpdateInfo(
+        user_id="user-id",
+        user_email="user@example.com",
+        previous_default_workspace_id="old-workspace",
+        default_workspace_id="workspace-id",
+        default_workspace_name="Workspace",
+        organization_id="organization-id",
+        organization_name="Organization",
+        membership_basis="workspace",
+    )
+
+    class ContextClient:
+        def set_default_workspace_for_user(
+            self,
+            *,
+            user_email: str,
+            workspace_id: str,
+        ) -> cloud_mcp.CloudDefaultWorkspaceUpdateInfo:
+            assert user_email == "user@example.com"
+            assert workspace_id == "workspace-id"
+            return update
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    result = cloud_mcp.set_default_cloud_workspace(
+        cast(Context, object()),
+        user_email="user@example.com",
+        workspace_id="workspace-id",
+    )
+
+    assert result.user_id == "user-id"
+    assert result.default_workspace_id == "workspace-id"
+    assert result.previous_default_workspace_id == "old-workspace"
+    assert result.membership_basis == "workspace"
+    assert result.message == (
+        "Default workspace durably set to Workspace (workspace-id) for "
+        "user@example.com. This applies to future MCP sessions and the Airbyte "
+        "Cloud web app."
+    )
