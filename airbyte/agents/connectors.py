@@ -224,7 +224,7 @@ class AgentConnector:
 
         if action in _AGENTS_API_ACTION_NAMES.values():
             raise PyAirbyteInputError(
-                message=f"The {action!r} action is not a PyAirbyte action name.",
+                message=f"The {action!r} action is not a valid action name for `execute`.",
                 guidance="Use `search` for a connector's native API search.",
                 context={"entity_type": entity_type, "action": action},
             )

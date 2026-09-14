@@ -314,7 +314,7 @@ def test_execute_request_body(
         pytest.param(
             ("issues", "api_search"),
             {},
-            "not a PyAirbyte action name",
+            "not a valid action name",
             id="legacy_api_search_action",
         ),
         pytest.param(
