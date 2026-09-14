@@ -312,6 +312,12 @@ def test_execute_request_body(
     [
         pytest.param(("files", "download"), {}, "not supported", id="download_action"),
         pytest.param(
+            ("issues", "api_search"),
+            {},
+            "not a PyAirbyte action name",
+            id="legacy_api_search_action",
+        ),
+        pytest.param(
             ("issues", "list", {"limit": 10}),
             {"page_size": 5},
             "twice",

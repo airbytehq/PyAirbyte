@@ -36,7 +36,8 @@ _AGENTS_API_ACTION_NAMES: dict[str, str] = {"search": "api_search"}
 
 PyAirbyte exposes `search` for a connector's native API search. Until the Agents API
 adopts that name (it currently expects `api_search`), the request is rewritten on the way
-out. TODO: delete this mapping and its use in `execute()` once the Agents API accepts `search`.
+out, and the API-side name is rejected as input so callers standardize on `search` now.
+TODO: delete this mapping and its uses in `execute()` once the Agents API accepts `search`.
 """
 
 _PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
@@ -218,6 +219,13 @@ class AgentConnector:
                     "This action returns a binary stream instead of JSON, and PyAirbyte does "
                     "not yet support streaming responses."
                 ),
+                context={"entity_type": entity_type, "action": action},
+            )
+
+        if action in _AGENTS_API_ACTION_NAMES.values():
+            raise PyAirbyteInputError(
+                message=f"The {action!r} action is not a PyAirbyte action name.",
+                guidance="Use `search` for a connector's native API search.",
                 context={"entity_type": entity_type, "action": action},
             )
 
