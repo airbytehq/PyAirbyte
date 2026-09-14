@@ -1711,6 +1711,7 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
                 workspace_id=ws.workspace_id,
                 workspace_name=ws.name,
                 organization_id=ws.organization_id,
+                organization_name=ws.organization_name,
             )
             for ws in context.member_workspaces
         ],
