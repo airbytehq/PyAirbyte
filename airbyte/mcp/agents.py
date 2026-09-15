@@ -79,13 +79,20 @@ WORKSPACE_ID_TIP_TEXT = (
     f"environment variable."
 )
 ORGANIZATION_ID_TIP_TEXT = (
+    f"Organization ID. Omit it when the credentials belong to exactly one organization, or "
+    f"when it is already configured via the "
+    f"`{MCP_ORGANIZATION_ID_HEADER}` header or the `{CLOUD_ORGANIZATION_ID_ENV_VAR}` "
+    f"environment variable. To discover organization IDs, call `list_cloud_organizations` "
+    f"to search organizations by name, or `list_agent_workspaces`, which reports the owning "
+    f"organization of each workspace. Workspace-scoped tools derive it from the workspace's "
+    f"parent organization when omitted."
+)
+LIST_WORKSPACES_ORGANIZATION_ID_TIP_TEXT = (
     f"Organization ID. Required when the credentials belong to more than one organization; "
-    f"otherwise the Agents API rejects the call with HTTP 400. Omit it when the credentials "
+    f"the Agents API rejects the call with HTTP 400 otherwise. Omit it when the credentials "
     f"belong to exactly one organization or when it is already configured via the "
     f"`{MCP_ORGANIZATION_ID_HEADER}` header or the `{CLOUD_ORGANIZATION_ID_ENV_VAR}` "
-    f"environment variable. To discover organization IDs, call `list_agent_workspaces`, "
-    f"which reports the owning organization of each workspace, or "
-    f"`list_cloud_organizations` to search organizations by name."
+    f"environment variable. Discover organization IDs with `list_cloud_organizations`."
 )
 
 AGENTS_ACCESS_DENIED_STATUS = "access_denied"
@@ -456,7 +463,7 @@ def list_agent_workspaces(
     organization_id: Annotated[
         str | None,
         Field(
-            description=ORGANIZATION_ID_TIP_TEXT,
+            description=LIST_WORKSPACES_ORGANIZATION_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -664,7 +671,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         Field(
             description=(
                 "Pagination cursor for Context Store `search` actions and `sql_select`, taken "
-                "from `end_cursor` (or `next_cursor`) of a previous result. Direct connector "
+                "from `end_cursor` of a previous result. Direct connector "
                 "actions such as `list` do not read this; pass their own cursor argument in "
                 "`api_args` instead (for example GitHub's `after`), as named in the skill docs."
             ),
@@ -790,7 +797,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         Field(
             description=(
                 "Pagination cursor for Context Store `search` actions and `sql_select`, taken "
-                "from `end_cursor` (or `next_cursor`) of a previous result. Direct connector "
+                "from `end_cursor` of a previous result. Direct connector "
                 "actions such as `list` do not read this; pass their own cursor argument in "
                 "`api_args` instead (for example GitHub's `after`), as named in the skill docs."
             ),

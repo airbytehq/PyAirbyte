@@ -643,6 +643,20 @@ def test_listings(
         assert captured_requests[0]["params"] == expected_params
 
 
+def test_list_connectors_preserves_workspace_id(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """Listed connectors retain the workspace ID used to fetch them."""
+    workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
+
+    connectors = workspace.list_connectors()
+
+    assert [connector.workspace_id for connector in connectors] == [
+        workspace.workspace_id,
+        workspace.workspace_id,
+    ]
+
+
 def test_get_connector_by_id_preserves_workspace_id() -> None:
     """A connector looked up by ID remains scoped to its workspace."""
     workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
