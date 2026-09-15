@@ -133,6 +133,10 @@ class AgentConnectorResult(BaseModel):
     connector_name: str | None = None
     """Display name of the connector."""
 
+    connector_kind: str = "source"
+    """`source` for connectors that serve entity actions, or `destination` for warehouse
+    connectors that serve only `sql_select`."""
+
 
 class AgentConnectorListResult(BaseModel):
     """Result of listing connectors in an Airbyte Agents workspace."""
@@ -358,8 +362,9 @@ def _get_agent_connector(
     its workspace anyway, so a connector ID belonging to another workspace raises before
     any action runs.
 
-    Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
-    does not know are verified against the Cloud workspace's destinations instead.
+    Destination connectors (targets of `sql_select`) are listed by the Agents API with
+    `connector_kind="destination"`. Older API deployments omit them, so an ID the API does
+    not know is verified against the Cloud workspace's destinations before giving up.
     """
     workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
     try:
@@ -519,6 +524,7 @@ def list_agent_connectors(
             AgentConnectorResult(
                 connector_id=connector.connector_id,
                 connector_name=connector.name,
+                connector_kind=connector.connector_kind,
             )
             for connector in connectors
         ]

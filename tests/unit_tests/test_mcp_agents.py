@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 from airbyte.agents.models import (
     AgentConnectorDetails,
+    AgentConnectorInfo,
     AgentConnectorMetadata,
     AgentContextStoreEntity,
     AgentContextStoreReadiness,
@@ -714,6 +715,46 @@ def test_list_agent_connectors_threads_organization_id(
 
     assert constructed[0]["organization_id"] == expected_organization_id
     assert result.connectors == []
+
+
+def test_list_agent_connectors_reports_connector_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify listed destinations keep `connector_kind` and older records default to `source`."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(
+        agents_mcp.AgentWorkspace,
+        "list_connectors",
+        lambda self: [
+            AgentConnector(
+                connector_id="source-1",
+                name="GitHub",
+                connector_kind="source",
+                credentials=self._credentials,  # noqa: SLF001
+            ),
+            AgentConnector(
+                connector_id="destination-1",
+                name="Snowflake",
+                connector_kind="destination",
+                credentials=self._credentials,  # noqa: SLF001
+            ),
+        ],
+    )
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id="org-1",
+    )
+
+    assert [(c.connector_id, c.connector_kind) for c in result.connectors] == [
+        ("source-1", "source"),
+        ("destination-1", "destination"),
+    ]
+    assert AgentConnectorInfo.model_validate({
+        "id": "legacy",
+        "name": "x",
+    }).connector_kind == ("source")
 
 
 def test_workspace_organization_id_comes_from_mcp_config(

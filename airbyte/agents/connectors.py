@@ -170,6 +170,7 @@ class AgentConnector:
         *,
         credentials: _AirbyteCredentials,
         name: str | None = None,
+        connector_kind: str | None = None,
     ) -> None:
         """Initialize an `AgentConnector`. Prefer `AgentWorkspace.get_connector()`."""
         self.connector_id = connector_id
@@ -177,6 +178,7 @@ class AgentConnector:
 
         self._credentials = credentials
         self._name = name
+        self._connector_kind = connector_kind
         self._details: AgentConnectorDetails | None = None
 
     @property
@@ -185,6 +187,13 @@ class AgentConnector:
         if self._name is None:
             self._name = self.inspect().name
         return self._name
+
+    @property
+    def connector_kind(self) -> str:
+        """`source` or `destination`, fetched from the Agents API if not already known."""
+        if self._connector_kind is None:
+            self._connector_kind = self.inspect().connector_kind
+        return self._connector_kind
 
     def inspect(self, *, force_refresh: bool = False) -> AgentConnectorDetails:
         """Return connector metadata from the Agents API `inspect` endpoint.

@@ -49,6 +49,10 @@ class AgentConnectorInfo(BaseModel):
     name: str | None = None
     """The connector name, for example `GitHub - <workspace_id>`."""
 
+    connector_kind: str = "source"
+    """`source` for connectors that serve entity actions, or `destination` for warehouse
+    connectors that serve only `sql_select`."""
+
 
 class AgentContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
@@ -172,6 +176,10 @@ class AgentConnectorDetails(BaseModel):
     docs_skill_id: str | None = None
     """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
     `read_agent_skill_docs`) for this connector's usage docs."""
+
+    connector_kind: str = "source"
+    """`source` for connectors that serve entity actions, or `destination` for warehouse
+    connectors that serve only `sql_select`."""
 
     context_store_readiness: AgentContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""

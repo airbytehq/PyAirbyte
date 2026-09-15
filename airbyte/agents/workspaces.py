@@ -132,6 +132,7 @@ class AgentWorkspace:
             AgentConnector(
                 connector_id=info.id,
                 name=info.name,
+                connector_kind=info.connector_kind,
                 credentials=self._credentials,
             )
             for info in (
