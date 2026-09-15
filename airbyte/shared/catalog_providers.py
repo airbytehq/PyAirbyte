@@ -49,7 +49,7 @@ class CatalogProvider:
         """
         self._catalog: ConfiguredAirbyteCatalog = self.validate_catalog(
             configured_catalog
-        )  # pyrefly: ignore[bad-assignment]
+        )  # ty: ignore[invalid-assignment]
 
     @staticmethod
     def validate_catalog(catalog: ConfiguredAirbyteCatalog) -> None:
@@ -66,7 +66,7 @@ class CatalogProvider:
             if stream.sync_id is None:
                 stream.sync_id = 1  # This should ideally increment monotonically with each sync.
 
-        return catalog  # pyrefly: ignore[bad-return]
+        return catalog  # ty: ignore[invalid-return-type]
 
     @property
     def configured_catalog(self) -> ConfiguredAirbyteCatalog:
@@ -178,7 +178,7 @@ class CatalogProvider:
         """Return the cursor key for the given stream."""
         return self.get_configured_stream_info(
             stream_name
-        ).cursor_field  # pyrefly: ignore[bad-return]
+        ).cursor_field  # ty: ignore[invalid-return-type]
 
     def resolve_write_method(
         self,

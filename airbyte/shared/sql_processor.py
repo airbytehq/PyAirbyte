@@ -251,12 +251,9 @@ class SqlProcessorBase(abc.ABC):
         ] = defaultdict(list, {})
 
         self._setup()
-        self.file_writer = (
-            file_writer
-            or self.file_writer_class(  # pyrefly: ignore[bad-instantiation]
-                cache_dir=cast("Path", temp_dir),
-                cleanup=temp_file_cleanup,
-            )
+        self.file_writer = file_writer or self.file_writer_class(
+            cache_dir=cast("Path", temp_dir),
+            cleanup=temp_file_cleanup,
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
@@ -315,7 +312,7 @@ class SqlProcessorBase(abc.ABC):
         This method assumes that the catalog is already registered with the processor.
         """
         if not isinstance(write_strategy, WriteStrategy):
-            raise exc.AirbyteInternalError(  # pyrefly: ignore[missing-attribute]
+            raise exc.AirbyteInternalError(
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )
