@@ -9,7 +9,7 @@ import pytest
 import requests
 from airbyte.agents import _api_util
 from airbyte.agents import skills as skills_module
-from airbyte.agents.connectors import AgentConnector
+from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
@@ -374,6 +374,26 @@ def test_agents_api_request_failures(
             },
             id="all_pyairbyte_args",
         ),
+        pytest.param(
+            {"action": "search", "api_args": {"query": "is:open"}},
+            {
+                "entity": "issues",
+                "action": "search",
+                "params": {"query": "is:open"},
+                "skip_truncation": True,
+            },
+            id="search_action",
+        ),
+        pytest.param(
+            {"action": AgentReadAction.SEARCH},
+            {
+                "entity": "issues",
+                "action": "search",
+                "params": {},
+                "skip_truncation": True,
+            },
+            id="search_action_enum",
+        ),
     ],
 )
 def test_execute_request_body(
@@ -382,7 +402,8 @@ def test_execute_request_body(
     expected_body: dict[str, Any],
 ) -> None:
     """`execute()` builds the Agents API request body from its arguments."""
-    result = _connector().execute("issues", "list", **kwargs)
+    action = kwargs.pop("action", "list")
+    result = _connector().execute("issues", action, **kwargs)
 
     assert captured_requests[0]["json"] == expected_body
     assert captured_requests[0]["url"].endswith("/connectors/connector-id/execute")
@@ -396,6 +417,12 @@ def test_execute_request_body(
     ("args", "kwargs", "expected_error"),
     [
         pytest.param(("files", "download"), {}, "not supported", id="download_action"),
+        pytest.param(
+            ("issues", "api_search"),
+            {},
+            "not a valid action name",
+            id="legacy_api_search_action",
+        ),
         pytest.param(
             ("issues", "list", {"limit": 10}),
             {"page_size": 5},
