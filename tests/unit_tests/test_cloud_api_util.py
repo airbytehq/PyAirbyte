@@ -1227,3 +1227,26 @@ def test_public_api_client_sends_analytic_source_header(
 
     session = airbyte_instance.sdk_configuration.client
     assert session.headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-local"
+
+
+def test_get_bearer_token_sends_analytic_source_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", False)
+    captured: dict[str, object] = {}
+
+    def fake_post(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(status_code=200, json=lambda: {"access_token": "token"})
+
+    monkeypatch.setattr(api_util.requests, "post", fake_post)
+
+    api_util.get_bearer_token(
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        api_root="https://api.airbyte.com/v1",
+    )
+
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte"

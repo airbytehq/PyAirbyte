@@ -1854,6 +1854,7 @@ def get_bearer_token(
         headers={
             "content-type": "application/json",
             "accept": "application/json",
+            AIRBYTE_ANALYTIC_SOURCE_HEADER: get_analytic_source(),
         },
         json={
             "client_id": client_id,
