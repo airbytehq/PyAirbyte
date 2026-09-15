@@ -490,8 +490,6 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
-    Agents tools are hidden whenever the Cloud API roots are overridden, unless
-    `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
