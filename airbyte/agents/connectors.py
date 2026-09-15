@@ -209,6 +209,7 @@ class AgentConnector:
                 )
             )
             self._name = self._details.name or self._name
+            self._connector_kind = self._details.connector_kind
         return self._details
 
     def execute(  # noqa: PLR0913  # Explicit args are the point of this public API.

@@ -531,6 +531,24 @@ def test_inspect(captured_requests: list[dict[str, Any]]) -> None:
     assert len(captured_requests) == 2
 
 
+def test_inspect_refreshes_connector_kind(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """A forced `inspect()` overrides the `connector_kind` seeded from the list response."""
+    connector = AgentConnector(
+        connector_id="connector-id",
+        connector_kind="destination",
+        credentials=_credentials(),
+    )
+    assert connector.connector_kind == "destination"
+    assert len(captured_requests) == 0
+
+    details = connector.inspect(force_refresh=True)
+
+    assert details.connector_kind == "source"
+    assert connector.connector_kind == "source"
+
+
 @pytest.mark.parametrize(
     (
         "list_items",
