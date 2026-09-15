@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -418,71 +419,54 @@ def test_execute_request_body(
     assert result.execution_metadata.execution_time_ms == 42
 
 
-def test_sql_select_adds_connector_workspace_to_request(
+_SQL = {"sql": "SELECT 1", "sql_dialect": "trino"}
+
+
+@pytest.mark.parametrize(
+    ("action", "api_args", "expected_params"),
+    [
+        pytest.param(
+            "sql_select",
+            _SQL,
+            {**_SQL, "workspace_id": "connector-ws"},
+            id="sql_select-adds-connector-workspace",
+        ),
+        pytest.param(
+            "sql_select",
+            {**_SQL, "workspace_name": "x"},
+            {**_SQL, "workspace_name": "x"},
+            id="sql_select-keeps-explicit-workspace_name",
+        ),
+        pytest.param(
+            "sql_select",
+            {**_SQL, "workspace_id": "override"},
+            {**_SQL, "workspace_id": "override"},
+            id="sql_select-keeps-explicit-workspace_id",
+        ),
+        pytest.param(
+            "sql_select",
+            {**_SQL, "workspace_name": None},
+            {**_SQL, "workspace_id": "connector-ws"},
+            id="sql_select-replaces-null-workspace_name",
+        ),
+        pytest.param(
+            "list",
+            None,
+            {},
+            id="non-sql_select-untouched",
+        ),
+    ],
+)
+def test_connector_workspace_injection(
     captured_requests: list[dict[str, Any]],
+    action: str,
+    api_args: dict[str, Any] | None,
+    expected_params: dict[str, Any],
 ) -> None:
-    """`sql_select` uses the connector workspace when no workspace is supplied."""
-    _connector(workspace_id="workspace-id").execute(
-        "records",
-        "sql_select",
-        {"sql": "SELECT 1", "sql_dialect": "trino"},
-    )
+    """The connector workspace is sent only for `sql_select` without an explicit selector."""
+    _connector(workspace_id="connector-ws").execute("records", action, api_args)
 
-    assert captured_requests[0]["json"]["params"]["workspace_id"] == "workspace-id"
-
-
-def test_sql_select_preserves_explicit_workspace_name(
-    captured_requests: list[dict[str, Any]],
-) -> None:
-    """`sql_select` preserves an explicit workspace selector."""
-    _connector(workspace_id="workspace-id").execute(
-        "records",
-        "sql_select",
-        {"sql": "SELECT 1", "sql_dialect": "trino", "workspace_name": "x"},
-    )
-
-    params = captured_requests[0]["json"]["params"]
-    assert params["workspace_name"] == "x"
-    assert "workspace_id" not in params
-
-
-def test_sql_select_preserves_explicit_workspace_id(
-    captured_requests: list[dict[str, Any]],
-) -> None:
-    """`sql_select` preserves an explicit workspace ID."""
-    _connector(workspace_id="default").execute(
-        "records",
-        "sql_select",
-        {"sql": "SELECT 1", "sql_dialect": "trino", "workspace_id": "override"},
-    )
-
-    params = captured_requests[0]["json"]["params"]
-    assert params["workspace_id"] == "override"
-    assert params["workspace_id"] != "default"
-
-
-def test_sql_select_replaces_null_workspace_name(
-    captured_requests: list[dict[str, Any]],
-) -> None:
-    """`sql_select` replaces a null workspace name with the connector workspace."""
-    _connector(workspace_id="ws-1").execute(
-        "records",
-        "sql_select",
-        {"sql": "SELECT 1", "sql_dialect": "trino", "workspace_name": None},
-    )
-
-    params = captured_requests[0]["json"]["params"]
-    assert params["workspace_id"] == "ws-1"
-    assert "workspace_name" not in params
-
-
-def test_non_sql_select_does_not_add_connector_workspace(
-    captured_requests: list[dict[str, Any]],
-) -> None:
-    """Non-SQL actions do not receive the connector workspace automatically."""
-    _connector(workspace_id="workspace-id").execute("issues", "list")
-
-    assert "workspace_id" not in captured_requests[0]["json"]["params"]
+    assert captured_requests[0]["json"]["params"] == expected_params
 
 
 @pytest.mark.parametrize(
@@ -658,27 +642,29 @@ def test_listings(
         assert captured_requests[0]["params"] == expected_params
 
 
-def test_list_connectors_preserves_workspace_id(
+@pytest.mark.parametrize(
+    ("lookup", "expected_count"),
+    [
+        pytest.param(lambda ws: ws.list_connectors(), 2, id="list_connectors"),
+        pytest.param(
+            lambda ws: [ws.get_connector(connector_id="connector-id")],
+            1,
+            id="get_connector",
+        ),
+    ],
+)
+def test_connectors_preserve_workspace_id(
     captured_requests: list[dict[str, Any]],
+    lookup: Callable[[AgentWorkspace], list[AgentConnector]],
+    expected_count: int,
 ) -> None:
-    """Listed connectors retain the workspace ID used to fetch them."""
+    """Connectors fetched through a workspace stay scoped to that workspace."""
     workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
 
-    connectors = workspace.list_connectors()
+    connectors = lookup(workspace)
 
-    assert [connector.workspace_id for connector in connectors] == [
-        workspace.workspace_id,
-        workspace.workspace_id,
-    ]
-
-
-def test_get_connector_by_id_preserves_workspace_id() -> None:
-    """A connector looked up by ID remains scoped to its workspace."""
-    workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
-
-    connector = workspace.get_connector(connector_id="connector-id")
-
-    assert connector.workspace_id == workspace.workspace_id
+    assert len(connectors) == expected_count
+    assert {connector.workspace_id for connector in connectors} == {"workspace-id"}
 
 
 @pytest.mark.parametrize(
