@@ -104,6 +104,8 @@ has its own documentation and code samples related to effectively using the rela
     other formats, such as Pandas, Arrow, and LLM Document formats.
 - **`airbyte.destinations`** - Working with destinations, including how to write to Airbyte
     destinations connectors.
+- **`airbyte.direct`** - Direct connectors for entity/action operations (`execute`,
+    `list_entities`, and friends) on deployed sources, as opposed to batch replication.
 - **`airbyte.documents`** - Working with LLM documents, including how to convert records into
     document formats, for instance, when working with AI libraries like LangChain.
 - **`airbyte.exceptions`** - Definitions of all exception and warning classes used in PyAirbyte.
@@ -154,6 +156,7 @@ if TYPE_CHECKING:
         constants,
         datasets,
         destinations,
+        direct,
         documents,
         exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
         experimental,
@@ -176,6 +179,7 @@ __all__ = [
     "constants",
     "datasets",
     "destinations",
+    "direct",
     "documents",
     "exceptions",
     "experimental",

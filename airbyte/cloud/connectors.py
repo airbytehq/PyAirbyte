@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -60,6 +61,7 @@ from airbyte.cloud.models import (
 
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
+    from airbyte.direct import HostedDirectConnector
 
 
 @dataclass
@@ -280,6 +282,65 @@ class CloudSource(CloudConnector):
         )
         result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
+
+    def as_direct_connector(
+        self,
+        *,
+        organization_id: str | None = None,
+        verify: bool = True,
+    ) -> HostedDirectConnector:
+        """Return this source as a direct connector backed by the hosted Airbyte Agents API.
+
+        Cloud source IDs are also Agents connector IDs, but a source is only usable as a
+        direct connector when its connector type is supported and Agents access is
+        enabled for it in the organization. By default this is verified by calling
+        `inspect()`; pass `verify=False` to skip that request.
+
+        The connector's organization is taken from `organization_id` when provided,
+        otherwise from the credentials' own organization, otherwise resolved once from
+        the workspace's owning organization.
+
+        Raises `AirbyteDirectConnectorNotSupportedError` when the source is not available
+        as a direct connector, and `PyAirbyteInputError` when the workspace uses
+        non-public Cloud API roots (the Agents API is hosted on Airbyte Cloud only).
+        """
+        # Deferred imports: `airbyte.agents` and `airbyte.direct` import `airbyte.cloud`
+        # modules at runtime, so a top-level import here creates a circular import.
+        from airbyte.agents import (  # noqa: PLC0415  # Deferred to avoid an import cycle.
+            _api_util as _agents_api_util,
+        )
+        from airbyte.direct import (  # noqa: PLC0415  # Deferred to avoid an import cycle.
+            HostedDirectConnector,
+        )
+
+        _agents_api_util.check_public_cloud_api_roots(
+            self.workspace._credentials,  # noqa: SLF001  # Same-domain conversion.
+        )
+        credentials = self.workspace._credentials  # noqa: SLF001  # Same-domain conversion.
+        if organization_id is not None:
+            credentials = credentials.with_organization_id(organization_id)
+        elif credentials.organization_id is None:
+            organization = self.workspace.get_organization()
+            credentials = credentials.with_organization_id(organization.organization_id)
+
+        connector = HostedDirectConnector(
+            connector_id=self.connector_id,
+            credentials=credentials,
+            name=self._connector_info.name if self._connector_info else None,
+        )
+        if verify:
+            try:
+                connector.inspect()
+            except exc.AirbyteError as ex:
+                status_code = (ex.context or {}).get("status_code")
+                if status_code not in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                    raise
+                raise exc.AirbyteDirectConnectorNotSupportedError(
+                    connector_name=(self._connector_info.name if self._connector_info else None),
+                    connector_id=self.connector_id,
+                    context={"status_code": status_code},
+                ) from ex
+        return connector
 
 
 class CloudDestination(CloudConnector):
