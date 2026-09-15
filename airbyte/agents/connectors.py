@@ -309,7 +309,6 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         *,
         limit: int | None = None,
-        cursor_arg: str | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `list_entities()`.
     ) -> Iterator[dict[str, Any]]:
         """Yield entities of `entity_type`, following the connector's pagination cursor.
@@ -325,69 +324,28 @@ class AgentConnector:
         `limit` caps how many entities are yielded in total, which matters for entity types
         with no natural end. Pass `page_size` to control how many are fetched per request.
 
-        Direct connector actions need `cursor_arg` to name their own pagination argument, such
-        as `after` for GitHub. For example:
-
-        ```python
-        connector.iter_entities(
-            "issues",
-            {"repository": "airbytehq/PyAirbyte"},
-            cursor_arg="after",
-        )
-        ```
-
-        When `cursor_arg` is omitted, the cursor is sent as the top-level `cursor` argument.
-        If the connector reports another page without advancing its cursor, iteration raises
-        `PyAirbyteInputError` rather than requesting the same page forever.
+        Iteration stops early if the connector reports another page without advancing its
+        cursor, rather than requesting the same page forever.
 
         Use `list_entities()` instead when a single page is enough, or when the result's
         `status`, `warning`, or `execution_metadata` are needed.
         """
         cursor: str | None = kwargs.pop("cursor", None)
-        if cursor_arg is not None and api_args is not None and cursor_arg in api_args:
-            raise PyAirbyteInputError(
-                message="Pagination arguments were provided twice.",
-                guidance=(f"Pass the start cursor as `cursor=`, not `{cursor_arg}` in `api_args`."),
-                context={"duplicated_args": [cursor_arg]},
-            )
-
         seen_cursors: set[str] = set()
         yielded = 0
 
         while True:
-            if cursor is not None:
-                seen_cursors.add(cursor)
-
-            page_args = dict(api_args or {})
-            if cursor_arg is not None and cursor is not None:
-                page_args[cursor_arg] = cursor
-
-            if cursor_arg is None:
-                result = self.list_entities(entity_type, api_args, cursor=cursor, **kwargs)
-            else:
-                result = self.list_entities(entity_type, page_args, **kwargs)
-
+            result = self.list_entities(entity_type, api_args, cursor=cursor, **kwargs)
             for agent_entity in result.entities:
                 yield agent_entity
                 yielded += 1
                 if limit is not None and yielded >= limit:
                     return
 
-            next_cursor = result.end_cursor
-            if not result.has_next_page or next_cursor is None:
+            cursor = result.end_cursor
+            if not result.has_next_page or cursor is None or cursor in seen_cursors:
                 return
-            if next_cursor in seen_cursors:
-                raise PyAirbyteInputError(
-                    message="The connector did not advance its pagination cursor.",
-                    guidance=(
-                        "Direct connector actions ignore the top-level `cursor` and expect "
-                        "their own pagination argument. Pass `cursor_arg` naming it, for "
-                        'example `cursor_arg="after"` for GitHub; see the connector\'s '
-                        "skill docs for the exact name."
-                    ),
-                    context={"entity_type": entity_type, "cursor": next_cursor},
-                )
-            cursor = next_cursor
+            seen_cursors.add(cursor)
 
     def search_entities(
         self,

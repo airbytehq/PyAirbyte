@@ -673,8 +673,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "Pagination cursor for Context Store `search` actions and `sql_select`, taken "
                 "from `end_cursor` of a previous result. Direct connector "
                 "actions such as `list` do not read this; pass their own cursor argument in "
-                "`api_args` instead (for example GitHub's `after`), as named in the skill docs. "
-                "For `iter_entities()`, pass its name as `cursor_arg`."
+                "`api_args` instead (for example GitHub's `after`), as named in the skill docs."
             ),
             default=None,
         ),
@@ -800,8 +799,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
                 "Pagination cursor for Context Store `search` actions and `sql_select`, taken "
                 "from `end_cursor` of a previous result. Direct connector "
                 "actions such as `list` do not read this; pass their own cursor argument in "
-                "`api_args` instead (for example GitHub's `after`), as named in the skill docs. "
-                "For `iter_entities()`, pass its name as `cursor_arg`."
+                "`api_args` instead (for example GitHub's `after`), as named in the skill docs."
             ),
             default=None,
         ),

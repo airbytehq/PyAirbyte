@@ -710,6 +710,13 @@ def test_get_connector_by_id_preserves_workspace_id() -> None:
             id="stops_at_limit",
         ),
         pytest.param(
+            [("one", True, "cursor-1"), ("two", True, "cursor-1")],
+            None,
+            ["one", "two"],
+            2,
+            id="stops_when_cursor_does_not_advance",
+        ),
+        pytest.param(
             [("one", True, None)],
             None,
             ["one"],
@@ -725,7 +732,7 @@ def test_iter_entities(
     expected_titles: list[str],
     expected_request_count: int,
 ) -> None:
-    """`iter_entities()` follows the connector's cursor."""
+    """`iter_entities()` follows the connector's cursor and stops without looping."""
     calls: list[dict[str, Any]] = []
 
     def _fake_request(**kwargs: Any) -> _FakeResponse:
@@ -750,109 +757,6 @@ def test_iter_entities(
         None,
         *[page[2] for page in pages[: expected_request_count - 1]],
     ]
-
-
-def test_iter_entities_cursor_arg_places_cursor_in_api_args(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`iter_entities()` places subsequent cursors in the connector-specific argument."""
-    calls: list[dict[str, Any]] = []
-    api_args = {"repository": "airbytehq/PyAirbyte"}
-    pages = [("one", True, "cursor-1"), ("two", False, None)]
-
-    def _fake_request(**kwargs: Any) -> _FakeResponse:
-        calls.append(kwargs)
-        title, has_next_page, end_cursor = pages[len(calls) - 1]
-        return _FakeResponse({
-            "status": "success",
-            "result": [{"title": title}],
-            "connector_metadata": {
-                "has_next_page": has_next_page,
-                "end_cursor": end_cursor,
-            },
-        })
-
-    monkeypatch.setattr(requests, "request", _fake_request)
-
-    entities = list(_connector().iter_entities("issues", api_args, cursor_arg="after"))
-
-    assert [entity["title"] for entity in entities] == ["one", "two"]
-    assert "cursor" not in calls[0]["json"]["params"]
-    assert "cursor" not in calls[1]["json"]["params"]
-    assert calls[1]["json"]["params"]["after"] == "cursor-1"
-    assert api_args == {"repository": "airbytehq/PyAirbyte"}
-
-
-def test_iter_entities_cursor_arg_uses_initial_cursor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`iter_entities()` places an initial cursor in the connector-specific argument."""
-    calls: list[dict[str, Any]] = []
-
-    def _fake_request(**kwargs: Any) -> _FakeResponse:
-        calls.append(kwargs)
-        return _FakeResponse({
-            "status": "success",
-            "result": [{"title": "one"}],
-            "connector_metadata": {"has_next_page": False, "end_cursor": None},
-        })
-
-    monkeypatch.setattr(requests, "request", _fake_request)
-
-    list(
-        _connector().iter_entities(
-            "issues",
-            {"repository": "airbytehq/PyAirbyte"},
-            cursor="c0",
-            cursor_arg="after",
-        )
-    )
-
-    assert calls[0]["json"]["params"]["after"] == "c0"
-    assert "cursor" not in calls[0]["json"]["params"]
-
-
-def test_iter_entities_cursor_arg_rejects_duplicate(
-    captured_requests: list[dict[str, Any]],
-) -> None:
-    """`iter_entities()` rejects a connector cursor supplied twice."""
-    with pytest.raises(
-        PyAirbyteInputError, match="Pagination arguments were provided twice"
-    ):
-        list(
-            _connector().iter_entities(
-                "issues",
-                {"after": "x"},
-                cursor_arg="after",
-            )
-        )
-
-    assert captured_requests == []
-
-
-def test_iter_entities_raises_when_cursor_not_advanced(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`iter_entities()` raises when a connector repeats its pagination cursor."""
-    calls: list[dict[str, Any]] = []
-
-    def _fake_request(**kwargs: Any) -> _FakeResponse:
-        calls.append(kwargs)
-        return _FakeResponse({
-            "status": "success",
-            "result": [{"title": f"page-{len(calls)}"}],
-            "connector_metadata": {"has_next_page": True, "end_cursor": "c1"},
-        })
-
-    monkeypatch.setattr(requests, "request", _fake_request)
-
-    with pytest.raises(
-        PyAirbyteInputError,
-        match="The connector did not advance its pagination cursor",
-    ):
-        list(_connector().iter_entities("issues"))
-
-    assert len(calls) == 2
 
 
 @pytest.mark.parametrize(
