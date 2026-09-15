@@ -35,7 +35,6 @@ from fastmcp_extensions.tool_filters import (
     get_annotation,
 )
 
-from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -71,24 +70,12 @@ from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
-    from fastmcp import Context, FastMCP
+    from fastmcp import FastMCP
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
-_AGENTS_MCP_MODULE = "agents"
-"""Module whose tools are only advertised when an Agents API is available."""
-
-
-def is_agents_api_available(config_source: FastMCP | Context) -> bool:
-    """Return whether the MCP server's deployment has an Agents API."""
-    return _is_agents_api_available(
-        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
-    )
-
-
 INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 """Annotation indicating the tool requires MCP Apps UI support."""
 
@@ -517,9 +504,6 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
 
     # Hide tools from excluded modules
     if exclude_modules and tool_module and tool_module in exclude_modules:
-        return False
-
-    if tool_module == _AGENTS_MCP_MODULE and not is_agents_api_available(app):
         return False
 
     if tool_module in MCP_INSIDERS_MODULES:
