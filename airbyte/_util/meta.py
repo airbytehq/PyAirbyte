@@ -16,6 +16,7 @@ from platform import python_implementation, python_version, system
 
 import requests
 
+from airbyte.constants import is_hosted_mcp_mode
 from airbyte.version import get_version
 
 
@@ -55,6 +56,23 @@ def set_mcp_mode() -> None:
 def is_mcp_mode() -> bool:
     """Return True if running in MCP (Model Context Protocol) mode."""
     return _MCP_MODE_ENABLED
+
+
+AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
+"""Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
+
+
+def get_cloud_api_analytic_source() -> str:
+    """Return the `X-Airbyte-Analytic-Source` value sent with Cloud API requests.
+
+    This is an identifier of the client software (MCP or PyAirbyte API) and
+    *not* an indicator of the user and/or workspace. Because it is not
+    user-identifying and only sent for logged-in API calls, it is not affected
+    by the `DO_NOT_TRACK` environment variable.
+    """
+    if not is_mcp_mode():
+        return "pyairbyte"
+    return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
 
 
 @lru_cache

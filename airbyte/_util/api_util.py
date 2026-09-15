@@ -23,6 +23,7 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
+from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteConnectionSyncActiveError,
@@ -227,6 +228,9 @@ def get_airbyte_server_instance(
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
 
+    client = requests.Session()
+    client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
+
     # Option 1: Bearer token authentication
     if bearer_token is not None:
         return airbyte_api.AirbyteAPI(
@@ -234,6 +238,7 @@ def get_airbyte_server_instance(
                 bearer_auth=bearer_token,
             ),
             server_url=api_root,
+            client=client,
         )
 
     # Option 2: Client credentials flow (guaranteed non-None by first guard)
@@ -248,6 +253,7 @@ def get_airbyte_server_instance(
             ),
         ),
         server_url=api_root,
+        client=client,
     )
 
 
@@ -1848,6 +1854,7 @@ def get_bearer_token(
         headers={
             "content-type": "application/json",
             "accept": "application/json",
+            AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
         },
         json={
             "client_id": client_id,
@@ -1888,6 +1895,7 @@ def _make_config_api_request(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {bearer_token}",
         "User-Agent": "PyAirbyte Client",
+        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
     }
     full_url = config_api_root + path
     response = requests.request(
