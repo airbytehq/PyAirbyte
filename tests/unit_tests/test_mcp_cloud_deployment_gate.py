@@ -37,6 +37,8 @@ def test_is_agents_api_available(
 ) -> None:
     """Recognize public Cloud roots and explicit Agents API roots."""
     monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+    monkeypatch.delenv("AIRBYTE_CLOUD_API_URL", raising=False)
+    monkeypatch.delenv("AIRBYTE_CLOUD_CONFIG_API_URL", raising=False)
     assert _tool_utils.is_agents_api_available(CTX)
 
     mcp_config.update({

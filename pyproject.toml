@@ -46,15 +46,11 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=3.0,<4.0",
-    "fastmcp-extensions>=0.22.0,<1.0.0",
+    "fastmcp-extensions>=0.23.0,<1.0.0",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "uv>=0.5.0,<0.9.0",
     "prefab-ui>=0.20.1,<0.21",
 ]
-
-[tool.uv.sources]
-# TODO: switch back to a PyPI release once fastmcp-extensions 0.23.0 ships (airbytehq/fastmcp-extensions#118)
-fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", rev = "812eba1" }
 
 [dependency-groups]
 dev = [
