@@ -308,8 +308,8 @@ class AgentConnector:
         `limit` caps how many entities are yielded in total, which matters for entity types
         with no natural end. Pass `page_size` to control how many are fetched per request.
 
-        Iteration stops early if the connector reports another page without advancing its
-        cursor, rather than requesting the same page forever.
+        If the connector reports another page without advancing its cursor, iteration raises
+        `PyAirbyteInputError` rather than requesting the same page forever.
 
         Use `list_entities()` instead when a single page is enough, or when the result's
         `status`, `warning`, or `execution_metadata` are needed.
@@ -319,6 +319,8 @@ class AgentConnector:
         yielded = 0
 
         while True:
+            if cursor is not None:
+                seen_cursors.add(cursor)
             result = self.list_entities(entity_type, api_args, cursor=cursor, **kwargs)
             for agent_entity in result.entities:
                 yield agent_entity
@@ -326,10 +328,20 @@ class AgentConnector:
                 if limit is not None and yielded >= limit:
                     return
 
-            cursor = result.end_cursor
-            if not result.has_next_page or cursor is None or cursor in seen_cursors:
+            next_cursor = result.end_cursor
+            if not result.has_next_page or next_cursor is None:
                 return
-            seen_cursors.add(cursor)
+            if next_cursor in seen_cursors:
+                raise PyAirbyteInputError(
+                    message="The connector did not advance its pagination cursor.",
+                    guidance=(
+                        "Direct connector actions do not yet read the top-level `cursor`; pass "
+                        "the connector's own pagination argument in `api_args` (for example "
+                        "`after` for GitHub, see the connector's skill docs)."
+                    ),
+                    context={"entity_type": entity_type, "cursor": next_cursor},
+                )
+            cursor = next_cursor
 
     def search_entities(
         self,
