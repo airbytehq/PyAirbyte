@@ -20,13 +20,13 @@ __all__: list[str] = []
 
 import json
 from http import HTTPStatus
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
-from airbyte.agents.connectors import AgentConnector
+from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
 from airbyte.agents.models import AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
@@ -54,23 +54,6 @@ from airbyte.mcp.cloud import (
     _get_cloud_workspace,
 )
 
-
-AgentReadAction = Literal["list", "get", "search", "sql_select"]
-"""The connector actions that only read data.
-
-The `search` action is the connector's native API search (for example GitHub's search
-endpoints), parallel to `get` and `list`.
-
-The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
-engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
-`dry_run`) in `api_args`; `entity_type` is ignored for this action.
-
-The `download` action is deliberately absent even though it reads: it returns a binary
-stream rather than JSON, which PyAirbyte does not yet support.
-"""
-
-AgentAction = Literal["list", "get", "search", "sql_select", "create", "update", "delete"]
-"""Every connector action callable through the MCP layer, including writes."""
 
 AGENTS_AUTH_TIP_TEXT = (
     f"The Airbyte Agents API authenticates with Airbyte Cloud credentials. When connecting "
@@ -390,7 +373,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     workspace_id: str | None,
     organization_id: str | None,
     entity_type: str,
-    action: str,
+    action: AgentAction,
     api_args: dict[str, Any] | str | None,
     select_fields: list[str] | str | None,
     exclude_fields: list[str] | str | None,
@@ -403,10 +386,13 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
 
     When `read_only` is `True`, write actions are rejected before any request is sent.
     """
-    if read_only and action not in get_args(AgentReadAction):
+    if read_only and action not in set(AgentReadAction):
         raise PyAirbyteInputError(
             message="This action writes data and cannot run in read-only mode.",
-            guidance=f"Read-only actions are: {', '.join(get_args(AgentReadAction))}.",
+            guidance=(
+                "Read-only actions are: "
+                f"{', '.join(member.value for member in AgentReadAction)}."
+            ),
             context={"action": action},
         )
 
@@ -613,9 +599,11 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         Field(
             description=(
                 "The read action to run against the entity type. "
+                "The `search` action is the connector's native API search, parallel to `get` "
+                "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) "
-                "in `api_args` and any value for `entity_type`."
+                "trino) in `api_args` and any value for `entity_type`. The `download` action "
+                "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
     ],
@@ -725,9 +713,11 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         Field(
             description=(
                 "The action to run against the entity type. "
+                "The `search` action is the connector's native API search, parallel to `get` "
+                "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) "
-                "in `api_args` and any value for `entity_type`."
+                "trino) in `api_args` and any value for `entity_type`. The `download` action "
+                "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
     ],

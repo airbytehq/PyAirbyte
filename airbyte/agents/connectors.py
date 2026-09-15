@@ -33,21 +33,34 @@ inside the transport layer.
 """
 
 
-class AgentAction(str, Enum):
-    """Connector actions accepted by `AgentConnector.execute()`."""
+class AgentReadAction(str, Enum):
+    """Connector actions that only read data.
 
-    # Read-Only Actions (APIs):
+    The `search` action is the connector's native API search, parallel to `get` and `list`.
+    The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
+    engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
+    `dry_run`) in `api_args`; `entity_type` is ignored for this action.
+
+    The `download` action is deliberately absent even though it reads: it returns a binary
+    stream rather than JSON, which PyAirbyte does not yet support.
+    """
+
     LIST = "list"
     GET = "get"
     SEARCH = "search"
+    SQL_SELECT = "sql_select"
 
-    # Read-Write Actions (APIs):
+
+class AgentWriteAction(str, Enum):
+    """Connector actions that create, update, or delete data."""
+
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
 
-    # Read-Only Queries (SQL Databases):
-    SQL_SELECT = "sql_select"
+
+AgentAction = AgentReadAction | AgentWriteAction
+"""Every connector action accepted by `AgentConnector.execute()`."""
 
 
 _PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
@@ -192,7 +205,7 @@ class AgentConnector:
     def execute(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
         entity_type: str,
-        action: str,
+        action: AgentAction | str,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -232,16 +245,20 @@ class AgentConnector:
                 context={"entity_type": entity_type, "action": action},
             )
 
-        if action not in {member.value for member in AgentAction}:
+        if action not in {*AgentReadAction, *AgentWriteAction}:
+            action_names = ", ".join(
+                member.value for member in (*AgentReadAction, *AgentWriteAction)
+            )
             raise PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid action name for `execute`.",
-                guidance=f"Use one of: {', '.join(member.value for member in AgentAction)}.",
+                guidance=f"Use one of: {action_names}.",
                 context={"entity_type": entity_type, "action": action},
             )
 
+        action_value = action.value if isinstance(action, Enum) else action
         request_body: dict[str, Any] = {
             "entity": entity_type,
-            "action": action,
+            "action": action_value,
             "params": _build_params(api_args=api_args, page_size=page_size, cursor=cursor),
             "skip_truncation": skip_truncation,
         }

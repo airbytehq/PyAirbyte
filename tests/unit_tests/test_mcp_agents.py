@@ -19,7 +19,7 @@ from airbyte.agents.models import (
     AgentSkillInfo,
     AgentSkillSection,
 )
-from airbyte.agents.connectors import AgentConnector
+from airbyte.agents.connectors import AgentConnector, AgentReadAction, AgentWriteAction
 from airbyte.cloud.client import CloudClient
 from airbyte.constants import (
     MCP_CONFIG_BEARER_TOKEN,
@@ -347,11 +347,21 @@ def test_write_tool_read_only_enforcement(
 
 def test_read_only_tool_action_type_excludes_writes() -> None:
     """Verify the read-only tool's action type offers no write or download actions."""
-    read_actions = set(agents_mcp.get_args(agents_mcp.AgentReadAction))
-
-    assert read_actions == {"list", "get", "search", "sql_select"}
-    assert "api_search" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
-    assert "download" not in set(agents_mcp.get_args(agents_mcp.AgentAction))
+    assert {member.value for member in AgentReadAction} == {
+        "list",
+        "get",
+        "search",
+        "sql_select",
+    }
+    assert {member.value for member in AgentWriteAction} == {
+        "create",
+        "update",
+        "delete",
+    }
+    assert "api_search" not in {member.value for member in AgentReadAction}
+    assert "api_search" not in {member.value for member in AgentWriteAction}
+    assert "download" not in {member.value for member in AgentReadAction}
+    assert "download" not in {member.value for member in AgentWriteAction}
 
 
 def test_inspect_tool_reports_context_store_entities(

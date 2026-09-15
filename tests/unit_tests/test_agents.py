@@ -9,7 +9,7 @@ import pytest
 import requests
 from airbyte.agents import _api_util
 from airbyte.agents import skills as skills_module
-from airbyte.agents.connectors import AgentConnector
+from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
@@ -287,6 +287,16 @@ def test_agents_api_request_failures(
                 "skip_truncation": True,
             },
             id="search_action",
+        ),
+        pytest.param(
+            {"action": AgentReadAction.SEARCH},
+            {
+                "entity": "issues",
+                "action": "search",
+                "params": {},
+                "skip_truncation": True,
+            },
+            id="search_action_enum",
         ),
     ],
 )
