@@ -16,6 +16,7 @@ from platform import python_implementation, python_version, system
 
 import requests
 
+from airbyte.constants import is_hosted_mcp_mode
 from airbyte.version import get_version
 
 
@@ -55,6 +56,21 @@ def set_mcp_mode() -> None:
 def is_mcp_mode() -> bool:
     """Return True if running in MCP (Model Context Protocol) mode."""
     return _MCP_MODE_ENABLED
+
+
+AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
+"""Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
+
+
+def get_analytic_source() -> str:
+    """Return the `X-Airbyte-Analytic-Source` value describing this client.
+
+    The platform's tracking client records the value as the `airbyte_source` property on
+    every Segment event emitted while handling the request (the webapp sends `webapp`).
+    """
+    if not is_mcp_mode():
+        return "pyairbyte"
+    return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
 
 
 @lru_cache

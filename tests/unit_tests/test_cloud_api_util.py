@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 import requests
-from airbyte._util import api_util
+from airbyte import constants
+from airbyte._util import api_util, meta
 from airbyte.exceptions import (
     AirbyteError,
     AirbyteMissingResourceError,
@@ -1162,3 +1163,67 @@ def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
         )
 
     assert not isinstance(error.value, AirbyteMissingResourceError)
+
+
+@pytest.mark.parametrize(
+    ("mcp_mode", "hosted_mcp_mode", "expected"),
+    [
+        (False, False, "pyairbyte"),
+        (True, False, "pyairbyte-mcp-local"),
+        (True, True, "pyairbyte-mcp-hosted"),
+    ],
+)
+def test_get_analytic_source_reflects_runtime_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_mode: bool,
+    hosted_mcp_mode: bool,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
+
+    assert meta.get_analytic_source() == expected
+
+
+def test_config_api_request_sends_analytic_source_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    captured: dict[str, object] = {}
+
+    def fake_request(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(status_code=200, json=lambda: {})
+
+    monkeypatch.setattr(api_util.requests, "request", fake_request)
+
+    api_util._make_config_api_request(
+        path="/workspaces/get",
+        json={},
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
+
+
+def test_public_api_client_sends_analytic_source_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+
+    airbyte_instance = api_util.get_airbyte_server_instance(
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    session = airbyte_instance.sdk_configuration.client
+    assert session.headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-local"
