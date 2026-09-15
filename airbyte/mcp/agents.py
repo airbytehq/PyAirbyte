@@ -79,8 +79,9 @@ WORKSPACE_ID_TIP_TEXT = (
     f"environment variable."
 )
 ORGANIZATION_ID_TIP_TEXT = (
-    f"Organization ID. Omit it when the credentials belong to exactly one "
-    f"organization, or when it is already configured via the "
+    f"Organization ID. Required when the credentials belong to more than one organization; "
+    f"otherwise the Agents API rejects the call with HTTP 400. Omit it when the credentials "
+    f"belong to exactly one organization or when it is already configured via the "
     f"`{MCP_ORGANIZATION_ID_HEADER}` header or the `{CLOUD_ORGANIZATION_ID_ENV_VAR}` "
     f"environment variable. To discover organization IDs, call `list_agent_workspaces`, "
     f"which reports the owning organization of each workspace, or "
@@ -259,7 +260,9 @@ class AgentExecuteToolResult(BaseModel):
     """Whether the connector reported more entities after this page."""
 
     end_cursor: str | None = None
-    """The cursor to pass as `cursor` to fetch the next page, when one is available."""
+    """The cursor for the next page, when one is available. Pass it as `cursor` for Context Store
+    `search`, or as the connector's own cursor argument in `api_args` for direct connector
+    actions."""
 
     execution_time_ms: int | None = None
     """How long the connector took to execute the action, when reported."""
@@ -458,7 +461,10 @@ def list_agent_workspaces(
         ),
     ],
 ) -> AgentWorkspaceListResult:
-    """List the workspaces reachable through the Airbyte Agents API."""
+    """List the workspaces reachable through the Airbyte Agents API.
+
+    An organization ID is required when the credentials belong to more than one organization.
+    """
     organization = _get_agent_organization(ctx, organization_id)
     try:
         workspaces = organization.list_workspaces()
@@ -644,12 +650,24 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     ],
     page_size: Annotated[
         int | None,
-        Field(description="Maximum number of entities to return in this page.", default=None),
+        Field(
+            description=(
+                "Maximum number of entities to return in this page. Honored by Context Store "
+                "`search` actions (sent as `limit`). Direct connector actions take their own "
+                "page-size argument, if any, in `api_args`."
+            ),
+            default=None,
+        ),
     ],
     cursor: Annotated[
         str | None,
         Field(
-            description="Pagination cursor, taken from `end_cursor` of a previous result.",
+            description=(
+                "Pagination cursor for Context Store `search` actions and `sql_select`, taken "
+                "from `end_cursor` (or `next_cursor`) of a previous result. Direct connector "
+                "actions such as `list` do not read this; pass their own cursor argument in "
+                "`api_args` instead (for example GitHub's `after`), as named in the skill docs."
+            ),
             default=None,
         ),
     ],
@@ -758,12 +776,24 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     ],
     page_size: Annotated[
         int | None,
-        Field(description="Maximum number of entities to return in this page.", default=None),
+        Field(
+            description=(
+                "Maximum number of entities to return in this page. Honored by Context Store "
+                "`search` actions (sent as `limit`). Direct connector actions take their own "
+                "page-size argument, if any, in `api_args`."
+            ),
+            default=None,
+        ),
     ],
     cursor: Annotated[
         str | None,
         Field(
-            description="Pagination cursor, taken from `end_cursor` of a previous result.",
+            description=(
+                "Pagination cursor for Context Store `search` actions and `sql_select`, taken "
+                "from `end_cursor` (or `next_cursor`) of a previous result. Direct connector "
+                "actions such as `list` do not read this; pass their own cursor argument in "
+                "`api_args` instead (for example GitHub's `after`), as named in the skill docs."
+            ),
             default=None,
         ),
     ],

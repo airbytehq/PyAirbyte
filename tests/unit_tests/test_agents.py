@@ -156,11 +156,16 @@ def captured_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return calls
 
 
-def _connector(**credential_overrides: Any) -> AgentConnector:
+def _connector(
+    *,
+    workspace_id: str | None = None,
+    **credential_overrides: Any,
+) -> AgentConnector:
     """Build a connector wired to test credentials."""
     return AgentConnector(
         connector_id="connector-id",
         credentials=_credentials(**credential_overrides),
+        workspace_id=workspace_id,
     )
 
 
@@ -413,6 +418,43 @@ def test_execute_request_body(
     assert result.execution_metadata.execution_time_ms == 42
 
 
+def test_sql_select_adds_connector_workspace_to_request(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """`sql_select` uses the connector workspace when no workspace is supplied."""
+    _connector(workspace_id="workspace-id").execute(
+        "records",
+        "sql_select",
+        {"sql": "SELECT 1", "sql_dialect": "trino"},
+    )
+
+    assert captured_requests[0]["json"]["params"]["workspace_id"] == "workspace-id"
+
+
+def test_sql_select_preserves_explicit_workspace_name(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """`sql_select` preserves an explicit workspace selector."""
+    _connector(workspace_id="workspace-id").execute(
+        "records",
+        "sql_select",
+        {"sql": "SELECT 1", "sql_dialect": "trino", "workspace_name": "x"},
+    )
+
+    params = captured_requests[0]["json"]["params"]
+    assert params["workspace_name"] == "x"
+    assert "workspace_id" not in params
+
+
+def test_non_sql_select_does_not_add_connector_workspace(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """Non-SQL actions do not receive the connector workspace automatically."""
+    _connector(workspace_id="workspace-id").execute("issues", "list")
+
+    assert "workspace_id" not in captured_requests[0]["json"]["params"]
+
+
 @pytest.mark.parametrize(
     ("args", "kwargs", "expected_error"),
     [
@@ -584,6 +626,15 @@ def test_listings(
     assert captured_requests[0]["url"].endswith(expected_path)
     if expected_params is not None:
         assert captured_requests[0]["params"] == expected_params
+
+
+def test_get_connector_by_id_preserves_workspace_id() -> None:
+    """A connector looked up by ID remains scoped to its workspace."""
+    workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
+
+    connector = workspace.get_connector(connector_id="connector-id")
+
+    assert connector.workspace_id == workspace.workspace_id
 
 
 @pytest.mark.parametrize(

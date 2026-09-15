@@ -170,10 +170,14 @@ class AgentConnector:
         *,
         credentials: _AirbyteCredentials,
         name: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """Initialize an `AgentConnector`. Prefer `AgentWorkspace.get_connector()`."""
         self.connector_id = connector_id
         """The connector ID."""
+
+        self.workspace_id = workspace_id
+        """The workspace ID."""
 
         self._credentials = credentials
         self._name = name
@@ -225,9 +229,12 @@ class AgentConnector:
         by PyAirbyte or by the Agents API itself:
 
         - `select_fields` and `exclude_fields` prune fields from returned entities.
-        - `page_size` and `cursor` are merged into `api_args` as pagination arguments, where
-          the connector receives `page_size` as its own `limit`. Pass the `end_cursor` of a
-          previous result as `cursor` to fetch the next page.
+        - `page_size` and `cursor` are merged into `api_args` as pagination arguments. Context
+          Store `search` uses `limit` and `cursor`, `sql_select` uses the top-level `cursor`, and
+          direct connector actions use their own pagination arguments in `api_args`. Pass the
+          result cursor according to the action type.
+        - `sql_select` is sent the connector's workspace as `workspace_id` unless `api_args`
+          already names a workspace.
         - `skip_truncation` disables the Agents API's default truncation of large payloads.
         - `intent` is a free-text description of why the action is being run, which some
           connectors use to refine results.
@@ -256,10 +263,18 @@ class AgentConnector:
             )
 
         action_value = action.value if isinstance(action, Enum) else action
+        params = _build_params(api_args=api_args, page_size=page_size, cursor=cursor)
+        if (
+            action_value == AgentReadAction.SQL_SELECT.value
+            and self.workspace_id is not None
+            and "workspace_id" not in params
+            and "workspace_name" not in params
+        ):
+            params["workspace_id"] = self.workspace_id
         request_body: dict[str, Any] = {
             "entity": entity_type,
             "action": action_value,
-            "params": _build_params(api_args=api_args, page_size=page_size, cursor=cursor),
+            "params": params,
             "skip_truncation": skip_truncation,
         }
         if select_fields is not None:
