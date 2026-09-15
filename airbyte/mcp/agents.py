@@ -523,8 +523,8 @@ def list_agent_connectors(
         connectors=[
             AgentConnectorResult(
                 connector_id=connector.connector_id,
-                connector_name=connector.name,
                 connector_kind=connector.connector_kind,
+                connector_name=connector.name,
             )
             for connector in connectors
         ]
