@@ -211,9 +211,9 @@ class CloudExecutionClient:
         if token is not None:
             headers["authorization"] = f"Bearer {token}"
         try:
-            # A fresh Session has no replay adapter; disable netrc credential substitution.
+            # Explicit auth blocks netrc substitution while retaining proxy and CA settings.
             with requests.Session() as session:
-                session.trust_env = False
+                session.auth = lambda request: request
                 with session.request(
                     method,
                     url,

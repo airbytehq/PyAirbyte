@@ -294,11 +294,21 @@ def _agents_access_message(error: PyAirbyteError) -> str | None:
     return None
 
 
+def _cloud_uuid(value: str) -> str:
+    """Normalize Cloud resource IDs before routing and ownership comparisons."""
+    try:
+        return str(UUID(value))
+    except ValueError:
+        raise PyAirbyteInputError(message="Cloud resource ID must be a UUID.") from None
+
+
 def _cloud_clients(
     ctx: Context,
     organization_id: str | None = None,
 ) -> tuple[CloudClient, CloudExecutionClient]:
     """Share one bounded token exchange across discovery and execution."""
+    workspace_id = get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    resolved_org = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
     transport = CloudExecutionClient(
         api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT,
         config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
@@ -310,8 +320,8 @@ def _cloud_clients(
         bearer_token=transport.bearer_token,
         public_api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT,
         config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
-        workspace_id=get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID),
-        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
+        workspace_id=_cloud_uuid(workspace_id) if workspace_id else None,
+        organization_id=_cloud_uuid(resolved_org) if resolved_org else None,
     ), transport
 
 
@@ -319,13 +329,10 @@ def _cloud_workspace(client: CloudClient, workspace_id: str | None) -> CloudWork
     resolved_id = workspace_id or client.resolve_default_workspace_id()
     if not resolved_id:
         raise PyAirbyteInputError(message="Provide an unambiguous Cloud workspace ID.")
-    try:
-        UUID(resolved_id)
-    except ValueError:
-        raise PyAirbyteInputError(message="Cloud workspace ID must be a UUID.") from None
+    resolved_id = _cloud_uuid(resolved_id)
     if client.organization_id:
         parent = client.get_workspace_parent_organization_id(resolved_id)
-        if parent != client.organization_id:
+        if parent is None or _cloud_uuid(parent) != client.organization_id:
             raise PyAirbyteInputError(
                 message="Cloud workspace organization could not be verified or does not match."
             )
@@ -348,16 +355,16 @@ def _cloud_inventory(
     )
     results = []
     for actor in actors:
-        if actor.workspace_id != workspace.workspace_id:
+        if _cloud_uuid(actor.workspace_id) != workspace.workspace_id:
             raise PyAirbyteInputError(
                 message="Cloud inventory contains an actor in another workspace."
             )
-        actor_id = actor.destination_id if destination else actor.source_id
+        actor_id = _cloud_uuid(actor.destination_id if destination else actor.source_id)
         results.append(
             AgentConnectorDetailsResult(
                 connector_id=actor_id,
                 connector_name=actor.name,
-                workspace_id=actor.workspace_id,
+                workspace_id=workspace.workspace_id,
                 definition_id=actor.definition_id,
                 docs_skill_id=f"connector-source:{actor_id}",
                 warnings=[],
@@ -372,10 +379,7 @@ def _cloud_actor(
     *,
     destination: bool | None,
 ) -> AgentConnectorDetailsResult:
-    try:
-        UUID(connector_id)
-    except ValueError:
-        raise PyAirbyteInputError(message="Cloud connector ID must be a UUID.") from None
+    connector_id = _cloud_uuid(connector_id)
     actors: list[AgentConnectorDetailsResult] = []
     if destination is not True:
         actors.extend(_cloud_inventory(workspace, destination=False))
@@ -617,7 +621,9 @@ def inspect_agent_connector(
             message=_cloud_failure(error),
         )
     try:
-        docs = transport.read_docs(workspace.workspace_id, f"connector-source:{connector_id}")
+        docs = transport.read_docs(
+            workspace.workspace_id, f"connector-source:{result.connector_id}"
+        )
     except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError):
         result.message = (
             "Cloud actor metadata is available; documentation is unavailable "

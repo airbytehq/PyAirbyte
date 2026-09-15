@@ -422,3 +422,54 @@ def test_response_closed_on_every_path(
             client.execute_source(ACTOR_ID, BODY)
     assert len(responses) == 1
     assert responses[0].raw.closed
+
+
+@pytest.mark.parametrize("application_credentials", [False, True])
+def test_proxy_and_ca_settings_survive_without_netrc_authentication(
+    cloud_server: CloudServer,
+    monkeypatch: pytest.MonkeyPatch,
+    application_credentials: bool,
+) -> None:
+    # The fixture acts as a real HTTP proxy for a hostname that cannot resolve.
+    monkeypatch.setenv("HTTP_PROXY", cloud_server.url)
+    monkeypatch.setenv("http_proxy", cloud_server.url)
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/configured/company-ca.pem")
+    monkeypatch.setattr(
+        requests.sessions, "get_netrc_auth", lambda url: ("wrong", "wrong")
+    )
+    observed: list[Any] = []
+    original_send = requests.Session.send
+
+    def send(
+        session: requests.Session, request: requests.PreparedRequest, **kwargs: Any
+    ) -> requests.Response:
+        observed.append(kwargs["verify"])
+        return original_send(session, request, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "send", send)
+    credentials = (
+        {"client_id": "app", "client_secret": "secret"}
+        if application_credentials
+        else {"bearer_token": "chosen-token"}
+    )
+    transport = CloudExecutionClient(
+        api_root="http://cloud.invalid/public/v1",
+        config_api_root="http://cloud.invalid/api/v1",
+        **credentials,
+    )
+    if application_credentials:
+        cloud_server.respond({"access_token": "chosen-token"})
+    cloud_server.respond({"data": None})
+    assert transport.execute_source(ACTOR_ID, BODY) == {"data": None}
+    assert (
+        cloud_server.requests[-1]["path"]
+        == f"http://cloud.invalid/api/v1/sources/{ACTOR_ID}/execute"
+    )
+    assert (
+        cloud_server.requests[-1]["headers"]["authorization"] == "Bearer chosen-token"
+    )
+    if application_credentials:
+        assert "authorization" not in cloud_server.requests[0]["headers"]
+    assert observed == ["/configured/company-ca.pem"] * len(cloud_server.requests)

@@ -712,3 +712,35 @@ def test_application_token_is_exchanged_once_and_reused_for_discovery(
     for call in http.calls:
         if not call.request.url.endswith("/applications/token"):
             assert call.request.headers["Authorization"] == "Bearer app-access-token"
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_equivalent_uuid_forms_route_to_canonical_cloud_actor(
+    http: responses.RequestsMock,
+    config: dict[str, str],
+    compact: bool,
+) -> None:
+    workspace = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    source = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    organization = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    workspace_input = workspace.replace("-", "") if compact else workspace.upper()
+    source_input = source.replace("-", "") if compact else source.upper()
+    org_input = organization.replace("-", "") if compact else organization.upper()
+    config[MCP_CONFIG_WORKSPACE_ID] = workspace_input
+    config[MCP_CONFIG_ORGANIZATION_ID] = org_input
+    actor = {**_source(workspace), "sourceId": source}
+    http.replace(responses.GET, f"{PUBLIC}/sources", json={"data": [actor]})
+    http.replace(
+        responses.POST,
+        f"{CONFIG}/workspaces/get_organization_info",
+        json={"organizationId": organization, "organizationName": "Org"},
+    )
+    http.post(f"{CONFIG}/sources/{source}/execute", json={"data": None})
+    result = _execute(connector_id=source_input, workspace_id=None)
+    assert result.status == "success"
+    assert http.calls[-1].request.url == f"{CONFIG}/sources/{source}/execute"
+    source_request = next(
+        call.request for call in http.calls if "/sources?" in call.request.url
+    )
+    assert workspace in source_request.url
+    assert json.loads(http.calls[0].request.body)["workspaceId"] == workspace
