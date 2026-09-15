@@ -52,6 +52,10 @@ dependencies = [
     "prefab-ui>=0.20.1,<0.21",
 ]
 
+[tool.uv.sources]
+# TODO: switch back to a PyPI release once fastmcp-extensions 0.23.0 ships (airbytehq/fastmcp-extensions#118)
+fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", rev = "812eba1" }
+
 [dependency-groups]
 dev = [
     "coverage>=7.5.1,<8.0",
