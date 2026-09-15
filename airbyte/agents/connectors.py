@@ -308,8 +308,9 @@ class AgentConnector:
         `limit` caps how many entities are yielded in total, which matters for entity types
         with no natural end. Pass `page_size` to control how many are fetched per request.
 
-        If the connector reports another page without advancing its cursor, iteration raises
-        `PyAirbyteInputError` rather than requesting the same page forever.
+        If the connector reports another page but returns an `end_cursor` it was already
+        given, iteration raises `PyAirbyteInputError` rather than requesting the same page
+        forever. A page that reports another page with no `end_cursor` ends iteration.
 
         Use `list_entities()` instead when a single page is enough, or when the result's
         `status`, `warning`, or `execution_metadata` are needed.
@@ -335,9 +336,10 @@ class AgentConnector:
                 raise PyAirbyteInputError(
                     message="The connector did not advance its pagination cursor.",
                     guidance=(
-                        "The connector returned a cursor it was already given. If this is a "
-                        "direct connector action, check the connector's skill docs for its "
-                        "pagination input and pass the cursor there via `api_args`."
+                        "The connector returned a cursor it was already given, so the "
+                        "top-level `cursor` is not being honored for this action. Paginate "
+                        "manually with `list_entities()`, passing the cursor under the "
+                        "connector's documented pagination argument in `api_args`."
                     ),
                     context={"entity_type": entity_type, "cursor": next_cursor},
                 )
