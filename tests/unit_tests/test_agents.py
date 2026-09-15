@@ -461,6 +461,21 @@ def test_sql_select_preserves_explicit_workspace_id(
     assert params["workspace_id"] != "default"
 
 
+def test_sql_select_replaces_null_workspace_name(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """`sql_select` replaces a null workspace name with the connector workspace."""
+    _connector(workspace_id="ws-1").execute(
+        "records",
+        "sql_select",
+        {"sql": "SELECT 1", "sql_dialect": "trino", "workspace_name": None},
+    )
+
+    params = captured_requests[0]["json"]["params"]
+    assert params["workspace_id"] == "ws-1"
+    assert "workspace_name" not in params
+
+
 def test_non_sql_select_does_not_add_connector_workspace(
     captured_requests: list[dict[str, Any]],
 ) -> None:

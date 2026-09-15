@@ -267,9 +267,10 @@ class AgentConnector:
         if (
             action_value == AgentReadAction.SQL_SELECT.value
             and self.workspace_id is not None
-            and "workspace_id" not in params
-            and "workspace_name" not in params
+            and params.get("workspace_id") is None
+            and params.get("workspace_name") is None
         ):
+            params.pop("workspace_name", None)
             params["workspace_id"] = self.workspace_id
         request_body: dict[str, Any] = {
             "entity": entity_type,
