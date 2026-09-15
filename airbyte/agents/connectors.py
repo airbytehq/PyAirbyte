@@ -335,9 +335,9 @@ class AgentConnector:
                 raise PyAirbyteInputError(
                     message="The connector did not advance its pagination cursor.",
                     guidance=(
-                        "Direct connector actions do not yet read the top-level `cursor`; pass "
-                        "the connector's own pagination argument in `api_args` (for example "
-                        "`after` for GitHub, see the connector's skill docs)."
+                        "The connector returned a cursor it was already given. If this is a "
+                        "direct connector action, check the connector's skill docs for its "
+                        "pagination input and pass the cursor there via `api_args`."
                     ),
                     context={"entity_type": entity_type, "cursor": next_cursor},
                 )
