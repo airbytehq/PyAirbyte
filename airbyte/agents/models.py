@@ -218,7 +218,7 @@ class AgentConnectorMetadata(BaseModel):
     end_cursor: str | None = None
     """The cursor for the next page, when one is available. Pass it as `cursor` for Context Store
     `search`, or as the connector's own cursor argument in `api_args` for direct connector
-    actions."""
+    actions. For `iter_entities()`, pass its name as `cursor_arg`."""
 
 
 class AgentExecuteResult(BaseModel):
