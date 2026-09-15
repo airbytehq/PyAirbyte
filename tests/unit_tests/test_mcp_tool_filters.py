@@ -117,24 +117,24 @@ def _visible(module: str) -> bool:
                 MCP_CONFIG_INSIDERS: "1",
                 MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
             },
-            {"agents": False, "cloud": True},
-            id="api_url_override_hides_agents",
+            {"agents": True, "cloud": True},
+            id="api_url_override_keeps_agents",
         ),
         pytest.param(
             {
                 MCP_CONFIG_INSIDERS: "1",
                 MCP_CONFIG_CONFIG_API_URL: "https://airbyte.example.com/api/v1",
             },
-            {"agents": False, "cloud": True},
-            id="config_api_url_override_hides_agents",
+            {"agents": True, "cloud": True},
+            id="config_api_url_override_keeps_agents",
         ),
         pytest.param(
             {
                 MCP_CONFIG_INCLUDE_MODULES: "agents",
                 MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
             },
-            {"agents": False},
-            id="api_url_override_beats_include_list",
+            {"agents": True},
+            id="api_url_override_honors_include_list",
         ),
         pytest.param(
             {
@@ -220,8 +220,8 @@ def test_explicit_agents_api_root_keeps_agents_visible(
         pytest.param(
             "1",
             {MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1"},
-            False,
-            id="api_url_override_beats_hosted_insiders_on",
+            True,
+            id="api_url_override_preserves_hosted_insiders_on",
         ),
         *(
             pytest.param(

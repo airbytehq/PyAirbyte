@@ -9,9 +9,9 @@
 > arguments, and result shapes may change or be removed without notice between minor versions of
 > PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
 >
-> These tools are also Cloud-only: they are hidden whenever
-> `AIRBYTE_CLOUD_API_URL` / `AIRBYTE_CLOUD_CONFIG_API_URL` are overridden, unless
-> `AIRBYTE_AGENTS_API_URL` is set.
+> These tools use Cloud APIs and honor Cloud API root overrides. Execution requires
+> a deployment with the execution and connector-docs routes enabled. Listing an actor
+> does not establish execution availability. Writes and skill catalog search are unsupported.
 
 .. include:: ../../docs/mcp-generated/agents.md
 """
@@ -23,18 +23,21 @@
 __all__: list[str] = []
 
 import json
+from enum import Enum
 from http import HTTPStatus
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
+from requests.exceptions import RequestException
 
-from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
-from airbyte.agents.models import AgentSkillInfo
-from airbyte.agents.organizations import AgentOrganization
-from airbyte.agents.workspaces import AgentWorkspace
+from airbyte._util import api_util
+from airbyte.cloud.client import CloudClient
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
+    CLOUD_API_ROOT,
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
@@ -51,27 +54,37 @@ from airbyte.constants import (
     MCP_ORGANIZATION_ID_HEADER,
     MCP_WORKSPACE_ID_HEADER,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import AirbyteError, PyAirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
+from airbyte.mcp._cloud_execution import CloudExecutionClient, CloudExecutionError
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
-    _get_cloud_client,
-    _get_cloud_workspace,
 )
 
 
+_MAX_INTENT_LENGTH = 512
+_MAX_SQL_BYTES = 32768
+
+
+class AgentReadAction(str, Enum):
+    """Read actions supported by the Cloud execution routes."""
+
+    GET = "get"
+    LIST = "list"
+    SEARCH = "search"
+    SQL_SELECT = "sql_select"
+
+
 AGENTS_AUTH_TIP_TEXT = (
-    f"The Airbyte Agents API authenticates with Airbyte Cloud credentials. When connecting "
-    f"to a hosted MCP server, provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` "
-    f"header, or client credentials via the transport `Client-Id` and `Client-Secret` "
-    f"headers. For local or stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` "
-    f"environment variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
-    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. Call `list_agent_connectors` to discover connector "
-    f"IDs, then `inspect_agent_connector` to learn which entities a connector supports, "
-    f"before calling `execute_agent_connector`. Use `list_agent_skills` or "
-    f"`search_agent_skills` to discover skills, and pass a `docs_skill_id` reported by "
-    f"`inspect_agent_connector` to `read_agent_skill_docs` for connector usage docs."
+    f"Use Airbyte Cloud credentials: hosted `{MCP_BEARER_TOKEN_HEADER}` or Client-Id and "
+    f"Client-Secret headers; stdio `{CLOUD_BEARER_TOKEN_ENV_VAR}` or "
+    f"`{CLOUD_CLIENT_ID_ENV_VAR}` and `{CLOUD_CLIENT_SECRET_ENV_VAR}`. "
+    "Discover Cloud source IDs with `list_agent_connectors`, or destination IDs with "
+    "the Cloud destination listing. Inspect the actor, then pass its `docs_skill_id` "
+    "to `read_agent_skill_docs`. Listing and docs do not establish execution enablement. "
+    "Only source get/list/search and restricted Snowflake reads are supported. "
+    "Skill catalog list/search and static skill docs are unavailable."
 )
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the `{MCP_WORKSPACE_ID_HEADER}` "
@@ -88,21 +101,22 @@ ORGANIZATION_ID_TIP_TEXT = (
 )
 
 AGENTS_ACCESS_DENIED_STATUS = "access_denied"
-"""The `status` reported when the Agents API refused the request."""
+"""The `status` reported when the Cloud API refused the request."""
 
 AGENTS_UNAUTHORIZED_MESSAGE = (
-    "The Airbyte Agents API rejected these credentials. Verify the Airbyte Cloud "
+    "The Airbyte Cloud API rejected these credentials. Verify the Airbyte Cloud "
     "credentials, or ask the user for valid ones."
 )
 AGENTS_FORBIDDEN_MESSAGE = (
-    "The Airbyte Agents API authenticated these credentials but denied access. Either the "
-    "organization does not have an Airbyte Agents subscription, or these credentials lack "
-    "access to this workspace. Ask the user to confirm which applies rather than retrying."
+    "The Airbyte Cloud API authenticated these credentials but denied access. "
+    "These credentials lack "
+    "workspace access or execution is not enabled. Ask the user to verify access rather "
+    "than retrying."
 )
 
 
 class AgentWorkspaceResult(BaseModel):
-    """Information about a workspace on the Airbyte Agents platform."""
+    """Information about a workspace on Airbyte Cloud."""
 
     workspace_id: str
     """The workspace ID."""
@@ -115,17 +129,17 @@ class AgentWorkspaceResult(BaseModel):
 
 
 class AgentWorkspaceListResult(BaseModel):
-    """Result of listing workspaces on the Airbyte Agents platform."""
+    """Result of listing workspaces on Airbyte Cloud."""
 
     workspaces: list[AgentWorkspaceResult]
-    """Workspaces reachable through the Agents API with these credentials."""
+    """Workspaces reachable through the Cloud API with these credentials."""
 
     message: str | None = None
-    """Why the listing is empty, when the Agents API denied the request."""
+    """Why the listing is empty, when the Cloud API denied the request."""
 
 
 class AgentConnectorResult(BaseModel):
-    """Information about a connector configured on the Airbyte Agents platform."""
+    """Information about a connector configured on Airbyte Cloud."""
 
     connector_id: str
     """The connector ID, used as `connector_id` in the other Agents tools."""
@@ -135,13 +149,13 @@ class AgentConnectorResult(BaseModel):
 
 
 class AgentConnectorListResult(BaseModel):
-    """Result of listing connectors in an Airbyte Agents workspace."""
+    """Result of listing connectors in an Airbyte Cloud workspace."""
 
     connectors: list[AgentConnectorResult]
     """Connectors configured in the workspace."""
 
     message: str | None = None
-    """Why the listing is empty, when the Agents API denied the request."""
+    """Why the listing is empty, when the Cloud API denied the request."""
 
 
 class AgentConnectorDetailsResult(BaseModel):
@@ -160,49 +174,19 @@ class AgentConnectorDetailsResult(BaseModel):
     """The name of the underlying source definition, for example `GitHub`."""
 
     docs_skill_id: str | None = None
-    """Skill ID for this connector's usage docs, when reported by the Agents API."""
+    """Cloud docs ID for this actor; availability is established by reading the docs."""
 
-    context_store_entities: list[str]
-    """Entities this connector can cache in the Context Store.
+    definition_id: str | None = None
+    """The Cloud connector definition ID."""
 
-    This is not an exhaustive list of executable entities: an entity may be executable via
-    `execute_agent_connector` without appearing here.
-    """
+    docs_outline: list[dict[str, Any]] = Field(default_factory=list)
+    """Authorized documentation sections; docs do not establish execution readiness."""
 
     warnings: list[str]
-    """Warnings the Agents API reported about this connector."""
+    """Warnings the Cloud API reported about this connector."""
 
     message: str | None = None
-    """Why the details are empty, when the Agents API denied the request."""
-
-
-class AgentSkillResult(BaseModel):
-    """A skill discoverable on the Airbyte Agents platform."""
-
-    skill_id: str
-    """The skill ID, used as `skill_id` in `read_agent_skill_docs`."""
-
-    kind: str | None = None
-    """The skill category, for example `static` or `connector_source`."""
-
-    title: str | None = None
-    """The human-readable skill title."""
-
-    summary: str | None = None
-    """A short summary of what the skill documents."""
-
-    tags: list[str]
-    """Search and categorization tags for the skill."""
-
-
-class AgentSkillListResult(BaseModel):
-    """Result of listing or searching skills on the Airbyte Agents platform."""
-
-    skills: list[AgentSkillResult]
-    """Skills matching the listing or search, across all pages."""
-
-    message: str | None = None
-    """Why the listing is empty, when the Agents API denied the request."""
+    """Why the details are empty, when the Cloud API denied the request."""
 
 
 class AgentSkillSectionResult(BaseModel):
@@ -222,7 +206,7 @@ class AgentSkillSectionResult(BaseModel):
 
 
 class AgentSkillDocsResult(BaseModel):
-    """Documentation for a single skill on the Airbyte Agents platform."""
+    """Documentation for a single skill on Airbyte Cloud."""
 
     skill_id: str
     """The skill ID that was read."""
@@ -243,20 +227,23 @@ class AgentSkillDocsResult(BaseModel):
     """Non-fatal issues reported while building or reading the docs."""
 
     message: str | None = None
-    """Why the docs are empty, when the Agents API denied the request."""
+    """Why the docs are empty, when the Cloud API denied the request."""
 
 
 class AgentExecuteToolResult(BaseModel):
     """Result of executing a single action against an Airbyte Agents connector."""
 
     status: str
-    """The execution status reported by the Agents API, for example `success`."""
+    """The execution status reported by the Cloud API, for example `success`."""
 
     result: Any = None
     """The action's payload. Entity-returning actions put a list of entities here."""
 
-    has_next_page: bool = False
-    """Whether the connector reported more entities after this page."""
+    meta: dict[str, Any] | None = None
+    """Full native metadata, including connector-specific pagination and truncation."""
+
+    has_next_page: bool | None = None
+    """Unknown when no verified mapping exists; consult native meta for pagination."""
 
     end_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
@@ -268,7 +255,7 @@ class AgentExecuteToolResult(BaseModel):
     """A warning reported alongside an otherwise successful result."""
 
     message: str | None = None
-    """Why the action did not run, when the Agents API denied the request."""
+    """Why the action did not run, when the Cloud API denied the request."""
 
 
 def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
@@ -293,8 +280,8 @@ def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] |
     return parsed
 
 
-def _agents_access_message(error: AirbyteError) -> str | None:
-    """Return a concise explanation of an Agents API authorization failure.
+def _agents_access_message(error: PyAirbyteError) -> str | None:
+    """Return a concise explanation of a Cloud API authorization failure.
 
     Returns `None` when the failure is not an authorization failure, so the caller can
     re-raise it with a bare `raise` and keep the original traceback.
@@ -307,73 +294,118 @@ def _agents_access_message(error: AirbyteError) -> str | None:
     return None
 
 
-def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentOrganization:
-    """Build an `AgentOrganization` from MCP config."""
-    return AgentOrganization(
-        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
-        client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
-        client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
-        bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
-        public_api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
-    )
-
-
-def _get_agent_workspace(
-    ctx: Context,
-    workspace_id: str | None,
-    organization_id: str | None = None,
-) -> AgentWorkspace:
-    """Build an `AgentWorkspace`, deriving an absent organization from its workspace."""
-    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
-    resolved_organization_id = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
-    if not resolved_workspace_id or not resolved_organization_id:
-        client = _get_cloud_client(ctx)
-        if not resolved_workspace_id:
-            resolved_workspace_id = client.resolve_default_workspace_id()
-        if resolved_workspace_id and not resolved_organization_id:
-            resolved_organization_id = client.get_workspace_parent_organization_id(
-                resolved_workspace_id
-            )
-    return AgentWorkspace(
-        workspace_id=resolved_workspace_id,
-        organization_id=resolved_organization_id,
-        client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
-        client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
-        bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
-        public_api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
-    )
-
-
-def _get_agent_connector(
-    ctx: Context,
-    connector_id: str,
-    workspace_id: str | None = None,
-    organization_id: str | None = None,
-) -> AgentConnector:
-    """Get an `AgentConnector` from its workspace, using MCP config.
-
-    The Agents API addresses a connector by ID alone, but the connector is fetched through
-    its workspace anyway, so a connector ID belonging to another workspace raises before
-    any action runs.
-
-    Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
-    does not know are verified against the Cloud workspace's destinations instead.
-    """
-    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+def _cloud_uuid(value: str) -> str:
+    """Normalize Cloud resource IDs before routing and ownership comparisons."""
     try:
-        return workspace.get_connector(connector_id)
-    except AirbyteError as error:
-        if error.get_message() != "No connector found with the given ID or name.":
-            raise
-        cloud_destination_ids = {
-            destination.connector_id
-            for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
-        }
-        if connector_id not in cloud_destination_ids:
-            raise
-        return workspace.get_connector(connector_id=connector_id)
+        return str(UUID(value))
+    except ValueError:
+        raise PyAirbyteInputError(message="Cloud resource ID must be a UUID.") from None
+
+
+def _cloud_clients(
+    ctx: Context,
+    organization_id: str | None = None,
+) -> tuple[CloudClient, CloudExecutionClient]:
+    """Share one bounded token exchange across discovery and execution."""
+    workspace_id = get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    resolved_org = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
+    transport = CloudExecutionClient(
+        api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT,
+        config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
+        bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
+        client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
+        client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
+    )
+    return CloudClient(
+        bearer_token=transport.bearer_token,
+        public_api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT,
+        config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
+        workspace_id=_cloud_uuid(workspace_id) if workspace_id else None,
+        organization_id=_cloud_uuid(resolved_org) if resolved_org else None,
+    ), transport
+
+
+def _cloud_workspace(client: CloudClient, workspace_id: str | None) -> CloudWorkspace:
+    resolved_id = workspace_id or client.resolve_default_workspace_id()
+    if not resolved_id:
+        raise PyAirbyteInputError(message="Provide an unambiguous Cloud workspace ID.")
+    resolved_id = _cloud_uuid(resolved_id)
+    if client.organization_id:
+        parent = client.get_workspace_parent_organization_id(resolved_id)
+        if parent is None or _cloud_uuid(parent) != client.organization_id:
+            raise PyAirbyteInputError(
+                message="Cloud workspace organization could not be verified or does not match."
+            )
+    return client.get_workspace(resolved_id)
+
+
+def _cloud_inventory(
+    workspace: CloudWorkspace,
+    *,
+    destination: bool,
+) -> list[AgentConnectorDetailsResult]:
+    # CloudWorkspace's actor wrappers discard the response workspace ID.
+    # Validate ownership before projecting the inventory into safe metadata.
+    actors = (api_util.list_destinations if destination else api_util.list_sources)(
+        workspace_id=workspace.workspace_id,
+        api_root=workspace.api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=workspace.bearer_token,
+    )
+    results = []
+    for actor in actors:
+        if _cloud_uuid(actor.workspace_id) != workspace.workspace_id:
+            raise PyAirbyteInputError(
+                message="Cloud inventory contains an actor in another workspace."
+            )
+        actor_id = _cloud_uuid(actor.destination_id if destination else actor.source_id)
+        results.append(
+            AgentConnectorDetailsResult(
+                connector_id=actor_id,
+                connector_name=actor.name,
+                workspace_id=workspace.workspace_id,
+                definition_id=actor.definition_id,
+                docs_skill_id=f"connector-source:{actor_id}",
+                warnings=[],
+            )
+        )
+    return results
+
+
+def _cloud_actor(
+    workspace: CloudWorkspace,
+    connector_id: str,
+    *,
+    destination: bool | None,
+) -> AgentConnectorDetailsResult:
+    connector_id = _cloud_uuid(connector_id)
+    actors: list[AgentConnectorDetailsResult] = []
+    if destination is not True:
+        actors.extend(_cloud_inventory(workspace, destination=False))
+    if destination is not False:
+        actors.extend(_cloud_inventory(workspace, destination=True))
+    matches = [actor for actor in actors if actor.connector_id == connector_id]
+    if len(matches) != 1:
+        raise PyAirbyteInputError(
+            message="Connector was not uniquely found in the selected Cloud workspace and kind."
+        )
+    return matches[0]
+
+
+def _cloud_failure(
+    error: PyAirbyteError | RequestException | ValueError | KeyError | TypeError,
+) -> str:
+    """Keep discovery errors from exposing SDK request/response internals."""
+    if isinstance(error, PyAirbyteError):
+        message = _agents_access_message(error)
+        if message:
+            return message
+    if isinstance(error, CloudExecutionError):
+        raise error from None
+    raise AirbyteError(
+        message="Cloud request failed; verify workspace, inputs and deployment."
+    ) from None
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
@@ -383,61 +415,81 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     workspace_id: str | None,
     organization_id: str | None,
     entity_type: str,
-    action: AgentAction,
+    action: AgentReadAction,
     api_args: dict[str, Any] | str | None,
     select_fields: list[str] | str | None,
     exclude_fields: list[str] | str | None,
     page_size: int | None,
     cursor: str | None,
     intent: str | None,
-    read_only: bool | None = None,
 ) -> AgentExecuteToolResult:
-    """Execute one connector action and shape it into an `AgentExecuteToolResult`.
-
-    When `read_only` is `True`, write actions are rejected before any request is sent.
-    """
-    if read_only and action not in set(AgentReadAction):
+    """Dispatch one read; interruptions may leave its remote outcome unknown."""
+    if action not in {member.value for member in AgentReadAction}:
         raise PyAirbyteInputError(
-            message="This action writes data and cannot run in read-only mode.",
-            guidance=(
-                "Read-only actions are: "
-                f"{', '.join(member.value for member in AgentReadAction)}."
-            ),
-            context={"action": action},
+            message="Cloud MCP supports only get, list, search and sql_select."
         )
-
+    params = dict(_resolve_api_args(api_args) or {})
+    selected = resolve_list_of_strings(select_fields)
+    excluded = resolve_list_of_strings(exclude_fields)
+    if not entity_type or (intent is not None and len(intent) > _MAX_INTENT_LENGTH):
+        raise PyAirbyteInputError(
+            message="Entity is required and intent must be at most 512 characters."
+        )
+    destination = action == "sql_select"
+    if destination:
+        sql = params.get("sql")
+        if not isinstance(sql, str) or not sql.strip() or len(sql.encode()) > _MAX_SQL_BYTES:
+            raise PyAirbyteInputError(message="sql must be nonempty and at most 32768 UTF-8 bytes.")
+        if selected or excluded or page_size is not None or cursor is not None:
+            raise PyAirbyteInputError(
+                message="Snowflake reads do not support pagination or projections."
+            )
+        if (
+            set(params) - {"sql", "sql_dialect", "dry_run"}
+            or params.get("sql_dialect") != "snowflake"
+            or ("dry_run" in params and params["dry_run"] is not False)
+        ):
+            raise PyAirbyteInputError(
+                message="sql_select requires sql_dialect='snowflake' and dry_run=false or absent."
+            )
+        body: dict[str, Any] = {
+            "entity": "record",
+            "action": "list",
+            "params": {"statement": params["sql"]},
+        }
+    else:
+        if page_size is not None:
+            if page_size <= 0 or "limit" in params:
+                raise PyAirbyteInputError(
+                    message="page_size must be positive and cannot duplicate params.limit."
+                )
+            params["limit"] = page_size
+        if cursor is not None:
+            if "cursor" in params:
+                raise PyAirbyteInputError(message="cursor cannot duplicate params.cursor.")
+            params["cursor"] = cursor
+        body = {"entity": entity_type, "action": action, "params": params, "skip_truncation": True}
+        if selected is not None:
+            body["select_fields"] = selected
+        if excluded is not None:
+            body["exclude_fields"] = excluded
+    if intent is not None:
+        body["intent"] = intent
     try:
-        result = _get_agent_connector(
-            ctx=ctx,
-            connector_id=connector_id,
-            workspace_id=workspace_id,
-            organization_id=organization_id,
-        ).execute(
-            entity_type=entity_type,
-            action=action,
-            api_args=_resolve_api_args(api_args),
-            select_fields=resolve_list_of_strings(select_fields),
-            exclude_fields=resolve_list_of_strings(exclude_fields),
-            page_size=page_size,
-            cursor=cursor,
-            intent=intent,
+        client, transport = _cloud_clients(ctx, organization_id)
+        workspace = _cloud_workspace(client, workspace_id)
+        _cloud_actor(workspace, connector_id, destination=destination)
+        payload = (
+            transport.execute_destination(connector_id, body)
+            if destination
+            else transport.execute_source(connector_id, body)
         )
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
+    except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError) as error:
         return AgentExecuteToolResult(
-            status=AGENTS_ACCESS_DENIED_STATUS,
-            message=message,
+            status=AGENTS_ACCESS_DENIED_STATUS, message=_cloud_failure(error)
         )
-
     return AgentExecuteToolResult(
-        status=result.status,
-        result=result.result,
-        has_next_page=result.has_next_page,
-        end_cursor=result.end_cursor,
-        execution_time_ms=result.execution_metadata.execution_time_ms,
-        warning=result.warning,
+        status="success", result=payload["data"], meta=payload.get("meta")
     )
 
 
@@ -458,14 +510,12 @@ def list_agent_workspaces(
         ),
     ],
 ) -> AgentWorkspaceListResult:
-    """List the workspaces reachable through the Airbyte Agents API."""
-    organization = _get_agent_organization(ctx, organization_id)
+    """List Cloud workspaces visible to these credentials."""
     try:
-        workspaces = organization.list_workspaces()
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
+        client, _ = _cloud_clients(ctx, organization_id)
+        workspaces = client.list_workspaces(organization_id=client.organization_id)
+    except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError) as error:
+        message = _cloud_failure(error)
         return AgentWorkspaceListResult(workspaces=[], message=message)
 
     return AgentWorkspaceListResult(
@@ -504,21 +554,23 @@ def list_agent_connectors(
         ),
     ],
 ) -> AgentConnectorListResult:
-    """List the connectors configured in an Airbyte Agents workspace."""
-    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+    """List Cloud sources; presence does not imply execution enablement.
+
+    Discover destinations through the existing Cloud destination listing.
+    """
     try:
-        connectors = workspace.list_connectors()
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
+        client, _ = _cloud_clients(ctx, organization_id)
+        workspace = _cloud_workspace(client, workspace_id)
+        connectors = _cloud_inventory(workspace, destination=False)
+    except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError) as error:
+        message = _cloud_failure(error)
         return AgentConnectorListResult(connectors=[], message=message)
 
     return AgentConnectorListResult(
         connectors=[
             AgentConnectorResult(
                 connector_id=connector.connector_id,
-                connector_name=connector.name,
+                connector_name=connector.connector_name,
             )
             for connector in connectors
         ]
@@ -535,7 +587,7 @@ def inspect_agent_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the Airbyte Agents connector."),
+        Field(description="The Cloud source or destination UUID."),
     ],
     *,
     workspace_id: Annotated[
@@ -553,34 +605,33 @@ def inspect_agent_connector(
         ),
     ],
 ) -> AgentConnectorDetailsResult:
-    """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
+    """Inspect Cloud actor metadata and docs without claiming execution readiness.
 
-    Call this before `execute_agent_connector` to learn what the connector exposes. The
-    connector must belong to the given workspace. The reported `docs_skill_id` can be
-    passed to `read_agent_skill_docs` to read the connector's usage docs.
+    Pass the docs_skill_id to read_agent_skill_docs for exact section content.
+    Source and destination membership are checked in the selected workspace.
     """
     try:
-        details = _get_agent_connector(ctx, connector_id, workspace_id, organization_id).inspect()
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
+        client, transport = _cloud_clients(ctx, organization_id)
+        workspace = _cloud_workspace(client, workspace_id)
+        result = _cloud_actor(workspace, connector_id, destination=None)
+    except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError) as error:
         return AgentConnectorDetailsResult(
             connector_id=connector_id,
-            context_store_entities=[],
             warnings=[],
-            message=message,
+            message=_cloud_failure(error),
         )
-
-    return AgentConnectorDetailsResult(
-        connector_id=details.connector_id,
-        connector_name=details.name,
-        workspace_id=details.workspace_id,
-        source_definition_name=details.source_definition_name,
-        docs_skill_id=details.docs_skill_id,
-        context_store_entities=details.context_store_entities,
-        warnings=[str(warning) for warning in details.warnings],
-    )
+    try:
+        docs = transport.read_docs(
+            workspace.workspace_id, f"connector-source:{result.connector_id}"
+        )
+    except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError):
+        result.message = (
+            "Cloud actor metadata is available; documentation is unavailable "
+            "or unauthorized. Execution readiness is unknown."
+        )
+    else:
+        result.docs_outline = docs["outline"]
+    return result
 
 
 @mcp_tool(
@@ -593,7 +644,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     ctx: Context,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the Airbyte Agents connector."),
+        Field(description="The Cloud source or destination UUID."),
     ],
     entity_type: Annotated[
         str,
@@ -611,8 +662,8 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "The read action to run against the entity type. "
                 "The `search` action is the connector's native API search, parallel to `get` "
                 "and `list`. "
-                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) in `api_args` and any value for `entity_type`. The `download` action "
+                "For `sql_select`, pass `sql` and `sql_dialect= snowflake` in `api_args`; "
+                "only restricted Snowflake reads are supported. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -649,7 +700,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     cursor: Annotated[
         str | None,
         Field(
-            description="Pagination cursor, taken from `end_cursor` of a previous result.",
+            description="Pagination cursor; consult native meta and connector docs.",
             default=None,
         ),
     ],
@@ -677,8 +728,10 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
 ) -> AgentExecuteToolResult:
     """Read data from an Airbyte Agents connector, without modifying anything.
 
-    This tool only accepts read actions, so it stays available in read-only mode. Use
-    `execute_agent_connector` for actions that create, update, or delete data. Entity types
+    This tool accepts only source get/list/search or restricted Snowflake sql_select.
+    Writes are unsupported by both execution tools. Native pagination and truncation
+    are preserved in meta; legacy cursor fields remain unknown. Timeouts do not prove
+    cancellation: decide whether to resubmit explicitly. Entity types
     are connector-specific, so call `inspect_agent_connector` first. The connector must
     belong to the given workspace.
     """
@@ -695,11 +748,12 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         page_size=page_size,
         cursor=cursor,
         intent=intent,
-        read_only=True,
     )
 
 
 @mcp_tool(
+    read_only=True,
+    idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
 )
@@ -707,7 +761,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     ctx: Context,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the Airbyte Agents connector."),
+        Field(description="The Cloud source or destination UUID."),
     ],
     entity_type: Annotated[
         str,
@@ -719,14 +773,14 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         ),
     ],
     action: Annotated[
-        AgentAction,
+        AgentReadAction,
         Field(
             description=(
                 "The action to run against the entity type. "
                 "The `search` action is the connector's native API search, parallel to `get` "
                 "and `list`. "
-                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) in `api_args` and any value for `entity_type`. The `download` action "
+                "For `sql_select`, pass `sql` and `sql_dialect= snowflake` in `api_args`; "
+                "only restricted Snowflake reads are supported. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -763,7 +817,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     cursor: Annotated[
         str | None,
         Field(
-            description="Pagination cursor, taken from `end_cursor` of a previous result.",
+            description="Pagination cursor; consult native meta and connector docs.",
             default=None,
         ),
     ],
@@ -774,12 +828,11 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
             default=None,
         ),
     ],
-    read_only: Annotated[
+    read_only: Annotated[  # noqa: ARG001  # Retained tool argument; cannot permit writes.
         bool | None,
         Field(
             description=(
-                "Set to `true` to reject write actions before any request is sent, when the "
-                "caller wants a read guarantee from this tool."
+                "Retained for compatibility; all actions are read-only regardless of this value."
             ),
             default=None,
         ),
@@ -799,11 +852,11 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         ),
     ],
 ) -> AgentExecuteToolResult:
-    """Execute a single action against an Airbyte Agents connector, including writes.
+    """Read-only alias for execute_agent_connector_ro.
 
-    Prefer `execute_agent_connector_ro` when only reading, since it is available in
-    read-only mode. Entity types and actions are connector-specific, so call
-    `inspect_agent_connector` first. The connector must belong to the given workspace.
+    Writes are no longer supported. Native data and opaque meta are preserved,
+    including Snowflake positional rows, duplicate column labels and truncation.
+    No automatic retries or pagination are performed; timeout does not prove cancellation.
     """
     return _execute(
         ctx,
@@ -818,97 +871,6 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         page_size=page_size,
         cursor=cursor,
         intent=intent,
-        read_only=read_only,
-    )
-
-
-def _agent_skill_result(skill: AgentSkillInfo) -> AgentSkillResult:
-    """Shape an `AgentSkillInfo` into an `AgentSkillResult`."""
-    return AgentSkillResult(
-        skill_id=skill.id,
-        kind=skill.kind,
-        title=skill.title,
-        summary=skill.summary,
-        tags=skill.tags,
-    )
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=AGENTS_AUTH_TIP_TEXT,
-)
-def list_agent_skills(
-    ctx: Context,
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> AgentSkillListResult:
-    """List all skills available to an Airbyte Agents workspace.
-
-    Skills are reusable documentation the Agents API serves, for example connector usage
-    docs. All pages are fetched, so no pagination arguments are needed. Pass a listed
-    skill's `skill_id` to `read_agent_skill_docs` to read it.
-    """
-    workspace = _get_agent_workspace(ctx, workspace_id)
-    try:
-        skills = workspace.list_skills()
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
-        return AgentSkillListResult(skills=[], message=message)
-
-    return AgentSkillListResult(
-        skills=[_agent_skill_result(skill.info) for skill in skills],
-    )
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=AGENTS_AUTH_TIP_TEXT,
-)
-def search_agent_skills(
-    ctx: Context,
-    query: Annotated[
-        str,
-        Field(
-            description=("Keyword query to match against skill titles, summaries, and tags."),
-        ),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> AgentSkillListResult:
-    """Search skills by keyword in an Airbyte Agents workspace.
-
-    All pages are fetched, so no pagination arguments are needed. Pass a matching skill's
-    `skill_id` to `read_agent_skill_docs` to read it.
-    """
-    workspace = _get_agent_workspace(ctx, workspace_id)
-    try:
-        skills = workspace.search_skills(query)
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
-        return AgentSkillListResult(skills=[], message=message)
-
-    return AgentSkillListResult(
-        skills=[_agent_skill_result(skill.info) for skill in skills],
     )
 
 
@@ -925,7 +887,7 @@ def read_agent_skill_docs(
         Field(
             description=(
                 "Skill ID, e.g. the `docs_skill_id` reported by `inspect_agent_connector`, "
-                "or a `skill_id` from `list_agent_skills`."
+                "using connector-source:<Cloud actor UUID>. Static skills are unsupported."
             ),
         ),
     ],
@@ -948,42 +910,45 @@ def read_agent_skill_docs(
         ),
     ],
 ) -> AgentSkillDocsResult:
-    """Read a skill's docs in an Airbyte Agents workspace.
+    """Read a skill's docs in an Airbyte Cloud workspace.
 
     Without `section`, this returns the skill's metadata, guidance, and the outline of
     sections, which is the cheapest way to orient before reading a specific section.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id)
+    if not skill_id.startswith("connector-source:"):
+        raise PyAirbyteInputError(
+            message="Only connector-source:<Cloud actor UUID> docs are supported."
+        )
+    connector_id = skill_id.removeprefix("connector-source:")
     try:
-        docs = workspace.read_skill_docs(skill_id, section=section)
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
+        client, transport = _cloud_clients(ctx)
+        workspace = _cloud_workspace(client, workspace_id)
+        _cloud_actor(workspace, connector_id, destination=None)
+        docs = transport.read_docs(workspace.workspace_id, skill_id, section=section)
+    except (PyAirbyteError, RequestException, ValueError, KeyError, TypeError) as error:
         return AgentSkillDocsResult(
             skill_id=skill_id,
             section_id=section,
             outline=[],
             content=[],
             warnings=[],
-            message=message,
+            message=_cloud_failure(error),
         )
-
     return AgentSkillDocsResult(
-        skill_id=docs.metadata.id,
-        title=docs.metadata.title,
-        section_id=docs.section_id,
+        skill_id=docs["metadata"]["id"],
+        title=docs["metadata"]["title"],
+        section_id=docs.get("section_id"),
         outline=[
             AgentSkillSectionResult(
-                section_id=docs_section.id,
-                title=docs_section.title,
-                summary=docs_section.summary,
-                available=docs_section.available,
+                section_id=item["id"],
+                title=item["title"],
+                summary=item.get("summary"),
+                available=item.get("available", True),
             )
-            for docs_section in docs.outline
+            for item in docs["outline"]
         ],
-        content=docs.content,
-        warnings=[str(warning) for warning in docs.metadata.warnings],
+        content=docs.get("content", []),
+        warnings=docs["metadata"].get("warnings", []),
     )
 
 
