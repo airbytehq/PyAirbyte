@@ -446,6 +446,21 @@ def test_sql_select_preserves_explicit_workspace_name(
     assert "workspace_id" not in params
 
 
+def test_sql_select_preserves_explicit_workspace_id(
+    captured_requests: list[dict[str, Any]],
+) -> None:
+    """`sql_select` preserves an explicit workspace ID."""
+    _connector(workspace_id="default").execute(
+        "records",
+        "sql_select",
+        {"sql": "SELECT 1", "sql_dialect": "trino", "workspace_id": "override"},
+    )
+
+    params = captured_requests[0]["json"]["params"]
+    assert params["workspace_id"] == "override"
+    assert params["workspace_id"] != "default"
+
+
 def test_non_sql_select_does_not_add_connector_workspace(
     captured_requests: list[dict[str, Any]],
 ) -> None:
