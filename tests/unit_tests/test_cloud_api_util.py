@@ -1182,7 +1182,7 @@ def test_get_analytic_source_reflects_runtime_mode(
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
     monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
 
-    assert meta.get_analytic_source() == expected
+    assert meta.get_cloud_api_analytic_source() == expected
 
 
 def test_config_api_request_sends_analytic_source_header(

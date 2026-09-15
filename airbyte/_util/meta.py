@@ -62,12 +62,8 @@ AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
 """Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
 
 
-def get_analytic_source() -> str:
-    """Return the `X-Airbyte-Analytic-Source` value describing this client.
-
-    The platform's tracking client records the value as the `airbyte_source` property on
-    every Segment event emitted while handling the request (the webapp sends `webapp`).
-    """
+def get_cloud_api_analytic_source() -> str:
+    """Return the `X-Airbyte-Analytic-Source` value sent with Cloud API requests."""
     if not is_mcp_mode():
         return "pyairbyte"
     return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
