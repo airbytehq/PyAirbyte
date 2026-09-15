@@ -21,7 +21,11 @@ from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
+    AirbyteError,
+    PyAirbyteInputError,
+)
 from airbyte.secrets.base import SecretString
 
 
@@ -179,6 +183,98 @@ def test_make_agents_api_request(captured_requests: list[dict[str, Any]]) -> Non
         credentials=_credentials(organization_id=None),
     )
     assert "X-Organization-Id" not in captured_requests[1]["headers"]
+
+
+def test_get_agents_api_root_for_public_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Public Cloud credentials use the hosted Agents API root."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+
+    assert (
+        _api_util.get_agents_api_root(_credentials()) == "https://api.airbyte.ai/api/v1"
+    )
+
+
+def test_get_agents_api_root_rejects_overridden_cloud_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-Cloud credentials cannot use the hosted Agents API."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+
+    with pytest.raises(
+        AirbyteAgentsUnavailableError, match="only available on Airbyte Cloud"
+    ):
+        _api_util.get_agents_api_root(
+            _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
+        )
+
+
+def test_get_agents_api_root_uses_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit Agents API root overrides deployment detection."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1/")
+
+    assert (
+        _api_util.get_agents_api_root(
+            _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
+        )
+        == "https://agents.example.com/api/v1"
+    )
+
+
+@pytest.mark.parametrize("override", ["", "   "])
+def test_blank_agents_api_root_override_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    override: str,
+) -> None:
+    """Blank Agents API root overrides do not enable a non-Cloud deployment."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", override)
+    credentials = _credentials(
+        public_api_root="https://airbyte.example.com/api/public/v1"
+    )
+
+    with pytest.raises(AirbyteAgentsUnavailableError):
+        _api_util.get_agents_api_root(credentials)
+
+
+def test_agents_api_root_override_allows_cloud_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit Agents API root allows conversion from custom Cloud roots."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+
+    _api_util.check_public_cloud_api_roots(
+        _credentials(public_api_root="https://airbyte.example.com/api/public/v1")
+    )
+
+
+def test_agents_root_is_checked_before_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unavailable Agents deployments fail before exchanging client credentials."""
+    monkeypatch.delenv("AIRBYTE_AGENTS_API_URL", raising=False)
+    token_requests = 0
+
+    def _unexpected_token_request(**_: Any) -> str:
+        nonlocal token_requests
+        token_requests += 1
+        return "unexpected-token"
+
+    monkeypatch.setattr(_api_util, "get_bearer_token", _unexpected_token_request)
+
+    with pytest.raises(AirbyteAgentsUnavailableError):
+        _api_util.make_agents_api_request(
+            method="GET",
+            path="/workspaces",
+            credentials=_credentials(
+                public_api_root="https://airbyte.example.com/api/public/v1",
+                bearer_token=None,
+                client_id="client-id",
+                client_secret="client-secret",
+            ),
+        )
+
+    assert token_requests == 0
 
 
 @pytest.mark.parametrize(
@@ -764,6 +860,44 @@ def test_cloud_conversions(
         assert captured_requests[0]["url"].endswith(expected_request_path)
 
 
+def test_agent_workspace_preserves_explicit_api_root() -> None:
+    """Pass explicit API roots through Agent workspace credentials."""
+    workspace = AgentWorkspace(
+        workspace_id="workspace-id",
+        client_id="client-id",
+        client_secret="client-secret",
+        public_api_root="https://proxy.example/v1",
+    )
+
+    assert workspace._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+
+
+def test_cloud_conversions_preserve_custom_api_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cloud-to-Agents conversions retain custom roots when an Agents API is configured."""
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+
+    workspace = AgentWorkspace.from_cloud_workspace(
+        CloudWorkspace(
+            workspace_id="workspace-id",
+            bearer_token="test-token",
+            api_root="https://proxy.example/v1",
+        ),
+        verify=False,
+    )
+    assert workspace._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+
+    organization = AgentOrganization.from_cloud_organization(
+        CloudOrganization(
+            organization_id="org-id",
+            bearer_token="test-token",
+            public_api_root="https://proxy.example/v1",
+        )
+    )
+    assert organization._credentials.public_api_root == "https://proxy.example/v1"  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     "convert",
     [
@@ -806,7 +940,9 @@ def test_conversion_rejects_non_public_cloud_api_roots(
     convert: Any,
 ) -> None:
     """A Cloud object with custom API roots cannot become an Agents object."""
-    with pytest.raises(PyAirbyteInputError, match="only available on Airbyte Cloud"):
+    with pytest.raises(
+        AirbyteAgentsUnavailableError, match="only available on Airbyte Cloud"
+    ):
         convert()
 
     assert captured_requests == []

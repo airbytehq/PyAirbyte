@@ -11,8 +11,9 @@ Airbyte Agents connectors expose read and write actions on individual entities, 
 one action at a time, rather than the batch record replication that `airbyte.cloud`
 provides. This module is that interface.
 
-Airbyte Cloud credentials authenticate against the Agents API, so no Agents-specific
-credentials or environment variables exist: the `AIRBYTE_CLOUD_*` variables are reused.
+Airbyte Cloud credentials authenticate against the Agents API, so the `AIRBYTE_CLOUD_*`
+variables are reused. Set `AIRBYTE_AGENTS_API_URL` to override the Agents API root when
+connecting through a proxy or local development endpoint.
 
 ## Usage Examples
 

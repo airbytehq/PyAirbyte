@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import pytest
-
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
     AirbyteTrustedExecutionRequiredError,

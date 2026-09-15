@@ -248,6 +248,12 @@ the public API URL has been overridden and the Config API cannot be derived
 from it automatically.
 """
 
+AGENTS_API_ROOT_ENV_VAR: str = "AIRBYTE_AGENTS_API_URL"
+"""Environment variable to override the Airbyte Agents API root.
+
+Normally unset: the Agents API is a hosted Airbyte Cloud service with a single root.
+"""
+
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
 

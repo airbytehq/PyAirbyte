@@ -8,6 +8,10 @@
 > for hosted servers) or when the include-modules setting explicitly names `agents`. Tool names,
 > arguments, and result shapes may change or be removed without notice between minor versions of
 > PyAirbyte. Pin an exact PyAirbyte version if you depend on them.
+>
+> These tools are also Cloud-only: they are hidden whenever
+> `AIRBYTE_CLOUD_API_URL` / `AIRBYTE_CLOUD_CONFIG_API_URL` are overridden, unless
+> `AIRBYTE_AGENTS_API_URL` is set.
 
 .. include:: ../../docs/mcp-generated/agents.md
 """
@@ -37,9 +41,11 @@ from airbyte.constants import (
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_ORGANIZATION_ID_HEADER,
@@ -324,6 +330,8 @@ def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentO
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
+        public_api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL),
+        config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
     )
 
 
@@ -349,6 +357,8 @@ def _get_agent_workspace(
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
         client_secret=get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET),
         bearer_token=get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN),
+        public_api_root=get_mcp_config(ctx, MCP_CONFIG_API_URL),
+        config_api_root=get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL),
     )
 
 

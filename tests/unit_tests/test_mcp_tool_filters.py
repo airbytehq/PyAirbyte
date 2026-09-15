@@ -10,6 +10,8 @@ import pytest
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_INSIDERS,
@@ -110,6 +112,39 @@ def _visible(module: str) -> bool:
             {"agents": True},
             id="include_agents_via_library_config",
         ),
+        pytest.param(
+            {
+                MCP_CONFIG_INSIDERS: "1",
+                MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
+            },
+            {"agents": False, "cloud": True},
+            id="api_url_override_hides_agents",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INSIDERS: "1",
+                MCP_CONFIG_CONFIG_API_URL: "https://airbyte.example.com/api/v1",
+            },
+            {"agents": False, "cloud": True},
+            id="config_api_url_override_hides_agents",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INCLUDE_MODULES: "agents",
+                MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
+            },
+            {"agents": False},
+            id="api_url_override_beats_include_list",
+        ),
+        pytest.param(
+            {
+                MCP_CONFIG_INSIDERS: "1",
+                MCP_CONFIG_API_URL: "https://api.airbyte.com/v1/",
+                MCP_CONFIG_CONFIG_API_URL: "https://cloud.airbyte.com/api/v1/",
+            },
+            {"agents": True},
+            id="public_cloud_roots_with_trailing_slash_keep_agents",
+        ),
     ],
 )
 def test_module_visibility(
@@ -123,6 +158,21 @@ def test_module_visibility(
     assert {
         module: _visible(module) for module in expected_visibility
     } == expected_visibility
+
+
+def test_explicit_agents_api_root_keeps_agents_visible(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """An explicit Agents API root keeps Agents tools visible on custom Cloud roots."""
+    monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, "1")
+    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
+    mcp_config.update({
+        MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1",
+        MCP_CONFIG_INSIDERS: "1",
+    })
+
+    assert _visible("agents")
 
 
 @pytest.mark.parametrize(
@@ -166,6 +216,12 @@ def test_module_visibility(
             {MCP_CONFIG_EXCLUDE_MODULES: "agents"},
             False,
             id="exclude_still_narrows_hosted_on",
+        ),
+        pytest.param(
+            "1",
+            {MCP_CONFIG_API_URL: "https://airbyte.example.com/api/public/v1"},
+            False,
+            id="api_url_override_beats_hosted_insiders_on",
         ),
         *(
             pytest.param(

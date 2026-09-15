@@ -17,8 +17,12 @@ from typing import TYPE_CHECKING, Any, Literal
 import requests
 
 from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte._util.deployment import (
+    get_agents_api_root_override,
+    is_agents_api_available,
+)
+from airbyte.constants import CLOUD_API_ROOT
+from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -26,10 +30,9 @@ if TYPE_CHECKING:
 
 
 _AGENTS_API_ROOT = "https://api.airbyte.ai/api/v1"
-"""The Airbyte Agents API root URL.
+"""The default hosted Airbyte Agents API root URL.
 
-This is deliberately private and not configurable: the Agents API is a hosted Airbyte
-service with a single root, so there is nothing for callers to override.
+The `AIRBYTE_AGENTS_API_URL` environment variable can override this root.
 """
 
 _REQUEST_TIMEOUT_SECONDS = 300
@@ -44,30 +47,39 @@ _MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
 
 
 def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
-    """Raise `PyAirbyteInputError` unless the credentials use the public Cloud API roots.
+    """Raise `AirbyteAgentsUnavailableError` unless an Agents API is available.
 
     The Agents API has a single hosted root, so an Agents object carries no API root of its
     own. Converting from a Cloud object that points somewhere other than public Airbyte
-    Cloud would therefore silently discard those roots, so the conversion is refused.
+    Cloud would therefore silently discard those roots, so the conversion is refused unless
+    `AIRBYTE_AGENTS_API_URL` explicitly configures the Agents API root.
     """
-    overridden = {
-        name: value
-        for name, value, default in (
-            ("api_root", credentials.public_api_root, CLOUD_API_ROOT),
-            ("config_api_root", credentials.config_api_root, CLOUD_CONFIG_API_ROOT),
-        )
-        if value is not None and value.rstrip("/") != default
-    }
-    if overridden:
-        raise PyAirbyteInputError(
+    if not is_agents_api_available(
+        public_api_root=credentials.public_api_root,
+        config_api_root=credentials.config_api_root,
+    ):
+        raise AirbyteAgentsUnavailableError(
             message="The Airbyte Agents API is only available on Airbyte Cloud.",
-            guidance=(
-                "Agents objects always use the hosted Agents API, so a custom Cloud API "
-                "root cannot be honored. Convert from a Cloud object using the public "
-                "Airbyte Cloud API roots instead."
-            ),
-            context=overridden,
+            context={
+                "api_root": credentials.public_api_root,
+                "config_api_root": credentials.config_api_root,
+            },
         )
+
+
+def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
+    """Resolve the Agents API root for `credentials`.
+
+    Resolution order:
+    1. `AIRBYTE_AGENTS_API_URL`, if set.
+    2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
+    3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
+    """
+    override = get_agents_api_root_override()
+    if override:
+        return override
+    check_public_cloud_api_roots(credentials)
+    return _AGENTS_API_ROOT
 
 
 def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
@@ -103,6 +115,7 @@ def make_agents_api_request(
     The `organization_id` is sent as the `X-Organization-Id` header, which the Agents API
     requires when the caller's credentials map to more than one organization.
     """
+    full_url = get_agents_api_root(credentials) + path
     headers: dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -112,7 +125,6 @@ def make_agents_api_request(
     if organization_id:
         headers["X-Organization-Id"] = organization_id
 
-    full_url = _AGENTS_API_ROOT + path
     response = requests.request(
         method=method,
         url=full_url,
