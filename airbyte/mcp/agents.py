@@ -867,8 +867,8 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "The read action to run against the entity type. "
                 "The `search` action is the connector's native API search, parallel to `get` "
                 "and `list`. "
-                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) in `api_args` and any value for `entity_type`; the `connector_id` is a "
+                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake or bigquery) in "
+                "`api_args` and any value for `entity_type`; the `connector_id` is a "
                 "destination listed by `list_agent_connectors`, and `SHOW TABLES` / `DESCRIBE "
                 "TABLE <name>` discover its tables and columns. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
@@ -999,8 +999,8 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
                 "The action to run against the entity type. "
                 "The `search` action is the connector's native API search, parallel to `get` "
                 "and `list`. "
-                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) in `api_args` and any value for `entity_type`. The `download` action "
+                "For `sql_select`, pass `sql` and `sql_dialect` (snowflake or bigquery) in "
+                "`api_args` and any value for `entity_type`. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
