@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import requests
 from airbyte.agents import _api_util
+from airbyte.agents import _destination_docs as destination_docs
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
@@ -1353,3 +1354,244 @@ def test_agent_skill_read_docs_keeps_listed_info(
     assert skill.info is listed_info
     assert skill.info.summary == "Listed summary"
     assert skill.info.tags == ["vcs"]
+
+
+class _FakeDestination:
+    """Minimal stand-in for `CloudDestination` for the destination docs builders."""
+
+    def __init__(
+        self,
+        connector_id: str,
+        name: str,
+        definition_id: str,
+        connections: list[Any] | None = None,
+        sources: list[Any] | None = None,
+        fail_on_connections: bool = False,
+    ) -> None:
+        self.connector_id = connector_id
+        self.name = name
+        self.definition_id = definition_id
+        self._connections = connections or []
+        self._sources = sources or []
+        self._fail_on_connections = fail_on_connections
+        self.workspace = type(
+            "_FakeWorkspace",
+            (),
+            {
+                "workspace_id": "workspace-1",
+                "list_connections": lambda _self: self.list_connections(),
+                "list_sources": lambda _self: list(self._sources),
+            },
+        )()
+
+    def list_connections(self) -> list[Any]:
+        if self._fail_on_connections:
+            raise AssertionError("list_connections must not be called")
+        return list(self._connections)
+
+
+class _FakeConnection:
+    """Minimal stand-in for `CloudConnection` for the destination docs builders."""
+
+    def __init__(
+        self,
+        connection_id: str,
+        name: str,
+        destination_id: str,
+        source_name: str = "GitHub",
+        source_id: str = "source-1",
+        stream_names: list[str] | None = None,
+        table_prefix: str = "",
+    ) -> None:
+        self.connection_id = connection_id
+        self.name = name
+        self.destination_id = destination_id
+        self.source_id = source_id
+        self.source_name = source_name
+        self.stream_names = stream_names or []
+        self.table_prefix = table_prefix
+
+    @property
+    def source(self) -> Any:
+        raise AssertionError("source must not be fetched lazily")
+
+
+def _snowflake_destination(**kwargs: Any) -> _FakeDestination:
+    return _FakeDestination(
+        connector_id="dest-1",
+        name="Snowflake dev",
+        definition_id=destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        **kwargs,
+    )
+
+
+def test_connector_id_from_skill_id_strips_prefixes() -> None:
+    assert (
+        destination_docs.connector_id_from_skill_id("connector-destination:abc")
+        == "abc"
+    )
+    assert destination_docs.connector_id_from_skill_id("connector-source:abc") == "abc"
+    assert destination_docs.connector_id_from_skill_id("abc") == "abc"
+
+
+def test_destination_skill_id() -> None:
+    assert destination_docs.destination_skill_id("abc") == "connector-destination:abc"
+
+
+def test_build_destination_connector_details() -> None:
+    destination = _snowflake_destination()
+
+    details = destination_docs.build_destination_connector_details(
+        cast(Any, destination)
+    )
+
+    assert details.connector_id == "dest-1"
+    assert details.name == "Snowflake dev"
+    assert details.workspace_id == "workspace-1"
+    assert details.docs_skill_id == "connector-destination:dest-1"
+    assert details.warnings == []
+
+
+def test_build_destination_skill_docs_outline_without_connections_lookup() -> None:
+    destination = _snowflake_destination(fail_on_connections=True)
+
+    docs = destination_docs.build_destination_skill_docs(cast(Any, destination))
+
+    assert docs.metadata.id == "connector-destination:dest-1"
+    assert docs.metadata.kind == "connector_destination"
+    assert docs.section_id is None
+    assert [section.id for section in docs.outline] == [
+        destination_docs.SECTION_SQL_PASSTHROUGH,
+        destination_docs.SECTION_CONNECTIONS,
+        destination_docs.SECTION_STREAMS,
+    ]
+    assert all(section.available for section in docs.outline)
+    assert docs.content
+
+
+@pytest.mark.parametrize(
+    ("definition_id", "dialect"),
+    [
+        pytest.param(
+            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            "snowflake",
+            id="snowflake",
+        ),
+        pytest.param(
+            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            "bigquery",
+            id="bigquery",
+        ),
+    ],
+)
+def test_build_destination_skill_docs_sql_passthrough_section(
+    definition_id: str,
+    dialect: str,
+) -> None:
+    destination = _FakeDestination(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=definition_id,
+    )
+
+    docs = destination_docs.build_destination_skill_docs(
+        cast(Any, destination),
+        section=destination_docs.SECTION_SQL_PASSTHROUGH,
+    )
+
+    rendered = " ".join(
+        str(block.get("text") or block.get("code")) for block in docs.content
+    )
+    assert "SHOW TABLES" in rendered
+    assert f'"sql_dialect": "{dialect}"' in rendered
+    assert "sql_select" in rendered
+
+
+def test_build_destination_skill_docs_connections_section_filters_destination() -> None:
+    matching = _FakeConnection(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-1",
+        source_name="GitHub",
+        source_id="source-1",
+        table_prefix="raw_",
+    )
+    other = _FakeConnection(
+        connection_id="conn-2",
+        name="Slack elsewhere",
+        destination_id="dest-2",
+    )
+    destination = _snowflake_destination(
+        connections=[matching, other],
+        sources=[
+            type("_FakeSource", (), {"connector_id": "source-1", "name": "GitHub"})()
+        ],
+    )
+
+    docs = destination_docs.build_destination_skill_docs(
+        cast(Any, destination),
+        section=destination_docs.SECTION_CONNECTIONS,
+    )
+
+    rendered = str(docs.content)
+    assert "GitHub to Snowflake" in rendered
+    assert "conn-1" in rendered
+    assert "GitHub" in rendered
+    assert "source-1" in rendered
+    assert "'raw_'" in rendered
+    assert "Slack elsewhere" not in rendered
+
+
+def test_build_destination_skill_docs_connections_section_empty() -> None:
+    destination = _snowflake_destination()
+
+    docs = destination_docs.build_destination_skill_docs(
+        cast(Any, destination),
+        section=destination_docs.SECTION_CONNECTIONS,
+    )
+
+    assert docs.content[0]["type"] == "paragraph"
+    assert "No connections" in str(docs.content)
+
+
+def test_build_destination_skill_docs_streams_section() -> None:
+    connection = _FakeConnection(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-1",
+        stream_names=["issues", "pull_requests"],
+        table_prefix="raw_",
+    )
+    destination = _snowflake_destination(connections=[connection])
+
+    docs = destination_docs.build_destination_skill_docs(
+        cast(Any, destination),
+        section=destination_docs.SECTION_STREAMS,
+    )
+
+    rendered = str(docs.content)
+    assert "GitHub to Snowflake" in rendered
+    assert "issues" in rendered
+    assert "pull_requests" in rendered
+    assert "raw_" in rendered
+
+
+def test_build_destination_skill_docs_streams_section_empty() -> None:
+    destination = _snowflake_destination()
+
+    docs = destination_docs.build_destination_skill_docs(
+        cast(Any, destination),
+        section=destination_docs.SECTION_STREAMS,
+    )
+
+    assert "No connections" in str(docs.content)
+
+
+def test_build_destination_skill_docs_rejects_unknown_section() -> None:
+    destination = _snowflake_destination()
+
+    with pytest.raises(PyAirbyteInputError, match="sql-passthrough"):
+        destination_docs.build_destination_skill_docs(
+            cast(Any, destination),
+            section="bogus",
+        )

@@ -30,10 +30,17 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
+from airbyte.agents._destination_docs import (
+    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    build_destination_connector_details,
+    build_destination_skill_docs,
+    connector_id_from_skill_id,
+)
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
 from airbyte.agents.models import AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
+from airbyte.cloud.connectors import CloudDestination
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
@@ -317,6 +324,128 @@ def _agents_access_message(error: AirbyteError) -> str | None:
     return None
 
 
+def _is_not_found(error: AirbyteError) -> bool:
+    """Return whether the Agents API reported the connector or skill as not found."""
+    return (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND
+
+
+def _resolve_cloud_destination(
+    ctx: Context,
+    connector_id: str,
+    workspace_id: str | None = None,
+    organization_id: str | None = None,
+) -> CloudDestination | None:
+    """Look a connector ID up in the Cloud workspace's destinations.
+
+    Destinations are targets of `sql_select` and are not listed by the Agents API. Returns
+    `None` when the ID does not match any destination in the workspace; `list_destinations`
+    is used so a bogus ID does not raise on lazy fetch.
+    """
+    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+    for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations():
+        if destination.connector_id == connector_id:
+            return destination
+    return None
+
+
+def _inspect_destination_fallback(
+    ctx: Context,
+    connector_id: str,
+    workspace_id: str | None = None,
+    organization_id: str | None = None,
+) -> AgentConnectorDetailsResult:
+    """Build an inspect result for a connector ID the Agents API returned 404 for.
+
+    SQL passthrough destinations get built-in details; anything else gets a message
+    instead of an error.
+    """
+    resolved_workspace_id = _get_agent_workspace(ctx, workspace_id, organization_id).workspace_id
+    destination = _resolve_cloud_destination(ctx, connector_id, workspace_id, organization_id)
+    if (
+        destination is not None
+        and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+    ):
+        details = build_destination_connector_details(destination)
+        return AgentConnectorDetailsResult(
+            connector_id=details.connector_id,
+            connector_name=details.name,
+            workspace_id=details.workspace_id,
+            docs_skill_id=details.docs_skill_id,
+            context_store_entities=[],
+            warnings=[],
+        )
+    if destination is not None:
+        message = (
+            f"Destination '{destination.name}' (definition {destination.definition_id}) is not "
+            "a SQL passthrough destination; only Snowflake and BigQuery destinations support "
+            "`sql_select`."
+        )
+    else:
+        message = (
+            f"Connector {connector_id} was not found in the Agents API and is not a destination in "
+            f"workspace {resolved_workspace_id}. Use `list_agent_connectors` or "
+            f"`read_agent_skill_docs(skill_id='connector-source:{connector_id}')`."
+        )
+    return AgentConnectorDetailsResult(
+        connector_id=connector_id,
+        context_store_entities=[],
+        warnings=[],
+        message=message,
+    )
+
+
+def _destination_skill_docs_fallback(
+    ctx: Context,
+    skill_id: str,
+    section: str | None,
+    workspace_id: str | None = None,
+) -> AgentSkillDocsResult:
+    """Build a skill docs result for a skill ID the Agents API returned 404 for."""
+    connector_id = connector_id_from_skill_id(skill_id)
+    resolved_workspace_id = _get_agent_workspace(ctx, workspace_id).workspace_id
+    destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
+    if (
+        destination is not None
+        and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+    ):
+        docs = build_destination_skill_docs(destination, section=section)
+        return AgentSkillDocsResult(
+            skill_id=docs.metadata.id,
+            title=docs.metadata.title,
+            section_id=docs.section_id,
+            outline=[
+                AgentSkillSectionResult(
+                    section_id=docs_section.id,
+                    title=docs_section.title,
+                    summary=docs_section.summary,
+                    available=docs_section.available,
+                )
+                for docs_section in docs.outline
+            ],
+            content=docs.content,
+            warnings=[str(warning) for warning in docs.metadata.warnings],
+        )
+    if destination is not None:
+        message = (
+            f"Destination '{destination.name}' (definition {destination.definition_id}) is not "
+            "a SQL passthrough destination; only Snowflake and BigQuery destinations support "
+            "`sql_select`."
+        )
+    else:
+        message = (
+            f"Skill {skill_id} was not found in the Agents API and connector {connector_id} "
+            f"is not a destination in workspace {resolved_workspace_id}."
+        )
+    return AgentSkillDocsResult(
+        skill_id=skill_id,
+        section_id=section,
+        outline=[],
+        content=[],
+        warnings=[],
+        message=message,
+    )
+
+
 def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentOrganization:
     """Build an `AgentOrganization` from MCP config."""
     return AgentOrganization(
@@ -549,7 +678,11 @@ def inspect_agent_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the Airbyte Agents connector."),
+        Field(
+            description=(
+                "The ID of a supported Airbyte source or destination with agent features enabled."
+            ),
+        ),
     ],
     *,
     workspace_id: Annotated[
@@ -569,13 +702,20 @@ def inspect_agent_connector(
 ) -> AgentConnectorDetailsResult:
     """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
 
-    Call this before `execute_agent_connector` to learn what the connector exposes. The
-    connector must belong to the given workspace. The reported `docs_skill_id` can be
-    passed to `read_agent_skill_docs` to read the connector's usage docs.
+    Call this before `execute_agent_connector` to learn what the connector exposes.
+    Airbyte Cloud destinations in the workspace are also accepted and resolve to
+    built-in docs under `connector-destination:<id>`. The reported `docs_skill_id`
+    can be passed to `read_agent_skill_docs` to read the connector's usage docs.
     """
     try:
-        details = _get_agent_connector(ctx, connector_id, workspace_id, organization_id).inspect()
+        workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+        details = workspace.get_connector(connector_id).inspect()
     except AirbyteError as error:
+        if (
+            _is_not_found(error)
+            or error.get_message() == "No connector found with the given ID or name."
+        ):
+            return _inspect_destination_fallback(ctx, connector_id, workspace_id, organization_id)
         message = _agents_access_message(error)
         if message is None:
             raise
@@ -963,7 +1103,8 @@ def read_agent_skill_docs(
         Field(
             description=(
                 "Skill ID, e.g. the `docs_skill_id` reported by `inspect_agent_connector`, "
-                "or a `skill_id` from `list_agent_skills`."
+                "or a `skill_id` from `list_agent_skills`. SQL passthrough destinations use "
+                "`connector-destination:<destination_id>`."
             ),
         ),
     ],
@@ -995,6 +1136,8 @@ def read_agent_skill_docs(
     try:
         docs = workspace.read_skill_docs(skill_id, section=section)
     except AirbyteError as error:
+        if _is_not_found(error):
+            return _destination_skill_docs_fallback(ctx, skill_id, section, workspace_id)
         message = _agents_access_message(error)
         if message is None:
             raise
