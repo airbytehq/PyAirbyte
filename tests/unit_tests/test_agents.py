@@ -9,7 +9,7 @@ from typing import Any, cast
 import pytest
 import requests
 from airbyte.agents import _api_util
-from airbyte.agents import destination_docs
+from airbyte.agents import _destination_docs as destination_docs
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
