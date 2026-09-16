@@ -133,6 +133,7 @@ class AgentWorkspace:
                 connector_id=info.id,
                 name=info.name,
                 credentials=self._credentials,
+                workspace_id=self.workspace_id,
             )
             for info in (
                 AgentConnectorInfo.model_validate(record)
@@ -225,7 +226,11 @@ class AgentWorkspace:
         )
 
         if lookup.connector_id and not lookup.name:
-            return AgentConnector(connector_id=lookup.connector_id, credentials=self._credentials)
+            return AgentConnector(
+                connector_id=lookup.connector_id,
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+            )
 
         connectors = self.list_connectors()
         if lookup.connector_id:

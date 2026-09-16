@@ -216,7 +216,9 @@ class AgentConnectorMetadata(BaseModel):
     """Whether more entities are available after this page, when the connector reports it."""
 
     end_cursor: str | None = None
-    """The cursor to pass as `cursor` to fetch the next page, when one is available."""
+    """The cursor for the next page, when one is available. Pass it as `cursor` for Context Store
+    `search`, or as the connector's own cursor argument in `api_args` for direct connector
+    actions."""
 
 
 class AgentExecuteResult(BaseModel):
