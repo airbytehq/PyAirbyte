@@ -1353,10 +1353,6 @@ def test_inspect_destination_fallback_handles_get_connector_miss(
 ) -> None:
     """An ID rejected by `get_connector` itself is reported as not found, not raised."""
 
-    class _MissingConnector:
-        def inspect(self) -> Any:
-            raise AssertionError("inspect must not run")
-
     def _raising_get_connector(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         raise AirbyteError(message="No connector found with the given ID or name.")
 
