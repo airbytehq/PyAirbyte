@@ -359,6 +359,7 @@ def _inspect_destination_fallback(
     SQL passthrough destinations get built-in details; anything else gets a message
     instead of an error.
     """
+    resolved_workspace_id = _get_agent_workspace(ctx, workspace_id, organization_id).workspace_id
     destination = _resolve_cloud_destination(ctx, connector_id, workspace_id, organization_id)
     if (
         destination is not None
@@ -382,7 +383,7 @@ def _inspect_destination_fallback(
     else:
         message = (
             f"Connector {connector_id} was not found in the Agents API and is not a destination in "
-            f"workspace {workspace_id}. Use `list_agent_connectors` or "
+            f"workspace {resolved_workspace_id}. Use `list_agent_connectors` or "
             f"`read_agent_skill_docs(skill_id='connector-source:{connector_id}')`."
         )
     return AgentConnectorDetailsResult(
@@ -401,6 +402,7 @@ def _destination_skill_docs_fallback(
 ) -> AgentSkillDocsResult:
     """Build a skill docs result for a skill ID the Agents API returned 404 for."""
     connector_id = connector_id_from_skill_id(skill_id)
+    resolved_workspace_id = _get_agent_workspace(ctx, workspace_id).workspace_id
     destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
     if (
         destination is not None
@@ -432,7 +434,7 @@ def _destination_skill_docs_fallback(
     else:
         message = (
             f"Skill {skill_id} was not found in the Agents API and connector {connector_id} "
-            f"is not a destination in workspace {workspace_id}."
+            f"is not a destination in workspace {resolved_workspace_id}."
         )
     return AgentSkillDocsResult(
         skill_id=skill_id,

@@ -174,8 +174,8 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
         {
             "type": "paragraph",
             "text": (
-                "Notes: send a single read-only statement per call. Results are JSON rows; "
-                "for large results use `page_size` and `cursor` if the action supports them."
+                "Send a single read-only statement per call and add a `LIMIT` clause to keep "
+                "result payloads small."
             ),
         },
     ]
