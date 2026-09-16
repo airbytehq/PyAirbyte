@@ -430,6 +430,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             exclude_fields=resolve_list_of_strings(exclude_fields),
             page_size=page_size,
             cursor=cursor,
+            workspace_id=workspace_id,
             intent=intent,
         )
     except AirbyteError as error:

@@ -216,6 +216,7 @@ class AgentConnector:
         exclude_fields: list[str] | None = None,
         page_size: int | None = None,
         cursor: str | None = None,
+        workspace_id: str | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
     ) -> AgentExecuteResult:
@@ -233,8 +234,9 @@ class AgentConnector:
           Store `search` uses `limit` and `cursor`, `sql_select` uses the top-level `cursor`, and
           direct connector actions use their own pagination arguments in `api_args`. Pass the
           result cursor according to the action type.
-        - `sql_select` is sent the connector's workspace as `workspace_id` unless `api_args`
-          already names a workspace.
+        - `workspace_id` selects the workspace an action runs against. It defaults to the
+          connector's workspace and is currently sent for `sql_select`, the only action the
+          Agents API scopes by workspace; direct connector actions are scoped by the connector.
         - `skip_truncation` disables the Agents API's default truncation of large payloads.
         - `intent` is a free-text description of why the action is being run, which some
           connectors use to refine results.
@@ -264,14 +266,15 @@ class AgentConnector:
 
         action_value = action.value if isinstance(action, Enum) else action
         params = _build_params(api_args=api_args, page_size=page_size, cursor=cursor)
-        if (
-            action_value == AgentReadAction.SQL_SELECT.value
-            and self.workspace_id is not None
-            and params.get("workspace_id") is None
-            and params.get("workspace_name") is None
-        ):
-            params.pop("workspace_name", None)
-            params["workspace_id"] = self.workspace_id
+        if action_value == AgentReadAction.SQL_SELECT.value:
+            resolved_workspace_id = workspace_id or self.workspace_id
+            if (
+                resolved_workspace_id is not None
+                and params.get("workspace_id") is None
+                and params.get("workspace_name") is None
+            ):
+                params.pop("workspace_name", None)
+                params["workspace_id"] = resolved_workspace_id
         request_body: dict[str, Any] = {
             "entity": entity_type,
             "action": action_value,

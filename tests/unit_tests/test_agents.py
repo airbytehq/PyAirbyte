@@ -423,35 +423,47 @@ _SQL = {"sql": "SELECT 1", "sql_dialect": "trino"}
 
 
 @pytest.mark.parametrize(
-    ("action", "api_args", "expected_params"),
+    ("action", "api_args", "workspace_id", "expected_params"),
     [
         pytest.param(
             "sql_select",
             _SQL,
+            None,
             {**_SQL, "workspace_id": "connector-ws"},
-            id="sql_select-adds-connector-workspace",
+            id="sql_select-defaults-to-connector-workspace",
+        ),
+        pytest.param(
+            "sql_select",
+            _SQL,
+            "explicit-ws",
+            {**_SQL, "workspace_id": "explicit-ws"},
+            id="sql_select-top-level-workspace_id-wins",
         ),
         pytest.param(
             "sql_select",
             {**_SQL, "workspace_name": "x"},
+            None,
             {**_SQL, "workspace_name": "x"},
             id="sql_select-keeps-explicit-workspace_name",
         ),
         pytest.param(
             "sql_select",
             {**_SQL, "workspace_id": "override"},
+            None,
             {**_SQL, "workspace_id": "override"},
             id="sql_select-keeps-explicit-workspace_id",
         ),
         pytest.param(
             "sql_select",
             {**_SQL, "workspace_name": None},
+            None,
             {**_SQL, "workspace_id": "connector-ws"},
             id="sql_select-replaces-null-workspace_name",
         ),
         pytest.param(
             "list",
             None,
+            "explicit-ws",
             {},
             id="non-sql_select-untouched",
         ),
@@ -461,10 +473,16 @@ def test_connector_workspace_injection(
     captured_requests: list[dict[str, Any]],
     action: str,
     api_args: dict[str, Any] | None,
+    workspace_id: str | None,
     expected_params: dict[str, Any],
 ) -> None:
     """The connector workspace is sent only for `sql_select` without an explicit selector."""
-    _connector(workspace_id="connector-ws").execute("records", action, api_args)
+    _connector(workspace_id="connector-ws").execute(
+        "records",
+        action,
+        api_args,
+        workspace_id=workspace_id,
+    )
 
     assert captured_requests[0]["json"]["params"] == expected_params
 
