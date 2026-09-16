@@ -680,8 +680,7 @@ def inspect_agent_connector(
         str,
         Field(
             description=(
-                "The ID of an Airbyte Agents connector, or of an Airbyte Cloud destination "
-                "(SQL passthrough targets such as Snowflake/BigQuery)."
+                "The ID of a supported Airbyte source or destination with agent features enabled."
             ),
         ),
     ],
