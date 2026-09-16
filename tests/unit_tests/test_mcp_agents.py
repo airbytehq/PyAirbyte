@@ -1045,3 +1045,329 @@ def test_workspace_fallback_ignores_parent_organization_lookup_error(
 
     assert workspace.workspace_id == "ws-default"
     assert workspace.organization_id is None
+
+
+class _FakeDestinationForDocs:
+    """Stand-in for `CloudDestination` in the skill-docs fallback tests."""
+
+    def __init__(
+        self,
+        connector_id: str,
+        name: str,
+        definition_id: str,
+        connections: list[Any] | None = None,
+    ) -> None:
+        self.connector_id = connector_id
+        self.name = name
+        self.definition_id = definition_id
+        self.connections_looked_up = False
+        self._connections = connections or []
+        self.workspace = type(
+            "_FakeWorkspace",
+            (),
+            {
+                "workspace_id": "workspace-1",
+                "list_connections": lambda _self: self.list_connections(),
+            },
+        )()
+
+    def list_connections(self) -> list[Any]:
+        self.connections_looked_up = True
+        return list(self._connections)
+
+
+class _FakeConnectionForDocs:
+    """Stand-in for `CloudConnection` in the skill-docs fallback tests."""
+
+    def __init__(
+        self,
+        connection_id: str,
+        name: str,
+        destination_id: str,
+        stream_names: list[str] | None = None,
+        table_prefix: str = "",
+    ) -> None:
+        self.connection_id = connection_id
+        self.name = name
+        self.destination_id = destination_id
+        self.source_id = "source-1"
+        self.source = type("_FakeSource", (), {"name": "GitHub"})()
+        self.stream_names = stream_names or []
+        self.table_prefix = table_prefix
+
+
+def _patch_destination_404(
+    monkeypatch: pytest.MonkeyPatch,
+    destinations: list[_FakeDestinationForDocs],
+) -> None:
+    """Make the Agents layer 404 and the Cloud workspace serve the given destinations."""
+    not_found = _agents_error(404)
+
+    class _NotFoundConnector:
+        def inspect(self) -> Any:
+            raise not_found
+
+    class _NotFoundWorkspace:
+        workspace_id = "workspace-1"
+
+        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise not_found
+
+    class _CloudWorkspaceWithDestinations:
+        def list_destinations(self) -> list[Any]:
+            return list(destinations)
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _NotFoundConnector(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _NotFoundWorkspace(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _CloudWorkspaceWithDestinations(),  # noqa: ARG005
+    )
+
+
+_SNOWFLAKE_DESTINATION = _FakeDestinationForDocs(
+    connector_id="dest-snowflake",
+    name="Snowflake dev",
+    definition_id="424892c4-daac-4491-b35d-c6688ba547ba",
+)
+_UNSUPPORTED_DESTINATION = _FakeDestinationForDocs(
+    connector_id="dest-null",
+    name="End-to-End Testing (/dev/null)",
+    definition_id="f7a7d195-377f-cf5b-70a5-be6b819019dc",
+)
+
+
+def _inspect(connector_id: str) -> agents_mcp.AgentConnectorDetailsResult:
+    return agents_mcp.inspect_agent_connector(
+        ctx=cast(Context, object()),
+        connector_id=connector_id,
+        workspace_id="workspace-1",
+        organization_id=None,
+    )
+
+
+def _read_docs(
+    skill_id: str,
+    section: str | None = None,
+) -> agents_mcp.AgentSkillDocsResult:
+    return agents_mcp.read_agent_skill_docs(
+        ctx=cast(Context, object()),
+        skill_id=skill_id,
+        section=section,
+        workspace_id="workspace-1",
+    )
+
+
+def test_inspect_destination_fallback_reports_docs_skill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SQL passthrough destination gets built-in details instead of a 404."""
+    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    result = _inspect("dest-snowflake")
+
+    assert result.connector_id == "dest-snowflake"
+    assert result.connector_name == "Snowflake dev"
+    assert result.docs_skill_id == "connector-destination:dest-snowflake"
+    assert result.message is None
+
+
+def test_inspect_destination_fallback_reports_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-SQL-passthrough destination gets a message instead of a 404."""
+    _patch_destination_404(monkeypatch, [_UNSUPPORTED_DESTINATION])
+
+    result = _inspect("dest-null")
+
+    assert result.message is not None
+    assert "not a SQL passthrough destination" in result.message
+    assert result.docs_skill_id is None
+
+
+def test_inspect_destination_fallback_reports_unknown_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ID that is neither a connector nor a destination gets a message, not a 404."""
+    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    result = _inspect("dest-unknown")
+
+    assert result.message is not None
+    assert "not found" in result.message
+
+
+def test_read_docs_destination_fallback_outline_skips_connections_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The outline response must not hit the Cloud connections listing."""
+    destination = _FakeDestinationForDocs(
+        connector_id="dest-snowflake",
+        name="Snowflake dev",
+        definition_id="424892c4-daac-4491-b35d-c6688ba547ba",
+    )
+    _patch_destination_404(monkeypatch, [destination])
+
+    result = _read_docs("connector-destination:dest-snowflake")
+
+    assert [section.section_id for section in result.outline] == [
+        "sql-passthrough",
+        "connections",
+        "streams",
+    ]
+    assert result.content
+    assert not destination.connections_looked_up
+
+
+@pytest.mark.parametrize(
+    ("definition_id", "dialect"),
+    [
+        pytest.param(
+            "424892c4-daac-4491-b35d-c6688ba547ba", "snowflake", id="snowflake"
+        ),
+        pytest.param("22f6c74f-5699-40ff-833c-4a879ea40133", "bigquery", id="bigquery"),
+    ],
+)
+def test_read_docs_destination_fallback_sql_passthrough_section(
+    monkeypatch: pytest.MonkeyPatch,
+    definition_id: str,
+    dialect: str,
+) -> None:
+    _patch_destination_404(
+        monkeypatch,
+        [
+            _FakeDestinationForDocs(
+                connector_id="dest-1",
+                name="Warehouse",
+                definition_id=definition_id,
+            )
+        ],
+    )
+
+    result = _read_docs("connector-destination:dest-1", section="sql-passthrough")
+
+    rendered = str(result.content)
+    assert "SHOW TABLES" in rendered
+    assert f'"sql_dialect": "{dialect}"' in rendered
+
+
+def test_read_docs_destination_fallback_connections_and_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matching = _FakeConnectionForDocs(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-snowflake",
+        stream_names=["issues"],
+        table_prefix="raw_",
+    )
+    other = _FakeConnectionForDocs(
+        connection_id="conn-2",
+        name="Slack elsewhere",
+        destination_id="dest-elsewhere",
+    )
+    _patch_destination_404(
+        monkeypatch,
+        [
+            _FakeDestinationForDocs(
+                connector_id="dest-snowflake",
+                name="Snowflake dev",
+                definition_id="424892c4-daac-4491-b35d-c6688ba547ba",
+                connections=[matching, other],
+            )
+        ],
+    )
+
+    connections_result = _read_docs(
+        "connector-destination:dest-snowflake", section="connections"
+    )
+    rendered = str(connections_result.content)
+    assert "GitHub to Snowflake" in rendered
+    assert "conn-1" in rendered
+    assert "Slack elsewhere" not in rendered
+
+    streams_result = _read_docs(
+        "connector-destination:dest-snowflake", section="streams"
+    )
+    rendered = str(streams_result.content)
+    assert "GitHub to Snowflake" in rendered
+    assert "issues" in rendered
+
+
+def test_read_docs_destination_fallback_empty_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    result = _read_docs("connector-destination:dest-snowflake", section="connections")
+
+    assert "No connections" in str(result.content)
+
+
+def test_read_docs_destination_fallback_source_prefix_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`connector-source:<destination id>` resolves the destination as well."""
+    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    result = _read_docs("connector-source:dest-snowflake")
+
+    assert result.message is None
+    assert result.content
+
+
+def test_read_docs_destination_fallback_rejects_unknown_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    with pytest.raises(PyAirbyteInputError, match="sql-passthrough"):
+        _read_docs("connector-destination:dest-snowflake", section="bogus")
+
+
+def test_read_docs_destination_fallback_reports_unsupported_and_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_destination_404(monkeypatch, [_UNSUPPORTED_DESTINATION])
+
+    unsupported = _read_docs("connector-destination:dest-null")
+    assert unsupported.message is not None
+    assert "not a SQL passthrough destination" in unsupported.message
+
+    unknown = _read_docs("connector-destination:dest-unknown")
+    assert unknown.message is not None
+    assert "not found" in unknown.message
+
+
+def test_inspect_destination_fallback_handles_get_connector_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ID rejected by `get_connector` itself is reported as not found, not raised."""
+
+    class _MissingConnector:
+        def inspect(self) -> Any:
+            raise AssertionError("inspect must not run")
+
+    def _raising_get_connector(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        raise AirbyteError(message="No connector found with the given ID or name.")
+
+    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        _raising_get_connector,
+    )
+
+    result = _inspect("dest-unknown")
+
+    assert result.message is not None
+    assert "not found" in result.message
