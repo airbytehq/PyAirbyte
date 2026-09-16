@@ -24,7 +24,7 @@ __all__: list[str] = []
 
 import json
 from http import HTTPStatus
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from airbyte.agents._destination_docs import (
     SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     build_destination_connector_details,
     build_destination_skill_docs,
     connector_id_from_skill_id,
@@ -114,6 +115,24 @@ AGENTS_FORBIDDEN_MESSAGE = (
     "organization does not have an Airbyte Agents subscription, or these credentials lack "
     "access to this workspace. Ask the user to confirm which applies rather than retrying."
 )
+"""Fallback explanation for a 403 whose response body carries no `message`/`detail`."""
+
+AGENTS_ACTOR_NOT_ENABLED_DETAIL = "Actor is not enabled for Agents access."
+"""The Agents API `detail` when a source or destination exists but is not toggled on."""
+
+AGENTS_ENABLE_ACTOR_GUIDANCE = (
+    "The connector or destination exists in the Airbyte Cloud workspace but has not been "
+    "enabled for Agents access. An organization admin must enable it in Airbyte Cloud under "
+    "Settings -> Context layer, by selecting the workspace and turning on the toggle for that "
+    "source or destination. Do not retry until the user confirms it has been enabled."
+)
+AGENTS_DESTINATION_ACCESS_NOTE = (
+    'Query with `execute_agent_connector_ro` and `action="sql_select"` only; `inspect` returns '
+    "built-in docs and `SHOW TABLES` / `DESCRIBE TABLE` discover tables and columns. If "
+    "`sql_select` returns `access_denied`, an organization admin must enable the destination "
+    "in Airbyte Cloud under Settings -> Context layer (workspace -> Destinations toggle)."
+)
+"""Attached to destinations in `list_agent_connectors`, whose enabled state is not exposed."""
 
 
 class AgentWorkspaceResult(BaseModel):
@@ -147,6 +166,18 @@ class AgentConnectorResult(BaseModel):
 
     connector_name: str | None = None
     """Display name of the connector."""
+
+    connector_kind: Literal["source", "destination"] = "source"
+    """`source` for Agents API connectors; `destination` for SQL passthrough destinations."""
+
+    supported_actions: list[str] | None = None
+    """Actions the connector supports, when limited. Destinations support only `sql_select`."""
+
+    sql_dialect: str | None = None
+    """The `sql_dialect` to pass in `api_args` for `sql_select`. Destinations only."""
+
+    note: str | None = None
+    """How to use this connector, when it differs from the standard Agents flow."""
 
 
 class AgentConnectorListResult(BaseModel):
@@ -316,11 +347,44 @@ def _agents_access_message(error: AirbyteError) -> str | None:
     Returns `None` when the failure is not an authorization failure, so the caller can
     re-raise it with a bare `raise` and keep the original traceback.
     """
-    status_code = (error.context or {}).get("status_code")
+    context = error.context or {}
+    status_code = context.get("status_code")
     if status_code == HTTPStatus.UNAUTHORIZED:
         return AGENTS_UNAUTHORIZED_MESSAGE
     if status_code == HTTPStatus.FORBIDDEN:
-        return AGENTS_FORBIDDEN_MESSAGE
+        detail = _agents_error_detail(context.get("response_text"))
+        if detail is None:
+            return AGENTS_FORBIDDEN_MESSAGE
+        if detail == AGENTS_ACTOR_NOT_ENABLED_DETAIL:
+            return f"{detail} {AGENTS_ENABLE_ACTOR_GUIDANCE}"
+        return f"The Airbyte Agents API denied access: {detail}"
+    return None
+
+
+def _agents_error_detail(response_text: object) -> str | None:
+    """Extract the human-readable reason from an Agents API error body.
+
+    The API wraps `HTTPException.detail` as `{"message": ..., "errors": [{"message": ...}]}`;
+    plain FastAPI bodies use `{"detail": ...}`. Returns `None` for anything else, including
+    non-JSON bodies, so the caller falls back to the generic explanation.
+    """
+    if not isinstance(response_text, str) or not response_text.strip():
+        return None
+    try:
+        body = json.loads(response_text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    for key in ("message", "detail"):
+        value = body.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    errors = body.get("errors")
+    if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+        value = errors[0].get("message")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return None
 
 
@@ -647,7 +711,12 @@ def list_agent_connectors(
         ),
     ],
 ) -> AgentConnectorListResult:
-    """List the connectors configured in an Airbyte Agents workspace."""
+    """List the connectors configured in an Airbyte Agents workspace.
+
+    Sources come from the Agents API. SQL passthrough destinations (Snowflake, BigQuery) in
+    the Cloud workspace are appended with `connector_kind="destination"`; they support only
+    the `sql_select` action of `execute_agent_connector_ro`.
+    """
     workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
     try:
         connectors = workspace.list_connectors()
@@ -657,14 +726,41 @@ def list_agent_connectors(
             raise
         return AgentConnectorListResult(connectors=[], message=message)
 
-    return AgentConnectorListResult(
-        connectors=[
-            AgentConnectorResult(
-                connector_id=connector.connector_id,
-                connector_name=connector.name,
-            )
-            for connector in connectors
-        ]
+    results = [
+        AgentConnectorResult(
+            connector_id=connector.connector_id,
+            connector_name=connector.name,
+        )
+        for connector in connectors
+    ]
+    results.extend(
+        _destination_connector_result(destination)
+        for destination in _list_sql_passthrough_destinations(ctx, workspace.workspace_id)
+    )
+    return AgentConnectorListResult(connectors=results)
+
+
+def _list_sql_passthrough_destinations(
+    ctx: Context,
+    workspace_id: str,
+) -> list[CloudDestination]:
+    """Return the Cloud workspace's destinations that `sql_select` can query."""
+    return [
+        destination
+        for destination in _get_cloud_workspace(ctx, workspace_id).list_destinations()
+        if destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+    ]
+
+
+def _destination_connector_result(destination: CloudDestination) -> AgentConnectorResult:
+    """Describe a SQL passthrough destination as a `sql_select`-only connector."""
+    return AgentConnectorResult(
+        connector_id=destination.connector_id,
+        connector_name=destination.name,
+        connector_kind="destination",
+        supported_actions=["sql_select"],
+        sql_dialect=SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id],
+        note=AGENTS_DESTINATION_ACCESS_NOTE,
     )
 
 
@@ -747,7 +843,13 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     ctx: Context,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the Airbyte Agents connector."),
+        Field(
+            description=(
+                "The ID of the Airbyte Agents connector, from `list_agent_connectors`. For "
+                "`sql_select`, pass the `connector_id` of a destination entry "
+                '(`connector_kind="destination"`) from that listing.'
+            ),
+        ),
     ],
     entity_type: Annotated[
         str,
@@ -766,7 +868,9 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "The `search` action is the connector's native API search, parallel to `get` "
                 "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake, bigquery, athena, "
-                "trino) in `api_args` and any value for `entity_type`. The `download` action "
+                "trino) in `api_args` and any value for `entity_type`; the `connector_id` is a "
+                "destination listed by `list_agent_connectors`, and `SHOW TABLES` / `DESCRIBE "
+                "TABLE <name>` discover its tables and columns. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -847,6 +951,10 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     `execute_agent_connector` for actions that create, update, or delete data. Entity types
     are connector-specific, so call `inspect_agent_connector` first. The connector must
     belong to the given workspace.
+
+    To query a destination, use `action="sql_select"` with the destination's `connector_id`
+    and `sql_dialect` as reported by `list_agent_connectors`. Start with `SHOW TABLES` and
+    `DESCRIBE TABLE <name>` to discover tables and columns before selecting data.
     """
     return _execute(
         ctx,
