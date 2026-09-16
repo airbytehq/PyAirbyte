@@ -84,6 +84,10 @@ class _RaisingWorkspace:
     def __init__(self, error: AirbyteError) -> None:
         self._error = error
 
+    def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
     def list_connectors(self) -> list[Any]:
         """Raise the configured error."""
         raise self._error
@@ -387,13 +391,14 @@ def test_inspect_tool_reports_context_store_entities(
                 warnings=["Context Store is still syncing."],
             )
 
+    class _InspectableWorkspace:
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _InspectableConnector()
+
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
-        lambda ctx,
-        connector_id,
-        workspace_id=None,
-        organization_id=None: _InspectableConnector(),
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
     )
 
     result = agents_mcp.inspect_agent_connector(
@@ -587,8 +592,8 @@ _ACCESS_FAILURE_CASES = [
         id="read_skill_docs",
     ),
     pytest.param(
-        "_get_agent_connector",
-        _RaisingConnector,
+        "_get_agent_workspace",
+        _RaisingWorkspace,
         lambda: agents_mcp.inspect_agent_connector(
             ctx=cast(Context, object()),
             connector_id="connector-id",
@@ -1056,18 +1061,21 @@ class _FakeDestinationForDocs:
         name: str,
         definition_id: str,
         connections: list[Any] | None = None,
+        sources: list[Any] | None = None,
     ) -> None:
         self.connector_id = connector_id
         self.name = name
         self.definition_id = definition_id
         self.connections_looked_up = False
         self._connections = connections or []
+        self._sources = sources or []
         self.workspace = type(
             "_FakeWorkspace",
             (),
             {
                 "workspace_id": "workspace-1",
                 "list_connections": lambda _self: self.list_connections(),
+                "list_sources": lambda _self: list(self._sources),
             },
         )()
 
@@ -1091,15 +1099,18 @@ class _FakeConnectionForDocs:
         self.name = name
         self.destination_id = destination_id
         self.source_id = "source-1"
-        self.source = type("_FakeSource", (), {"name": "GitHub"})()
         self.stream_names = stream_names or []
         self.table_prefix = table_prefix
+
+    @property
+    def source(self) -> Any:
+        raise AssertionError("source must not be fetched lazily")
 
 
 def _patch_destination_404(
     monkeypatch: pytest.MonkeyPatch,
     destinations: list[_FakeDestinationForDocs],
-) -> None:
+) -> Any:
     """Make the Agents layer 404 and the Cloud workspace serve the given destinations."""
     not_found = _agents_error(404)
 
@@ -1110,11 +1121,18 @@ def _patch_destination_404(
     class _NotFoundWorkspace:
         workspace_id = "workspace-1"
 
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _NotFoundConnector()
+
         def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             raise not_found
 
     class _CloudWorkspaceWithDestinations:
+        def __init__(self) -> None:
+            self.list_destinations_calls = 0
+
         def list_destinations(self) -> list[Any]:
+            self.list_destinations_calls += 1
             return list(destinations)
 
     monkeypatch.setattr(
@@ -1127,11 +1145,13 @@ def _patch_destination_404(
         "_get_agent_workspace",
         lambda *args, **kwargs: _NotFoundWorkspace(),  # noqa: ARG005
     )
+    cloud_workspace = _CloudWorkspaceWithDestinations()
     monkeypatch.setattr(
         agents_mcp,
         "_get_cloud_workspace",
-        lambda *args, **kwargs: _CloudWorkspaceWithDestinations(),  # noqa: ARG005
+        lambda *args, **kwargs: cloud_workspace,  # noqa: ARG005
     )
+    return cloud_workspace
 
 
 _SNOWFLAKE_DESTINATION = _FakeDestinationForDocs(
@@ -1283,6 +1303,13 @@ def test_read_docs_destination_fallback_connections_and_streams(
                 name="Snowflake dev",
                 definition_id="424892c4-daac-4491-b35d-c6688ba547ba",
                 connections=[matching, other],
+                sources=[
+                    type(
+                        "_FakeSource",
+                        (),
+                        {"connector_id": "source-1", "name": "GitHub"},
+                    )()
+                ],
             )
         ],
     )
@@ -1293,6 +1320,7 @@ def test_read_docs_destination_fallback_connections_and_streams(
     rendered = str(connections_result.content)
     assert "GitHub to Snowflake" in rendered
     assert "conn-1" in rendered
+    assert "GitHub" in rendered
     assert "Slack elsewhere" not in rendered
 
     streams_result = _read_docs(
@@ -1353,17 +1381,35 @@ def test_inspect_destination_fallback_handles_get_connector_miss(
 ) -> None:
     """An ID rejected by `get_connector` itself is reported as not found, not raised."""
 
-    def _raising_get_connector(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        raise AirbyteError(message="No connector found with the given ID or name.")
+    class _MissingConnectorWorkspace:
+        workspace_id = "workspace-1"
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise AirbyteError(message="No connector found with the given ID or name.")
+
+        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise AssertionError("read_skill_docs must not run")
 
     _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
-        _raising_get_connector,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _MissingConnectorWorkspace(),  # noqa: ARG005
     )
 
     result = _inspect("dest-unknown")
 
     assert result.message is not None
     assert "not found" in result.message
+
+
+def test_inspect_destination_fallback_lists_destinations_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fallback inspect enumerates the workspace destinations exactly once."""
+    cloud_workspace = _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    result = _inspect("dest-snowflake")
+
+    assert result.docs_skill_id == "connector-destination:dest-snowflake"
+    assert cloud_workspace.list_destinations_calls == 1

@@ -190,9 +190,12 @@ def _connections_section(destination: CloudDestination) -> list[dict[str, Any]]:
                 "text": "No connections sync into this destination.",
             }
         ]
+    source_names = {
+        source.connector_id: source.name for source in destination.workspace.list_sources()
+    }
     items = []
     for connection in connections:
-        source_name = connection.source.name
+        source_name = source_names.get(connection.source_id, connection.source_id)
         item = (
             f"{connection.name} (connection_id={connection.connection_id}) "
             f"syncs from source {source_name} (source_id={connection.source_id})"

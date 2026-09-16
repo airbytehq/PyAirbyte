@@ -1365,12 +1365,14 @@ class _FakeDestination:
         name: str,
         definition_id: str,
         connections: list[Any] | None = None,
+        sources: list[Any] | None = None,
         fail_on_connections: bool = False,
     ) -> None:
         self.connector_id = connector_id
         self.name = name
         self.definition_id = definition_id
         self._connections = connections or []
+        self._sources = sources or []
         self._fail_on_connections = fail_on_connections
         self.workspace = type(
             "_FakeWorkspace",
@@ -1378,6 +1380,7 @@ class _FakeDestination:
             {
                 "workspace_id": "workspace-1",
                 "list_connections": lambda _self: self.list_connections(),
+                "list_sources": lambda _self: list(self._sources),
             },
         )()
 
@@ -1404,9 +1407,13 @@ class _FakeConnection:
         self.name = name
         self.destination_id = destination_id
         self.source_id = source_id
-        self.source = type("_FakeSource", (), {"name": source_name})()
+        self.source_name = source_name
         self.stream_names = stream_names or []
         self.table_prefix = table_prefix
+
+    @property
+    def source(self) -> Any:
+        raise AssertionError("source must not be fetched lazily")
 
 
 def _snowflake_destination(**kwargs: Any) -> _FakeDestination:
@@ -1514,7 +1521,12 @@ def test_build_destination_skill_docs_connections_section_filters_destination() 
         name="Slack elsewhere",
         destination_id="dest-2",
     )
-    destination = _snowflake_destination(connections=[matching, other])
+    destination = _snowflake_destination(
+        connections=[matching, other],
+        sources=[
+            type("_FakeSource", (), {"connector_id": "source-1", "name": "GitHub"})()
+        ],
+    )
 
     docs = destination_docs.build_destination_skill_docs(
         cast(Any, destination),
@@ -1524,6 +1536,7 @@ def test_build_destination_skill_docs_connections_section_filters_destination() 
     rendered = str(docs.content)
     assert "GitHub to Snowflake" in rendered
     assert "conn-1" in rendered
+    assert "GitHub" in rendered
     assert "source-1" in rendered
     assert "'raw_'" in rendered
     assert "Slack elsewhere" not in rendered

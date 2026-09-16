@@ -678,7 +678,12 @@ def inspect_agent_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the Airbyte Agents connector."),
+        Field(
+            description=(
+                "The ID of an Airbyte Agents connector, or of an Airbyte Cloud destination "
+                "(SQL passthrough targets such as Snowflake/BigQuery)."
+            ),
+        ),
     ],
     *,
     workspace_id: Annotated[
@@ -698,12 +703,14 @@ def inspect_agent_connector(
 ) -> AgentConnectorDetailsResult:
     """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
 
-    Call this before `execute_agent_connector` to learn what the connector exposes. The
-    connector must belong to the given workspace. The reported `docs_skill_id` can be
-    passed to `read_agent_skill_docs` to read the connector's usage docs.
+    Call this before `execute_agent_connector` to learn what the connector exposes.
+    Airbyte Cloud destinations in the workspace are also accepted and resolve to
+    built-in docs under `connector-destination:<id>`. The reported `docs_skill_id`
+    can be passed to `read_agent_skill_docs` to read the connector's usage docs.
     """
     try:
-        details = _get_agent_connector(ctx, connector_id, workspace_id, organization_id).inspect()
+        workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+        details = workspace.get_connector(connector_id).inspect()
     except AirbyteError as error:
         if (
             _is_not_found(error)
