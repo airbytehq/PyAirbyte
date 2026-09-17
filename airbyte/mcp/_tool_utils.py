@@ -528,7 +528,7 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
     """
     tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
-    if is_module_blocked_by_safe_mode(tool_module):
+    if isinstance(tool_module, str) and is_module_blocked_by_safe_mode(tool_module):
         return False
 
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
