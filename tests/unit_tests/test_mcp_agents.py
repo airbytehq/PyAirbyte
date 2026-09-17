@@ -67,6 +67,14 @@ class _AgentConnectorLike:
         )
 
 
+class _FakeSource:
+    """Stand-in for `CloudSource` that never calls the Cloud API."""
+
+    def __init__(self, connector_id: str, name: str) -> None:
+        self.connector_id = connector_id
+        self.name = name
+
+
 class _RaisingOrganization:
     """Stands in for `AgentOrganization` and fails the way the Agents API does."""
 
@@ -224,6 +232,9 @@ def test_execute_unknown_connector_raises_when_not_a_cloud_destination(
         def list_destinations(self) -> list[Any]:
             return []
 
+        def list_sources(self) -> list[Any]:
+            return []
+
     monkeypatch.setattr(
         agents_mcp,
         "_get_cloud_workspace",
@@ -232,8 +243,40 @@ def test_execute_unknown_connector_raises_when_not_a_cloud_destination(
 
     with pytest.raises(
         AirbyteError, match="No connector found with the given ID or name"
-    ):
+    ) as excinfo:
         _execute(action="sql_select")
+
+    assert "list_agent_connectors" in str(excinfo.value)
+
+
+def test_execute_reports_cloud_source_not_enabled_for_agents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Cloud source the Agents API does not list is reported as disabled, not missing."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return []
+
+        def list_sources(self) -> list[Any]:
+            return [_FakeSource(connector_id="connector-id", name="GitHub prod")]
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
+    result = _execute(action="list")
+
+    assert result.status == agents_mcp.AGENTS_ACCESS_DENIED_STATUS
+    assert result.message is not None
+    assert "'GitHub prod' (connector-id)" in result.message
+    assert "not enabled for Agents access" in result.message
+    assert "Context layer" in result.message
+    assert "cannot be enabled from this tool" in result.message
 
 
 def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
@@ -488,7 +531,7 @@ def test_connector_resolution_validates_workspace_scope(
         lambda ctx, workspace_id: type(
             "_CloudWorkspace",
             (),
-            {"list_destinations": lambda self: []},
+            {"list_destinations": lambda self: [], "list_sources": lambda self: []},
         )(),
     )
 
@@ -1110,6 +1153,7 @@ class _FakeConnectionForDocs:
 def _patch_destination_404(
     monkeypatch: pytest.MonkeyPatch,
     destinations: list[_FakeDestinationForDocs],
+    sources: list[_FakeSource] | None = None,
 ) -> Any:
     """Make the Agents layer 404 and the Cloud workspace serve the given destinations."""
     not_found = _agents_error(404)
@@ -1134,6 +1178,9 @@ def _patch_destination_404(
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1
             return list(destinations)
+
+        def list_sources(self) -> list[Any]:
+            return list(sources or [])
 
     monkeypatch.setattr(
         agents_mcp,
@@ -1224,6 +1271,44 @@ def test_inspect_destination_fallback_reports_unknown_id(
 
     assert result.message is not None
     assert "not found" in result.message
+    assert "list_agent_connectors" in result.message
+
+
+def test_inspect_reports_cloud_source_not_enabled_for_agents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Cloud source the Agents API 404s on is reported as disabled, not as not found."""
+    _patch_destination_404(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        sources=[_FakeSource(connector_id="src-disabled", name="GitHub prod")],
+    )
+
+    result = _inspect("src-disabled")
+
+    assert result.message is not None
+    assert "'GitHub prod' (src-disabled)" in result.message
+    assert "not enabled for Agents access" in result.message
+    assert "Context layer" in result.message
+    assert "not found" not in result.message
+
+
+def test_list_agent_connectors_empty_explains_how_to_enable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An enrolled workspace with nothing enabled gets a message, not a bare empty list."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id=None,
+    )
+
+    assert result.connectors == []
+    assert result.message == agents_mcp.AGENTS_NO_CONNECTORS_ENABLED_MESSAGE
+    assert "Context layer" in result.message
 
 
 def test_read_docs_destination_fallback_outline_skips_connections_lookup(

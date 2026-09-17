@@ -40,7 +40,7 @@ from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadActi
 from airbyte.agents.models import AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
-from airbyte.cloud.connectors import CloudDestination
+from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
@@ -114,6 +114,26 @@ AGENTS_FORBIDDEN_MESSAGE = (
     "organization does not have an Airbyte Agents subscription, or these credentials lack "
     "access to this workspace. Ask the user to confirm which applies rather than retrying."
 )
+
+
+CONNECTOR_NOT_FOUND_MESSAGE = "No connector found with the given ID or name."
+"""The `AgentWorkspace.get_connector` message when the Agents API does not list the ID."""
+
+CONTEXT_LAYER_ENABLE_GUIDANCE = (
+    "Agents access cannot be enabled from this tool. Ask the user to have an Airbyte Cloud "
+    "organization admin enable it in the Airbyte Cloud webapp under Organization settings -> "
+    "Context layer (or from the connector's own settings page), then retry."
+)
+"""How the human, not the agent, turns on Agents access for an organization or connector."""
+
+AGENTS_NO_CONNECTORS_ENABLED_MESSAGE = (
+    "No connectors in this workspace are enabled for Agents access, so there is nothing to "
+    f"list, inspect, or execute. {CONTEXT_LAYER_ENABLE_GUIDANCE}"
+)
+
+
+class _ConnectorNotEnabledError(AirbyteError):
+    """A connector exists in the Cloud workspace but is not enabled for Agents access."""
 
 
 class AgentWorkspaceResult(BaseModel):
@@ -316,6 +336,8 @@ def _agents_access_message(error: AirbyteError) -> str | None:
     Returns `None` when the failure is not an authorization failure, so the caller can
     re-raise it with a bare `raise` and keep the original traceback.
     """
+    if isinstance(error, _ConnectorNotEnabledError):
+        return error.get_message()
     status_code = (error.context or {}).get("status_code")
     if status_code == HTTPStatus.UNAUTHORIZED:
         return AGENTS_UNAUTHORIZED_MESSAGE
@@ -346,6 +368,57 @@ def _resolve_cloud_destination(
         if destination.connector_id == connector_id:
             return destination
     return None
+
+
+def _resolve_cloud_source(
+    ctx: Context,
+    connector_id: str,
+    workspace_id: str,
+) -> CloudSource | None:
+    """Look a connector ID up in the Cloud workspace's sources.
+
+    Returns `None` when the ID does not match any source in the workspace.
+    """
+    for source in _get_cloud_workspace(ctx, workspace_id).list_sources():
+        if source.connector_id == connector_id:
+            return source
+    return None
+
+
+def _source_not_enabled_message(source: CloudSource, workspace_id: str) -> str:
+    """Explain that a Cloud source exists but is not enabled for Agents access."""
+    return (
+        f"Source '{source.name}' ({source.connector_id}) exists in Airbyte Cloud "
+        f"workspace {workspace_id} but is not enabled for Agents access. "
+        f"{CONTEXT_LAYER_ENABLE_GUIDANCE}"
+    )
+
+
+def _connector_unavailable_error(
+    ctx: Context,
+    connector_id: str,
+    workspace_id: str,
+) -> AirbyteError:
+    """Build the error for a connector ID the Agents API does not list.
+
+    A `_ConnectorNotEnabledError` when the ID is a source in the Cloud workspace, so the
+    caller can report the disabled state instead of a bare miss; otherwise a not-found
+    error pointing at `list_agent_connectors`.
+    """
+    source = _resolve_cloud_source(ctx, connector_id, workspace_id)
+    if source is not None:
+        return _ConnectorNotEnabledError(
+            message=_source_not_enabled_message(source, workspace_id),
+            context={"connector_id": connector_id, "workspace_id": workspace_id},
+        )
+    return AirbyteError(
+        message=CONNECTOR_NOT_FOUND_MESSAGE,
+        guidance=(
+            "Use `list_agent_connectors` to see the connectors enabled for Agents access in "
+            "this workspace."
+        ),
+        context={"connector_id": connector_id, "workspace_id": workspace_id},
+    )
 
 
 def _inspect_destination_fallback(
@@ -380,10 +453,13 @@ def _inspect_destination_fallback(
             "a SQL passthrough destination; only Snowflake and BigQuery destinations support "
             "`sql_select`."
         )
+    elif (source := _resolve_cloud_source(ctx, connector_id, resolved_workspace_id)) is not None:
+        message = _source_not_enabled_message(source, resolved_workspace_id)
     else:
         message = (
-            f"Connector {connector_id} was not found in the Agents API and is not a destination in "
-            f"workspace {resolved_workspace_id}. Use `list_agent_connectors` or "
+            f"Connector {connector_id} was not found in the Agents API and is not a source or "
+            f"destination in workspace {resolved_workspace_id}. Use `list_agent_connectors` to "
+            "see the connectors enabled for Agents access, or "
             f"`read_agent_skill_docs(skill_id='connector-source:{connector_id}')`."
         )
     return AgentConnectorDetailsResult(
@@ -498,20 +574,22 @@ def _get_agent_connector(
     any action runs.
 
     Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
-    does not know are verified against the Cloud workspace's destinations instead.
+    does not know are verified against the Cloud workspace's destinations instead. An ID that
+    is a Cloud source the Agents API does not list is reported as not enabled for Agents
+    access, rather than as missing.
     """
     workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
     try:
         return workspace.get_connector(connector_id)
     except AirbyteError as error:
-        if error.get_message() != "No connector found with the given ID or name.":
+        if error.get_message() != CONNECTOR_NOT_FOUND_MESSAGE:
             raise
         cloud_destination_ids = {
             destination.connector_id
             for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
         }
         if connector_id not in cloud_destination_ids:
-            raise
+            raise _connector_unavailable_error(ctx, connector_id, workspace.workspace_id) from error
         return workspace.get_connector(connector_id=connector_id)
 
 
@@ -657,6 +735,12 @@ def list_agent_connectors(
             raise
         return AgentConnectorListResult(connectors=[], message=message)
 
+    if not connectors:
+        return AgentConnectorListResult(
+            connectors=[],
+            message=AGENTS_NO_CONNECTORS_ENABLED_MESSAGE,
+        )
+
     return AgentConnectorListResult(
         connectors=[
             AgentConnectorResult(
@@ -711,10 +795,7 @@ def inspect_agent_connector(
         workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
         details = workspace.get_connector(connector_id).inspect()
     except AirbyteError as error:
-        if (
-            _is_not_found(error)
-            or error.get_message() == "No connector found with the given ID or name."
-        ):
+        if _is_not_found(error) or error.get_message() == CONNECTOR_NOT_FOUND_MESSAGE:
             return _inspect_destination_fallback(ctx, connector_id, workspace_id, organization_id)
         message = _agents_access_message(error)
         if message is None:
