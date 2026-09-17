@@ -131,6 +131,10 @@ and are only allowed for objects created in the current session.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
 
+Safe mode also disables the Airbyte Agents tools (`agents` module: connector passthrough
+execution and skills) entirely, overriding `AIRBYTE_MCP_INSIDERS` and `AIRBYTE_MCP_DOMAINS`.
+Set `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to use them.
+
 ### Airbyte Cloud Read-Only Mode
 
 Read-only mode is not enabled by default and is controlled by the

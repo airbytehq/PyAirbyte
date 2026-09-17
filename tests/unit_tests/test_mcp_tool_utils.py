@@ -18,6 +18,7 @@ from airbyte.mcp._tool_utils import (
     SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
     _resolve_transport_bearer_token,
+    check_module_allowed_by_safe_mode,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
@@ -127,6 +128,25 @@ def test_check_guid_created_in_session_passes_when_safe_mode_disabled() -> None:
     with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False):
         # Should not raise even for unregistered GUID
         check_guid_created_in_session("any-guid-at-all")
+
+
+def test_check_module_allowed_by_safe_mode_rejects_agents() -> None:
+    """Test that safe mode rejects the Agents module."""
+    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
+        with pytest.raises(SafeModeError, match="agents"):
+            check_module_allowed_by_safe_mode("agents")
+
+
+def test_check_module_allowed_by_safe_mode_allows_cloud() -> None:
+    """Test that safe mode allows the Cloud module."""
+    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
+        check_module_allowed_by_safe_mode("cloud")
+
+
+def test_check_module_allowed_by_safe_mode_allows_agents_when_disabled() -> None:
+    """Test that disabling safe mode allows the Agents module."""
+    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False):
+        check_module_allowed_by_safe_mode("agents")
 
 
 def test_multiple_guids_can_be_registered() -> None:

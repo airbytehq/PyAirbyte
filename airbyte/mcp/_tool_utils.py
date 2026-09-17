@@ -77,20 +77,12 @@ if TYPE_CHECKING:
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
-_AGENTS_MCP_MODULE = "agents"
-"""Module whose tools are only advertised when an Agents API is available."""
-
-
-def is_agents_api_available(config_source: FastMCP | Context) -> bool:
-    """Return whether the MCP server's deployment has an Agents API."""
-    return _is_agents_api_available(
-        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
-    )
-
 
 INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 """Annotation indicating the tool requires MCP Apps UI support."""
+
+_AGENTS_MCP_MODULE = "agents"
+"""Module whose tools are only advertised when an Agents API is available."""
 
 # =============================================================================
 # Safe Mode Configuration
@@ -100,8 +92,27 @@ AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1")
 """Whether safe mode is enabled for cloud operations.
 
 When enabled (default), destructive operations are only allowed on resources
-created during the current session.
+created during the current session. It also disables the modules in
+`SAFE_MODE_BLOCKED_MODULES`.
 """
+
+SAFE_MODE_BLOCKED_MODULES: frozenset[str] = frozenset({_AGENTS_MCP_MODULE})
+"""MCP tool modules that are unavailable while safe mode is enabled."""
+
+
+def is_module_blocked_by_safe_mode(mcp_module: str | None) -> bool:
+    """Return whether safe mode hides and rejects tools from this module."""
+    return AIRBYTE_CLOUD_MCP_SAFE_MODE and mcp_module in SAFE_MODE_BLOCKED_MODULES
+
+
+def check_module_allowed_by_safe_mode(mcp_module: str) -> None:
+    """Raise `SafeModeError` if safe mode blocks tools from this module."""
+    if is_module_blocked_by_safe_mode(mcp_module):
+        raise SafeModeError(
+            f"Tools in the '{mcp_module}' module are unavailable while safe mode is enabled. "
+            "Set AIRBYTE_CLOUD_MCP_SAFE_MODE=0 to allow them."
+        )
+
 
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 """Whether the AIRBYTE_CLOUD_WORKSPACE_ID environment variable is set.
@@ -116,6 +127,14 @@ class SafeModeError(Exception):
     """Raised when a tool is blocked by safe mode restrictions."""
 
     pass
+
+
+def is_agents_api_available(config_source: FastMCP | Context) -> bool:
+    """Return whether the MCP server's deployment has an Agents API."""
+    return _is_agents_api_available(
+        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
+        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
+    )
 
 
 def register_guid_created_in_session(guid: str) -> None:
@@ -497,23 +516,26 @@ def _insiders_mode(app: FastMCP) -> bool | None:
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
+    Safe mode hides modules in `SAFE_MODE_BLOCKED_MODULES` regardless of include/insiders
+    settings.
     When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
     When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
 
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
-    Agents tools are hidden whenever the Cloud API roots are overridden, unless
+    Agents tools are also hidden whenever the Cloud API roots are overridden, unless
     `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
     """
+    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
+    if is_module_blocked_by_safe_mode(tool_module):
+        return False
+
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
         *_parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or ""),
         *_parse_csv_config(get_mcp_config(app, CONFIG_INCLUDE_MODULES) or ""),
     ]
-
-    # Get the tool's mcp_module from annotations
-    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
 
     # Hide tools from excluded modules
     if exclude_modules and tool_module and tool_module in exclude_modules:
@@ -524,10 +546,8 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
 
     if tool_module in MCP_INSIDERS_MODULES:
         insiders_mode = _insiders_mode(app)
-        if insiders_mode is False:
+        if insiders_mode is False or (insiders_mode is None and tool_module not in include_modules):
             return False
-        if insiders_mode is None:
-            return tool_module in include_modules
 
     if include_modules:
         # Only show tools from included modules

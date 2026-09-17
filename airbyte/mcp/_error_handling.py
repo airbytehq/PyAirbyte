@@ -9,12 +9,14 @@ from airbyte.exceptions import (
     PyAirbyteError,
     PyAirbyteInputError,
 )
+from airbyte.mcp._tool_utils import SafeModeError
 
 
-MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
+MCP_TOOL_USER_FACING_ERRORS: tuple[type[Exception], ...] = (
     PyAirbyteInputError,
     AirbyteMCPError,
     AirbyteAgentsUnavailableError,
+    SafeModeError,
 )
 """Expected errors returned to MCP clients as concise message and guidance text."""
 

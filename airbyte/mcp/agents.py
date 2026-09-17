@@ -12,6 +12,9 @@
 > These tools are also Cloud-only: they are hidden whenever
 > `AIRBYTE_CLOUD_API_URL` / `AIRBYTE_CLOUD_CONFIG_API_URL` are overridden, unless
 > `AIRBYTE_AGENTS_API_URL` is set.
+>
+> Cloud safe mode disables these tools entirely. Set `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to use
+> the Agents module.
 
 .. include:: ../../docs/mcp-generated/agents.md
 """
@@ -61,7 +64,11 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
-from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
+from airbyte.mcp._tool_utils import (
+    _AGENTS_MCP_MODULE,
+    AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
+    check_module_allowed_by_safe_mode,
+)
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
     _get_cloud_client,
@@ -626,6 +633,7 @@ def _destination_skill_docs_fallback(
 
 def _get_agent_organization(ctx: Context, organization_id: str | None) -> AgentOrganization:
     """Build an `AgentOrganization` from MCP config."""
+    check_module_allowed_by_safe_mode(_AGENTS_MCP_MODULE)
     return AgentOrganization(
         organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
         client_id=get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID),
@@ -642,6 +650,7 @@ def _get_agent_workspace(
     organization_id: str | None = None,
 ) -> AgentWorkspace:
     """Build an `AgentWorkspace`, deriving an absent organization from its workspace."""
+    check_module_allowed_by_safe_mode(_AGENTS_MCP_MODULE)
     resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
     resolved_organization_id = organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID)
     if not resolved_workspace_id or not resolved_organization_id:
@@ -680,6 +689,7 @@ def _get_agent_connector(
     is a Cloud source the Agents API does not list is reported as not enabled for Agents
     access, rather than as missing.
     """
+    check_module_allowed_by_safe_mode(_AGENTS_MCP_MODULE)
     workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
     try:
         return workspace.get_connector(connector_id)

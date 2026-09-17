@@ -40,6 +40,7 @@ def _tool(mcp_module: str) -> Tool:
 def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
     monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
+    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", False)
     config: dict[str, str] = {}
     monkeypatch.setattr(
         _tool_utils,
@@ -173,6 +174,51 @@ def test_explicit_agents_api_root_keeps_agents_visible(
     })
 
     assert _visible("agents")
+
+
+@pytest.mark.parametrize(
+    ("config", "env", "cloud_visible"),
+    [
+        pytest.param({}, {}, True, id="default"),
+        pytest.param({MCP_CONFIG_INSIDERS: "1"}, {}, True, id="insiders"),
+        pytest.param(
+            {MCP_CONFIG_INCLUDE_MODULES: "agents"},
+            {},
+            False,
+            id="legacy_include",
+        ),
+        pytest.param(
+            {CONFIG_INCLUDE_MODULES: "agents"},
+            {},
+            False,
+            id="library_include",
+        ),
+        pytest.param(
+            {},
+            {
+                MCP_INSIDERS_ENV_VAR: "1",
+                "AIRBYTE_AGENTS_API_URL": "https://agents.example.com/api/v1",
+            },
+            True,
+            id="insiders_env_and_agents_api",
+        ),
+    ],
+)
+def test_safe_mode_hides_agents_regardless_of_other_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    config: dict[str, str],
+    env: dict[str, str],
+    cloud_visible: bool,
+) -> None:
+    """Safe mode hides Agents tools regardless of other module settings."""
+    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    mcp_config.update(config)
+
+    assert _visible("agents") is False
+    assert _visible("cloud") is cloud_visible
 
 
 @pytest.mark.parametrize(

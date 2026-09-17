@@ -30,6 +30,7 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp import agents as agents_mcp
+from airbyte.mcp._tool_utils import SafeModeError
 from fastmcp import Context
 
 
@@ -138,6 +139,15 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
         lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
     )
     return stub
+
+
+@pytest.fixture(autouse=True)
+def safe_mode_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep existing Agents behavior tests focused on their API behavior."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE",
+        False,
+    )
 
 
 def _execute_ro(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: ANN401
@@ -659,6 +669,27 @@ def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
             MCP_CONFIG_ORGANIZATION_ID: "org-from-config",
         }.get(key),
     )
+
+
+def test_list_agent_workspaces_is_blocked_by_safe_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Safe mode rejects Agents access before reading MCP config."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE",
+        True,
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "get_mcp_config",
+        lambda ctx, key: (_ for _ in ()).throw(AssertionError("config access")),
+    )
+
+    with pytest.raises(SafeModeError):
+        agents_mcp.list_agent_workspaces(
+            ctx=cast(Context, object()),
+            organization_id=None,
+        )
 
 
 _ACCESS_FAILURE_CASES = [
