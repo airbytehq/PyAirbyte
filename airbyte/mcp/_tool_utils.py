@@ -91,6 +91,15 @@ INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 _AGENTS_MCP_MODULE = "agents"
 """Module whose tools are only advertised when an Agents API is available."""
 
+
+def is_agents_api_available(config_source: FastMCP | Context) -> bool:
+    """Return whether the MCP server's deployment has an Agents API."""
+    return _is_agents_api_available(
+        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
+        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
+    )
+
+
 # =============================================================================
 # Safe Mode Configuration
 # =============================================================================
@@ -119,14 +128,6 @@ class SafeModeError(Exception):
     """Raised when a tool is blocked by safe mode restrictions."""
 
     pass
-
-
-def is_agents_api_available(config_source: FastMCP | Context) -> bool:
-    """Return whether the MCP server's deployment has an Agents API."""
-    return _is_agents_api_available(
-        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
-    )
 
 
 def register_guid_created_in_session(guid: str) -> None:

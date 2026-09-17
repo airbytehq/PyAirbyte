@@ -12,7 +12,7 @@
 > These tools are also Cloud-only: they are hidden whenever
 > `AIRBYTE_CLOUD_API_URL` / `AIRBYTE_CLOUD_CONFIG_API_URL` are overridden, unless
 > `AIRBYTE_AGENTS_API_URL` is set.
->
+
 .. include:: ../../docs/mcp-generated/agents.md
 """
 
