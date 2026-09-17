@@ -138,26 +138,47 @@ AGENTS_DESTINATION_ACCESS_NOTE = (
 CONNECTOR_NOT_FOUND_MESSAGE = "No connector found with the given ID or name."
 """The `AgentWorkspace.get_connector` message when the Agents API does not list the ID."""
 
-CONTEXT_LAYER_ENABLE_GUIDANCE = (
-    "Agents access cannot be enabled from this tool. Ask the user to have an Airbyte Cloud "
-    "organization admin enable it in the Airbyte Cloud webapp under Organization settings -> "
-    "Context layer (or from the connector's own settings page), then retry."
+CONTEXT_LAYER_SETTINGS_URL_TEMPLATE = (
+    "https://cloud.airbyte.com/organization/{organization_id}/settings/context-layer"
 )
-"""How the human, not the agent, turns on Agents access for an organization or connector."""
+"""The Airbyte Cloud webapp page where an organization admin enables Agents access."""
 
-AGENTS_NO_CONNECTORS_ENABLED_MESSAGE = (
-    "No connectors in this workspace are enabled for Agents access, so there is nothing to "
-    f"list, inspect, or execute. {CONTEXT_LAYER_ENABLE_GUIDANCE}"
-)
-"""For a workspace whose Cloud sources exist but none are enabled for Agents access."""
 
-AGENTS_WORKSPACE_HAS_NO_SOURCES_MESSAGE = (
-    "This Airbyte Cloud workspace has no source connectors, so there is nothing to enable for "
-    "Agents access. Ask the user to create a source in the Airbyte Cloud webapp first, then "
-    "have an organization admin enable it for Agents access under Organization settings -> "
-    "Context layer."
-)
-"""For a workspace with no Cloud sources at all; enablement guidance alone cannot help."""
+def _context_layer_location(organization_id: str | None) -> str:
+    """Name the Context layer settings page, with its URL when the organization is known."""
+    location = "Organization settings -> Context layer"
+    if organization_id:
+        url = CONTEXT_LAYER_SETTINGS_URL_TEMPLATE.format(organization_id=organization_id)
+        return f"{location} ({url})"
+    return location
+
+
+def context_layer_enable_guidance(organization_id: str | None) -> str:
+    """How the human, not the agent, turns on Agents access for an organization or connector."""
+    return (
+        "Agents access cannot be enabled from this tool. Ask the user to have an Airbyte Cloud "
+        "organization admin enable it in the Airbyte Cloud webapp under "
+        f"{_context_layer_location(organization_id)} (or from the connector's own settings "
+        "page), then retry."
+    )
+
+
+def agents_no_connectors_enabled_message(organization_id: str | None) -> str:
+    """For a workspace whose Cloud sources exist but none are enabled for Agents access."""
+    return (
+        "No connectors in this workspace are enabled for Agents access, so there is nothing to "
+        f"list, inspect, or execute. {context_layer_enable_guidance(organization_id)}"
+    )
+
+
+def agents_workspace_has_no_sources_message(organization_id: str | None) -> str:
+    """For a workspace with no Cloud sources at all; enablement guidance alone cannot help."""
+    return (
+        "This Airbyte Cloud workspace has no source connectors, so there is nothing to enable "
+        "for Agents access. Ask the user to create a source in the Airbyte Cloud webapp first, "
+        "then have an organization admin enable it for Agents access under "
+        f"{_context_layer_location(organization_id)}."
+    )
 
 
 class _ConnectorNotEnabledError(AirbyteError):
@@ -458,12 +479,16 @@ def _resolve_cloud_source(
     return None
 
 
-def _source_not_enabled_message(source: CloudSource, workspace_id: str) -> str:
+def _source_not_enabled_message(
+    source: CloudSource,
+    workspace_id: str,
+    organization_id: str | None,
+) -> str:
     """Explain that a Cloud source exists but is not enabled for Agents access."""
     return (
         f"Source '{source.name}' ({source.connector_id}) exists in Airbyte Cloud "
         f"workspace {workspace_id} but is not enabled for Agents access. "
-        f"{CONTEXT_LAYER_ENABLE_GUIDANCE}"
+        f"{context_layer_enable_guidance(organization_id)}"
     )
 
 
@@ -471,6 +496,7 @@ def _connector_unavailable_error(
     ctx: Context,
     connector_id: str,
     workspace_id: str,
+    organization_id: str | None,
 ) -> AirbyteError:
     """Build the error for a connector ID the Agents API does not list.
 
@@ -481,7 +507,7 @@ def _connector_unavailable_error(
     source = _resolve_cloud_source(ctx, connector_id, workspace_id)
     if source is not None:
         return _ConnectorNotEnabledError(
-            message=_source_not_enabled_message(source, workspace_id),
+            message=_source_not_enabled_message(source, workspace_id, organization_id),
             context={"connector_id": connector_id, "workspace_id": workspace_id},
         )
     return AirbyteError(
@@ -505,7 +531,8 @@ def _inspect_destination_fallback(
     SQL passthrough destinations get built-in details; anything else gets a message
     instead of an error.
     """
-    resolved_workspace_id = _get_agent_workspace(ctx, workspace_id, organization_id).workspace_id
+    agent_workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
+    resolved_workspace_id = agent_workspace.workspace_id
     destination = _resolve_cloud_destination(ctx, connector_id, workspace_id, organization_id)
     if (
         destination is not None
@@ -527,7 +554,9 @@ def _inspect_destination_fallback(
             "`sql_select`."
         )
     elif (source := _resolve_cloud_source(ctx, connector_id, resolved_workspace_id)) is not None:
-        message = _source_not_enabled_message(source, resolved_workspace_id)
+        message = _source_not_enabled_message(
+            source, resolved_workspace_id, agent_workspace.organization_id
+        )
     else:
         message = (
             f"Connector {connector_id} was not found in the Agents API and is not a source or "
@@ -662,7 +691,9 @@ def _get_agent_connector(
             for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
         }
         if connector_id not in cloud_destination_ids:
-            raise _connector_unavailable_error(ctx, connector_id, workspace.workspace_id) from error
+            raise _connector_unavailable_error(
+                ctx, connector_id, workspace.workspace_id, workspace.organization_id
+            ) from error
         return workspace.get_connector(connector_id=connector_id)
 
 
@@ -827,20 +858,26 @@ def list_agent_connectors(
     if not results:
         return AgentConnectorListResult(
             connectors=[],
-            message=_empty_connector_list_message(ctx, workspace.workspace_id),
+            message=_empty_connector_list_message(
+                ctx, workspace.workspace_id, workspace.organization_id
+            ),
         )
     return AgentConnectorListResult(connectors=results)
 
 
-def _empty_connector_list_message(ctx: Context, workspace_id: str) -> str:
+def _empty_connector_list_message(
+    ctx: Context,
+    workspace_id: str,
+    organization_id: str | None,
+) -> str:
     """Explain an empty Agents connector list.
 
     Enablement guidance only helps when the Cloud workspace actually has sources; an empty
     Cloud workspace needs a source created first.
     """
     if _get_cloud_workspace(ctx, workspace_id).list_sources():
-        return AGENTS_NO_CONNECTORS_ENABLED_MESSAGE
-    return AGENTS_WORKSPACE_HAS_NO_SOURCES_MESSAGE
+        return agents_no_connectors_enabled_message(organization_id)
+    return agents_workspace_has_no_sources_message(organization_id)
 
 
 def _list_sql_passthrough_destinations(

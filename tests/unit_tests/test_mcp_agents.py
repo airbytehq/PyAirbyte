@@ -838,6 +838,7 @@ def test_list_agent_connectors_threads_organization_id(
         def __init__(self, **kwargs: Any) -> None:
             constructed.append(kwargs)
             self.workspace_id = kwargs["workspace_id"]
+            self.organization_id = kwargs["organization_id"]
 
         def list_connectors(self) -> list[Any]:
             return []
@@ -1341,6 +1342,7 @@ def _patch_destination_404(
 
     class _NotFoundWorkspace:
         workspace_id = "workspace-1"
+        organization_id = "org-1"
 
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _NotFoundConnector()
@@ -1497,8 +1499,13 @@ def test_list_agent_connectors_empty_explains_how_to_enable(
     )
 
     assert result.connectors == []
-    assert result.message == agents_mcp.AGENTS_NO_CONNECTORS_ENABLED_MESSAGE
-    assert "Context layer" in result.message
+    assert result.message == agents_mcp.agents_no_connectors_enabled_message(
+        "org-from-config"
+    )
+    assert (
+        "https://cloud.airbyte.com/organization/org-from-config/settings/context-layer"
+        in result.message
+    )
 
 
 def test_list_agent_connectors_empty_cloud_workspace_says_no_sources_exist(
@@ -1528,8 +1535,23 @@ def test_list_agent_connectors_empty_cloud_workspace_says_no_sources_exist(
     )
 
     assert result.connectors == []
-    assert result.message == agents_mcp.AGENTS_WORKSPACE_HAS_NO_SOURCES_MESSAGE
+    assert result.message == agents_mcp.agents_workspace_has_no_sources_message(
+        "org-from-config"
+    )
     assert "has no source connectors" in result.message
+
+
+def test_context_layer_guidance_omits_url_without_organization_id() -> None:
+    """Without an organization ID there is no URL to interpolate, only the menu path."""
+    with_org = agents_mcp.context_layer_enable_guidance("org-1")
+    without_org = agents_mcp.context_layer_enable_guidance(None)
+
+    assert (
+        "https://cloud.airbyte.com/organization/org-1/settings/context-layer"
+        in with_org
+    )
+    assert "https://" not in without_org
+    assert "Organization settings -> Context layer" in without_org
 
 
 def test_read_docs_destination_fallback_outline_skips_connections_lookup(
