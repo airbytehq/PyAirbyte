@@ -7,6 +7,7 @@ import asyncio
 import os
 import subprocess
 import sys
+import textwrap
 
 import pytest
 from fastmcp_extensions import ToolCallTelemetryMiddleware
@@ -112,14 +113,16 @@ if server._segment_write_key() != {_DUMMY_SEGMENT_WRITE_KEY!r}:
 
 def test_importing_server_does_not_enable_mcp_mode() -> None:
     """Importing the server module must not flip the global MCP-mode flag."""
+    script = textwrap.dedent(
+        """
+        import airbyte.mcp.server
+        from airbyte._util.meta import is_mcp_mode
+
+        print(is_mcp_mode())
+        """
+    )
     result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import airbyte.mcp.server; "
-            "from airbyte._util.meta import is_mcp_mode; "
-            "print(is_mcp_mode())",
-        ],
+        [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         check=True,
