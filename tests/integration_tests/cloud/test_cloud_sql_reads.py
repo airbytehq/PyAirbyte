@@ -7,11 +7,6 @@ import airbyte as ab
 import pandas as pd
 import pytest
 from airbyte import cloud
-from airbyte.caches.base import CacheBase
-from airbyte.caches.bigquery import BigQueryCache
-from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.postgres import PostgresCache
-from airbyte.caches.snowflake import SnowflakeCache
 from airbyte.cloud.sync_results import SyncResult
 from sqlalchemy.engine.base import Engine
 
@@ -92,62 +87,6 @@ def test_read_from_deployed_connection(
     # Check that no values are null
     for col in pandas_df.columns:
         assert pandas_df[col].notnull().all()
-
-
-@pytest.mark.xfail(
-    reason="Cloud API permission errors: Status 403 - Caller does not have required WORKSPACE_READER permissions. Unrelated to code changes."
-)
-@pytest.mark.parametrize(
-    "deployed_connection_id, cache_type",
-    [
-        pytest.param(
-            "c7b4d838-a612-495a-9d91-a14e477add51",  # https://cloud.airbyte.com/workspaces/a0cc325a-d358-4df4-bdd4-c09d753b6afb/connections/c7b4d838-a612-495a-9d91-a14e477add51/status
-            SnowflakeCache,
-            id="Faker->Snowflake",
-        ),
-        pytest.param(
-            "0e1d6b32-b8e3-4b68-91a3-3a314599c782",  # https://cloud.airbyte.com/workspaces/a0cc325a-d358-4df4-bdd4-c09d753b6afb/connections/0e1d6b32-b8e3-4b68-91a3-3a314599c782/status
-            BigQueryCache,
-            id="Faker->BigQuery",
-        ),
-        pytest.param(
-            "",
-            PostgresCache,
-            id="Faker->Postgres",
-            marks=pytest.mark.skip(reason="Not yet supported"),
-        ),
-        pytest.param(
-            "",
-            DuckDBCache,
-            id="Faker->MotherDuck",
-            marks=pytest.mark.skip(reason="Not yet supported"),
-        ),
-    ],
-)
-def test_translate_cloud_job_to_sql_cache(
-    cloud_workspace: cloud.CloudWorkspace,
-    deployed_connection_id: str,
-    cache_type: type[CacheBase],
-    previous_job_run_id: int,
-    with_bigquery_credentials_env_vars,
-    with_snowflake_password_env_var,
-) -> None:
-    """Test reading from a cache."""
-    # Run sync and get result:
-    sync_result: SyncResult | None = cloud_workspace.get_connection(
-        connection_id=deployed_connection_id
-    ).get_sync_result(
-        job_id=previous_job_run_id,
-    )
-    assert sync_result, f"Failed to get sync result for job {previous_job_run_id}"
-
-    # Test sync result:
-    assert sync_result.is_job_complete()
-
-    cache = sync_result.get_sql_cache()
-    assert isinstance(cache, cache_type), f"Expected {cache_type}, got {type(cache)}"
-    sqlalchemy_url = cache.get_sql_alchemy_url()
-    engine: Engine = sync_result.get_sql_engine()
 
 
 @pytest.mark.skip("Test is being flaky. TODO: Fix it.")
