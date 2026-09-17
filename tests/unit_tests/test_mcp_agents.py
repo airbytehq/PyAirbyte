@@ -552,12 +552,101 @@ def test_connector_resolution_validates_workspace_scope(
     assert connector.connector_id == "connector-id"
 
 
-def _agents_error(status_code: int | None) -> AirbyteError:
-    """Return an Agents API error carrying the given HTTP status code."""
-    return AirbyteError(
-        message="Agents API request failed.",
-        context={"status_code": status_code} if status_code is not None else {},
+def _agents_error(
+    status_code: int | None,
+    response_text: str | None = None,
+) -> AirbyteError:
+    """Return an Agents API error carrying the given HTTP status code and body."""
+    context: dict[str, Any] = {}
+    if status_code is not None:
+        context["status_code"] = status_code
+    if response_text is not None:
+        context["response_text"] = response_text
+    return AirbyteError(message="Agents API request failed.", context=context)
+
+
+_ACTOR_NOT_ENABLED_BODY = (
+    '{"message": "Actor is not enabled for Agents access.", '
+    '"errors": [{"field": "general", "message": "Actor is not enabled for Agents access.", '
+    '"error_code": "unknown"}]}'
+)
+
+
+@pytest.mark.parametrize(
+    ("response_text", "expected_message"),
+    [
+        pytest.param(
+            _ACTOR_NOT_ENABLED_BODY,
+            f"{agents_mcp.AGENTS_ACTOR_NOT_ENABLED_DETAIL} "
+            f"{agents_mcp.AGENTS_ENABLE_ACTOR_GUIDANCE}",
+            id="actor_not_enabled_sonar_envelope",
+        ),
+        pytest.param(
+            '{"detail": "Actor is not enabled for Agents access."}',
+            f"{agents_mcp.AGENTS_ACTOR_NOT_ENABLED_DETAIL} "
+            f"{agents_mcp.AGENTS_ENABLE_ACTOR_GUIDANCE}",
+            id="actor_not_enabled_fastapi_detail",
+        ),
+        pytest.param(
+            '{"errors": [{"message": "Organization is not onboarded to Agents."}]}',
+            "The Airbyte Agents API denied access: Organization is not onboarded to Agents.",
+            id="other_detail_in_errors_list",
+        ),
+        pytest.param(
+            '{"message": "Organization is not onboarded to Agents."}',
+            "The Airbyte Agents API denied access: Organization is not onboarded to Agents.",
+            id="other_detail",
+        ),
+        pytest.param(None, agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="no_body"),
+        pytest.param("", agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="empty_body"),
+        pytest.param(
+            "<html>nginx</html>", agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="non_json"
+        ),
+        pytest.param(
+            '["x"]', agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="json_not_object"
+        ),
+        pytest.param(
+            '{"message": "  "}', agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="blank"
+        ),
+        pytest.param(
+            '{"message": 42}', agents_mcp.AGENTS_FORBIDDEN_MESSAGE, id="non_str"
+        ),
+    ],
+)
+def test_forbidden_message_surfaces_api_detail(
+    response_text: str | None,
+    expected_message: str,
+) -> None:
+    """Verify a 403 surfaces the API's reason, falling back to the generic explanation."""
+    message = agents_mcp._agents_access_message(  # noqa: SLF001
+        _agents_error(403, response_text)
     )
+
+    assert message == expected_message
+
+
+def test_sql_select_forbidden_reports_actor_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `sql_select` on a not-enabled destination tells the agent how to fix it."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(403, _ACTOR_NOT_ENABLED_BODY)
+        ),
+    )
+
+    result = _execute_ro(
+        action="sql_select",
+        api_args={"sql": "SHOW TABLES", "sql_dialect": "snowflake"},
+    )
+
+    assert result.status == agents_mcp.AGENTS_ACCESS_DENIED_STATUS
+    assert result.message is not None
+    assert result.message.startswith("Actor is not enabled for Agents access.")
+    assert "Settings -> Context layer" in result.message
+    assert "Do not retry" in result.message
 
 
 def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -748,11 +837,21 @@ def test_list_agent_connectors_threads_organization_id(
     class _RecordingWorkspace:
         def __init__(self, **kwargs: Any) -> None:
             constructed.append(kwargs)
+            self.workspace_id = kwargs["workspace_id"]
 
         def list_connectors(self) -> list[Any]:
             return []
 
     monkeypatch.setattr(agents_mcp, "AgentWorkspace", _RecordingWorkspace)
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: type(
+            "_CloudWorkspace",
+            (),
+            {"list_destinations": lambda self: [], "list_sources": lambda self: []},
+        )(),
+    )
 
     result = agents_mcp.list_agent_connectors(
         ctx=cast(Context, object()),
@@ -762,6 +861,84 @@ def test_list_agent_connectors_threads_organization_id(
 
     assert constructed[0]["organization_id"] == expected_organization_id
     assert result.connectors == []
+
+
+def test_list_agent_connectors_includes_sql_passthrough_destinations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify SQL destinations are listed as `sql_select`-only after the Agents sources."""
+    _patch_mcp_config(monkeypatch)
+
+    class _Source:
+        connector_id = "source-gong"
+        name = "Gong"
+
+    class _Workspace:
+        workspace_id = "workspace-1"
+
+        def list_connectors(self) -> list[Any]:
+            return [_Source()]
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return [_SNOWFLAKE_DESTINATION, _UNSUPPORTED_DESTINATION]
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _Workspace(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id=None,
+    )
+
+    assert [c.connector_id for c in result.connectors] == [
+        "source-gong",
+        "dest-snowflake",
+    ]
+    source, destination = result.connectors
+    assert source.connector_kind == "source"
+    assert source.supported_actions is None
+    assert destination.connector_kind == "destination"
+    assert destination.connector_name == "Snowflake dev"
+    assert destination.supported_actions == ["sql_select"]
+    assert destination.sql_dialect == "snowflake"
+    assert destination.note is not None
+    assert "Settings -> Context layer" in destination.note
+    assert "SHOW TABLES" in destination.note
+
+
+def test_list_agent_connectors_access_denied_skips_destination_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a denied Agents listing returns early without a Cloud destination lookup."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _RaisingWorkspace(_agents_error(403)),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: pytest.fail("Cloud lookup should not run"),
+    )
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id=None,
+    )
+
+    assert result.connectors == []
+    assert result.message == agents_mcp.AGENTS_FORBIDDEN_MESSAGE
 
 
 def test_workspace_organization_id_comes_from_mcp_config(
@@ -1300,6 +1477,19 @@ def test_list_agent_connectors_empty_explains_how_to_enable(
     _patch_mcp_config(monkeypatch)
     monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
 
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return []
+
+        def list_sources(self) -> list[Any]:
+            return [_FakeSource(connector_id="src-disabled", name="GitHub prod")]
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
     result = agents_mcp.list_agent_connectors(
         ctx=cast(Context, object()),
         workspace_id="workspace-1",
@@ -1309,6 +1499,37 @@ def test_list_agent_connectors_empty_explains_how_to_enable(
     assert result.connectors == []
     assert result.message == agents_mcp.AGENTS_NO_CONNECTORS_ENABLED_MESSAGE
     assert "Context layer" in result.message
+
+
+def test_list_agent_connectors_empty_cloud_workspace_says_no_sources_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Cloud workspace with no sources is told to create one, not to enable one."""
+    _patch_mcp_config(monkeypatch)
+    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
+
+    class _CloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            return []
+
+        def list_sources(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
+
+    result = agents_mcp.list_agent_connectors(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-1",
+        organization_id=None,
+    )
+
+    assert result.connectors == []
+    assert result.message == agents_mcp.AGENTS_WORKSPACE_HAS_NO_SOURCES_MESSAGE
+    assert "has no source connectors" in result.message
 
 
 def test_read_docs_destination_fallback_outline_skips_connections_lookup(
