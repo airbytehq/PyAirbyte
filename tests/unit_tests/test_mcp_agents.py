@@ -28,10 +28,15 @@ from airbyte.constants import (
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_READONLY_MODE_ENV_VAR,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteError,
+    PyAirbyteInputError,
+    ExternalAccessDisabledError,
+)
 from airbyte.mcp import agents as agents_mcp
-from airbyte.mcp._tool_utils import SafeModeError
 from fastmcp import Context
 
 
@@ -143,11 +148,12 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
 
 
 @pytest.fixture(autouse=True)
-def safe_mode_off(monkeypatch: pytest.MonkeyPatch) -> None:
+def external_access_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep existing Agents behavior tests focused on their API behavior."""
+    monkeypatch.delenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, raising=False)
+    monkeypatch.delenv(MCP_READONLY_MODE_ENV_VAR, raising=False)
     monkeypatch.setattr(
-        "airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE",
-        False,
+        "airbyte.mcp._tool_utils.get_mcp_config", lambda *args, **kwargs: None
     )
 
 
@@ -673,6 +679,18 @@ def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
+    ("env_var", "env_value", "assert_no_config"),
+    [
+        pytest.param(
+            MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+            "0",
+            True,
+            id="external_access_disabled",
+        ),
+        pytest.param(MCP_READONLY_MODE_ENV_VAR, "1", False, id="legacy_readonly_mode"),
+    ],
+)
+@pytest.mark.parametrize(
     "call_tool",
     [
         pytest.param(
@@ -760,28 +778,32 @@ def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     ],
 )
-def test_agents_entry_points_are_blocked_by_safe_mode(
+def test_agents_entry_points_are_blocked_by_policy(
     monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    env_value: str,
+    assert_no_config: bool,
     call_tool: Callable[[], Any],
 ) -> None:
-    """Safe mode rejects every Agents entry point before resolver or API access."""
-    monkeypatch.setattr(
-        "airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE",
-        True,
+    """Disabled external access rejects every Agents entry point before config or API access."""
+    monkeypatch.setenv(env_var, env_value)
+    get_mcp_config = Mock(
+        side_effect=AssertionError("config access") if assert_no_config else None,
+        return_value="" if not assert_no_config else None,
     )
-    get_mcp_config = Mock(side_effect=AssertionError("config access"))
     agent_organization = Mock(name="AgentOrganization")
     agent_workspace = Mock(name="AgentWorkspace")
     cloud_client = Mock(name="_get_cloud_client")
-    monkeypatch.setattr(agents_mcp, "get_mcp_config", get_mcp_config)
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_mcp_config", get_mcp_config)
     monkeypatch.setattr(agents_mcp, "AgentOrganization", agent_organization)
     monkeypatch.setattr(agents_mcp, "AgentWorkspace", agent_workspace)
     monkeypatch.setattr(agents_mcp, "_get_cloud_client", cloud_client)
 
-    with pytest.raises(SafeModeError):
+    with pytest.raises(ExternalAccessDisabledError):
         call_tool()
 
-    get_mcp_config.assert_not_called()
+    if assert_no_config:
+        get_mcp_config.assert_not_called()
     agent_organization.assert_not_called()
     agent_workspace.assert_not_called()
     cloud_client.assert_not_called()

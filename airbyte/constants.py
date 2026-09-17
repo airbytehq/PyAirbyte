@@ -307,6 +307,15 @@ MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
 When set to "1" or "true", only tools with readOnlyHint=True will be available.
 """
 
+CLOUD_MCP_SAFE_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_SAFE_MODE"
+"""Environment variable controlling Cloud safe mode."""
+
+MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES"
+"""Environment variable controlling access to pipeline-changing tools."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS"
+"""Environment variable controlling Agents external access."""
+
 MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
 """Environment variable to disable specific MCP tool domains.
 
@@ -370,10 +379,22 @@ boundary: every insiders tool authorizes each call against the Airbyte API.
 `MCP_INSIDERS_ENV_VAR` overrides this header when explicitly set.
 """
 
+MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
+"""HTTP header that narrows access to pipeline-changing tools."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
+"""HTTP header that narrows Agents external access."""
+
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
 """Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+
+MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
+"""Config arg name for pipeline-change permission."""
+
+MCP_CONFIG_ALLOW_EXTERNAL_ACCESS: str = "allow_external_access"
+"""Config arg name for Agents external access permission."""
 
 MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
 """Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""

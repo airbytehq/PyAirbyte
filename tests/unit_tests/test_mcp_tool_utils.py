@@ -17,8 +17,8 @@ from airbyte.mcp._tool_utils import (
     TRUSTED_EXECUTION_CONFIG_ARG,
     SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
+    _resolve_safe_mode,
     _resolve_transport_bearer_token,
-    check_module_allowed_by_safe_mode,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
@@ -130,23 +130,27 @@ def test_check_guid_created_in_session_passes_when_safe_mode_disabled() -> None:
         check_guid_created_in_session("any-guid-at-all")
 
 
-def test_check_module_allowed_by_safe_mode_rejects_agents() -> None:
-    """Test that safe mode rejects the Agents module."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
-        with pytest.raises(SafeModeError, match="agents"):
-            check_module_allowed_by_safe_mode("agents")
+@pytest.mark.parametrize(
+    ("canonical", "expected"),
+    [
+        pytest.param(None, True, id="unset_enabled"),
+        pytest.param("auto", True, id="auto_enabled"),
+        pytest.param("1", True, id="one_enabled"),
+        pytest.param("0", False, id="zero_disabled"),
+        pytest.param("false", False, id="false_disabled"),
+        pytest.param("unexpected", True, id="unrecognized_enabled"),
+    ],
+)
+def test_resolve_safe_mode(
+    monkeypatch: pytest.MonkeyPatch, canonical: str | None, expected: bool
+) -> None:
+    """Safe mode is enabled unless explicitly set to a false value."""
+    if canonical is None:
+        monkeypatch.delenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", raising=False)
+    else:
+        monkeypatch.setenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", canonical)
 
-
-def test_check_module_allowed_by_safe_mode_allows_cloud() -> None:
-    """Test that safe mode allows the Cloud module."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
-        check_module_allowed_by_safe_mode("cloud")
-
-
-def test_check_module_allowed_by_safe_mode_allows_agents_when_disabled() -> None:
-    """Test that disabling safe mode allows the Agents module."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False):
-        check_module_allowed_by_safe_mode("agents")
+    assert _resolve_safe_mode() is expected
 
 
 def test_multiple_guids_can_be_registered() -> None:

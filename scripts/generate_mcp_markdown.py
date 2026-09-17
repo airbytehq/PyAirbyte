@@ -135,7 +135,6 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
         **os.environ,
         MCP_TRUSTED_EXECUTION_ENV_VAR: "1",
         MCP_INSIDERS_ENV_VAR: "1",
-        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "0",
     }
     try:
         subprocess.run(
