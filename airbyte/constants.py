@@ -385,6 +385,12 @@ MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
 MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
 """HTTP header that narrows Agents external access."""
 
+ANNOTATION_PIPELINE_CHANGE: str = "pipeline_change"
+"""Tool annotation indicating whether a call changes an Airbyte pipeline."""
+
+ANNOTATION_EXTERNAL_ACCESS: str = "external_access"
+"""Tool annotation indicating whether a call accesses an external service."""
+
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"

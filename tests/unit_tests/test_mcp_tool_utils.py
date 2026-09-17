@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 import pytest
 from fastmcp_extensions import MCPServerConfigArg
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS
 
+from airbyte.constants import ANNOTATION_EXTERNAL_ACCESS, ANNOTATION_PIPELINE_CHANGE
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
     CLIENT_ID_CONFIG_ARG,
@@ -20,6 +22,7 @@ from airbyte.mcp._tool_utils import (
     _resolve_safe_mode,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
+    mcp_tool,
     register_guid_created_in_session,
 )
 
@@ -168,6 +171,27 @@ def test_duplicate_guid_registration_is_idempotent() -> None:
     register_guid_created_in_session("duplicate-guid")
     register_guid_created_in_session("duplicate-guid")
     assert "duplicate-guid" in _GUIDS_CREATED_IN_SESSION
+
+
+def test_mcp_tool_sets_policy_annotations() -> None:
+    """Policy annotations default from the MCP tool's read-only setting."""
+
+    @mcp_tool(read_only=True)
+    def read_tool() -> None:
+        pass
+
+    _, read_annotations = _REGISTERED_TOOLS[-1]
+
+    @mcp_tool()
+    def write_tool() -> None:
+        pass
+
+    _, write_annotations = _REGISTERED_TOOLS[-1]
+
+    assert read_annotations[ANNOTATION_PIPELINE_CHANGE] is False
+    assert read_annotations[ANNOTATION_EXTERNAL_ACCESS] is False
+    assert write_annotations[ANNOTATION_PIPELINE_CHANGE] is True
+    assert write_annotations[ANNOTATION_EXTERNAL_ACCESS] is False
 
 
 @pytest.mark.parametrize(

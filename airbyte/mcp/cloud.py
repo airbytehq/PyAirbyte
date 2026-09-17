@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, cast
 
 from fastmcp import Context, FastMCP
-from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
+from fastmcp_extensions import get_mcp_config
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
@@ -57,7 +57,9 @@ from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
+    mcp_tool,
     register_guid_created_in_session,
+    register_mcp_tools,
 )
 
 
@@ -669,6 +671,7 @@ def create_connection_on_cloud(
 
 
 @mcp_tool(
+    pipeline_change=False,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -922,6 +925,7 @@ def list_cloud_sync_jobs(
 
 
 @mcp_tool(
+    pipeline_change=False,
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,

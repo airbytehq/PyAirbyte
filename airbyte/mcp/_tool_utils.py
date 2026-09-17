@@ -37,6 +37,8 @@ from fastmcp_extensions.tool_filters import (
 
 from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
 from airbyte.constants import (
+    ANNOTATION_EXTERNAL_ACCESS,
+    ANNOTATION_PIPELINE_CHANGE,
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
@@ -392,9 +394,11 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def mcp_tool(
+def mcp_tool(  # noqa: PLR0913
     *,
     read_only: bool = False,
+    pipeline_change: bool | None = None,
+    external_access: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
     open_world: bool = False,
@@ -419,6 +423,10 @@ def mcp_tool(
             raise RuntimeError("Unexpected MCP tool registration state.")
         registered_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(decorated)
         registered_annotations.update(annotations or {})
+        registered_annotations[ANNOTATION_PIPELINE_CHANGE] = (
+            pipeline_change if pipeline_change is not None else not read_only
+        )
+        registered_annotations[ANNOTATION_EXTERNAL_ACCESS] = external_access
         if meta:
             registered_annotations[_TOOL_META_KEY] = dict(meta)
         if app is not None:
@@ -543,7 +551,15 @@ def check_external_access_allowed(ctx: Context) -> None:
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     """Advertise only read-only tools when pipeline changes are disabled."""
     if pipeline_changes_allowed(app) is False:
-        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
+        read_only = bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
+        return (
+            get_annotation(
+                tool,
+                ANNOTATION_PIPELINE_CHANGE,
+                default=not read_only,
+            )
+            is not True
+        )
     return True
 
 
@@ -590,7 +606,10 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:  # noqa: PLR0911
     if exclude_modules and tool_module and tool_module in exclude_modules:
         return False
 
-    if tool_module == _AGENTS_MCP_MODULE and external_access_allowed(app) is False:
+    if (
+        get_annotation(tool, ANNOTATION_EXTERNAL_ACCESS, default=False) is True
+        and external_access_allowed(app) is False
+    ):
         return False
 
     if tool_module == _AGENTS_MCP_MODULE and not is_agents_api_available(app):

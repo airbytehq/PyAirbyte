@@ -77,7 +77,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     format_user_facing_error,
 )
-from airbyte.mcp._policy_middleware import PipelineChangesGuardMiddleware
+from airbyte.mcp._policy_middleware import PolicyGuardMiddleware
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -380,7 +380,7 @@ app = mcp_server(
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,
 )
-app.add_middleware(PipelineChangesGuardMiddleware())
+app.add_middleware(PolicyGuardMiddleware())
 """The Airbyte MCP Server application instance."""
 
 # Register tools from each module

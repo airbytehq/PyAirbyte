@@ -27,7 +27,7 @@ from http import HTTPStatus
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
-from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
+from fastmcp_extensions import get_mcp_config
 from pydantic import BaseModel, Field
 
 from airbyte.agents._destination_docs import (
@@ -64,6 +64,8 @@ from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_external_access_allowed,
+    mcp_tool,
+    register_mcp_tools,
 )
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
@@ -771,6 +773,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
@@ -813,6 +816,7 @@ def list_agent_workspaces(
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
@@ -912,6 +916,7 @@ def _destination_connector_result(destination: CloudDestination) -> AgentConnect
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
@@ -978,6 +983,7 @@ def inspect_agent_connector(
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
@@ -1117,6 +1123,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
 
 
 @mcp_tool(
+    external_access=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
 )
@@ -1264,6 +1271,7 @@ def _agent_skill_result(skill: AgentSkillInfo) -> AgentSkillResult:
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
@@ -1301,6 +1309,7 @@ def list_agent_skills(
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,
@@ -1343,6 +1352,7 @@ def search_agent_skills(
 
 @mcp_tool(
     read_only=True,
+    external_access=True,
     idempotent=True,
     open_world=True,
     extra_help_text=AGENTS_AUTH_TIP_TEXT,

@@ -142,10 +142,12 @@ Pipeline-changing tools are controlled by `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHAN
 Both settings accept `1`/`true`, `0`/`false`, or `auto`; `auto` and unset values mean no
 explicit permission. A request header can narrow an environment setting, but cannot widen it.
 
-When pipeline changes are disabled, only tools annotated as read-only are advertised and
-executable. If external access is unset while pipeline changes are disabled, Agents tools are
-also disabled. Explicit external access permission can expose Agents without insiders mode,
-subject to API availability, module excludes, and the `AIRBYTE_MCP_INSIDERS=0` hard deny.
+Pipeline-change gating uses each tool's `pipeline_change` annotation, defaulting to non-read-only
+tools; running or cancelling a sync is not a pipeline change.
+When pipeline changes are disabled, tools classified as pipeline changes are not advertised or
+executable. If external access is unset while pipeline changes are disabled, Agents tools are also
+disabled. Explicit external access permission can expose Agents without insiders mode, subject to
+API availability, module excludes, and the `AIRBYTE_MCP_INSIDERS=0` hard deny.
 
 ### Airbyte Cloud Read-Only Mode
 

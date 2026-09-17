@@ -33,14 +33,34 @@ APP = cast(FastMCP, object())
 """Stand-in for the app; the filter only passes it to `get_mcp_config`, which is patched."""
 
 
-def _tool(mcp_module: str, *, read_only: bool = False) -> Tool:
+def _tool(
+    mcp_module: str,
+    *,
+    read_only: bool = False,
+    pipeline_change: bool | None = None,
+    external_access: bool | None = None,
+) -> Tool:
     """Return a tool-like object annotated with an MCP module name."""
+    extra = {
+        "external_access": mcp_module == "agents"
+        if external_access is None
+        else external_access,
+    }
+    if pipeline_change is not None:
+        extra["pipeline_change"] = pipeline_change
     return cast(
         Tool,
         SimpleNamespace(
             annotations=SimpleNamespace(
                 mcp_module=mcp_module,
                 readOnlyHint=read_only,
+                external_access=extra["external_access"],
+                **(
+                    {"pipeline_change": extra["pipeline_change"]}
+                    if "pipeline_change" in extra
+                    else {}
+                ),
+                model_extra=extra,
             )
         ),
     )
@@ -344,6 +364,48 @@ def test_pipeline_changes_filter(
     if policy is not None:
         monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, policy)
     tool = _tool("cloud", read_only=False)
+
+    assert _tool_utils.airbyte_readonly_mode_filter(tool, APP) is expected
+
+
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        pytest.param(
+            _tool("cloud", read_only=False, pipeline_change=False),
+            True,
+            id="run_cloud_sync_is_not_a_pipeline_change",
+        ),
+        pytest.param(
+            _tool("cloud", read_only=False, pipeline_change=False),
+            True,
+            id="cancel_cloud_sync_is_not_a_pipeline_change",
+        ),
+        pytest.param(
+            _tool("cloud", read_only=False, pipeline_change=True),
+            False,
+            id="annotated_pipeline_change_is_hidden",
+        ),
+        pytest.param(
+            _tool("cloud", read_only=True),
+            True,
+            id="read_only_tool_is_visible",
+        ),
+        pytest.param(
+            _tool("cloud", read_only=False),
+            False,
+            id="unannotated_tool_uses_read_only_hint",
+        ),
+    ],
+)
+def test_pipeline_change_annotation_controls_readonly_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    tool: Tool,
+    expected: bool,
+) -> None:
+    """Pipeline policy uses the PyAirbyte annotation with a read-only fallback."""
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
 
     assert _tool_utils.airbyte_readonly_mode_filter(tool, APP) is expected
 
