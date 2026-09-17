@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from typing import Any, cast
+from unittest.mock import Mock
 
 import pytest
 from airbyte.agents.models import (
@@ -671,25 +672,119 @@ def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_list_agent_workspaces_is_blocked_by_safe_mode(
+@pytest.mark.parametrize(
+    "call_tool",
+    [
+        pytest.param(
+            lambda: agents_mcp.list_agent_workspaces(
+                ctx=cast(Context, object()),
+                organization_id="organization-id",
+            ),
+            id="list_workspaces",
+        ),
+        pytest.param(
+            lambda: agents_mcp.list_agent_connectors(
+                ctx=cast(Context, object()),
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="list_connectors",
+        ),
+        pytest.param(
+            lambda: agents_mcp.inspect_agent_connector(
+                ctx=cast(Context, object()),
+                connector_id="connector-id",
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="inspect_connector",
+        ),
+        pytest.param(
+            lambda: agents_mcp.execute_agent_connector_ro(
+                ctx=cast(Context, object()),
+                connector_id="connector-id",
+                entity_type="issues",
+                action="list",
+                api_args=None,
+                select_fields=None,
+                exclude_fields=None,
+                page_size=None,
+                cursor=None,
+                intent=None,
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="execute_connector_ro",
+        ),
+        pytest.param(
+            lambda: agents_mcp.execute_agent_connector(
+                ctx=cast(Context, object()),
+                connector_id="connector-id",
+                entity_type="issues",
+                action="create",
+                api_args=None,
+                select_fields=None,
+                exclude_fields=None,
+                page_size=None,
+                cursor=None,
+                intent=None,
+                read_only=None,
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="execute_connector",
+        ),
+        pytest.param(
+            lambda: agents_mcp.list_agent_skills(
+                ctx=cast(Context, object()),
+                workspace_id="workspace-id",
+            ),
+            id="list_skills",
+        ),
+        pytest.param(
+            lambda: agents_mcp.search_agent_skills(
+                ctx=cast(Context, object()),
+                query="github",
+                workspace_id="workspace-id",
+            ),
+            id="search_skills",
+        ),
+        pytest.param(
+            lambda: agents_mcp.read_agent_skill_docs(
+                ctx=cast(Context, object()),
+                skill_id="connector:github",
+                section=None,
+                workspace_id="workspace-id",
+            ),
+            id="read_skill_docs",
+        ),
+    ],
+)
+def test_agents_entry_points_are_blocked_by_safe_mode(
     monkeypatch: pytest.MonkeyPatch,
+    call_tool: Callable[[], Any],
 ) -> None:
-    """Safe mode rejects Agents access before reading MCP config."""
+    """Safe mode rejects every Agents entry point before resolver or API access."""
     monkeypatch.setattr(
         "airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE",
         True,
     )
-    monkeypatch.setattr(
-        agents_mcp,
-        "get_mcp_config",
-        lambda ctx, key: (_ for _ in ()).throw(AssertionError("config access")),
-    )
+    get_mcp_config = Mock(side_effect=AssertionError("config access"))
+    agent_organization = Mock(name="AgentOrganization")
+    agent_workspace = Mock(name="AgentWorkspace")
+    cloud_client = Mock(name="_get_cloud_client")
+    monkeypatch.setattr(agents_mcp, "get_mcp_config", get_mcp_config)
+    monkeypatch.setattr(agents_mcp, "AgentOrganization", agent_organization)
+    monkeypatch.setattr(agents_mcp, "AgentWorkspace", agent_workspace)
+    monkeypatch.setattr(agents_mcp, "_get_cloud_client", cloud_client)
 
     with pytest.raises(SafeModeError):
-        agents_mcp.list_agent_workspaces(
-            ctx=cast(Context, object()),
-            organization_id=None,
-        )
+        call_tool()
+
+    get_mcp_config.assert_not_called()
+    agent_organization.assert_not_called()
+    agent_workspace.assert_not_called()
+    cloud_client.assert_not_called()
 
 
 _ACCESS_FAILURE_CASES = [
