@@ -14,25 +14,35 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
+import uuid
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
 import requests
 from airbyte_api import api, models
+from airbyte_api._hooks.types import (
+    BeforeRequestContext,  # SDK's documented hook seam
+    BeforeRequestHook,  # noqa: PLC2701
+)
 from airbyte_api.errors import SDKError
+from requests.adapters import HTTPAdapter
 
+from airbyte._util.deferred_setup import parse_deferred_setup_problem
 from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
+    AirbyteDeferredSetupError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
     AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
+    PyAirbyteInternalError,
 )
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.util import try_get_secret
@@ -54,6 +64,250 @@ JWT_PART_COUNT = 3
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
 JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
+
+# Deferred-credential setup transport policy (per HTTP leg, not a total deadline)
+DEFERRED_CONNECT_TIMEOUT_SECS = 5.0
+DEFERRED_READ_TIMEOUT_SECS = 120.0
+DEFERRED_EVIDENCE_MAX_BYTES = 1024 * 1024
+_DEFER_CREDENTIALS_FIELD = "defer_credentials"
+_CREDENTIALS_DEFERRED_FIELD = "credentials_deferred"
+_DEFER_CREDENTIALS_WIRE_KEY = "deferCredentials"
+_CREATE_OPERATION_IDS = frozenset({"createSource", "createDestination"})
+
+ActorType = Literal["source", "destination"]
+
+
+def sdk_supports_deferred_credentials() -> bool:
+    """Whether the installed generated SDK models carry the deferred-credential fields."""
+    request_models: tuple[type, ...] = (models.SourceCreateRequest, models.DestinationCreateRequest)
+    response_models: tuple[type, ...] = (models.SourceResponse, models.DestinationResponse)
+    return all(
+        _DEFER_CREDENTIALS_FIELD in {f.name for f in dataclasses.fields(m)} for m in request_models
+    ) and all(
+        _CREDENTIALS_DEFERRED_FIELD in {f.name for f in dataclasses.fields(m)}
+        for m in response_models
+    )
+
+
+def typed_credentials_deferred(
+    response: models.SourceResponse | models.DestinationResponse,
+) -> bool:
+    """Whether the decoded SDK model acknowledges deferred credentials with a literal `True`.
+
+    Returns `False` when the installed SDK models predate the acknowledgment field.
+    """
+    value = dataclasses.asdict(response).get(_CREDENTIALS_DEFERRED_FIELD)
+    return type(value) is bool and value is True
+
+
+@dataclasses.dataclass(frozen=True)
+class TypedCreateResult:
+    """Identity fields the generated SDK decoded from a create response, owned by PyAirbyte.
+
+    `credentials_deferred` is the typed acknowledgment, or `True` when the installed SDK models
+    predate the acknowledgment field so that only the raw-wire evidence decides.
+    """
+
+    actor_type: ActorType
+    actor_id: str | None
+    workspace_id: str | None
+    definition_id: str | None
+    credentials_deferred: bool
+
+
+def typed_create_result(
+    response: models.SourceResponse | models.DestinationResponse,
+) -> TypedCreateResult:
+    """Project a decoded SDK create response onto `TypedCreateResult`."""
+    if isinstance(response, models.SourceResponse):
+        actor_type: ActorType = "source"
+        actor_id = response.source_id
+    else:
+        actor_type = "destination"
+        actor_id = response.destination_id
+    return TypedCreateResult(
+        actor_type=actor_type,
+        actor_id=actor_id,
+        workspace_id=response.workspace_id,
+        definition_id=response.definition_id,
+        credentials_deferred=(
+            typed_credentials_deferred(response) or not sdk_supports_deferred_credentials()
+        ),
+    )
+
+
+def actor_url(api_root: str, actor_type: ActorType, actor_id: str | None = None) -> str:
+    """Exact public API URL the SDK uses for the actor collection or a single actor."""
+    url = f"{api_root}/{actor_type}s"
+    return url if actor_id is None else f"{url}/{actor_id}"
+
+
+@dataclasses.dataclass(frozen=True)
+class DeferredCreateEvidence:
+    """Identity and acknowledgment state projected from the raw create response.
+
+    `actor_id` is set only when the response carried string UUIDs whose workspace and definition
+    matched the request exactly. Nothing else from the response is retained.
+    """
+
+    actor_id: str | None
+    acknowledged: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class _ExpectedCreate:
+    url: str
+    actor_type: ActorType
+    workspace_id: uuid.UUID
+    definition_id: uuid.UUID
+
+
+def _as_uuid(value: object) -> uuid.UUID | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        return None
+
+
+def _project_create_evidence(
+    response: requests.Response,
+    expected: _ExpectedCreate,
+) -> DeferredCreateEvidence:
+    no_evidence = DeferredCreateEvidence(actor_id=None, acknowledged=False)
+    content = response.content
+    if content is None or len(content) > DEFERRED_EVIDENCE_MAX_BYTES:
+        return no_evidence
+    try:
+        body = json.loads(content)
+    except ValueError:
+        return no_evidence
+    if not isinstance(body, dict):
+        return no_evidence
+
+    actor_id = _as_uuid(body.get(f"{expected.actor_type}Id"))
+    if (
+        actor_id is None
+        or _as_uuid(body.get("workspaceId")) != expected.workspace_id
+        or _as_uuid(body.get("definitionId")) != expected.definition_id
+    ):
+        return no_evidence
+    acknowledgment = body.get("credentialsDeferred")
+    return DeferredCreateEvidence(
+        actor_id=str(actor_id),
+        acknowledged=type(acknowledgment) is bool and acknowledgment is True,
+    )
+
+
+class DeferredSetupSession(requests.Session):
+    """Dedicated transport for deferred-credential setup legs.
+
+    Every request sent through this session gets a fixed connect/read timeout, follows no
+    redirects and is never retried by the adapter, regardless of what the caller passes.
+    Owners may `watch` exact (method, URL) legs; the session records whether each watched leg
+    was handed to the transport and its final HTTP status, so callers can map failures by stage
+    without inspecting exception text. When armed with `expect_create`, it projects
+    identity/acknowledgment evidence from that one create response and refuses to send a second
+    create. Owners close the session (use it as a context manager).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.max_redirects = 0
+        adapter = HTTPAdapter(max_retries=0)
+        self.mount("https://", adapter)
+        self.mount("http://", adapter)
+        self._expected_create: _ExpectedCreate | None = None
+        self._create_sent = False
+        self._watched: dict[tuple[str, str], str] = {}
+        self.entered: set[str] = set()
+        self.statuses: dict[str, int] = {}
+        self.evidence: DeferredCreateEvidence | None = None
+
+    def watch(self, label: str, *, method: str, url: str) -> None:
+        """Track entry and final status of the exact `method` request to `url` under `label`."""
+        self._watched[method.upper(), url] = label
+
+    def expect_create(
+        self,
+        *,
+        url: str,
+        actor_type: ActorType,
+        workspace_id: str,
+        definition_id: str,
+    ) -> None:
+        """Arm evidence capture for exactly one create POST to `url`."""
+        if self._create_sent:
+            raise PyAirbyteInternalError(
+                message="A deferred setup session cannot be reused for a second create.",
+            )
+        self.evidence = None
+        self._expected_create = _ExpectedCreate(
+            url=url,
+            actor_type=actor_type,
+            workspace_id=uuid.UUID(workspace_id),
+            definition_id=uuid.UUID(definition_id),
+        )
+        self.watch("create", method="POST", url=url)
+
+    @property
+    def create_sent(self) -> bool:
+        """Whether the expected create POST was handed to the transport."""
+        return self._create_sent
+
+    def send(  # type: ignore[override]  # requests types `**kwargs` loosely
+        self,
+        request: requests.PreparedRequest,
+        **kwargs: Any,  # noqa: ANN401  # Matches `requests.Session.send`
+    ) -> requests.Response:
+        """Send with the fixed policy, recording watched legs and create evidence."""
+        kwargs["timeout"] = (DEFERRED_CONNECT_TIMEOUT_SECS, DEFERRED_READ_TIMEOUT_SECS)
+        kwargs["allow_redirects"] = False
+        expected = self._expected_create
+        is_create = (
+            expected is not None and request.method == "POST" and request.url == expected.url
+        )
+        if is_create:
+            if self._create_sent:
+                raise PyAirbyteInternalError(
+                    message="A deferred setup session cannot send a second create.",
+                )
+            self._create_sent = True
+        label = self._watched.get(
+            (str(request.method).upper(), str(request.url).split("?", maxsplit=1)[0])
+        )
+        if label is not None:
+            self.entered.add(label)
+        response = super().send(request, **kwargs)
+        if label is not None:
+            self.statuses[label] = response.status_code
+        if is_create and expected is not None and response.status_code == HTTPStatus.OK:
+            self.evidence = _project_create_evidence(response, expected)
+        return response
+
+
+class _DeferCredentialsWireHook(BeforeRequestHook):
+    """SDK before-request hook adding `deferCredentials: true` to one create request body.
+
+    Used only when the installed generated SDK predates the typed request field, so the flag
+    still reaches the wire through the SDK's own request pipeline. The response is decoded by
+    the SDK as usual; acknowledgment then comes from the raw-wire evidence alone.
+    """
+
+    def before_request(
+        self,
+        hook_ctx: BeforeRequestContext,
+        request: requests.PreparedRequest,
+    ) -> requests.PreparedRequest:
+        if hook_ctx.operation_id not in _CREATE_OPERATION_IDS or request.body is None:
+            return request
+        body = json.loads(request.body)
+        if not isinstance(body, dict):
+            return request
+        body[_DEFER_CREDENTIALS_WIRE_KEY] = True
+        request.prepare_body(data=json.dumps(body), files=None)
+        return request
 
 
 def status_ok(status_code: int) -> bool:
@@ -195,6 +449,7 @@ def get_airbyte_server_instance(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    http_session: requests.Session | None = None,
 ) -> airbyte_api.AirbyteAPI:
     """Get an Airbyte API instance.
 
@@ -207,6 +462,8 @@ def get_airbyte_server_instance(
         client_id: OAuth2 client ID (required if not using bearer_token).
         client_secret: OAuth2 client secret (required if not using bearer_token).
         bearer_token: Pre-generated bearer token (alternative to client credentials).
+        http_session: Optional caller-owned `requests.Session` used for every SDK request,
+            including the SDK's own token requests. The caller is responsible for closing it.
 
     Returns:
         An authenticated AirbyteAPI instance.
@@ -228,7 +485,7 @@ def get_airbyte_server_instance(
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
 
-    client = requests.Session()
+    client = http_session if http_session is not None else requests.Session()
     client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
 
     # Option 1: Bearer token authentication
@@ -636,7 +893,7 @@ def list_workspaces(
     return result
 
 
-def list_sources(
+def list_sources(  # noqa: PLR0913
     workspace_id: str,
     *,
     api_root: str,
@@ -646,6 +903,7 @@ def list_sources(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
+    http_session: requests.Session | None = None,
 ) -> list[models.SourceResponse]:
     """List sources."""
     if name is not None and name_filter:
@@ -659,6 +917,7 @@ def list_sources(
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
+        http_session=http_session,
     )
     result: list[models.SourceResponse] = []
     current_offset = 0
@@ -703,7 +962,7 @@ def list_sources(
     return result
 
 
-def list_destinations(
+def list_destinations(  # noqa: PLR0913
     workspace_id: str,
     *,
     api_root: str,
@@ -713,6 +972,7 @@ def list_destinations(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
+    http_session: requests.Session | None = None,
 ) -> list[models.DestinationResponse]:
     """List destinations."""
     if name is not None and name_filter:
@@ -726,6 +986,7 @@ def list_destinations(
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
+        http_session=http_session,
     )
     result: list[models.DestinationResponse] = []
     current_offset = 0
@@ -1082,7 +1343,7 @@ def cancel_job(
 # Create, get, and delete sources
 
 
-def create_source(
+def create_source(  # noqa: PLR0913
     name: str,
     *,
     workspace_id: str,
@@ -1092,26 +1353,42 @@ def create_source(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    defer_credentials: bool = False,
+    http_session: requests.Session | None = None,
 ) -> models.SourceResponse:
     """Create a source connector instance.
 
     Either `definition_id` or `config[sourceType]` must be provided.
+
+    With `defer_credentials=True` the platform fills absent required credentials with a
+    placeholder for the user to complete in Airbyte Cloud. A platform refusal (the
+    deferred-credential-setup problem) is raised as `AirbyteDeferredSetupError` carrying only
+    the allowlisted problem, never the raw response.
     """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
+        http_session=http_session,
     )
-    response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
-        models.SourceCreateRequest(
-            name=name,
-            workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
-            definition_id=definition_id or None,  # Only used for custom sources
-            secret_id=None,  # For OAuth, not yet supported
-        ),
+    deferred_fields = _prepare_deferred_create(
+        airbyte_instance, defer_credentials=defer_credentials
     )
+    try:
+        response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
+            models.SourceCreateRequest(
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # Speakeasy API wants a dataclass, not a dict
+                definition_id=definition_id or None,  # Only used for custom sources
+                secret_id=None,  # For OAuth, not yet supported
+                **deferred_fields,
+            ),
+        )
+    except SDKError as e:
+        _raise_if_deferred_setup_refusal(e, defer_credentials=defer_credentials)
+        raise
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1132,6 +1409,7 @@ def get_source(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    http_session: requests.Session | None = None,
 ) -> models.SourceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
@@ -1139,6 +1417,7 @@ def get_source(
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
+        http_session=http_session,
     )
     response = airbyte_instance.sources.get_source(
         api.GetSourceRequest(
@@ -1315,10 +1594,40 @@ def _get_destination_type_str(
     return destination_type
 
 
+def _prepare_deferred_create(
+    airbyte_instance: airbyte_api.AirbyteAPI,
+    *,
+    defer_credentials: bool,
+) -> dict[str, Any]:
+    """Extra generated-model constructor fields for a deferred create request.
+
+    With an SDK that carries the typed field, the flag is passed through the model. Otherwise
+    a before-request hook on this SDK instance injects the wire field instead.
+    """
+    if not defer_credentials:
+        return {}
+    if sdk_supports_deferred_credentials():
+        return {_DEFER_CREDENTIALS_FIELD: True}
+    airbyte_instance.sdk_configuration.get_hooks().register_before_request_hook(
+        _DeferCredentialsWireHook()  # type: ignore[arg-type]  # structural hook protocol
+    )
+    return {}
+
+
+def _raise_if_deferred_setup_refusal(error: SDKError, *, defer_credentials: bool) -> None:
+    """Convert the platform's deferred-setup 422 into a safe typed error; ignore anything else."""
+    if not defer_credentials:
+        return
+    problem = parse_deferred_setup_problem(status_code=error.status_code, body=error.body)
+    if problem is None:
+        return
+    raise AirbyteDeferredSetupError(outcome="refused", problem=problem) from None
+
+
 # Create, get, and delete destinations
 
 
-def create_destination(
+def create_destination(  # noqa: PLR0913
     name: str,
     *,
     workspace_id: str,
@@ -1327,27 +1636,43 @@ def create_destination(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    definition_id: str | None = None,
+    defer_credentials: bool = False,
+    http_session: requests.Session | None = None,
 ) -> models.DestinationResponse:
-    """Get a connection."""
+    """Create a destination connector instance.
+
+    An explicit `definition_id` is sent as-is and bypasses `destinationType` inference.
+    See `create_source` for `defer_credentials` semantics.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
+        http_session=http_session,
     )
-    definition_id_override: str | None = None
-    if _get_destination_type_str(config) == "dev-null":
+    definition_id_override: str | None = definition_id
+    if definition_id is None and _get_destination_type_str(config) == "dev-null":
         # TODO: We have to hard-code the definition ID for dev-null destination.
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
-    response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
-        models.DestinationCreateRequest(
-            definition_id=definition_id_override,
-            name=name,
-            workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
-        ),
+    deferred_fields = _prepare_deferred_create(
+        airbyte_instance, defer_credentials=defer_credentials
     )
+    try:
+        response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
+            models.DestinationCreateRequest(
+                definition_id=definition_id_override,
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # Speakeasy API wants a dataclass, not a dict
+                **deferred_fields,
+            ),
+        )
+    except SDKError as e:
+        _raise_if_deferred_setup_refusal(e, defer_credentials=defer_credentials)
+        raise
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
@@ -1368,6 +1693,7 @@ def get_destination(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    http_session: requests.Session | None = None,
 ) -> models.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
@@ -1375,6 +1701,7 @@ def get_destination(
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
+        http_session=http_session,
     )
     response = airbyte_instance.destinations.get_destination(
         api.GetDestinationRequest(
@@ -1843,13 +2170,15 @@ def get_bearer_token(
     client_id: SecretString,
     client_secret: SecretString,
     api_root: str = CLOUD_API_ROOT,
+    http_session: requests.Session | None = None,
 ) -> SecretString:
     """Get a bearer token.
 
     https://reference.airbyte.com/reference/createaccesstoken
 
     """
-    response = requests.post(
+    post = http_session.post if http_session is not None else requests.post
+    response = post(
         url=api_root + "/applications/token",
         headers={
             "content-type": "application/json",
@@ -1876,6 +2205,7 @@ def _make_config_api_request(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    http_session: requests.Session | None = None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
 
@@ -1890,6 +2220,7 @@ def _make_config_api_request(
             client_id=client_id,
             client_secret=client_secret,
             api_root=api_root,
+            http_session=http_session,
         )
     headers: dict[str, Any] = {
         "Content-Type": "application/json",
@@ -1898,7 +2229,8 @@ def _make_config_api_request(
         AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
     }
     full_url = config_api_root + path
-    response = requests.request(
+    send_request = http_session.request if http_session is not None else requests.request
+    response = send_request(
         method="POST",
         url=full_url,
         headers=headers,
@@ -1927,7 +2259,12 @@ def _make_config_api_request(
     return response.json()
 
 
-def check_connector(
+def check_connection_path(connector_type: ActorType) -> str:
+    """Config API path used by `check_connector` for the given actor type."""
+    return f"/{connector_type}s/check_connection"
+
+
+def check_connector(  # noqa: PLR0913
     *,
     actor_id: str,
     connector_type: Literal["source", "destination"],
@@ -1937,6 +2274,7 @@ def check_connector(
     workspace_id: str | None = None,
     api_root: str = CLOUD_API_ROOT,
     config_api_root: str | None = None,
+    http_session: requests.Session | None = None,
 ) -> tuple[bool, str | None]:
     """Check a source.
 
@@ -1948,7 +2286,7 @@ def check_connector(
     _ = workspace_id  # Not used (yet)
 
     json_result = _make_config_api_request(
-        path=f"/{connector_type}s/check_connection",
+        path=check_connection_path(connector_type),
         json={
             f"{connector_type}Id": actor_id,
         },
@@ -1957,6 +2295,7 @@ def check_connector(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        http_session=http_session,
     )
     result, message = json_result.get("status"), json_result.get("message")
 

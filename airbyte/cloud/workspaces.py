@@ -45,6 +45,7 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud import _deferred_setup
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
@@ -57,13 +58,18 @@ from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
+from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte._util.deferred_setup import (
+        ActorType,
+        DeferredSetupOutcome,
+        SetupCheckOutcome,
+    )
     from airbyte.secrets.base import SecretString
-    from airbyte.sources.base import Source
 
 
 @dataclass(init=False, kw_only=True)  # noqa: PLR0904  # Core cloud API facade.
@@ -368,6 +374,66 @@ class CloudWorkspace:
 
     # Deploy sources and destinations
 
+    def _deploy_deferred(
+        self,
+        *,
+        actor_type: ActorType,
+        name: str,
+        connector: object,
+        definition_id: str | None,
+        unique: bool,
+        random_name_suffix: bool,
+    ) -> DeferredSetupOutcome:
+        if not isinstance(connector, dict):
+            raise exc.PyAirbyteInputError(
+                message="Deferred deployment accepts only a non-secret configuration dictionary.",
+                guidance="Pass raw configuration, not a Source or Destination object.",
+            )
+        if definition_id is None:
+            raise exc.PyAirbyteInputError(
+                message="`definition_id` is required when `defer_credentials=True`.",
+            )
+        if not unique or random_name_suffix:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Deferred deployment requires `unique=True` and `random_name_suffix=False`."
+                ),
+            )
+        config = _deferred_setup.normalize_deferred_config(connector, actor_type=actor_type)
+        return _deferred_setup.deploy_deferred(
+            actor_type=actor_type,
+            name=name,
+            config=config,
+            definition_id=definition_id,
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+
+    def check_connector_setup(
+        self,
+        actor_type: ActorType,
+        actor_id: str,
+    ) -> SetupCheckOutcome:
+        """Run one connection check on a connector after a person completed its setup in Cloud.
+
+        Verifies that the connector belongs to this workspace before checking it, never retries
+        or polls, and reports only fixed status codes and messages.
+        """
+        return _deferred_setup.check_connector_setup(
+            actor_type=actor_type,
+            actor_id=actor_id,
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+
+    @overload
     def deploy_source(
         self,
         name: str,
@@ -375,18 +441,64 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
-    ) -> CloudSource:
+    ) -> CloudSource: ...
+
+    @overload
+    def deploy_source(
+        self,
+        name: str,
+        source: dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+        definition_id: str,
+        defer_credentials: Literal[True],
+    ) -> DeferredSetupOutcome: ...
+
+    def deploy_source(
+        self,
+        name: str,
+        source: Source | dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+        definition_id: str | None = None,
+        defer_credentials: bool = False,
+    ) -> CloudSource | DeferredSetupOutcome:
         """Deploy a source to the workspace.
 
-        Returns the newly deployed source.
+        Returns the newly deployed source, or a `DeferredSetupOutcome` in deferred mode.
 
         Args:
             name: The name to use when deploying.
-            source: The source object to deploy.
+            source: The source object to deploy. In deferred mode, a dictionary of non-secret
+                configuration values instead.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
+            definition_id: The source definition ID. Required in deferred mode and
+                not accepted otherwise.
+            defer_credentials: Create the source without credentials; the platform stores
+                placeholders that a person completes in Airbyte Cloud. Local connector
+                objects and secrets are never read in this mode.
         """
+        if defer_credentials:
+            return self._deploy_deferred(
+                actor_type="source",
+                name=name,
+                connector=source,
+                definition_id=definition_id,
+                unique=unique,
+                random_name_suffix=random_name_suffix,
+            )
+        if definition_id is not None:
+            raise exc.PyAirbyteInputError(
+                message="`definition_id` is only accepted with `defer_credentials=True`.",
+            )
+        if not isinstance(source, Source):
+            raise exc.PyAirbyteInputError(
+                message="`source` must be a `Source` object unless `defer_credentials=True`.",
+            )
         source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
         source_config_dict["sourceType"] = source.name.replace("source-", "")
 
@@ -415,6 +527,7 @@ class CloudWorkspace:
             connector_id=deployed_source.source_id,
         )
 
+    @overload
     def deploy_destination(
         self,
         name: str,
@@ -422,19 +535,61 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
-    ) -> CloudDestination:
+    ) -> CloudDestination: ...
+
+    @overload
+    def deploy_destination(
+        self,
+        name: str,
+        destination: dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+        definition_id: str,
+        defer_credentials: Literal[True],
+    ) -> DeferredSetupOutcome: ...
+
+    def deploy_destination(
+        self,
+        name: str,
+        destination: Destination | dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+        definition_id: str | None = None,
+        defer_credentials: bool = False,
+    ) -> CloudDestination | DeferredSetupOutcome:
         """Deploy a destination to the workspace.
 
-        Returns the newly deployed destination ID.
+        Returns the newly deployed destination, or a `DeferredSetupOutcome` in deferred mode.
 
         Args:
             name: The name to use when deploying.
             destination: The destination to deploy. Can be a local Airbyte `Destination` object or a
-                dictionary of configuration values.
+                dictionary of configuration values. In deferred mode, only a dictionary of
+                non-secret configuration values is accepted.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
+            definition_id: The destination definition ID. Required in deferred mode and
+                not accepted otherwise.
+            defer_credentials: Create the destination without credentials; the platform stores
+                placeholders that a person completes in Airbyte Cloud. Local connector
+                objects and secrets are never read in this mode.
         """
+        if defer_credentials:
+            return self._deploy_deferred(
+                actor_type="destination",
+                name=name,
+                connector=destination,
+                definition_id=definition_id,
+                unique=unique,
+                random_name_suffix=random_name_suffix,
+            )
+        if definition_id is not None:
+            raise exc.PyAirbyteInputError(
+                message="`definition_id` is only accepted with `defer_credentials=True`.",
+            )
         if isinstance(destination, Destination):
             destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")

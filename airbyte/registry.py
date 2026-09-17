@@ -211,10 +211,12 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
 def _get_registry_cache(
     *,
     force_refresh: bool = False,
+    http_session: requests.Session | None = None,
 ) -> dict[str, ConnectorMetadata]:
     """Return the registry cache.
 
-    Result is a mapping of connector name to ConnectorMetadata.
+    Result is a mapping of connector name to ConnectorMetadata. `http_session`, when given, is
+    used only for a cold HTTP fetch of the registry; cached and file-backed lookups ignore it.
     """
     global __cache
     if __cache and not force_refresh:
@@ -226,7 +228,8 @@ def _get_registry_cache(
         return {}
 
     if registry_url.startswith("http"):
-        response = requests.get(
+        get = http_session.get if http_session is not None else requests.get
+        response = get(
             registry_url,
             headers={"User-Agent": f"PyAirbyte/{get_version()}"},
         )
@@ -259,7 +262,11 @@ def _get_registry_cache(
     return __cache
 
 
-def get_connector_metadata(name: str) -> ConnectorMetadata | None:
+def get_connector_metadata(
+    name: str,
+    *,
+    http_session: requests.Session | None = None,
+) -> ConnectorMetadata | None:
     """Check the cache for the connector.
 
     If the cache is empty, populate by calling update_cache.
@@ -269,7 +276,7 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     if _is_registry_disabled(registry_url):
         return None
 
-    cache = copy(_get_registry_cache())
+    cache = copy(_get_registry_cache(http_session=http_session))
 
     if not cache:
         raise exc.PyAirbyteInternalError(

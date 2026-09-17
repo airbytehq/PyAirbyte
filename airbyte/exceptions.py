@@ -56,6 +56,7 @@ from airbyte.constants import (
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
+    from airbyte._util.deferred_setup import DeferredSetupProblem
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
@@ -690,6 +691,27 @@ class AirbyteDuplicateResourcesError(AirbyteError):
 
     resource_type: str | None = None
     resource_name: str | None = None
+
+
+@dataclass
+class AirbyteDeferredSetupError(AirbyteError):
+    """A deferred-credential create did not produce an acknowledged actor.
+
+    Carries only fixed outcome codes, canonical UUIDs and the allowlisted platform problem.
+    It never carries raw responses, configuration, names or provider text.
+    """
+
+    outcome: str | None = None
+    """Fixed outcome code: `created_unconfirmed`, `outcome_unknown`, `refused` or `not_created`."""
+
+    reason: str | None = None
+    """Fixed reason code for `not_created` outcomes."""
+
+    actor_id: str | None = None
+    """Canonical actor UUID when raw response identity was verified; otherwise `None`."""
+
+    problem: DeferredSetupProblem | None = None
+    """Allowlisted platform refusal for `refused` outcomes."""
 
 
 # Custom Warnings
