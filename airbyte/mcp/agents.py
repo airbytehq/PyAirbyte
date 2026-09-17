@@ -127,8 +127,8 @@ CONTEXT_LAYER_ENABLE_GUIDANCE = (
 """How the human, not the agent, turns on Agents access for an organization or connector."""
 
 AGENTS_NO_CONNECTORS_ENABLED_MESSAGE = (
-    "No connectors in this workspace are enabled for Agents access, so there is nothing to "
-    f"list, inspect, or execute. {CONTEXT_LAYER_ENABLE_GUIDANCE}"
+    "No source connectors in this workspace are enabled for Agents access. "
+    f"{CONTEXT_LAYER_ENABLE_GUIDANCE}"
 )
 
 
