@@ -36,7 +36,6 @@ from fastmcp_extensions.tool_filters import (
 )
 
 from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
-from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -65,7 +64,6 @@ from airbyte.constants import (
     MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
-    MCP_UPSTREAM_ANALYTIC_SOURCES,
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
@@ -242,17 +240,6 @@ def _normalize_bearer_token(value: str) -> str | None:
     if stripped.lower().startswith("bearer "):
         stripped = stripped[len("bearer ") :].strip()
     return stripped or None
-
-
-def resolve_upstream_analytic_source() -> str | None:
-    """Return the allowlisted `X-Airbyte-Analytic-Source` from the current MCP request, if any."""
-    headers = get_http_headers(include={AIRBYTE_ANALYTIC_SOURCE_HEADER.lower()})
-    for key, value in headers.items():
-        if key.lower() == AIRBYTE_ANALYTIC_SOURCE_HEADER.lower():
-            normalized = value.strip().lower()
-            if normalized in MCP_UPSTREAM_ANALYTIC_SOURCES:
-                return normalized
-    return None
 
 
 def _resolve_transport_bearer_token() -> str:
