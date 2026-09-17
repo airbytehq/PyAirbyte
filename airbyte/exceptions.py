@@ -695,23 +695,30 @@ class AirbyteDuplicateResourcesError(AirbyteError):
 
 @dataclass
 class AirbyteDeferredSetupError(AirbyteError):
-    """A deferred-credential create did not produce an acknowledged actor.
+    """A deferred-credential create was refused or not acknowledged by Airbyte Cloud.
 
-    Carries only fixed outcome codes, canonical UUIDs and the allowlisted platform problem.
-    It never carries raw responses, configuration, names or provider text.
+    Carries only the platform's allowlisted problem (fixed codes and JSON pointers), never raw
+    responses, configuration or provider text.
     """
 
-    outcome: str | None = None
-    """Fixed outcome code: `created_unconfirmed`, `outcome_unknown`, `refused` or `not_created`."""
-
-    reason: str | None = None
-    """Fixed reason code for `not_created` outcomes."""
-
     actor_id: str | None = None
-    """Canonical actor UUID when raw response identity was verified; otherwise `None`."""
+    """The created connector ID when Cloud created it without acknowledging deferral."""
 
     problem: DeferredSetupProblem | None = None
-    """Allowlisted platform refusal for `refused` outcomes."""
+    """The platform's sanitized refusal, when the create was refused."""
+
+    def get_message(self) -> str:
+        """Return the message plus the fixed, per-path diagnostics of the refusal."""
+        message = super().get_message()
+        if self.problem is None:
+            return message
+        lines = [f"{issue.path or '/'}: {issue.message}" for issue in self.problem.issues]
+        lines += [
+            "Authentication option: "
+            + ", ".join(f"{s.path} = {s.value!r}" for s in option.selectors)
+            for option in self.problem.auth_options
+        ]
+        return "\n".join([message, *lines])
 
 
 # Custom Warnings

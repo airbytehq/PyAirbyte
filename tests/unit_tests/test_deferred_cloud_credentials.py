@@ -1,1565 +1,595 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Unit tests for deferred-credential Cloud connector setup and the safe completion check.
-
-The HTTP layer is stubbed with `responses` at the adapter, so the real `DeferredSetupSession`
-policy, the generated SDK's request serialization/decoding and the raw-wire evidence
-projection all run for real.
-"""
+"""Unit tests for deferred-credential Cloud deployment and the setup completion check."""
 
 from __future__ import annotations
 
-import inspect
 import json
-from typing import Any, cast, get_args
+from dataclasses import dataclass, field
+from typing import Any, Callable, Literal, cast
 
 import pytest
 import requests
-import responses
+from airbyte import exceptions as exc
 from airbyte._util import api_util
-from airbyte._util.api_util import CLOUD_API_ROOT, DeferredSetupSession
 from airbyte._util.deferred_setup import (
     DEFERRED_SETUP_PROBLEM_TYPE,
-    DeferredSetupOutcome,
     parse_deferred_setup_problem,
 )
-from airbyte.cloud import _deferred_setup
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.connectors import CheckResult
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import (
-    AirbyteConnectorNotRegisteredError,
-    PyAirbyteInputError,
-    PyAirbyteInternalError,
-)
 from airbyte.mcp import cloud as cloud_mcp
-from airbyte.registry import ConnectorMetadata
+from airbyte.mcp.cloud import ConnectorSetupCheckResult, DeferredDeployResult
 from airbyte.secrets.base import SecretString
-from airbyte.sources.base import Source
+from airbyte_api._hooks.types import BeforeRequestContext, HookContext  # noqa: PLC2701
 from fastmcp import Context
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
-from requests.adapters import HTTPAdapter
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
-DEFINITION_ID = "22222222-2222-4222-8222-222222222222"
-ACTOR_ID = "33333333-3333-4333-8333-333333333333"
-OTHER_ID = "44444444-4444-4444-8444-444444444444"
-CANARY = "CANARY_SECRET_VALUE_9f8e7d"
-TOKEN = SecretString("bearer-token")
-CONFIG: dict[str, Any] = {
-    "repositories": ["airbytehq/PyAirbyte"],
-    "start_date": "2024-01-01",
-}
-CONFIG_API_ROOT = "https://cloud.airbyte.com/api/v1"
+OTHER_WORKSPACE_ID = "22222222-2222-4222-8222-222222222222"
+DEFINITION_ID = "33333333-3333-4333-8333-333333333333"
+ACTOR_ID = "44444444-4444-4444-8444-444444444444"
+TOKEN = SecretString("test-bearer-token")
+
+CONNECTOR_TYPES: list[Literal["source", "destination"]] = ["source", "destination"]
 
 
-def _create_body(actor_type: str, **overrides: Any) -> dict[str, Any]:
+class _RecordingAdapter(requests.adapters.BaseAdapter):
+    """Transport adapter that records every request and replays canned responses."""
+
+    def __init__(
+        self, responses: list[tuple[int, dict[str, Any], dict[str, str]]]
+    ) -> None:
+        super().__init__()
+        self._responses = list(responses)
+        self.requests: list[requests.PreparedRequest] = []
+
+    def send(
+        self, request: requests.PreparedRequest, **kwargs: Any
+    ) -> requests.Response:  # noqa: ANN401
+        self.requests.append(request)
+        status, body, headers = self._responses.pop(0)
+        response = requests.Response()
+        response.status_code = status
+        response.headers.update({"Content-Type": "application/json", **headers})
+        response._content = json.dumps(body).encode()  # noqa: SLF001
+        response.url = request.url or ""
+        response.request = request
+        return response
+
+    def close(self) -> None:
+        pass
+
+
+def _actor_body(connector_type: str, *, deferred: bool | None) -> dict[str, Any]:
     body: dict[str, Any] = {
-        f"{actor_type}Id": ACTOR_ID,
-        "name": "My Connector",
-        f"{actor_type}Type": "github",
-        "workspaceId": WORKSPACE_ID,
+        "configuration": {"count": 10},
+        "createdAt": 1,
         "definitionId": DEFINITION_ID,
-        "configuration": {
-            **CONFIG,
-            "credentials": {"personal_access_token": "**********"},
-        },
-        "createdAt": 1700000000,
-        "credentialsDeferred": True,
+        "name": "My connector",
+        f"{connector_type}Id": ACTOR_ID,
+        f"{connector_type}Type": "faker",
+        "workspaceId": WORKSPACE_ID,
     }
-    body.update(overrides)
-    return {k: v for k, v in body.items() if v is not ...}
+    if deferred is not None:
+        body["credentialsDeferred"] = deferred
+    return body
 
 
-def _problem_body(reason: str, **data: Any) -> dict[str, Any]:
+def _problem_body(reason: str = "secret_input_not_allowed") -> dict[str, Any]:
     return {
         "type": DEFERRED_SETUP_PROBLEM_TYPE,
         "title": "deferred-credential-setup",
         "status": 422,
         "detail": "Connector setup could not be prepared safely.",
-        "data": {"reason": reason, "issues": [], "issuesTruncated": False, **data},
+        "data": {
+            "reason": reason,
+            "issues": [{"path": "/credentials/api_key", "code": "omit_secret"}],
+            "authOptions": [
+                {
+                    "selectors": [
+                        {"path": "/credentials/auth_type", "value": "oauth2.0"}
+                    ]
+                },
+            ],
+        },
     }
 
 
-def _list_body(count: int) -> dict[str, Any]:
-    return {"data": [_create_body("source") for _ in range(count)], "next": None}
-
-
-def _deploy(actor_type: str = "source", **overrides: Any) -> DeferredSetupOutcome:
-    kwargs: dict[str, Any] = {
-        "actor_type": actor_type,
-        "name": "My Connector",
-        "config": dict(CONFIG),
-        "definition_id": DEFINITION_ID,
-        "workspace_id": WORKSPACE_ID,
-        "api_root": CLOUD_API_ROOT,
-        "client_id": None,
-        "client_secret": None,
-        "bearer_token": TOKEN,
-    }
-    kwargs.update(overrides)
-    return _deferred_setup.deploy_deferred(**kwargs)
-
-
-def _collection_url(actor_type: str) -> str:
-    return f"{CLOUD_API_ROOT}/{actor_type}s"
-
-
-def _requests_to(url: str, method: str) -> list[responses.Call]:
-    return [
-        call
-        for call in responses.calls
-        if call.request.method == method and str(call.request.url).split("?")[0] == url
-    ]
-
-
-# Transport policy
-
-
-def test_deferred_session_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fixed timeout, zero adapter retries and no redirect following, whatever callers pass."""
-    seen: list[dict[str, Any]] = []
-
-    def fake_send(
-        self: HTTPAdapter, request: requests.PreparedRequest, **kwargs: Any
-    ) -> requests.Response:
-        seen.append(kwargs)
-        response = requests.Response()
-        response.status_code = 307
-        response.headers["Location"] = f"{CLOUD_API_ROOT}/elsewhere"
-        response.request = request
-        response.url = str(request.url)
-        response._content = b""  # noqa: SLF001
-        return response
-
-    monkeypatch.setattr(HTTPAdapter, "send", fake_send)
-    with DeferredSetupSession() as session:
-        assert session.adapters["https://"].max_retries.total == 0
-        assert session.adapters["http://"].max_retries.total == 0
-        # `max_redirects=0` makes `requests` raise on the first 3xx even with
-        # `allow_redirects=False`, so a redirect surfaces as a failure of that leg.
-        with pytest.raises(requests.TooManyRedirects) as redirect_info:
-            session.post(
-                _collection_url("source"), json={}, timeout=None, allow_redirects=True
-            )
-
-    assert redirect_info.value.response is not None
-    assert redirect_info.value.response.status_code == 307
-    assert len(seen) == 1, "the redirect target must never be requested"
-    assert redirect_info.value.response.url == _collection_url("source")
-    assert seen[0]["timeout"] == (
-        api_util.DEFERRED_CONNECT_TIMEOUT_SECS,
-        api_util.DEFERRED_READ_TIMEOUT_SECS,
+def _create(
+    connector_type: str,
+    session: requests.Session,
+    *,
+    defer_credentials: bool,
+) -> Any:  # noqa: ANN401
+    create = (
+        api_util.create_source
+        if connector_type == "source"
+        else api_util.create_destination
     )
-    assert "allow_redirects" not in seen[0]
-
-
-@responses.activate
-def test_deferred_session_refuses_second_create() -> None:
-    url = _collection_url("source")
-    responses.add(responses.POST, url, json=_create_body("source"), status=200)
-    with DeferredSetupSession() as session:
-        session.expect_create(
-            url=url,
-            actor_type="source",
-            workspace_id=WORKSPACE_ID,
-            definition_id=DEFINITION_ID,
-        )
-        session.post(url, json={})
-        assert session.create_sent
-        assert session.evidence is not None
-        assert session.evidence.actor_id == ACTOR_ID
-        with pytest.raises(PyAirbyteInternalError):
-            session.post(url, json={})
-        with pytest.raises(PyAirbyteInternalError):
-            session.expect_create(
-                url=url,
-                actor_type="source",
-                workspace_id=WORKSPACE_ID,
-                definition_id=DEFINITION_ID,
-            )
-    assert len(responses.calls) == 1
-
-
-@pytest.mark.parametrize(
-    ("status", "body", "expected_actor", "expected_ack"),
-    [
-        pytest.param(200, _create_body("source"), ACTOR_ID, True, id="literal_true"),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred=...),
-            ACTOR_ID,
-            False,
-            id="missing",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred=None),
-            ACTOR_ID,
-            False,
-            id="null",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred=False),
-            ACTOR_ID,
-            False,
-            id="false",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred="true"),
-            ACTOR_ID,
-            False,
-            id="string",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred=1),
-            ACTOR_ID,
-            False,
-            id="number",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred={}),
-            ACTOR_ID,
-            False,
-            id="object",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", credentialsDeferred=[True]),
-            ACTOR_ID,
-            False,
-            id="array",
-        ),
-        pytest.param(
-            200,
-            _create_body(
-                "source", sourceId=ACTOR_ID.upper(), workspaceId=WORKSPACE_ID.upper()
-            ),
-            ACTOR_ID,
-            True,
-            id="canonicalized_uuids",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", workspaceId=OTHER_ID),
-            None,
-            False,
-            id="foreign_workspace",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", definitionId=OTHER_ID),
-            None,
-            False,
-            id="other_definition",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", sourceId=..., destinationId=ACTOR_ID),
-            None,
-            False,
-            id="wrong_actor_key",
-        ),
-        pytest.param(
-            200, _create_body("source", sourceId=12), None, False, id="non_string_id"
-        ),
-        pytest.param(
-            200, _create_body("source", sourceId="not-a-uuid"), None, False, id="bad_id"
-        ),
-        pytest.param(200, [_create_body("source")], None, False, id="array_body"),
-        pytest.param(201, _create_body("source"), None, False, id="non_200_status"),
-    ],
-)
-@responses.activate
-def test_create_evidence_projection(
-    status: int, body: Any, expected_actor: str | None, expected_ack: bool
-) -> None:
-    url = _collection_url("source")
-    responses.add(responses.POST, url, json=body, status=status)
-    with DeferredSetupSession() as session:
-        session.expect_create(
-            url=url,
-            actor_type="source",
-            workspace_id=WORKSPACE_ID,
-            definition_id=DEFINITION_ID,
-        )
-        session.post(url, json={})
-    if expected_actor is None and status != 200:
-        assert session.evidence is None
-        return
-    assert session.evidence is not None
-    assert session.evidence.actor_id == expected_actor
-    assert session.evidence.acknowledged is expected_ack
-
-
-@responses.activate
-def test_create_evidence_ignores_oversized_body() -> None:
-    url = _collection_url("source")
-    body = _create_body(
-        "source", padding="x" * (api_util.DEFERRED_EVIDENCE_MAX_BYTES + 1)
-    )
-    responses.add(responses.POST, url, json=body, status=200)
-    with DeferredSetupSession() as session:
-        session.expect_create(
-            url=url,
-            actor_type="source",
-            workspace_id=WORKSPACE_ID,
-            definition_id=DEFINITION_ID,
-        )
-        session.post(url, json={})
-    assert session.evidence is not None
-    assert session.evidence.actor_id is None
-
-
-# SDK compatibility bridge
-
-
-def test_sdk_feature_detection_matches_installed_models() -> None:
-    """The typed fields are absent from the pinned 0.x SDK; the wire hook bridges the gap."""
-    assert api_util.sdk_supports_deferred_credentials() is False
-    instance = api_util.get_airbyte_server_instance(
-        api_root=CLOUD_API_ROOT, client_id=None, client_secret=None, bearer_token=TOKEN
-    )
-    assert api_util._prepare_deferred_create(instance, defer_credentials=False) == {}  # noqa: SLF001
-    assert api_util._prepare_deferred_create(instance, defer_credentials=True) == {}  # noqa: SLF001
-
-
-@pytest.mark.parametrize(
-    ("actor_type", "creator"),
-    [
-        pytest.param("source", api_util.create_source, id="source"),
-        pytest.param("destination", api_util.create_destination, id="destination"),
-    ],
-)
-@responses.activate
-def test_create_sends_defer_flag_only_when_deferred(
-    actor_type: str, creator: Any
-) -> None:
-    url = _collection_url(actor_type)
-    responses.add(responses.POST, url, json=_create_body(actor_type), status=200)
-    responses.add(responses.POST, url, json=_create_body(actor_type), status=200)
-    common: dict[str, Any] = {
-        "workspace_id": WORKSPACE_ID,
-        "config": dict(CONFIG),
-        "definition_id": DEFINITION_ID,
-        "api_root": CLOUD_API_ROOT,
-        "client_id": None,
-        "client_secret": None,
-        "bearer_token": TOKEN,
-    }
-    with DeferredSetupSession() as session:
-        creator("n", defer_credentials=True, http_session=session, **common)
-    creator("n", **common)
-
-    deferred_body = json.loads(responses.calls[0].request.body)
-    ordinary_body = json.loads(responses.calls[1].request.body)
-    assert deferred_body["deferCredentials"] is True
-    assert deferred_body["configuration"] == CONFIG
-    assert deferred_body["definitionId"] == DEFINITION_ID
-    assert f"{actor_type}Type" not in deferred_body["configuration"]
-    assert "deferCredentials" not in ordinary_body
-    assert int(responses.calls[0].request.headers["Content-Length"]) == len(
-        responses.calls[0].request.body
-    )
-
-
-@responses.activate
-def test_create_destination_with_definition_id_skips_type_inference() -> None:
-    """An explicit definition ID must not require `destinationType` in the configuration."""
-    url = _collection_url("destination")
-    responses.add(responses.POST, url, json=_create_body("destination"), status=200)
-    api_util.create_destination(
-        "n",
+    return create(
+        name="My connector",
+        api_root="https://api.airbyte.test/v1",
         workspace_id=WORKSPACE_ID,
-        config={"host": "db.example.com"},
+        config={"count": 10},
         definition_id=DEFINITION_ID,
-        api_root=CLOUD_API_ROOT,
         client_id=None,
         client_secret=None,
         bearer_token=TOKEN,
+        defer_credentials=defer_credentials,
+        http_session=session,
     )
-    body = json.loads(responses.calls[0].request.body)
-    assert body["definitionId"] == DEFINITION_ID
-    assert body["configuration"] == {"host": "db.example.com"}
 
 
-# Problem parsing
+# --- Transport -----------------------------------------------------------------------------
+
+
+def test_deferred_session_applies_timeouts_and_refuses_redirects() -> None:
+    """The deferred session never follows a redirect (which would replay the create POST)."""
+    adapter = _RecordingAdapter([
+        (307, {}, {"Location": "https://elsewhere.test/v1/sources"})
+    ])
+    session = api_util.DeferredSetupSession()
+    session.mount("https://", adapter)
+    sent_kwargs: dict[str, Any] = {}
+    original_send = requests.Session.send
+
+    def _send(
+        self: requests.Session, request: requests.PreparedRequest, **kwargs: Any
+    ) -> Any:  # noqa: ANN401
+        sent_kwargs.update(kwargs)
+        return original_send(self, request, **kwargs)
+
+    session.send = _send.__get__(session, requests.Session)  # type: ignore[method-assign]
+
+    with pytest.raises(requests.TooManyRedirects):
+        session.post("https://api.airbyte.test/v1/sources", json={})
+
+    assert len(adapter.requests) == 1
+    assert sent_kwargs["timeout"] == (
+        api_util.DEFERRED_CONNECT_TIMEOUT_SECS,
+        api_util.DEFERRED_READ_TIMEOUT_SECS,
+    )
 
 
 @pytest.mark.parametrize(
-    ("status", "body", "expected_reason"),
+    ("operation_id", "expected_body"),
     [
-        pytest.param(
+        ("createSource", {"name": "x", "deferCredentials": True}),
+        ("createDestination", {"name": "x", "deferCredentials": True}),
+        ("listSources", {"name": "x"}),
+    ],
+)
+def test_defer_credentials_hook_targets_create_operations(
+    operation_id: str,
+    expected_body: dict[str, Any],
+) -> None:
+    """The wire flag is added only to the create operations."""
+    request = requests.Request(
+        "POST", "https://api.airbyte.test/v1/sources", json={"name": "x"}
+    ).prepare()
+    hook_ctx = BeforeRequestContext(
+        HookContext(operation_id=operation_id, oauth2_scopes=None, security_source=None)
+    )
+
+    result = api_util._DeferCredentialsHook().before_request(hook_ctx, request)  # noqa: SLF001
+
+    assert isinstance(result, requests.PreparedRequest)
+    assert json.loads(cast(bytes, result.body)) == expected_body
+
+
+# --- SDK integration -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deferred_create_sends_flag_and_returns_acknowledged_actor(
+    connector_type: str,
+) -> None:
+    """A deferred create sends `deferCredentials` and returns the actor when Cloud acknowledges."""
+    adapter = _RecordingAdapter([(200, _actor_body(connector_type, deferred=True), {})])
+    session = api_util.DeferredSetupSession()
+    session.mount("https://", adapter)
+
+    actor = _create(connector_type, session, defer_credentials=True)
+
+    (request,) = adapter.requests
+    assert request.method == "POST"
+    body = json.loads(cast(bytes, request.body))
+    assert body["deferCredentials"] is True
+    assert body["definitionId"] == DEFINITION_ID
+    assert body["workspaceId"] == WORKSPACE_ID
+    assert getattr(actor, f"{connector_type}_id") == ACTOR_ID
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_ordinary_create_does_not_send_flag(connector_type: str) -> None:
+    """Without `defer_credentials`, the request body is unchanged."""
+    adapter = _RecordingAdapter([(200, _actor_body(connector_type, deferred=None), {})])
+    session = requests.Session()
+    session.mount("https://", adapter)
+
+    _create(connector_type, session, defer_credentials=False)
+
+    (request,) = adapter.requests
+    assert "deferCredentials" not in json.loads(cast(bytes, request.body))
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deferred_create_without_acknowledgment_raises_with_actor_id(
+    connector_type: str,
+) -> None:
+    """An unacknowledged create (older platform) is reported, with the created actor's ID."""
+    adapter = _RecordingAdapter([(200, _actor_body(connector_type, deferred=None), {})])
+    session = api_util.DeferredSetupSession()
+    session.mount("https://", adapter)
+
+    with pytest.raises(exc.AirbyteDeferredSetupError) as raised:
+        _create(connector_type, session, defer_credentials=True)
+
+    assert raised.value.actor_id == ACTOR_ID
+    assert raised.value.problem is None
+    assert len(adapter.requests) == 1
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deferred_create_refusal_exposes_only_sanitized_problem(
+    connector_type: str,
+) -> None:
+    """A platform refusal becomes a typed error carrying fixed codes and paths only."""
+    adapter = _RecordingAdapter([(422, _problem_body(), {})])
+    session = api_util.DeferredSetupSession()
+    session.mount("https://", adapter)
+
+    with pytest.raises(exc.AirbyteDeferredSetupError) as raised:
+        _create(connector_type, session, defer_credentials=True)
+
+    problem = raised.value.problem
+    assert problem is not None
+    assert problem.reason == "secret_input_not_allowed"
+    assert [(i.path, i.code) for i in problem.issues] == [
+        ("/credentials/api_key", "omit_secret")
+    ]
+    assert problem.auth_options[0].selectors[0].value == "oauth2.0"
+    message = str(raised.value)
+    assert "/credentials/api_key: Remove this credential" in message
+    assert "oauth2.0" in message
+    assert len(adapter.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "expected_reason"),
+    [
+        (422, _problem_body(), "secret_input_not_allowed"),
+        (422, _problem_body("configuration_invalid"), "configuration_invalid"),
+        (400, _problem_body(), None),
+        (422, {**_problem_body(), "type": "https://example.test/other"}, None),
+        (422, {**_problem_body(), "data": {"reason": "unknown", "issues": []}}, None),
+        (
             422,
-            _problem_body(
-                "secret_input_not_allowed",
-                issues=[
-                    {
-                        "path": "/credentials/token",
-                        "code": "omit_secret",
-                        "message": CANARY,
-                    }
-                ],
-            ),
-            "secret_input_not_allowed",
-            id="secret_input",
-        ),
-        pytest.param(
-            422,
-            _problem_body(
-                "auth_selection_required",
-                authOptions=[
-                    {
-                        "selectors": [
-                            {"path": "/credentials/auth_type", "value": "oauth"}
-                        ]
-                    }
-                ],
-            ),
-            "auth_selection_required",
-            id="auth_selection",
-        ),
-        pytest.param(
-            422, _problem_body("unsupported_schema"), "unsupported_schema", id="unsup"
-        ),
-        pytest.param(
-            422,
-            _problem_body("auth_selection_required"),
+            {
+                "type": DEFERRED_SETUP_PROBLEM_TYPE,
+                "data": {
+                    "reason": "configuration_invalid",
+                    "issues": [{"path": "/a", "code": "raw text"}],
+                },
+            },
             None,
-            id="auth_selection_without_options",
         ),
-        pytest.param(
-            422,
-            _problem_body("secret_input_not_allowed", authOptions=[{"selectors": []}]),
-            None,
-            id="options_on_other_reason",
-        ),
-        pytest.param(422, _problem_body("something_else"), None, id="unknown_reason"),
-        pytest.param(
-            422,
-            _problem_body(
-                "secret_input_not_allowed",
-                issues=[
-                    {"path": "credentials.token", "code": "omit_secret", "message": ""}
-                ],
-            ),
-            None,
-            id="issue_path_not_a_pointer",
-        ),
-        pytest.param(
-            422,
-            _problem_body(
-                "secret_input_not_allowed",
-                issues=[{"path": "/a/~2b", "code": "omit_secret", "message": ""}],
-            ),
-            None,
-            id="issue_path_bad_escape",
-        ),
-        pytest.param(
-            422,
-            _problem_body(
-                "auth_selection_required",
-                authOptions=[{"selectors": [{"path": "", "value": "oauth"}]}],
-            ),
-            None,
-            id="selector_path_empty",
-        ),
-        pytest.param(
-            422,
-            _problem_body(
-                "auth_selection_required",
-                authOptions=[
-                    {
-                        "selectors": [
-                            {"path": "/credentials/auth_type", "value": "x" * 129}
-                        ]
-                    }
-                ],
-            ),
-            None,
-            id="selector_value_too_long",
-        ),
-        pytest.param(
-            422,
-            _problem_body(
-                "auth_selection_required",
-                authOptions=[
-                    {
-                        "selectors": [
-                            {"path": "/credentials/auth_type", "value": {"k": 1}}
-                        ]
-                    }
-                ],
-            ),
-            None,
-            id="selector_value_not_scalar",
-        ),
-        pytest.param(
-            422,
-            {**_problem_body("unsupported_schema"), "type": "https://x/other"},
-            None,
-            id="type",
-        ),
-        pytest.param(400, _problem_body("unsupported_schema"), None, id="wrong_status"),
-        pytest.param(422, "not json", None, id="not_json"),
-        pytest.param(422, [], None, id="array"),
-        pytest.param(422, None, None, id="no_body"),
+        (422, "not json", None),
+        (422, None, None),
     ],
 )
 def test_parse_deferred_setup_problem(
-    status: int, body: Any, expected_reason: str | None
+    status_code: int,
+    body: Any,  # noqa: ANN401
+    expected_reason: str | None,
 ) -> None:
-    raw = body if isinstance(body, (str, bytes)) or body is None else json.dumps(body)
-    problem = parse_deferred_setup_problem(status_code=status, body=raw)
-    if expected_reason is None:
-        assert problem is None
-        return
-    assert problem is not None
-    assert problem.reason == expected_reason
-    assert CANARY not in problem.model_dump_json()
-    for issue in problem.issues:
-        assert (
-            issue.message
-            == "Remove this credential; the user supplies it in Airbyte Cloud."
-        )
+    """Only a well-formed deferred-setup problem is parsed; anything else is ignored."""
+    raw = body if isinstance(body, (str, type(None))) else json.dumps(body)
+    problem = parse_deferred_setup_problem(status_code=status_code, body=raw)
+    assert (problem.reason if problem else None) == expected_reason
 
 
-def test_parse_deferred_setup_problem_rejects_oversized_body() -> None:
-    body = json.dumps(_problem_body("unsupported_schema", pad="x" * 70_000))
-    assert parse_deferred_setup_problem(status_code=422, body=body) is None
+# --- Workspace -------------------------------------------------------------------------------
 
 
-# Deferred deployment outcomes
-
-
-@pytest.mark.parametrize(
-    ("list_status", "list_body", "create_status", "create_body", "expected"),
-    [
-        pytest.param(
-            200,
-            _list_body(0),
-            200,
-            _create_body("source"),
-            ("awaiting_user", "complete_in_cloud", None, ACTOR_ID),
-            id="acknowledged",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            200,
-            _create_body("source", credentialsDeferred=...),
-            (
-                "created_unconfirmed",
-                "complete_in_cloud",
-                "acknowledgment_missing",
-                ACTOR_ID,
-            ),
-            id="ack_missing",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            200,
-            _create_body("source", credentialsDeferred="true"),
-            (
-                "created_unconfirmed",
-                "complete_in_cloud",
-                "acknowledgment_missing",
-                ACTOR_ID,
-            ),
-            id="ack_string",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            200,
-            _create_body("source", name=...),
-            (
-                "created_unconfirmed",
-                "complete_in_cloud",
-                "acknowledgment_missing",
-                ACTOR_ID,
-            ),
-            id="sdk_decode_failure_after_trusted_identity",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            200,
-            _create_body("source", workspaceId=OTHER_ID),
-            (
-                "outcome_unknown",
-                "inspect_cloud_before_retry",
-                "response_unrecognized",
-                None,
-            ),
-            id="foreign_identity",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            500,
-            {"message": CANARY},
-            (
-                "outcome_unknown",
-                "inspect_cloud_before_retry",
-                "response_unrecognized",
-                None,
-            ),
-            id="server_error",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            307,
-            {},
-            (
-                "outcome_unknown",
-                "inspect_cloud_before_retry",
-                "response_unrecognized",
-                None,
-            ),
-            id="redirect_not_replayed",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            422,
-            {"message": CANARY},
-            (
-                "outcome_unknown",
-                "inspect_cloud_before_retry",
-                "response_unrecognized",
-                None,
-            ),
-            id="untrusted_422",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            422,
-            _problem_body(
-                "secret_input_not_allowed",
-                issues=[
-                    {
-                        "path": "/credentials/token",
-                        "code": "omit_secret",
-                        "message": CANARY,
-                    }
-                ],
-            ),
-            (
-                "invalid_config",
-                "correct_nonsecret_config",
-                "secret_input_not_allowed",
-                None,
-            ),
-            id="secret_refused",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            422,
-            _problem_body(
-                "configuration_invalid",
-                issues=[{"path": "/start_date", "code": "pattern", "message": "bad"}],
-            ),
-            (
-                "invalid_config",
-                "correct_nonsecret_config",
-                "configuration_invalid",
-                None,
-            ),
-            id="config_invalid",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            422,
-            _problem_body(
-                "auth_selection_required",
-                authOptions=[
-                    {
-                        "selectors": [
-                            {"path": "/credentials/auth_type", "value": "oauth"}
-                        ]
-                    }
-                ],
-            ),
-            ("invalid_config", "choose_auth_method", "auth_selection_required", None),
-            id="auth_selection",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            422,
-            _problem_body("unsupported_schema"),
-            ("unsupported", "contact_support", "unsupported_schema", None),
-            id="unsupported_schema",
-        ),
-        pytest.param(
-            200,
-            _list_body(0),
-            403,
-            {"message": CANARY},
-            ("not_created", "verify_access", "access_denied", None),
-            id="create_forbidden",
-        ),
-        pytest.param(
-            200,
-            _list_body(1),
-            None,
-            None,
-            ("name_conflict", "choose_another_name", None, None),
-            id="name_conflict",
-        ),
-        pytest.param(
-            401,
-            {"message": CANARY},
-            None,
-            None,
-            ("not_created", "verify_access", "access_denied", None),
-            id="list_unauthorized",
-        ),
-        pytest.param(
-            500,
-            {"message": CANARY},
-            None,
-            None,
-            ("not_created", "retry_later", "preflight_unavailable", None),
-            id="list_server_error",
-        ),
-        pytest.param(
-            None,
-            None,
-            None,
-            None,
-            ("not_created", "retry_later", "preflight_unavailable", None),
-            id="list_connection_error",
-        ),
-    ],
-)
-@responses.activate
-def test_deploy_deferred_outcomes(
-    list_status: int | None,
-    list_body: Any,
-    create_status: int | None,
-    create_body: Any,
-    expected: tuple[str, str, str | None, str | None],
-) -> None:
-    url = _collection_url("source")
-    if list_status is None:
-        responses.add(
-            responses.GET, url, body=requests.ConnectionError("boom " + CANARY)
-        )
-    else:
-        responses.add(responses.GET, url, json=list_body, status=list_status)
-    if create_status is not None:
-        responses.add(responses.POST, url, json=create_body, status=create_status)
-
-    outcome = _deploy()
-
-    status, next_action, reason, actor_id = expected
-    assert (outcome.status, outcome.next_action, outcome.reason, outcome.actor_id) == (
-        status,
-        next_action,
-        reason,
-        actor_id,
-    )
-    assert CANARY not in outcome.model_dump_json()
-    create_calls = _requests_to(url, "POST")
-    assert len(create_calls) == (1 if create_status is not None else 0), (
-        "exactly one create"
-    )
-    if create_calls:
-        sent = json.loads(create_calls[0].request.body)
-        assert sent["deferCredentials"] is True
-        assert sent["configuration"] == CONFIG
-        assert sent["workspaceId"] == WORKSPACE_ID
-        assert sent["definitionId"] == DEFINITION_ID
-    if outcome.problem is not None:
-        assert outcome.problem.reason == reason
-    else:
-        assert reason not in {"secret_input_not_allowed", "configuration_invalid"}
-
-
-@responses.activate
-def test_deploy_deferred_destination_parity() -> None:
-    url = _collection_url("destination")
-    responses.add(responses.GET, url, json={"data": [], "next": None}, status=200)
-    responses.add(responses.POST, url, json=_create_body("destination"), status=200)
-
-    outcome = _deploy("destination", config={"host": "db.example.com"})
-
-    assert outcome.status == "awaiting_user"
-    assert outcome.actor_id == ACTOR_ID
-    sent = json.loads(responses.calls[-1].request.body)
-    assert sent["deferCredentials"] is True
-    assert sent["configuration"] == {"host": "db.example.com"}
-    assert sent["definitionId"] == DEFINITION_ID
-
-
-@responses.activate
-def test_deploy_deferred_source_body_rejected_for_destination() -> None:
-    """A source-shaped body on the destination collection carries no trusted identity."""
-    url = _collection_url("destination")
-    responses.add(responses.GET, url, json={"data": [], "next": None}, status=200)
-    responses.add(responses.POST, url, json=_create_body("source"), status=200)
-
-    outcome = _deploy("destination")
-
-    assert outcome.status == "outcome_unknown"
-    assert outcome.actor_id is None
-
-
-@responses.activate
-def test_deploy_deferred_with_client_credentials_maps_token_denial() -> None:
-    responses.add(
-        responses.POST,
-        f"{CLOUD_API_ROOT}/applications/token",
-        json={"m": CANARY},
-        status=401,
-    )
-    outcome = _deploy(
-        client_id=SecretString("id"),
-        client_secret=SecretString("secret"),
-        bearer_token=None,
-    )
-    assert (outcome.status, outcome.reason) == ("not_created", "access_denied")
-    assert len(responses.calls) == 1, "the token request must not be retried"
-    assert CANARY not in outcome.model_dump_json()
-
-
-@responses.activate
-def test_deploy_deferred_does_not_paginate_past_a_bad_page() -> None:
-    url = _collection_url("source")
-    responses.add(
-        responses.GET,
-        url,
-        json={
-            "data": [_create_body("source", name="Other")],
-            "next": f"{url}?offset=1",
-        },
-        status=200,
-    )
-    responses.add(responses.GET, url, json={"m": CANARY}, status=502)
-
-    outcome = _deploy()
-
-    assert (outcome.status, outcome.reason) == ("not_created", "preflight_unavailable")
-    assert not _requests_to(url, "POST")
-
-
-@responses.activate
-def test_deploy_deferred_treats_empty_continued_page_as_preflight_failure() -> None:
-    """An empty page that still advertises `next` is a partial list, never a clean bill."""
-    url = _collection_url("source")
-    responses.add(
-        responses.GET, url, json={"data": [], "next": f"{url}?offset=1"}, status=200
-    )
-
-    outcome = _deploy()
-
-    assert (outcome.status, outcome.reason) == ("not_created", "preflight_unavailable")
-    assert len(_requests_to(url, "GET")) == 1, "no further pages are requested"
-    assert not _requests_to(url, "POST")
-
-
-@responses.activate
-def test_deploy_deferred_accepts_trailing_slash_api_root() -> None:
-    url = _collection_url("source")
-    responses.add(responses.GET, url, json={"data": [], "next": None}, status=200)
-    responses.add(responses.POST, url, json=_create_body("source"), status=200)
-
-    outcome = _deploy(api_root=f"{CLOUD_API_ROOT}/")
-
-    assert outcome.status == "awaiting_user"
-    assert outcome.actor_id == ACTOR_ID
-    assert [str(call.request.url).split("?")[0] for call in responses.calls] == [
-        url,
-        url,
-    ]
-
-
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
-        pytest.param(
-            {"workspace_id": "nope"}, ("invalid_config", "invalid_input"), id="ws"
-        ),
-        pytest.param(
-            {"definition_id": ""}, ("invalid_config", "invalid_input"), id="definition"
-        ),
-        pytest.param(
-            {"api_root": "https://self-managed.example.com/api/public/v1"},
-            ("not_created", "unsupported_api_root"),
-            id="api_root",
-        ),
-    ],
-)
-@responses.activate
-def test_deploy_deferred_refuses_before_network(
-    overrides: dict[str, Any], expected: tuple[str, str]
-) -> None:
-    outcome = _deploy(**overrides)
-    assert (outcome.status, outcome.reason) == expected
-    assert outcome.actor_id is None
-    assert not responses.calls
-
-
-# Input normalization
-
-
-@pytest.mark.parametrize(
-    ("config", "expected"),
-    [
-        pytest.param(None, {}, id="none"),
-        pytest.param({}, {}, id="empty"),
-        pytest.param({"a": 1}, {"a": 1}, id="dict"),
-        pytest.param(
-            '{"a": false, "b": 0, "c": ""}', {"a": False, "b": 0, "c": ""}, id="json"
-        ),
-        pytest.param("null", None, id="null_string"),
-        pytest.param("[]", None, id="array_string"),
-        pytest.param("42", None, id="scalar_string"),
-        pytest.param("/tmp/config.json", None, id="path"),
-        pytest.param("secret_reference::name", None, id="secret_reference"),
-        pytest.param({"sourceType": "github"}, None, id="source_type_key"),
-        pytest.param({"destinationType": "x"}, None, id="destination_type_key"),
-        pytest.param(
-            {"credentials": {"token": "secret_reference::TOKEN"}},
-            None,
-            id="nested_secret_reference",
-        ),
-        pytest.param(
-            {"accounts": [{"key": "secret_reference::K"}]},
-            None,
-            id="secret_reference_in_array",
-        ),
-        pytest.param(
-            '{"credentials": {"token": "secret_reference::TOKEN"}}',
-            None,
-            id="nested_secret_reference_json",
-        ),
-        pytest.param({"token": SecretString("s")}, None, id="secret_string"),
-        pytest.param(
-            {"credentials": {"token": SecretString("s")}},
-            None,
-            id="nested_secret_string",
-        ),
-        pytest.param(
-            {"note": "a secret_reference:: mention in prose"},
-            {"note": "a secret_reference:: mention in prose"},
-            id="prefix_not_at_start_is_ordinary",
-        ),
-        pytest.param(
-            {"nested": {"ok": False, "zero": 0, "empty": "", "items": [1, "x"]}},
-            {"nested": {"ok": False, "zero": 0, "empty": "", "items": [1, "x"]}},
-            id="nested_ordinary_values",
-        ),
-    ],
-)
-def test_normalize_deferred_config(
-    config: Any, expected: dict[str, Any] | None
-) -> None:
-    if expected is None:
-        with pytest.raises(PyAirbyteInputError):
-            _deferred_setup.normalize_deferred_config(config)
-        return
-    assert _deferred_setup.normalize_deferred_config(config) == expected
-
-
-def test_normalize_deferred_config_bounds_depth() -> None:
-    deep: dict[str, Any] = {}
-    node = deep
-    for _ in range(40):
-        node["a"] = {}
-        node = node["a"]
-    with pytest.raises(PyAirbyteInputError):
-        _deferred_setup.normalize_deferred_config(deep)
-
-
-# Workspace API guards
+@dataclass
+class _CreateCall:
+    kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 def _workspace() -> CloudWorkspace:
     return CloudWorkspace(
         workspace_id=WORKSPACE_ID,
-        client_id=None,
-        client_secret=None,
         bearer_token=TOKEN,
-        api_root=CLOUD_API_ROOT,
+        api_root="https://api.airbyte.test/v1",
     )
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        pytest.param({"defer_credentials": True}, id="missing_definition"),
-        pytest.param(
-            {
-                "defer_credentials": True,
-                "definition_id": DEFINITION_ID,
-                "unique": False,
-            },
-            id="not_unique",
-        ),
-        pytest.param(
-            {
-                "defer_credentials": True,
-                "definition_id": DEFINITION_ID,
-                "random_name_suffix": True,
-            },
-            id="random_suffix",
-        ),
-        pytest.param({"definition_id": DEFINITION_ID}, id="definition_without_defer"),
-        pytest.param({}, id="dict_without_defer"),
-    ],
-)
-@responses.activate
-def test_workspace_deploy_guards(kwargs: dict[str, Any]) -> None:
-    workspace = _workspace()
-    with pytest.raises(PyAirbyteInputError):
-        workspace.deploy_source("n", dict(CONFIG), **kwargs)
-    with pytest.raises(PyAirbyteInputError):
-        workspace.deploy_destination("n", dict(CONFIG), **kwargs)
-    assert not responses.calls
-
-
-@responses.activate
-def test_workspace_deferred_deploy_never_reads_connector_objects(
+def _stub_create(
     monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> _CreateCall:
+    call = _CreateCall()
+
+    def _create_stub(**kwargs: Any) -> Any:  # noqa: ANN401
+        call.kwargs = kwargs
+        return type("Actor", (), {f"{connector_type}_id": ACTOR_ID})()
+
+    monkeypatch.setattr(api_util, f"create_{connector_type}", _create_stub)
+    monkeypatch.setattr(api_util, f"list_{connector_type}s", lambda **kwargs: [])
+    return call
+
+
+def _deploy(
+    workspace: CloudWorkspace, connector_type: str, config: object, **kwargs: Any
+) -> Any:  # noqa: ANN401
+    if connector_type == "source":
+        return workspace.deploy_source(
+            name="My connector", source=cast(Any, config), **kwargs
+        )
+    return workspace.deploy_destination(
+        name="My connector", destination=cast(Any, config), **kwargs
+    )
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_uses_bounded_session_and_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
 ) -> None:
-    """A constructed `Source` is refused without touching its config; a dict is deployed."""
-    source = cast(Source, object.__new__(Source))
+    """Deferred deploys pass the flag, the definition and a dedicated bounded session."""
+    call = _stub_create(monkeypatch, connector_type)
 
-    def explode(*_: Any, **__: Any) -> None:
-        raise AssertionError("connector object must not be read")
-
-    monkeypatch.setattr(Source, "_hydrated_config", property(explode))
-    workspace = _workspace()
-    with pytest.raises(PyAirbyteInputError):
-        workspace.deploy_source(
-            "n", source, definition_id=DEFINITION_ID, defer_credentials=True
-        )  # type: ignore[call-overload]
-    assert not responses.calls
-
-    url = _collection_url("source")
-    responses.add(responses.GET, url, json={"data": [], "next": None}, status=200)
-    responses.add(responses.POST, url, json=_create_body("source"), status=200)
-    outcome = workspace.deploy_source(
-        "n", dict(CONFIG), definition_id=DEFINITION_ID, defer_credentials=True
-    )
-    assert outcome.status == "awaiting_user"
-    assert outcome.actor_id == ACTOR_ID
-
-
-# Safe completion check
-
-
-def _check(**overrides: Any) -> Any:
-    kwargs: dict[str, Any] = {
-        "actor_type": "source",
-        "actor_id": ACTOR_ID,
-        "workspace_id": WORKSPACE_ID,
-        "api_root": CLOUD_API_ROOT,
-        "config_api_root": CONFIG_API_ROOT,
-        "client_id": None,
-        "client_secret": None,
-        "bearer_token": TOKEN,
-    }
-    kwargs.update(overrides)
-    return _deferred_setup.check_connector_setup(**kwargs)
-
-
-CHECK_URL = f"{CONFIG_API_ROOT}/sources/check_connection"
-SETTINGS_URL = f"https://cloud.airbyte.com/workspaces/{WORKSPACE_ID}/source/{ACTOR_ID}"
-
-
-@pytest.mark.parametrize(
-    (
-        "metadata_status",
-        "metadata_body",
-        "check_status",
-        "check_body",
-        "expected",
-        "checks",
-    ),
-    [
-        pytest.param(
-            200,
-            _create_body("source"),
-            200,
-            {"status": "succeeded"},
-            ("succeeded", "continue", SETTINGS_URL),
-            1,
-            id="succeeded",
-        ),
-        pytest.param(
-            200,
-            _create_body("source"),
-            200,
-            {"status": "failed", "message": CANARY},
-            ("failed", "complete_in_cloud", SETTINGS_URL),
-            1,
-            id="failed",
-        ),
-        pytest.param(
-            200,
-            _create_body("source"),
-            200,
-            {"status": "running", "message": CANARY},
-            ("unknown", "inspect_cloud_before_retry", SETTINGS_URL),
-            1,
-            id="indeterminate",
-        ),
-        pytest.param(
-            200,
-            _create_body("source"),
-            200,
-            {"m": CANARY},
-            ("unknown", "inspect_cloud_before_retry", SETTINGS_URL),
-            1,
-            id="unrecognized_body",
-        ),
-        pytest.param(
-            200,
-            _create_body("source"),
-            500,
-            {"m": CANARY},
-            ("unknown", "inspect_cloud_before_retry", SETTINGS_URL),
-            1,
-            id="check_server_error",
-        ),
-        pytest.param(
-            200,
-            _create_body("source"),
-            403,
-            {"m": CANARY},
-            ("not_accessible", "verify_access", SETTINGS_URL),
-            1,
-            id="check_forbidden",
-        ),
-        pytest.param(
-            200,
-            _create_body("source", workspaceId=OTHER_ID),
-            None,
-            None,
-            ("not_accessible", "verify_workspace", None),
-            0,
-            id="foreign_workspace",
-        ),
-        pytest.param(
-            404,
-            {"m": CANARY},
-            None,
-            None,
-            ("not_accessible", "verify_workspace", None),
-            0,
-            id="missing_actor",
-        ),
-        pytest.param(
-            403,
-            {"m": CANARY},
-            None,
-            None,
-            ("not_accessible", "verify_workspace", None),
-            0,
-            id="unauthorized_actor",
-        ),
-        pytest.param(
-            500,
-            {"m": CANARY},
-            None,
-            None,
-            ("unknown", "verify_workspace", None),
-            0,
-            id="metadata_server_error",
-        ),
-        pytest.param(
-            200,
-            {"garbage": CANARY},
-            None,
-            None,
-            ("unknown", "verify_workspace", None),
-            0,
-            id="metadata_malformed",
-        ),
-    ],
-)
-@responses.activate
-def test_check_connector_setup_outcomes(
-    metadata_status: int,
-    metadata_body: Any,
-    check_status: int | None,
-    check_body: Any,
-    expected: tuple[str, str, str | None],
-    checks: int,
-) -> None:
-    responses.add(
-        responses.GET,
-        f"{CLOUD_API_ROOT}/sources/{ACTOR_ID}",
-        json=metadata_body,
-        status=metadata_status,
-    )
-    if check_status is not None:
-        responses.add(responses.POST, CHECK_URL, json=check_body, status=check_status)
-
-    outcome = _check()
-
-    assert (outcome.status, outcome.next_action, outcome.settings_url) == expected
-    assert outcome.actor_id == ACTOR_ID
-    assert outcome.workspace_id == WORKSPACE_ID
-    assert CANARY not in outcome.model_dump_json()
-    check_calls = _requests_to(CHECK_URL, "POST")
-    assert len(check_calls) == checks, "at most one check POST, never retried"
-    if check_calls:
-        assert json.loads(check_calls[0].request.body) == {"sourceId": ACTOR_ID}
-
-
-@pytest.mark.parametrize(
-    ("overrides", "expected_ids"),
-    [
-        pytest.param({"actor_id": "bad"}, (None, WORKSPACE_ID), id="actor"),
-        pytest.param({"workspace_id": None}, (ACTOR_ID, None), id="no_workspace"),
-        pytest.param({"workspace_id": "bad"}, (ACTOR_ID, None), id="workspace"),
-    ],
-)
-@responses.activate
-def test_check_connector_setup_validates_ids_before_network(
-    overrides: dict[str, Any], expected_ids: tuple[str | None, str | None]
-) -> None:
-    outcome = _check(**overrides)
-    assert (outcome.status, outcome.next_action) == (
-        "not_accessible",
-        "verify_workspace",
-    )
-    assert (outcome.actor_id, outcome.workspace_id) == expected_ids
-    assert outcome.settings_url is None
-    assert not responses.calls
-
-
-@responses.activate
-def test_check_connector_setup_token_denial_before_check() -> None:
-    responses.add(
-        responses.GET,
-        f"{CLOUD_API_ROOT}/sources/{ACTOR_ID}",
-        json=_create_body("source"),
-        status=200,
-    )
-    responses.add(
-        responses.POST,
-        f"{CLOUD_API_ROOT}/applications/token",
-        json={"m": CANARY},
-        status=401,
-    )
-    outcome = _check(
-        client_id=SecretString("id"),
-        client_secret=SecretString("secret"),
-        bearer_token=None,
-    )
-    assert (outcome.status, outcome.next_action) == ("not_accessible", "verify_access")
-    assert not _requests_to(CHECK_URL, "POST")
-    assert CANARY not in outcome.model_dump_json()
-
-
-@responses.activate
-def test_check_connector_setup_destination_uses_destination_paths() -> None:
-    responses.add(
-        responses.GET,
-        f"{CLOUD_API_ROOT}/destinations/{ACTOR_ID}",
-        json=_create_body("destination"),
-        status=200,
-    )
-    check_url = f"{CONFIG_API_ROOT}/destinations/check_connection"
-    responses.add(responses.POST, check_url, json={"status": "succeeded"}, status=200)
-    outcome = _check(actor_type="destination")
-    assert outcome.status == "succeeded"
-    assert outcome.settings_url == (
-        f"https://cloud.airbyte.com/workspaces/{WORKSPACE_ID}/destination/{ACTOR_ID}"
-    )
-    assert json.loads(_requests_to(check_url, "POST")[0].request.body) == {
-        "destinationId": ACTOR_ID
-    }
-
-
-# MCP presentation layer
-
-
-def _mcp_client(workspace_id: str | None = WORKSPACE_ID) -> CloudClient:
-    return CloudClient(
-        client_id=None,
-        client_secret=None,
-        bearer_token=TOKEN,
-        public_api_root=CLOUD_API_ROOT,
-        config_api_root=CONFIG_API_ROOT,
-        workspace_id=workspace_id,
-    )
-
-
-def _metadata(actor_type: str) -> ConnectorMetadata:
-    return ConnectorMetadata(
-        name=f"{actor_type}-github",
-        connector_type=actor_type,
+    deployed = _deploy(
+        _workspace(),
+        connector_type,
+        {"count": 10},
         definition_id=DEFINITION_ID,
-        latest_available_version=None,
-        pypi_package_name=None,
-        language=None,
-        install_types=set(),
+        defer_credentials=True,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert call.kwargs["defer_credentials"] is True
+    assert call.kwargs["definition_id"] == DEFINITION_ID
+    assert call.kwargs["config"] == {"count": 10}
+    assert isinstance(call.kwargs["http_session"], api_util.DeferredSetupSession)
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+@pytest.mark.parametrize(
+    ("config", "kwargs", "match"),
+    [
+        ({"count": 10}, {}, "definition_id"),
+        ("not a dict", {"definition_id": DEFINITION_ID}, "configuration dictionary"),
+        (
+            {"api_key": SecretString("k")},
+            {"definition_id": DEFINITION_ID},
+            "secret values",
+        ),
+        (
+            {"credentials": [{"token": "secret_reference::MY_TOKEN"}]},
+            {"definition_id": DEFINITION_ID},
+            "secret values",
+        ),
+    ],
+)
+def test_deploy_deferred_rejects_invalid_input_before_any_request(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+    config: object,
+    kwargs: dict[str, Any],
+    match: str,
+) -> None:
+    """Missing definition, non-dict config, secret values and references never reach Cloud."""
+    call = _stub_create(monkeypatch, connector_type)
+
+    with pytest.raises(exc.PyAirbyteInputError, match=match):
+        _deploy(_workspace(), connector_type, config, defer_credentials=True, **kwargs)
+
+    assert call.kwargs == {}
+
+
+def test_deploy_source_rejects_dict_config_without_defer_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw source dictionaries are only accepted in deferred mode."""
+    call = _stub_create(monkeypatch, "source")
+
+    with pytest.raises(exc.PyAirbyteInputError):
+        _deploy(_workspace(), "source", {"count": 10}, definition_id=DEFINITION_ID)
+
+    assert call.kwargs == {}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+@pytest.mark.parametrize("owner_workspace_id", [WORKSPACE_ID, OTHER_WORKSPACE_ID])
+def test_check_connector_setup_verifies_workspace_before_checking(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+    owner_workspace_id: str,
+) -> None:
+    """The check runs once, and only for connectors owned by the workspace."""
+    checks: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        api_util,
+        f"get_{connector_type}",
+        lambda **kwargs: type("Actor", (), {"workspace_id": owner_workspace_id})(),
+    )
+
+    def _check(**kwargs: Any) -> tuple[bool, str | None]:  # noqa: ANN401
+        checks.append(kwargs)
+        return (False, "Provider said: token abc123 is invalid")
+
+    monkeypatch.setattr(api_util, "check_connector", _check)
+    workspace = _workspace()
+
+    if owner_workspace_id != WORKSPACE_ID:
+        with pytest.raises(exc.AirbyteMissingResourceError):
+            workspace.check_connector_setup(cast(Any, connector_type), ACTOR_ID)
+        assert checks == []
+        return
+
+    result = workspace.check_connector_setup(cast(Any, connector_type), ACTOR_ID)
+
+    assert result.success is False
+    assert len(checks) == 1
+    assert checks[0]["actor_id"] == ACTOR_ID
+    assert checks[0]["connector_type"] == connector_type
+
+
+# --- MCP tools -------------------------------------------------------------------------------
+
+
+@dataclass
+class _DeployedLike:
+    connector_id: str
+    connector_url: str = (
+        f"https://cloud.airbyte.test/workspaces/{WORKSPACE_ID}/settings"
     )
 
 
-_DEPLOY_DEFAULTS: dict[str, Any] = {
-    "workspace_id": None,
-    "config": None,
-    "config_secret_name": None,
-    "unique": True,
-    "defer_credentials": True,
-}
+@dataclass
+class _WorkspaceLike:
+    workspace_id: str = WORKSPACE_ID
+    deploy_calls: list[dict[str, Any]] = field(default_factory=list)
+    check_result: CheckResult = field(default_factory=lambda: CheckResult(success=True))
+
+    def deploy_source(self, **kwargs: Any) -> _DeployedLike:  # noqa: ANN401
+        self.deploy_calls.append(kwargs)
+        return _DeployedLike(connector_id=ACTOR_ID)
+
+    def deploy_destination(self, **kwargs: Any) -> _DeployedLike:  # noqa: ANN401
+        self.deploy_calls.append(kwargs)
+        return _DeployedLike(connector_id=ACTOR_ID)
+
+    def get_source(self, source_id: str) -> _DeployedLike:
+        return _DeployedLike(connector_id=source_id)
+
+    def get_destination(self, destination_id: str) -> _DeployedLike:
+        return _DeployedLike(connector_id=destination_id)
+
+    def check_connector_setup(
+        self, connector_type: str, connector_id: str
+    ) -> CheckResult:
+        return self.check_result
 
 
-def _deploy_tool(actor_type: str, **kwargs: Any) -> dict[str, Any]:
-    """Call the deploy tool as FastMCP would, filling the `Field` defaults it applies."""
-    tool = (
-        cloud_mcp.deploy_source_to_cloud
-        if actor_type == "source"
-        else (cloud_mcp.deploy_destination_to_cloud)
+@pytest.fixture
+def workspace_like(monkeypatch: pytest.MonkeyPatch) -> _WorkspaceLike:
+    workspace = _WorkspaceLike()
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
     )
-    raw = tool(
-        cast(Context, object()),
-        **{
-            f"{actor_type}_name": "My Connector",
-            f"{actor_type}_connector_name": f"{actor_type}-github",
-        },
-        **{**_DEPLOY_DEFAULTS, **kwargs},
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_metadata",
+        lambda name: type("Metadata", (), {"definition_id": DEFINITION_ID})(),
     )
-    return json.loads(raw)
-
-
-def test_mcp_tools_declare_deferred_parameters() -> None:
-    for tool in (
-        cloud_mcp.deploy_source_to_cloud,
-        cloud_mcp.deploy_destination_to_cloud,
-    ):
-        parameter = inspect.signature(tool).parameters["defer_credentials"]
-        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
-        (field,) = get_args(parameter.annotation)[1:]
-        assert field.default is False
-
-
-def test_mcp_check_tool_is_not_read_only_or_idempotent() -> None:
-    annotations = next(
-        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector_setup
-    )
-    assert annotations["readOnlyHint"] is False
-    assert annotations["idempotentHint"] is False
-    assert annotations["destructiveHint"] is False
-    assert annotations["openWorldHint"] is True
+    return workspace
 
 
 @pytest.mark.parametrize(
-    "actor_type",
+    ("tool", "name_parameter", "connector_parameter", "connector_type"),
     [
-        pytest.param("source", id="source"),
-        pytest.param("destination", id="destination"),
+        (
+            cloud_mcp.deploy_source_to_cloud,
+            "source_name",
+            "source_connector_name",
+            "source",
+        ),
+        (
+            cloud_mcp.deploy_destination_to_cloud,
+            "destination_name",
+            "destination_connector_name",
+            "destination",
+        ),
     ],
 )
-@responses.activate
-def test_mcp_deploy_deferred_returns_safe_result(
-    monkeypatch: pytest.MonkeyPatch,
-    actor_type: str,
+def test_mcp_deploy_with_deferred_credentials_returns_handoff(
+    workspace_like: _WorkspaceLike,
+    tool: Callable[..., str],
+    name_parameter: str,
+    connector_parameter: str,
+    connector_type: str,
 ) -> None:
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: _mcp_client())
-    monkeypatch.setattr(
-        cloud_mcp, "get_connector_metadata", lambda name, **_: _metadata(actor_type)
+    """Deferred MCP deploys return the settings link and next-step guidance."""
+    raw = tool(
+        ctx=cast(Context, object()),
+        workspace_id=WORKSPACE_ID,
+        config='{"count": 10}',
+        config_secret_name=None,
+        unique=True,
+        defer_credentials=True,
+        **{
+            name_parameter: "My connector",
+            connector_parameter: f"{connector_type}-faker",
+        },
     )
 
-    def never(*_: Any, **__: Any) -> None:
-        raise AssertionError(
-            "local connectors must not be constructed in deferred mode"
+    result = DeferredDeployResult.model_validate_json(raw)
+    assert result.connector_id == ACTOR_ID
+    assert result.connector_type == connector_type
+    assert result.settings_url.endswith("/settings")
+    assert "check_cloud_connector_setup" in result.guidance
+    (call,) = workspace_like.deploy_calls
+    assert call["defer_credentials"] is True
+    assert call["definition_id"] == DEFINITION_ID
+    assert call[connector_type] == {"count": 10}
+
+
+def test_mcp_deploy_deferred_rejects_config_secret_name(
+    workspace_like: _WorkspaceLike,
+) -> None:
+    """Server-side secrets cannot be combined with deferred credentials."""
+    with pytest.raises(exc.PyAirbyteInputError, match="config_secret_name"):
+        cloud_mcp.deploy_source_to_cloud(
+            ctx=cast(Context, object()),
+            source_name="My connector",
+            source_connector_name="source-faker",
+            workspace_id=WORKSPACE_ID,
+            config={"count": 10},
+            config_secret_name="MY_SECRET",
+            unique=True,
+            defer_credentials=True,
         )
 
-    monkeypatch.setattr(cloud_mcp, "get_source", never)
-    monkeypatch.setattr(cloud_mcp, "get_destination", never)
-    monkeypatch.setattr(cloud_mcp, "resolve_connector_config", never)
-    url = _collection_url(actor_type)
-    responses.add(responses.GET, url, json={"data": [], "next": None}, status=200)
-    responses.add(responses.POST, url, json=_create_body(actor_type), status=200)
-
-    result = _deploy_tool(actor_type, config=json.dumps(CONFIG))
-    raw = json.dumps(result)
-
-    assert result["status"] == "awaiting_user"
-    assert result["next_action"] == "complete_in_cloud"
-    assert result["connector_type"] == actor_type
-    assert result["connector_id"] == ACTOR_ID
-    assert result["workspace_id"] == WORKSPACE_ID
-    assert result["settings_url"] == (
-        f"https://cloud.airbyte.com/workspaces/{WORKSPACE_ID}/{actor_type}/{ACTOR_ID}"
-    )
-    assert "check_cloud_connector_setup" in result["guidance"]
-    assert set(result) == {
-        "connector_type",
-        "status",
-        "next_action",
-        "reason",
-        "connector_id",
-        "workspace_id",
-        "settings_url",
-        "message",
-        "guidance",
-        "issues",
-        "issues_truncated",
-        "auth_options",
-    }
-    assert "**********" not in raw
-    assert "__airbyte_deferred_credential__" not in raw
-    assert "repositories" not in raw
+    assert workspace_like.deploy_calls == []
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "metadata", "expected"),
-    [
-        pytest.param(
-            {"config_secret_name": "SECRET"},
-            _metadata("source"),
-            ("invalid_config", "correct_nonsecret_config", "invalid_input"),
-            id="secret_name",
-        ),
-        pytest.param(
-            {"unique": False},
-            _metadata("source"),
-            ("invalid_config", "correct_nonsecret_config", "invalid_input"),
-            id="not_unique",
-        ),
-        pytest.param(
-            {"config": "[1]"},
-            _metadata("source"),
-            ("invalid_config", "correct_nonsecret_config", "invalid_input"),
-            id="bad_config",
-        ),
-        pytest.param(
-            {"workspace_id": "nope"},
-            _metadata("source"),
-            ("invalid_config", "correct_nonsecret_config", "invalid_input"),
-            id="bad_workspace",
-        ),
-        pytest.param(
-            {},
-            None,
-            ("not_created", "contact_support", "unknown_connector"),
-            id="unknown_connector",
-        ),
-        pytest.param(
-            {},
-            _metadata("destination"),
-            ("not_created", "contact_support", "unknown_connector"),
-            id="wrong_connector_type",
-        ),
-    ],
-)
-@responses.activate
-def test_mcp_deploy_deferred_refusals(
-    monkeypatch: pytest.MonkeyPatch,
-    kwargs: dict[str, Any],
-    metadata: ConnectorMetadata | None,
-    expected: tuple[str, str, str],
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+@pytest.mark.parametrize("success", [True, False])
+def test_mcp_check_connector_setup_reports_fixed_outcome(
+    workspace_like: _WorkspaceLike,
+    connector_type: str,
+    success: bool,
 ) -> None:
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: _mcp_client())
-
-    def lookup(name: str, **_: Any) -> ConnectorMetadata:
-        if metadata is None:
-            raise AirbyteConnectorNotRegisteredError(connector_name=name)
-        return metadata
-
-    monkeypatch.setattr(cloud_mcp, "get_connector_metadata", lookup)
-    result = _deploy_tool("source", **kwargs)
-    assert (result["status"], result["next_action"], result["reason"]) == expected
-    assert result["connector_id"] is None
-    assert not responses.calls
-
-
-@responses.activate
-def test_mcp_deploy_deferred_requires_workspace_without_discovery(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        cloud_mcp, "_get_cloud_client", lambda _: _mcp_client(workspace_id=None)
+    """The completion check exposes pass/fail and guidance, never provider error text."""
+    workspace_like.check_result = CheckResult(
+        success=success,
+        error_message=None if success else "Provider said: token abc123 is invalid",
     )
-    monkeypatch.setattr(
-        cloud_mcp, "get_connector_metadata", lambda *_, **__: _metadata("source")
+
+    result = cast(
+        ConnectorSetupCheckResult,
+        cloud_mcp.check_cloud_connector_setup(
+            ctx=cast(Context, object()),
+            connector_type=cast(Any, connector_type),
+            connector_id=ACTOR_ID,
+            workspace_id=WORKSPACE_ID,
+        ),
     )
-    result = _deploy_tool("source")
-    assert (result["status"], result["next_action"], result["reason"]) == (
-        "not_created",
-        "choose_workspace",
-        "workspace_required",
-    )
-    assert not responses.calls
+
+    assert result.setup_complete is success
+    assert result.connector_type == connector_type
+    assert result.settings_url.endswith("/settings")
+    assert "abc123" not in result.model_dump_json()
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        pytest.param(requests.ConnectionError(CANARY), id="network"),
-        pytest.param(OSError(CANARY), id="local_registry_file"),
-        pytest.param(KeyError(CANARY), id="malformed_registry_entry"),
-        pytest.param(TypeError(CANARY), id="malformed_registry_shape"),
-        pytest.param(ValueError(CANARY), id="bad_json"),
-    ],
-)
-@responses.activate
-def test_mcp_deploy_deferred_registry_outage(
-    monkeypatch: pytest.MonkeyPatch, error: Exception
-) -> None:
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: _mcp_client())
-
-    def outage(*_: Any, **__: Any) -> ConnectorMetadata:
-        raise error
-
-    monkeypatch.setattr(cloud_mcp, "get_connector_metadata", outage)
-    result = _deploy_tool("source")
-    raw = json.dumps(result)
-    assert (result["status"], result["reason"]) == (
-        "not_created",
-        "preflight_unavailable",
-    )
-    assert CANARY not in raw
-
-
-@responses.activate
-def test_mcp_check_cloud_connector_setup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: _mcp_client())
-    responses.add(
-        responses.GET,
-        f"{CLOUD_API_ROOT}/sources/{ACTOR_ID}",
-        json=_create_body("source"),
-        status=200,
-    )
-    responses.add(
-        responses.POST,
-        CHECK_URL,
-        json={"status": "failed", "message": CANARY},
-        status=200,
-    )
-    raw = cloud_mcp.check_cloud_connector_setup(
-        cast(Context, object()),
-        connector_type="source",
-        connector_id=ACTOR_ID,
-        workspace_id=None,
-    )
-    result = json.loads(raw)
-    assert result == {
-        "connector_type": "source",
-        "connector_id": ACTOR_ID,
-        "workspace_id": WORKSPACE_ID,
-        "settings_url": SETTINGS_URL,
-        "status": "failed",
-        "message": "The saved connector did not pass its check. Review the result in Cloud.",
-        "next_action": "complete_in_cloud",
-    }
-    assert CANARY not in raw
-    assert len(_requests_to(CHECK_URL, "POST")) == 1
+def test_mcp_check_connector_setup_is_not_read_only_or_idempotent() -> None:
+    """The check triggers a connection test, so it must not be advertised as read-only."""
+    (annotations,) = [
+        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector_setup
+    ]
+    assert annotations["readOnlyHint"] is False
+    assert annotations["idempotentHint"] is False
