@@ -152,6 +152,7 @@ def external_access_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep existing Agents behavior tests focused on their API behavior."""
     monkeypatch.delenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, raising=False)
     monkeypatch.delenv(MCP_READONLY_MODE_ENV_VAR, raising=False)
+    monkeypatch.setattr("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False)
     monkeypatch.setattr(
         "airbyte.mcp._tool_utils.get_mcp_config", lambda *args, **kwargs: None
     )
