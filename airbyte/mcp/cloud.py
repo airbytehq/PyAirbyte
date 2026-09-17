@@ -578,7 +578,7 @@ def _deploy_deferred_to_cloud(  # noqa: PLR0911
             )
         )
     try:
-        config_dict = _deferred_setup.normalize_deferred_config(config, actor_type=actor_type)
+        config_dict = _deferred_setup.normalize_deferred_config(config)
     except PyAirbyteInputError:
         return result(
             DeferredSetupOutcome(
@@ -596,7 +596,7 @@ def _deploy_deferred_to_cloud(  # noqa: PLR0911
             metadata = get_connector_metadata(connector_name, http_session=registry_session)
         except AirbyteConnectorNotRegisteredError:
             return result(unknown_connector)
-        except (AirbyteError, requests.RequestException, ValueError):
+        except (AirbyteError, requests.RequestException, ValueError, OSError, KeyError, TypeError):
             return result(
                 DeferredSetupOutcome(
                     status="not_created", next_action="retry_later", reason="preflight_unavailable"

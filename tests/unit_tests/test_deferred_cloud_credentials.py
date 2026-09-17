@@ -135,12 +135,17 @@ def test_deferred_session_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     with DeferredSetupSession() as session:
         assert session.adapters["https://"].max_retries.total == 0
         assert session.adapters["http://"].max_retries.total == 0
-        with pytest.raises(requests.TooManyRedirects):
+        # `max_redirects=0` makes `requests` raise on the first 3xx even with
+        # `allow_redirects=False`, so a redirect surfaces as a failure of that leg.
+        with pytest.raises(requests.TooManyRedirects) as redirect_info:
             session.post(
                 _collection_url("source"), json={}, timeout=None, allow_redirects=True
             )
 
+    assert redirect_info.value.response is not None
+    assert redirect_info.value.response.status_code == 307
     assert len(seen) == 1, "the redirect target must never be requested"
+    assert redirect_info.value.response.url == _collection_url("source")
     assert seen[0]["timeout"] == (
         api_util.DEFERRED_CONNECT_TIMEOUT_SECS,
         api_util.DEFERRED_READ_TIMEOUT_SECS,
@@ -433,6 +438,65 @@ def test_create_destination_with_definition_id_skips_type_inference() -> None:
             id="options_on_other_reason",
         ),
         pytest.param(422, _problem_body("something_else"), None, id="unknown_reason"),
+        pytest.param(
+            422,
+            _problem_body(
+                "secret_input_not_allowed",
+                issues=[
+                    {"path": "credentials.token", "code": "omit_secret", "message": ""}
+                ],
+            ),
+            None,
+            id="issue_path_not_a_pointer",
+        ),
+        pytest.param(
+            422,
+            _problem_body(
+                "secret_input_not_allowed",
+                issues=[{"path": "/a/~2b", "code": "omit_secret", "message": ""}],
+            ),
+            None,
+            id="issue_path_bad_escape",
+        ),
+        pytest.param(
+            422,
+            _problem_body(
+                "auth_selection_required",
+                authOptions=[{"selectors": [{"path": "", "value": "oauth"}]}],
+            ),
+            None,
+            id="selector_path_empty",
+        ),
+        pytest.param(
+            422,
+            _problem_body(
+                "auth_selection_required",
+                authOptions=[
+                    {
+                        "selectors": [
+                            {"path": "/credentials/auth_type", "value": "x" * 129}
+                        ]
+                    }
+                ],
+            ),
+            None,
+            id="selector_value_too_long",
+        ),
+        pytest.param(
+            422,
+            _problem_body(
+                "auth_selection_required",
+                authOptions=[
+                    {
+                        "selectors": [
+                            {"path": "/credentials/auth_type", "value": {"k": 1}}
+                        ]
+                    }
+                ],
+            ),
+            None,
+            id="selector_value_not_scalar",
+        ),
         pytest.param(
             422,
             {**_problem_body("unsupported_schema"), "type": "https://x/other"},
@@ -789,6 +853,37 @@ def test_deploy_deferred_does_not_paginate_past_a_bad_page() -> None:
     assert not _requests_to(url, "POST")
 
 
+@responses.activate
+def test_deploy_deferred_treats_empty_continued_page_as_preflight_failure() -> None:
+    """An empty page that still advertises `next` is a partial list, never a clean bill."""
+    url = _collection_url("source")
+    responses.add(
+        responses.GET, url, json={"data": [], "next": f"{url}?offset=1"}, status=200
+    )
+
+    outcome = _deploy()
+
+    assert (outcome.status, outcome.reason) == ("not_created", "preflight_unavailable")
+    assert len(_requests_to(url, "GET")) == 1, "no further pages are requested"
+    assert not _requests_to(url, "POST")
+
+
+@responses.activate
+def test_deploy_deferred_accepts_trailing_slash_api_root() -> None:
+    url = _collection_url("source")
+    responses.add(responses.GET, url, json={"data": [], "next": None}, status=200)
+    responses.add(responses.POST, url, json=_create_body("source"), status=200)
+
+    outcome = _deploy(api_root=f"{CLOUD_API_ROOT}/")
+
+    assert outcome.status == "awaiting_user"
+    assert outcome.actor_id == ACTOR_ID
+    assert [str(call.request.url).split("?")[0] for call in responses.calls] == [
+        url,
+        url,
+    ]
+
+
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
@@ -833,6 +928,38 @@ def test_deploy_deferred_refuses_before_network(
         pytest.param("/tmp/config.json", None, id="path"),
         pytest.param("secret_reference::name", None, id="secret_reference"),
         pytest.param({"sourceType": "github"}, None, id="source_type_key"),
+        pytest.param({"destinationType": "x"}, None, id="destination_type_key"),
+        pytest.param(
+            {"credentials": {"token": "secret_reference::TOKEN"}},
+            None,
+            id="nested_secret_reference",
+        ),
+        pytest.param(
+            {"accounts": [{"key": "secret_reference::K"}]},
+            None,
+            id="secret_reference_in_array",
+        ),
+        pytest.param(
+            '{"credentials": {"token": "secret_reference::TOKEN"}}',
+            None,
+            id="nested_secret_reference_json",
+        ),
+        pytest.param({"token": SecretString("s")}, None, id="secret_string"),
+        pytest.param(
+            {"credentials": {"token": SecretString("s")}},
+            None,
+            id="nested_secret_string",
+        ),
+        pytest.param(
+            {"note": "a secret_reference:: mention in prose"},
+            {"note": "a secret_reference:: mention in prose"},
+            id="prefix_not_at_start_is_ordinary",
+        ),
+        pytest.param(
+            {"nested": {"ok": False, "zero": 0, "empty": "", "items": [1, "x"]}},
+            {"nested": {"ok": False, "zero": 0, "empty": "", "items": [1, "x"]}},
+            id="nested_ordinary_values",
+        ),
     ],
 )
 def test_normalize_deferred_config(
@@ -840,19 +967,19 @@ def test_normalize_deferred_config(
 ) -> None:
     if expected is None:
         with pytest.raises(PyAirbyteInputError):
-            _deferred_setup.normalize_deferred_config(config, actor_type="source")
+            _deferred_setup.normalize_deferred_config(config)
         return
-    assert (
-        _deferred_setup.normalize_deferred_config(config, actor_type="source")
-        == expected
-    )
+    assert _deferred_setup.normalize_deferred_config(config) == expected
 
 
-def test_normalize_deferred_config_rejects_destination_type_key() -> None:
+def test_normalize_deferred_config_bounds_depth() -> None:
+    deep: dict[str, Any] = {}
+    node = deep
+    for _ in range(40):
+        node["a"] = {}
+        node = node["a"]
     with pytest.raises(PyAirbyteInputError):
-        _deferred_setup.normalize_deferred_config(
-            {"destinationType": "x"}, actor_type="destination"
-        )
+        _deferred_setup.normalize_deferred_config(deep)
 
 
 # Workspace API guards
@@ -1374,12 +1501,24 @@ def test_mcp_deploy_deferred_requires_workspace_without_discovery(
     assert not responses.calls
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(requests.ConnectionError(CANARY), id="network"),
+        pytest.param(OSError(CANARY), id="local_registry_file"),
+        pytest.param(KeyError(CANARY), id="malformed_registry_entry"),
+        pytest.param(TypeError(CANARY), id="malformed_registry_shape"),
+        pytest.param(ValueError(CANARY), id="bad_json"),
+    ],
+)
 @responses.activate
-def test_mcp_deploy_deferred_registry_outage(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_deploy_deferred_registry_outage(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
     monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: _mcp_client())
 
     def outage(*_: Any, **__: Any) -> ConnectorMetadata:
-        raise requests.ConnectionError(CANARY)
+        raise error
 
     monkeypatch.setattr(cloud_mcp, "get_connector_metadata", outage)
     result = _deploy_tool("source")

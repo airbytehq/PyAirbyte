@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import json
 from http import HTTPStatus
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 
 DEFERRED_SETUP_PROBLEM_TYPE = (
@@ -28,6 +28,17 @@ MAX_ISSUES = 20
 MAX_AUTH_OPTIONS = 20
 MAX_SELECTORS_PER_OPTION = 8
 MAX_PATH_LENGTH = 256
+MAX_SELECTOR_VALUE_LENGTH = 128
+
+JSON_POINTER_PATTERN = r"^(?:/(?:[^/~]|~[01])*)*$"
+"""RFC 6901 pointer: empty, or `/`-prefixed tokens using only `~0`/`~1` escapes."""
+
+JsonPointer = Annotated[
+    str, StringConstraints(max_length=MAX_PATH_LENGTH, pattern=JSON_POINTER_PATTERN)
+]
+SelectorValue = (
+    Annotated[str, StringConstraints(max_length=MAX_SELECTOR_VALUE_LENGTH)] | int | float | bool
+)
 
 DeferredSetupReason = Literal[
     "secret_input_not_allowed",
@@ -73,16 +84,23 @@ class _Allowlisted(BaseModel):
 class DeferredSetupIssue(_Allowlisted):
     """A single sanitized issue rebuilt from fixed codes."""
 
-    path: str = Field(max_length=MAX_PATH_LENGTH)
+    path: JsonPointer
     code: DeferredSetupIssueCode
     message: str = Field(max_length=MAX_PATH_LENGTH)
 
 
 class DeferredAuthSelector(_Allowlisted):
-    """One non-secret selector that, applied together with its siblings, picks an auth method."""
+    """One non-secret selector that, applied together with its siblings, picks an auth method.
 
-    path: str = Field(max_length=MAX_PATH_LENGTH)
-    value: str | int | float | bool
+    The path is a non-empty pointer to a single property and the value is the schema's
+    `const`/singleton-`enum` scalar; strings are length-bounded.
+    """
+
+    path: Annotated[
+        str,
+        StringConstraints(min_length=2, max_length=MAX_PATH_LENGTH, pattern=JSON_POINTER_PATTERN),
+    ]
+    value: SelectorValue
 
 
 class DeferredAuthOption(_Allowlisted):
@@ -224,7 +242,7 @@ _REASON_MESSAGES: dict[str, str] = {
 _NEXT_ACTION_GUIDANCE: dict[str, str] = {
     "complete_in_cloud": (
         "Give the person the settings URL and wait. After they say they saved, call "
-        "`check_cloud_connector_setup` with this actor ID; do not use, check or recreate the "
+        "`check_cloud_connector_setup` with this actor ID; do not use or recreate the "
         "connector until that check succeeds."
     ),
     "inspect_cloud_before_retry": (

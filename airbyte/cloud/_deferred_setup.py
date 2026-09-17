@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import uuid
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util
@@ -31,13 +31,12 @@ from airbyte._util.deferred_setup import (
     DeferredSetupProblem,
     SetupCheckOutcome,
 )
+from airbyte.constants import SECRETS_HYDRATION_PREFIX
+from airbyte.secrets.base import SecretString
 
 
-if TYPE_CHECKING:
-    from airbyte.secrets.base import SecretString
-
-
-_ACTOR_TYPE_KEYS: dict[str, str] = {"source": "sourceType", "destination": "destinationType"}
+_ACTOR_TYPE_KEYS: frozenset[str] = frozenset({"sourceType", "destinationType"})
+_CONFIG_MAX_DEPTH = 32
 _AUTHORITATIVE_ACCESS_STATUSES = frozenset({HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN})
 _NOT_ACCESSIBLE_STATUSES = _AUTHORITATIVE_ACCESS_STATUSES | {HTTPStatus.NOT_FOUND}
 _TOKEN_PATH = "/applications/token"
@@ -53,16 +52,13 @@ def canonical_uuid(value: object) -> str | None:
         return None
 
 
-def normalize_deferred_config(
-    config: dict[str, Any] | str | None,
-    *,
-    actor_type: ActorType,
-) -> dict[str, Any]:
+def normalize_deferred_config(config: dict[str, Any] | str | None) -> dict[str, Any]:
     """Normalize agent-supplied non-secret configuration for a deferred create.
 
     `None` becomes `{}`; a JSON string must parse to an object. Anything else (including the
-    string `"null"`, arrays, scalars, file paths and secret references) is refused, as is a
-    configuration that names the connector type itself.
+    string `"null"`, arrays, scalars and file paths) is refused, as is a configuration that
+    names a connector type (`sourceType` or `destinationType`, for either actor type) or carries
+    a secret reference or `SecretString` at any depth.
     """
     if config is None:
         return {}
@@ -78,13 +74,34 @@ def normalize_deferred_config(
         raise exc.PyAirbyteInputError(
             message="Deferred configuration must be a JSON object.",
         )
-    type_key = _ACTOR_TYPE_KEYS[actor_type]
-    if type_key in parsed:
+    present_type_keys = sorted(_ACTOR_TYPE_KEYS & parsed.keys())
+    if present_type_keys:
         raise exc.PyAirbyteInputError(
-            message=f"Deferred configuration must not contain `{type_key}`.",
+            message=f"Deferred configuration must not contain `{present_type_keys[0]}`.",
             guidance="The connector type comes from the definition ID, not the configuration.",
         )
+    _reject_secret_values(parsed, depth=0)
     return parsed
+
+
+def _reject_secret_values(node: object, *, depth: int) -> None:
+    """Refuse secret references and `SecretString` values anywhere in the configuration."""
+    if depth > _CONFIG_MAX_DEPTH:
+        raise exc.PyAirbyteInputError(message="Deferred configuration is nested too deeply.")
+    if isinstance(node, str):
+        if isinstance(node, SecretString) or node.startswith(SECRETS_HYDRATION_PREFIX):
+            raise exc.PyAirbyteInputError(
+                message="Deferred configuration must not contain secrets or secret references.",
+                guidance="Omit credentials; the user supplies them in Airbyte Cloud.",
+            )
+        return
+    if isinstance(node, dict):
+        for key, value in node.items():
+            _reject_secret_values(key, depth=depth + 1)
+            _reject_secret_values(value, depth=depth + 1)
+    elif isinstance(node, list):
+        for value in node:
+            _reject_secret_values(value, depth=depth + 1)
 
 
 def settings_url(api_root: str, workspace_id: str, actor_type: ActorType, actor_id: str) -> str:
@@ -224,6 +241,7 @@ def deploy_deferred(  # noqa: PLR0911, PLR0913
         return DeferredSetupOutcome(
             status="invalid_config", next_action="correct_nonsecret_config", reason="invalid_input"
         )
+    api_root = api_root.rstrip("/")
     if api_root != CLOUD_API_ROOT:
         return DeferredSetupOutcome(
             status="not_created", next_action="contact_support", reason="unsupported_api_root"
@@ -362,6 +380,7 @@ def check_connector_setup(  # noqa: PLR0911
         )
     canonical_actor_id: str = maybe_actor_id
     canonical_workspace_id: str = maybe_workspace_id
+    api_root = api_root.rstrip("/")
 
     def outcome(
         status: str, message_key: str, next_action: str, *, verified: bool = False

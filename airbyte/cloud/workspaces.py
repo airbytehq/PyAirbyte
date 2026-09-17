@@ -399,7 +399,7 @@ class CloudWorkspace:
                     "Deferred deployment requires `unique=True` and `random_name_suffix=False`."
                 ),
             )
-        config = _deferred_setup.normalize_deferred_config(connector, actor_type=actor_type)
+        config = _deferred_setup.normalize_deferred_config(connector)
         return _deferred_setup.deploy_deferred(
             actor_type=actor_type,
             name=name,
@@ -441,6 +441,8 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
+        definition_id: None = None,
+        defer_credentials: Literal[False] = False,
     ) -> CloudSource: ...
 
     @overload
@@ -454,6 +456,18 @@ class CloudWorkspace:
         definition_id: str,
         defer_credentials: Literal[True],
     ) -> DeferredSetupOutcome: ...
+
+    @overload
+    def deploy_source(
+        self,
+        name: str,
+        source: Source | dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+        definition_id: str | None = None,
+        defer_credentials: bool,
+    ) -> CloudSource | DeferredSetupOutcome: ...
 
     def deploy_source(
         self,
@@ -535,6 +549,8 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
+        definition_id: None = None,
+        defer_credentials: Literal[False] = False,
     ) -> CloudDestination: ...
 
     @overload
@@ -548,6 +564,18 @@ class CloudWorkspace:
         definition_id: str,
         defer_credentials: Literal[True],
     ) -> DeferredSetupOutcome: ...
+
+    @overload
+    def deploy_destination(
+        self,
+        name: str,
+        destination: Destination | dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+        definition_id: str | None = None,
+        defer_credentials: bool,
+    ) -> CloudDestination | DeferredSetupOutcome: ...
 
     def deploy_destination(
         self,

@@ -946,6 +946,11 @@ def list_sources(  # noqa: PLR0913
         assert response.sources_response is not None
         page_data = response.sources_response.data
         if not page_data:
+            if response.sources_response.next:
+                raise AirbyteError(
+                    message="The sources list returned an empty page that claims more results.",
+                    context={"workspace_id": workspace_id, "offset": current_offset},
+                )
             break
 
         matching_sources = [source for source in page_data if name_filter(source.name)]
@@ -1015,6 +1020,13 @@ def list_destinations(  # noqa: PLR0913
         assert response.destinations_response is not None
         page_data = response.destinations_response.data
         if not page_data:
+            if response.destinations_response.next:
+                raise AirbyteError(
+                    message=(
+                        "The destinations list returned an empty page that claims more results."
+                    ),
+                    context={"workspace_id": workspace_id, "offset": current_offset},
+                )
             break
 
         matching_destinations = [
