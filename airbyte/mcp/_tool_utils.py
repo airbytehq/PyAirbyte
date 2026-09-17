@@ -531,7 +531,11 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 
 
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
-    """Return the effective permission for Agents external access."""
+    """Return the effective permission for Agents external access.
+
+    When no explicit permission is configured, safe mode and disabled pipeline changes
+    both disable external access; otherwise the result follows the insiders default.
+    """
     explicit_value = _resolve_policy(
         app_or_ctx,
         MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
@@ -539,7 +543,11 @@ def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
     )
     if explicit_value is not None:
         return explicit_value
-    return False if pipeline_changes_allowed(app_or_ctx) is False else None
+    return (
+        False
+        if (pipeline_changes_allowed(app_or_ctx) is False or AIRBYTE_CLOUD_MCP_SAFE_MODE)
+        else None
+    )
 
 
 def check_external_access_allowed(ctx: Context) -> None:

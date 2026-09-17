@@ -145,3 +145,65 @@ def test_external_access_tool_is_blocked_when_external_access_is_disabled(
                 call_next,
             )
         )
+
+
+def test_safe_mode_blocks_unset_external_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Safe mode rejects external-access calls without explicit permission."""
+    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    monkeypatch.delenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, raising=False)
+    monkeypatch.setattr(_tool_utils, "get_mcp_config", lambda *args, **kwargs: "")
+
+    async def call_next(context: Any) -> str:  # noqa: ARG001
+        return "ok"
+
+    with pytest.raises(ExternalAccessDisabledError):
+        asyncio.run(
+            PolicyGuardMiddleware().on_call_tool(
+                _context(read_only=True, external_access=True),
+                call_next,
+            )
+        )
+
+
+def test_safe_mode_external_access_override_passes_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit external access permission overrides safe mode."""
+    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    monkeypatch.setenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, "1")
+    monkeypatch.setattr(_tool_utils, "get_mcp_config", lambda *args, **kwargs: "")
+
+    async def call_next(context: Any) -> str:  # noqa: ARG001
+        return "ok"
+
+    result = asyncio.run(
+        PolicyGuardMiddleware().on_call_tool(
+            _context(read_only=True, external_access=True),
+            call_next,
+        )
+    )
+
+    assert result == "ok"
+
+
+def test_safe_mode_disabled_preserves_unset_external_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disabling safe mode preserves unset external-access behavior."""
+    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", False)
+    monkeypatch.delenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, raising=False)
+    monkeypatch.setattr(_tool_utils, "get_mcp_config", lambda *args, **kwargs: "")
+
+    async def call_next(context: Any) -> str:  # noqa: ARG001
+        return "ok"
+
+    result = asyncio.run(
+        PolicyGuardMiddleware().on_call_tool(
+            _context(read_only=True, external_access=True),
+            call_next,
+        )
+    )
+
+    assert result == "ok"

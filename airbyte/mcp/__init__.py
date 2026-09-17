@@ -131,8 +131,8 @@ and are only allowed for objects created in the current session.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
 
-Safe mode only restricts destructive Cloud operations. It does not disable the Airbyte Agents
-tools.
+Safe mode also disables external-access tools, including the Airbyte Agents tools, unless
+`AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` explicitly allows them.
 
 ### Airbyte Cloud Pipeline and External Access Permissions
 
@@ -146,8 +146,9 @@ Pipeline-change gating uses each tool's `pipeline_change` annotation, defaulting
 tools; running or cancelling a sync is not a pipeline change.
 When pipeline changes are disabled, tools classified as pipeline changes are not advertised or
 executable. If external access is unset while pipeline changes are disabled, Agents tools are also
-disabled. Explicit external access permission can expose Agents without insiders mode, subject to
-API availability, module excludes, and the `AIRBYTE_MCP_INSIDERS=0` hard deny.
+disabled. When external access is unset, safe mode also disables Agents tools. Explicit external
+access permission can expose Agents without insiders mode, subject to API availability, module
+excludes, and the `AIRBYTE_MCP_INSIDERS=0` hard deny.
 
 ### Airbyte Cloud Read-Only Mode
 

@@ -327,8 +327,9 @@ class ExternalAccessDisabledError(AirbyteMCPError):
     """Agents external access is disabled by the MCP server policy."""
 
     guidance = (
-        "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` to allow Agents external access. "
-        "Read-only mode also disables external access when this setting is unset."
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` or "
+        "`AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to allow Agents external access. "
+        "Read-only mode and safe mode also disable external access when this setting is unset."
     )
 
 
