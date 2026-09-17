@@ -315,7 +315,11 @@ class AirbyteMCPError(PyAirbyteError):
 class PipelineChangesDisabledError(AirbyteMCPError):
     """Pipeline-changing tools are disabled by the MCP server policy."""
 
-    guidance = "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1` to allow pipeline-changing tools."
+    guidance = (
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1`, unset legacy "
+        "`AIRBYTE_CLOUD_MCP_READONLY_MODE`, and ensure the "
+        "`X-MCP-Allow-Pipeline-Changes` request header is not `0`."
+    )
 
 
 @dataclass
