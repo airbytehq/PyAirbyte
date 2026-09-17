@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from fastmcp_extensions import ToolCallTelemetryMiddleware
 from segment import analytics
 
 from airbyte import constants
+from airbyte._util import meta
 from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp import server
 
@@ -106,6 +108,37 @@ if server._segment_write_key() != {_DUMMY_SEGMENT_WRITE_KEY!r}:
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+
+
+def test_importing_server_does_not_enable_mcp_mode() -> None:
+    """Importing the server module must not flip the global MCP-mode flag."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import airbyte.mcp.server; "
+            "from airbyte._util.meta import is_mcp_mode; "
+            "print(is_mcp_mode())",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+
+    # Startup logging may precede the printed value on stdout.
+    assert result.stdout.strip().splitlines()[-1] == "False"
+
+
+def test_lifespan_enables_mcp_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Entering the server lifespan marks the process as running in MCP mode."""
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", False)
+
+    async def enter_lifespan() -> None:
+        async with server._mcp_mode_lifespan(server.app):
+            assert meta.is_mcp_mode()
+
+    asyncio.run(enter_lifespan())
 
 
 def test_shared_app_registers_telemetry_without_sending_events(
