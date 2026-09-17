@@ -301,6 +301,10 @@ def is_hosted_mcp_mode() -> bool:
     return _HOSTED_MCP_MODE_ENABLED
 
 
+MCP_UPSTREAM_ANALYTIC_SOURCES: frozenset[str] = frozenset({"coral-support-agent"})
+"""`X-Airbyte-Analytic-Source` values a trusted upstream may pass to the hosted MCP server."""
+
+
 MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
 """Environment variable to enable read-only mode for the MCP server.
 

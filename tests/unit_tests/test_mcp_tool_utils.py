@@ -20,6 +20,7 @@ from airbyte.mcp._tool_utils import (
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
     register_guid_created_in_session,
+    resolve_upstream_analytic_source,
 )
 
 
@@ -166,3 +167,22 @@ def test_config_args_are_not_caller_controllable(
     tool surface.
     """
     assert config_arg.http_header_key is None
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        pytest.param(
+            {"x-airbyte-analytic-source": "Coral-Support-Agent"},
+            "coral-support-agent",
+            id="allowlisted_source_normalized",
+        ),
+        pytest.param(
+            {"x-airbyte-analytic-source": "evil"}, None, id="unlisted_source_rejected"
+        ),
+        pytest.param({}, None, id="no_header"),
+    ],
+)
+def test_resolve_upstream_analytic_source(headers: dict, expected: str | None) -> None:
+    with patch("airbyte.mcp._tool_utils.get_http_headers", return_value=headers):
+        assert resolve_upstream_analytic_source() == expected

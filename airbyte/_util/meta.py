@@ -13,11 +13,16 @@ from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 from platform import python_implementation, python_version, system
+from typing import TYPE_CHECKING
 
 import requests
 
 from airbyte.constants import is_hosted_mcp_mode
 from airbyte.version import get_version
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 _MCP_MODE_ENABLED: bool = False
@@ -61,6 +66,15 @@ def is_mcp_mode() -> bool:
 AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
 """Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
 
+_HOSTED_MCP_ANALYTIC_SOURCE_RESOLVER: Callable[[], str | None] | None = None
+"""Resolver that returns an allowlisted upstream `X-Airbyte-Analytic-Source`, if any."""
+
+
+def set_hosted_mcp_analytic_source_resolver(resolver: Callable[[], str | None]) -> None:
+    """Set the resolver used in hosted MCP mode to read the upstream analytic source."""
+    global _HOSTED_MCP_ANALYTIC_SOURCE_RESOLVER
+    _HOSTED_MCP_ANALYTIC_SOURCE_RESOLVER = resolver
+
 
 def get_cloud_api_analytic_source() -> str:
     """Return the `X-Airbyte-Analytic-Source` value sent with Cloud API requests.
@@ -68,11 +82,18 @@ def get_cloud_api_analytic_source() -> str:
     This is an identifier of the client software (MCP or PyAirbyte API) and
     *not* an indicator of the user and/or workspace. Because it is not
     user-identifying and only sent for logged-in API calls, it is not affected
-    by the `DO_NOT_TRACK` environment variable.
+    by the `DO_NOT_TRACK` environment variable. In hosted MCP mode, an
+    allowlisted upstream value from the incoming request wins.
     """
     if not is_mcp_mode():
         return "pyairbyte"
-    return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
+    if not is_hosted_mcp_mode():
+        return "pyairbyte-mcp-local"
+    if _HOSTED_MCP_ANALYTIC_SOURCE_RESOLVER is not None:
+        upstream = _HOSTED_MCP_ANALYTIC_SOURCE_RESOLVER()
+        if upstream:
+            return upstream
+    return "pyairbyte-mcp-hosted"
 
 
 @lru_cache

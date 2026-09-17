@@ -1185,6 +1185,34 @@ def test_get_analytic_source_reflects_runtime_mode(
     assert meta.get_cloud_api_analytic_source() == expected
 
 
+@pytest.mark.parametrize(
+    ("hosted_mcp_mode", "upstream", "expected"),
+    [
+        pytest.param(
+            True, "coral-support-agent", "coral-support-agent", id="upstream_wins"
+        ),
+        pytest.param(True, None, "pyairbyte-mcp-hosted", id="no_upstream_falls_back"),
+        pytest.param(
+            False,
+            "coral-support-agent",
+            "pyairbyte-mcp-local",
+            id="local_mode_ignores_resolver",
+        ),
+    ],
+)
+def test_get_analytic_source_upstream_resolver(
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_mcp_mode: bool,
+    upstream: str | None,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_ANALYTIC_SOURCE_RESOLVER", lambda: upstream)
+
+    assert meta.get_cloud_api_analytic_source() == expected
+
+
 def test_config_api_request_sends_analytic_source_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
