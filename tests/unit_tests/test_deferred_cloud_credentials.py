@@ -562,12 +562,47 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     result = DeferredDeployResult.model_validate_json(raw)
     assert result.connector_id == ACTOR_ID
     assert result.connector_type == connector_type
+    assert result.workspace_id == WORKSPACE_ID
     assert result.settings_url.endswith("/settings")
     assert "check_cloud_connector_setup" in result.guidance
+    assert "`workspace_id`" in result.guidance
     (call,) = workspace_like.deploy_calls
     assert call["defer_credentials"] is True
     assert call["definition_id"] == DEFINITION_ID
     assert call[connector_type] == {"count": 10}
+
+
+def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
+    workspace_like: _WorkspaceLike,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An actor created without deferral acknowledgement is still tracked for safe-mode cleanup."""
+    registered: list[str] = []
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", registered.append
+    )
+
+    def _unacknowledged(**kwargs: Any) -> _DeployedLike:  # noqa: ANN401
+        raise exc.AirbyteDeferredSetupError(
+            message="Cloud did not acknowledge the deferred-credential create.",
+            actor_id=ACTOR_ID,
+        )
+
+    monkeypatch.setattr(workspace_like, "deploy_source", _unacknowledged)
+
+    with pytest.raises(exc.AirbyteDeferredSetupError):
+        cloud_mcp.deploy_source_to_cloud(
+            ctx=cast(Context, object()),
+            source_name="My connector",
+            source_connector_name="source-faker",
+            workspace_id=WORKSPACE_ID,
+            config={"count": 10},
+            config_secret_name=None,
+            unique=True,
+            defer_credentials=True,
+        )
+
+    assert registered == [ACTOR_ID]
 
 
 def test_mcp_deploy_deferred_rejects_connector_type_mismatch(

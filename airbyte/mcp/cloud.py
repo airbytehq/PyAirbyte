@@ -54,6 +54,7 @@ from airbyte.constants import (
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
     AirbyteConnectorNotRegisteredError,
+    AirbyteDeferredSetupError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
@@ -99,7 +100,8 @@ DEFER_CREDENTIALS_TIP_TEXT = (
 )
 DEFERRED_SETUP_GUIDANCE = (
     "Share `settings_url` with the user. They must open it, complete authentication, test and "
-    "save the connector. Then call `check_cloud_connector_setup` with `connector_id`."
+    "save the connector. Then call `check_cloud_connector_setup` with `connector_id`, "
+    "`connector_type` and `workspace_id`."
 )
 
 _DiscoveryResult = TypeVar("_DiscoveryResult")
@@ -436,6 +438,8 @@ class DeferredDeployResult(BaseModel):
     """The connector type: 'source' or 'destination'."""
     name: str
     """The connector name in Airbyte Cloud."""
+    workspace_id: str
+    """The workspace the connector was created in; pass it to `check_cloud_connector_setup`."""
     settings_url: str
     """Cloud settings page where a person completes the credentials."""
     guidance: str = DEFERRED_SETUP_GUIDANCE
@@ -729,27 +733,33 @@ def _deploy_deferred_to_cloud(
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed: CloudSource | CloudDestination
-    if connector_type == "source":
-        deployed = workspace.deploy_source(
-            name=name,
-            source=config_dict,
-            unique=unique,
-            definition_id=metadata.definition_id,
-            defer_credentials=True,
-        )
-    else:
-        deployed = workspace.deploy_destination(
-            name=name,
-            destination=config_dict,
-            unique=unique,
-            definition_id=metadata.definition_id,
-            defer_credentials=True,
-        )
+    try:
+        if connector_type == "source":
+            deployed = workspace.deploy_source(
+                name=name,
+                source=config_dict,
+                unique=unique,
+                definition_id=metadata.definition_id,
+                defer_credentials=True,
+            )
+        else:
+            deployed = workspace.deploy_destination(
+                name=name,
+                destination=config_dict,
+                unique=unique,
+                definition_id=metadata.definition_id,
+                defer_credentials=True,
+            )
+    except AirbyteDeferredSetupError as ex:
+        if ex.actor_id is not None:
+            register_guid_created_in_session(ex.actor_id)
+        raise
     register_guid_created_in_session(deployed.connector_id)
     return DeferredDeployResult(
         connector_id=deployed.connector_id,
         connector_type=connector_type,
         name=name,
+        workspace_id=workspace.workspace_id,
         settings_url=deployed.connector_url,
     )
 
