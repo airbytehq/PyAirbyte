@@ -13,6 +13,8 @@ from airbyte.agents import _destination_docs as destination_docs
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
+    AgentConnectorAction,
+    AgentConnectorDetails,
     AgentConnectorMetadata,
     AgentExecuteResult,
     AgentSkillInfo,
@@ -586,6 +588,49 @@ def test_execute_result_accepts_null_metadata() -> None:
     assert result.connector_metadata == AgentConnectorMetadata()
     assert result.has_next_page is False
     assert result.end_cursor is None
+
+
+def test_inspect_details_parses_actions() -> None:
+    """`AgentConnectorDetails` parses the inspect `actions` field when reported."""
+    details = AgentConnectorDetails.model_validate({
+        "connector_id": "connector-id",
+        "actions": [
+            {
+                "entity": "issues",
+                "action": "get",
+                "required_params": ["owner", "repo", "number"],
+                "optional_params": [],
+            },
+            {
+                "entity": "issues",
+                "action": "list",
+                "required_params": ["owner"],
+                "optional_params": ["per_page"],
+            },
+        ],
+    })
+
+    assert details.actions == [
+        AgentConnectorAction(
+            entity="issues",
+            action="get",
+            required_params=["owner", "repo", "number"],
+            optional_params=[],
+        ),
+        AgentConnectorAction(
+            entity="issues",
+            action="list",
+            required_params=["owner"],
+            optional_params=["per_page"],
+        ),
+    ]
+
+
+def test_inspect_details_defaults_actions_to_empty() -> None:
+    """Older Agents API responses that omit `actions` parse to an empty list."""
+    details = AgentConnectorDetails.model_validate({"connector_id": "connector-id"})
+
+    assert details.actions == []
 
 
 def test_inspect(captured_requests: list[dict[str, Any]]) -> None:

@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 from airbyte.agents.models import (
+    AgentConnectorAction,
     AgentConnectorDetails,
     AgentConnectorMetadata,
     AgentContextStoreEntity,
@@ -450,6 +451,53 @@ def test_inspect_tool_reports_context_store_entities(
     assert result.context_store_entities == ["issues"]
     assert result.docs_skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
+
+
+def test_inspect_tool_reports_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `inspect_agent_connector` surfaces executable actions from the Agents API."""
+    reported_actions = [
+        AgentConnectorAction(
+            entity="issues",
+            action="get",
+            required_params=["owner", "repo", "number"],
+            optional_params=[],
+        ),
+        AgentConnectorAction(
+            entity="issues",
+            action="list",
+            required_params=["owner"],
+            optional_params=["per_page"],
+        ),
+    ]
+
+    class _InspectableConnector:
+        def inspect(self) -> AgentConnectorDetails:
+            return AgentConnectorDetails(
+                connector_id="connector-id",
+                name="GitHub",
+                actions=reported_actions,
+            )
+
+    class _InspectableWorkspace:
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _InspectableConnector()
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+    )
+
+    result = agents_mcp.inspect_agent_connector(
+        ctx=cast(Context, object()),
+        connector_id="connector-id",
+        workspace_id="workspace-id",
+        organization_id=None,
+    )
+
+    assert result.actions == reported_actions
 
 
 def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:

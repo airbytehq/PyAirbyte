@@ -146,6 +146,24 @@ class AgentSkillDocs(BaseModel):
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
 
+class AgentConnectorAction(BaseModel):
+    """An executable entity/action pair, as reported by the Agents API `inspect` endpoint."""
+
+    model_config = ConfigDict(extra="allow")
+
+    entity: str
+    """Entity name to pass as `entity` when executing the connector."""
+
+    action: str
+    """Action name to pass as `action` when executing the connector."""
+
+    required_params: list[str] = Field(default_factory=list)
+    """Parameter names that must be supplied in `params`."""
+
+    optional_params: list[str] = Field(default_factory=list)
+    """Parameter names that may be supplied in `params`."""
+
+
 class AgentConnectorDetails(BaseModel):
     """Connector metadata returned by the Agents API `inspect` endpoint."""
 
@@ -176,6 +194,10 @@ class AgentConnectorDetails(BaseModel):
     context_store_readiness: AgentContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
 
+    actions: list[AgentConnectorAction] = Field(default_factory=list)
+    """Executable entity/action pairs with their parameter names, when the Agents API
+    reports them."""
+
     warnings: list[Any] = Field(default_factory=list)
     """Warnings reported by the Agents API, for example degraded capabilities."""
 
@@ -183,9 +205,10 @@ class AgentConnectorDetails(BaseModel):
     def context_store_entities(self) -> list[str]:
         """The entity names this connector can cache in the Context Store.
 
-        Note that this lists Context Store-supported entities specifically. The Agents API
-        does not publish an exhaustive list of executable entity and action pairs, so an
-        entity may be executable via `AgentConnector.execute()` without appearing here.
+        Note that this lists Context Store-supported entities specifically. When the Agents
+        API reports `actions`, that list is the authoritative catalogue of executable entity
+        and action pairs; an entity may be executable via `AgentConnector.execute()` without
+        appearing here.
         """
         if self.context_store_readiness is None:
             return []

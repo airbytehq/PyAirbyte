@@ -38,7 +38,7 @@ from airbyte.agents._destination_docs import (
     connector_id_from_skill_id,
 )
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
-from airbyte.agents.models import AgentSkillInfo
+from airbyte.agents.models import AgentConnectorAction, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -261,9 +261,14 @@ class AgentConnectorDetailsResult(BaseModel):
     context_store_entities: list[str]
     """Entities this connector can cache in the Context Store.
 
-    This is not an exhaustive list of executable entities: an entity may be executable via
-    `execute_agent_connector` without appearing here.
+    This is not an exhaustive list of executable entities: see `actions` for the executable
+    entity/action catalogue when the Agents API reports it.
     """
+
+    actions: list[AgentConnectorAction] = Field(default_factory=list)
+    """Executable entity/action pairs with their parameter names. Use these to build
+    `execute_agent_connector` calls; read `docs_skill_id` docs for types and descriptions.
+    Empty when the Agents API did not report them."""
 
     warnings: list[str]
     """Warnings the Agents API reported about this connector."""
@@ -936,7 +941,7 @@ def inspect_agent_connector(
         ),
     ],
 ) -> AgentConnectorDetailsResult:
-    """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
+    """Inspect an Airbyte Agents connector's metadata, readiness, warnings, and `actions`.
 
     Call this before `execute_agent_connector` to learn what the connector exposes.
     Airbyte Cloud destinations in the workspace are also accepted and resolve to
@@ -966,6 +971,7 @@ def inspect_agent_connector(
         source_definition_name=details.source_definition_name,
         docs_skill_id=details.docs_skill_id,
         context_store_entities=details.context_store_entities,
+        actions=details.actions,
         warnings=[str(warning) for warning in details.warnings],
     )
 
