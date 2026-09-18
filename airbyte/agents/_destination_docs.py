@@ -34,6 +34,12 @@ SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
 }
 """Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
 
+SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
+    SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
+    BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
+}
+"""Destination definition ID -> display name of the destination integration."""
+
 SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 
 DESTINATION_SKILL_PREFIX = "connector-destination:"
@@ -70,6 +76,7 @@ def build_destination_connector_details(destination: CloudDestination) -> AgentC
         name=destination.name,
         workspace_id=destination.workspace.workspace_id,
         docs_skill_id=destination_skill_id(destination.connector_id),
+        source_definition_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
         warnings=[],
     )
 

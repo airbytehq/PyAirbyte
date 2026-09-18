@@ -1608,6 +1608,7 @@ def test_inspect_destination_fallback_reports_docs_skill(
     assert result.connector_name == "Snowflake dev"
     assert result.docs is not None
     assert result.docs.skill_id == "connector-destination:dest-snowflake"
+    assert result.integration_name == "Snowflake"
     assert result.docs.guidance is not None
     assert "sql-passthrough" in result.docs.guidance
     assert result.message is None
