@@ -61,6 +61,19 @@ def is_mcp_mode() -> bool:
 AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
 """Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
 
+_UPSTREAM_ANALYTIC_SOURCES: frozenset[str] = frozenset({"coral-support-agent"})
+"""Analytic sources a trusted upstream may declare on requests to the hosted MCP server."""
+
+
+def get_http_headers() -> dict[str, str]:
+    """Return the current request's HTTP headers, or `{}` outside a request.
+
+    Lazily imports `fastmcp` to keep `import airbyte` fast for non-MCP users.
+    """
+    from fastmcp.server.dependencies import get_http_headers  # noqa: PLC0415
+
+    return get_http_headers()
+
 
 def get_cloud_api_analytic_source() -> str:
     """Return the `X-Airbyte-Analytic-Source` value sent with Cloud API requests.
@@ -68,10 +81,14 @@ def get_cloud_api_analytic_source() -> str:
     This is an identifier of the client software (MCP or PyAirbyte API) and
     *not* an indicator of the user and/or workspace. Because it is not
     user-identifying and only sent for logged-in API calls, it is not affected
-    by the `DO_NOT_TRACK` environment variable.
+    by the `DO_NOT_TRACK` environment variable. In MCP mode, an allowlisted
+    upstream value from the incoming request wins.
     """
     if not is_mcp_mode():
         return "pyairbyte"
+    upstream = get_http_headers().get(AIRBYTE_ANALYTIC_SOURCE_HEADER.lower(), "").strip().lower()
+    if upstream in _UPSTREAM_ANALYTIC_SOURCES:
+        return upstream
     return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
 
 
