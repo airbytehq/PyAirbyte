@@ -260,7 +260,7 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
         {
             "type": "code",
             "language": "sql",
-            "code": "SELECT * FROM <table> ORDER BY _airbyte_extracted_at DESC LIMIT 10",
+            "code": "SELECT * FROM <table> LIMIT 10",
         },
         {"type": "heading", "level": 3, "text": f"{engine} specifics"},
         {"type": "list", "items": list(_DIALECT_NOTES[dialect])},
@@ -331,8 +331,11 @@ def _streams_section(destination: CloudDestination, dialect: str) -> list[dict[s
             "text": (
                 "Each enabled stream is written to a table named `<table_prefix><stream_name>` "
                 f"in the destination's configured {_NAMESPACE_NOUNS[dialect]}. Query these "
-                "names directly (unqualified) with `sql_select`. Names below assume the "
-                "destination's default identifier casing; confirm with `SHOW TABLES`."
+                "names directly (unqualified) with `sql_select`. Connections that use a "
+                "source-defined or custom destination namespace write to that namespace "
+                "instead, and the table must then be qualified with it. Names below assume "
+                "the destination's default identifier casing and namespace; confirm with "
+                "`SHOW TABLES`."
             ),
         },
     ]
