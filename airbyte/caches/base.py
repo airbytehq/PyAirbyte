@@ -376,6 +376,37 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
             destination_name=destination_name,
         )
 
+    def get_state(
+        stream_name: str,
+    ) -> StreamState | None:
+        """Return a stream state object for the provided stream name.
+
+        This is a thin wrapper around the internal `StateProvider` interface.
+        """
+        return self.get_state_provider(stream_name=stream_name)
+
+    def set_state(
+        stream_name: str,
+        stream_state: StreamState | dict,
+    ) -> None:
+        """Set a stream state object for the provided stream name.
+
+        This is a thin wrapper around the internal `StateWriter` interface.
+        """
+        ...
+
+
+    def migrate_state(
+        streams: list[str] | Literal["*"],
+        to_cache: CacheBase,
+    ) -> None:
+        """Copies all matching stream states to the specified `Cache` object.
+
+        This is a thin wrapper around the respective `Cache` objects'
+        `get_state` and `set_state` methods.
+        """
+        ...
+
     def register_source(
         self,
         source_name: str,
