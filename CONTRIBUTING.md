@@ -15,15 +15,15 @@ Use **Markdown** formatting in all docstrings — not reStructuredText (reST).
 Modules under `airbyte/mcp/` are thin wrappers over the core library. Business logic — API
 calls, status derivation, cross-referencing between Cloud and Agents data — belongs on the
 public core classes (for example `airbyte.cloud.CloudWorkspace`), where it is reusable and
-unit-testable on its own. An MCP tool should only:
-
-- Parse and validate its inputs.
-- Call one or more core methods.
-- Convert the result into the tool's Pydantic response model (including mapping expected
-  failures to "unknown" values where the tool contract calls for it).
+unit-testable on its own.
 
 If you find yourself writing a helper in `airbyte/mcp/` that talks to an API or encodes
-domain rules, move it to the core module and call it from the tool instead.
+domain rules, move it to the most appropriate core module or util module and create the
+necessary public Python interface first.
+
+As a general rule (with rare exceptions), there shouldn't be anything that you can do through
+the MCP tools which you couldn't also do with the public Python interface. (Hence the framing
+as a "presentation" layer on top of the core modules.)
 
 ## 🚀 Releasing
 
