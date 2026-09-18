@@ -527,8 +527,8 @@ def test_inspect_tool_includes_docs_summary(
     assert result.docs.title == "GitHub"
     assert result.docs.outline[0].section_id == "actions.issues.get"
     assert result.docs.content[0]["text"] == "Execution guidance"
-    assert "connector:github" in result.docs_guidance
-    assert "actions.issues.get" in result.docs_guidance
+    assert "connector:github" in result.docs.guidance
+    assert "actions.issues.get" in result.docs.guidance
     assert result.warnings == ["Context Store is still syncing."]
 
 
@@ -542,7 +542,6 @@ def test_inspect_tool_warns_when_docs_unavailable(
 
     assert result.docs_skill_id == "connector:github"
     assert result.docs is None
-    assert result.docs_guidance is None
     assert result.warnings == [
         "Context Store is still syncing.",
         "Connector docs are unavailable: Skill docs failed",
@@ -578,7 +577,6 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
     result = _inspect_connector_result()
 
     assert result.docs is None
-    assert result.docs_guidance is None
     assert result.warnings == []
 
 
@@ -597,8 +595,8 @@ def test_inspect_tool_docs_guidance_uses_first_available_section(
 
     result = _inspect_connector_result()
 
-    assert "actions.b" in result.docs_guidance
-    assert "actions.a" not in result.docs_guidance
+    assert "actions.b" in result.docs.guidance
+    assert "actions.a" not in result.docs.guidance
 
 
 def test_inspect_tool_docs_guidance_omits_example_without_outline(
@@ -617,11 +615,12 @@ def test_inspect_tool_docs_guidance_omits_example_without_outline(
 
         result = _inspect_connector_result()
 
-        assert result.docs_guidance is not None
-        assert "connector:github" in result.docs_guidance
-        assert "No sections are currently available" in result.docs_guidance
-        assert "e.g." not in result.docs_guidance
-        assert "section=" not in result.docs_guidance
+        assert result.docs is not None
+        assert result.docs.guidance is not None
+        assert "connector:github" in result.docs.guidance
+        assert "No sections are currently available" in result.docs.guidance
+        assert "e.g." not in result.docs.guidance
+        assert "section=" not in result.docs.guidance
 
 
 def test_inspect_tool_warns_when_docs_read_times_out(
@@ -654,7 +653,6 @@ def test_inspect_tool_warns_when_docs_read_times_out(
 
     assert result.connector_name == "GitHub"
     assert result.docs is None
-    assert result.docs_guidance is None
     assert result.warnings == ["Connector docs are unavailable: docs timed out"]
 
 
@@ -1606,8 +1604,8 @@ def test_inspect_destination_fallback_reports_docs_skill(
     assert result.docs_skill_id == "connector-destination:dest-snowflake"
     assert result.docs is not None
     assert result.docs.skill_id == result.docs_skill_id
-    assert result.docs_guidance is not None
-    assert "sql-passthrough" in result.docs_guidance
+    assert result.docs.guidance is not None
+    assert "sql-passthrough" in result.docs.guidance
     assert result.message is None
 
 

@@ -315,6 +315,9 @@ class AgentSkillDocsResult(BaseModel):
     content: list[dict[str, Any]]
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
+    guidance: str | None = None
+    """How to drill into a section for full detail, when this is an inline summary."""
+
     warnings: list[str]
     """Non-fatal issues reported while building or reading the docs."""
 
@@ -350,10 +353,7 @@ class AgentConnectorDetailsResult(BaseModel):
     docs: AgentSkillDocsResult | None = None
     """The connector's usage docs summary: execution guidance plus the outline of per-action
     sections. Each `outline[].section_id` can be passed as `section` to `read_agent_skill_docs`
-    for that action's full parameter list, types, and examples."""
-
-    docs_guidance: str | None = None
-    """How to get more detail than the inline docs summary."""
+    for that action's full parameter list, types, and examples. See `docs.guidance`."""
 
     warnings: list[str]
     """Warnings the Agents API reported about this connector."""
@@ -561,7 +561,7 @@ def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
 
 
 def _docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
-    """Build the `docs_guidance` hint for a skill's section outline."""
+    """Build the `guidance` hint for a skill's section outline."""
     example_section = next((section for section in outline if section.available), None)
     if example_section is None:
         return DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
@@ -588,6 +588,8 @@ def _inspect_destination_fallback(
     ):
         details = build_destination_connector_details(destination)
         docs_result = _skill_docs_result(build_destination_skill_docs(destination))
+        if details.docs_skill_id:
+            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
         return AgentConnectorDetailsResult(
             connector_id=details.connector_id,
             connector_name=details.name,
@@ -595,11 +597,6 @@ def _inspect_destination_fallback(
             docs_skill_id=details.docs_skill_id,
             context_store_entities=[],
             docs=docs_result,
-            docs_guidance=(
-                _docs_guidance(details.docs_skill_id, docs_result.outline)
-                if details.docs_skill_id
-                else None
-            ),
             warnings=[],
         )
     if destination is not None:
@@ -1003,7 +1000,6 @@ def inspect_agent_connector(
 
     warnings = [str(warning) for warning in details.warnings]
     docs_result: AgentSkillDocsResult | None = None
-    docs_guidance: str | None = None
     if details.docs_skill_id:
         try:
             connector_docs = workspace.read_skill_docs(details.docs_skill_id)
@@ -1012,7 +1008,7 @@ def inspect_agent_connector(
             warnings.append(f"Connector docs are unavailable: {detail}")
         else:
             docs_result = _skill_docs_result(connector_docs)
-            docs_guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
+            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
 
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,
@@ -1022,7 +1018,6 @@ def inspect_agent_connector(
         docs_skill_id=details.docs_skill_id,
         context_store_entities=details.context_store_entities,
         docs=docs_result,
-        docs_guidance=docs_guidance,
         warnings=warnings,
     )
 
