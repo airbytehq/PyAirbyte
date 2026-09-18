@@ -108,9 +108,8 @@ class AirbyteMessageIterator:
                                     "datetime.datetime", record.get(AB_EXTRACTED_AT_COLUMN)
                                 ).timestamp()
                             ),
-                            # `meta` and `namespace` are not handled:
                             meta=None,
-                            namespace=None,
+                            # namespace=None,  # Some destinations need this undeclared if null
                         ),
                     )
 
