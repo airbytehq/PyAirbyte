@@ -47,6 +47,8 @@ _DESTINATION_LOCATION_KEYS: Mapping[str, tuple[tuple[str, str], tuple[str, str]]
 }
 """Destination definition ID -> (label, configuration key) pairs locating synced tables."""
 
+_NAMESPACE_LABELS = frozenset({"schema", "dataset"})
+
 SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 
 DESTINATION_SKILL_PREFIX = "connector-destination:"
@@ -216,13 +218,17 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
     ]
 
 
+def _namespace_entry(location: list[tuple[str, str]]) -> tuple[str, str] | None:
+    """Return the schema-level (label, value) entry of a destination location, if any."""
+    return next((entry for entry in location if entry[0] in _NAMESPACE_LABELS), None)
+
+
 def _qualified_table_example(destination: CloudDestination) -> str:
     """Return an example `SELECT` qualifying the table with the destination's namespace."""
-    location = _destination_location(destination)
-    namespace_entries = location[1:]
-    if not namespace_entries:
+    namespace_entry = _namespace_entry(_destination_location(destination))
+    if namespace_entry is None:
         return "SELECT * FROM <table> LIMIT 10"
-    namespace = namespace_entries[0][1]
+    namespace = namespace_entry[1]
     if destination.definition_id == BIGQUERY_DESTINATION_DEFINITION_ID:
         return f"SELECT * FROM `{namespace}.<table>` LIMIT 10"
     return f"SELECT * FROM {namespace}.<table> LIMIT 10"
@@ -275,8 +281,8 @@ def _connection_namespace_note(
         note = f"Streams land in namespace format `{connection.namespace_format}`"
     else:
         note = "Streams land in the destination's default namespace"
-        if namespace_entries := location[1:]:
-            label, value = namespace_entries[0]
+        if namespace_entry := _namespace_entry(location):
+            label, value = namespace_entry
             note += f", {label} `{value}`"
     return note + prefix_clause
 
