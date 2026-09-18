@@ -1046,6 +1046,7 @@ def list_deployed_cloud_source_connectors(
     """
     if limit is not None and limit <= 0:
         raise PyAirbyteInputError(message="`limit` must be greater than 0.")
+
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     sources = workspace.list_sources(limit=None if name_contains or with_feature else limit)
 
@@ -1117,6 +1118,7 @@ def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, boo
     organization_id = _resolve_parent_organization_id(workspace)
     if organization_id is None:
         return None
+
     try:
         agent_workspace = AgentWorkspace.from_cloud_workspace(
             workspace,
@@ -1134,6 +1136,7 @@ def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, boo
         except _AGENTS_LOOKUP_ERRORS:
             search_by_source_id[connector.connector_id] = None
             continue
+
         search_by_source_id[connector.connector_id] = bool(
             readiness is not None and readiness.configured_cache_entities
         )
@@ -1149,6 +1152,7 @@ def _is_agent_workspace(workspace: CloudWorkspace) -> bool | None:
     organization_id = _resolve_parent_organization_id(workspace)
     if organization_id is None:
         return None
+
     try:
         AgentWorkspace.from_cloud_workspace(
             workspace,
@@ -1161,7 +1165,9 @@ def _is_agent_workspace(workspace: CloudWorkspace) -> bool | None:
         status_code = (error.context or {}).get("status_code")
         if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
             return False
+
         return None
+
     return True
 
 
@@ -1211,6 +1217,7 @@ def list_deployed_cloud_destination_connectors(
     """
     if limit is not None and limit <= 0:
         raise PyAirbyteInputError(message="`limit` must be greater than 0.")
+
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destinations = workspace.list_destinations(
         limit=None if name_contains or with_feature else limit
