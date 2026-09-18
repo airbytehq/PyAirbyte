@@ -26,6 +26,7 @@ import json
 from http import HTTPStatus
 from typing import Annotated, Any, Literal
 
+import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -38,7 +39,7 @@ from airbyte.agents._destination_docs import (
     connector_id_from_skill_id,
 )
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
-from airbyte.agents.models import AgentSkillInfo
+from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -78,7 +79,7 @@ AGENTS_AUTH_TIP_TEXT = (
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. Call `list_agent_connectors` to discover connector "
     f"IDs, then `inspect_agent_connector` to learn which entities a connector supports, "
     f"before calling `execute_agent_connector`. Use `list_agent_skills` "
-    f"to discover skills, and pass a `docs_skill_id` reported by "
+    f"to discover skills, and pass the `docs.skill_id` reported by "
     f"`inspect_agent_connector` to `read_agent_skill_docs` for connector usage docs."
 )
 WORKSPACE_ID_TIP_TEXT = (
@@ -116,6 +117,17 @@ AGENTS_FORBIDDEN_MESSAGE = (
     "access to this workspace. Ask the user to confirm which applies rather than retrying."
 )
 """Fallback explanation for a 403 whose response body carries no `message`/`detail`."""
+
+DOCS_GUIDANCE_TEMPLATE = (
+    "`docs` is a summary: execution guidance plus one outline entry per action. Before calling "
+    "`execute_agent_connector`, read the target action's section for its exact parameter names: "
+    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<a section_id from docs.outline>)`, "
+    "e.g. `section={example!r}`."
+)
+DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE = (
+    "`docs` is a summary. No sections are currently available in `docs.outline`; "
+    "`read_agent_skill_docs(skill_id={skill_id!r})` returns the same summary."
+)
 
 AGENTS_ACTOR_NOT_ENABLED_DETAIL = "Actor is not enabled for Agents access."
 """The Agents API `detail` when a source or destination exists but is not toggled on."""
@@ -240,38 +252,6 @@ class AgentConnectorListResult(BaseModel):
     """Why the listing is empty, when the Agents API denied the request."""
 
 
-class AgentConnectorDetailsResult(BaseModel):
-    """Details about a single Airbyte Agents connector."""
-
-    connector_id: str
-    """The connector ID."""
-
-    connector_name: str | None = None
-    """Display name of the connector."""
-
-    workspace_id: str | None = None
-    """The workspace that owns the connector."""
-
-    source_definition_name: str | None = None
-    """The name of the underlying source definition, for example `GitHub`."""
-
-    docs_skill_id: str | None = None
-    """Skill ID for this connector's usage docs, when reported by the Agents API."""
-
-    context_store_entities: list[str]
-    """Entities this connector can cache in the Context Store.
-
-    This is not an exhaustive list of executable entities: an entity may be executable via
-    `execute_agent_connector` without appearing here.
-    """
-
-    warnings: list[str]
-    """Warnings the Agents API reported about this connector."""
-
-    message: str | None = None
-    """Why the details are empty, when the Agents API denied the request."""
-
-
 class AgentSkillResult(BaseModel):
     """A skill discoverable on the Airbyte Agents platform."""
 
@@ -335,11 +315,50 @@ class AgentSkillDocsResult(BaseModel):
     content: list[dict[str, Any]]
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
+    guidance: str | None = None
+    """How to read more of this skill's docs with `read_agent_skill_docs`, when applicable."""
+
     warnings: list[str]
     """Non-fatal issues reported while building or reading the docs."""
 
     message: str | None = None
     """Why the docs are empty, when the Agents API denied the request."""
+
+
+class AgentConnectorDetailsResult(BaseModel):
+    """Details about a single Airbyte Agents connector."""
+
+    connector_id: str
+    """The connector ID."""
+
+    connector_name: str | None = None
+    """Display name of the connector."""
+
+    workspace_id: str | None = None
+    """The workspace that owns the connector."""
+
+    source_definition_name: str | None = None
+    """The name of the underlying source definition, for example `GitHub`."""
+
+    context_store_entities: list[str]
+    """Entities this connector can cache in the Context Store.
+
+    This is not an exhaustive list of executable entities: an entity may be executable via
+    `execute_agent_connector` without appearing here.
+    """
+
+    docs: AgentSkillDocsResult | None = None
+    """Summary of the connector's usage docs, when available.
+
+    Pass `docs.skill_id` and a `docs.outline[].section_id` to `read_agent_skill_docs` for a
+    section's full detail.
+    """
+
+    warnings: list[str]
+    """Warnings the Agents API reported about this connector."""
+
+    message: str | None = None
+    """Why the details are empty, when the Agents API denied the request."""
 
 
 class AgentExecuteToolResult(BaseModel):
@@ -520,6 +539,34 @@ def _connector_unavailable_error(
     )
 
 
+def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
+    """Shape an `AgentSkillDocs` into an `AgentSkillDocsResult`."""
+    return AgentSkillDocsResult(
+        skill_id=docs.metadata.id,
+        title=docs.metadata.title,
+        section_id=docs.section_id,
+        outline=[
+            AgentSkillSectionResult(
+                section_id=docs_section.id,
+                title=docs_section.title,
+                summary=docs_section.summary,
+                available=docs_section.available,
+            )
+            for docs_section in docs.outline
+        ],
+        content=docs.content,
+        warnings=[str(warning) for warning in docs.metadata.warnings],
+    )
+
+
+def _docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
+    """Build the `guidance` hint for a skill's section outline."""
+    example_section = next((section for section in outline if section.available), None)
+    if example_section is None:
+        return DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
+    return DOCS_GUIDANCE_TEMPLATE.format(skill_id=skill_id, example=example_section.section_id)
+
+
 def _inspect_destination_fallback(
     ctx: Context,
     connector_id: str,
@@ -539,12 +586,15 @@ def _inspect_destination_fallback(
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         details = build_destination_connector_details(destination)
+        docs_result = _skill_docs_result(build_destination_skill_docs(destination))
+        if details.docs_skill_id:
+            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
         return AgentConnectorDetailsResult(
             connector_id=details.connector_id,
             connector_name=details.name,
             workspace_id=details.workspace_id,
-            docs_skill_id=details.docs_skill_id,
             context_store_entities=[],
+            docs=docs_result,
             warnings=[],
         )
     if destination is not None:
@@ -587,22 +637,7 @@ def _destination_skill_docs_fallback(
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         docs = build_destination_skill_docs(destination, section=section)
-        return AgentSkillDocsResult(
-            skill_id=docs.metadata.id,
-            title=docs.metadata.title,
-            section_id=docs.section_id,
-            outline=[
-                AgentSkillSectionResult(
-                    section_id=docs_section.id,
-                    title=docs_section.title,
-                    summary=docs_section.summary,
-                    available=docs_section.available,
-                )
-                for docs_section in docs.outline
-            ],
-            content=docs.content,
-            warnings=[str(warning) for warning in docs.metadata.warnings],
-        )
+        return _skill_docs_result(docs)
     if destination is not None:
         message = (
             f"Destination '{destination.name}' (definition {destination.definition_id}) is not "
@@ -936,12 +971,14 @@ def inspect_agent_connector(
         ),
     ],
 ) -> AgentConnectorDetailsResult:
-    """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and `docs_skill_id`.
+    """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and inline `docs`.
 
     Call this before `execute_agent_connector` to learn what the connector exposes.
+    The connector's usage docs summary is returned inline in `docs`; use
+    `read_agent_skill_docs(skill_id=docs.skill_id, section=...)` for a single section's
+    full detail.
     Airbyte Cloud destinations in the workspace are also accepted and resolve to
-    built-in docs under `connector-destination:<id>`. The reported `docs_skill_id`
-    can be passed to `read_agent_skill_docs` to read the connector's usage docs.
+    built-in docs under `connector-destination:<id>`.
     """
     try:
         workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
@@ -959,14 +996,33 @@ def inspect_agent_connector(
             message=message,
         )
 
+    warnings = [str(warning) for warning in details.warnings]
+    docs_result: AgentSkillDocsResult | None = None
+    if details.docs_skill_id:
+        try:
+            connector_docs = workspace.read_skill_docs(details.docs_skill_id)
+        except (AirbyteError, requests.RequestException) as error:
+            detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
+            warnings.append(f"Connector docs are unavailable: {detail}")
+            docs_result = AgentSkillDocsResult(
+                skill_id=details.docs_skill_id,
+                outline=[],
+                content=[],
+                warnings=[],
+                message=f"Connector docs are unavailable: {detail}",
+            )
+        else:
+            docs_result = _skill_docs_result(connector_docs)
+            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
+
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,
         connector_name=details.name,
         workspace_id=details.workspace_id,
         source_definition_name=details.source_definition_name,
-        docs_skill_id=details.docs_skill_id,
         context_store_entities=details.context_store_entities,
-        warnings=[str(warning) for warning in details.warnings],
+        docs=docs_result,
+        warnings=warnings,
     )
 
 
@@ -1305,9 +1361,11 @@ def read_agent_skill_docs(
         str,
         Field(
             description=(
-                "Skill ID, e.g. the `docs_skill_id` reported by `inspect_agent_connector`, "
-                "or a `skill_id` from `list_agent_skills`. SQL passthrough destinations use "
-                "`connector-destination:<destination_id>`."
+                "Skill ID, e.g. the `docs.skill_id` reported by `inspect_agent_connector`, "
+                "or a `skill_id` from `list_agent_skills`. `inspect_agent_connector` already "
+                "returns the docs summary and section outline inline, so this tool is only "
+                "needed to read a single section's full detail. SQL passthrough destinations "
+                "use `connector-destination:<destination_id>`."
             ),
         ),
     ],
@@ -1353,22 +1411,7 @@ def read_agent_skill_docs(
             message=message,
         )
 
-    return AgentSkillDocsResult(
-        skill_id=docs.metadata.id,
-        title=docs.metadata.title,
-        section_id=docs.section_id,
-        outline=[
-            AgentSkillSectionResult(
-                section_id=docs_section.id,
-                title=docs_section.title,
-                summary=docs_section.summary,
-                available=docs_section.available,
-            )
-            for docs_section in docs.outline
-        ],
-        content=docs.content,
-        warnings=[str(warning) for warning in docs.metadata.warnings],
-    )
+    return _skill_docs_result(docs)
 
 
 def register_agents_tools(app: FastMCP) -> None:
