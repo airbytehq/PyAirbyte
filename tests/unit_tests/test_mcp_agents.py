@@ -470,6 +470,12 @@ def test_inspect_tool_reports_actions(
             required_params=["owner"],
             optional_params=["per_page"],
         ),
+        AgentConnectorAction(
+            entity="files",
+            action="download",
+            required_params=["path"],
+            optional_params=[],
+        ),
     ]
 
     class _InspectableConnector:
@@ -497,7 +503,8 @@ def test_inspect_tool_reports_actions(
         organization_id=None,
     )
 
-    assert result.actions == reported_actions
+    assert result.actions == reported_actions[:2]
+    assert all(a.action != "download" for a in result.actions)
 
 
 def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:

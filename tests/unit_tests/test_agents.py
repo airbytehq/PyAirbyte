@@ -8,6 +8,9 @@ from typing import Any, cast
 
 import pytest
 import requests
+
+import airbyte.agents
+import airbyte.agents.models
 from airbyte.agents import _api_util
 from airbyte.agents import _destination_docs as destination_docs
 from airbyte.agents import skills as skills_module
@@ -631,6 +634,14 @@ def test_inspect_details_defaults_actions_to_empty() -> None:
     details = AgentConnectorDetails.model_validate({"connector_id": "connector-id"})
 
     assert details.actions == []
+
+
+def test_agent_connector_action_is_exported_from_the_agents_package() -> None:
+    """`airbyte.agents.AgentConnectorAction` is the models class."""
+    assert (
+        airbyte.agents.AgentConnectorAction
+        is airbyte.agents.models.AgentConnectorAction
+    )
 
 
 def test_inspect(captured_requests: list[dict[str, Any]]) -> None:

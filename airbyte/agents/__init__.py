@@ -88,6 +88,7 @@ from typing import TYPE_CHECKING
 
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.models import (
+    AgentConnectorAction,
     AgentConnectorDetails,
     AgentConnectorInfo,
     AgentConnectorMetadata,
@@ -127,6 +128,7 @@ __all__ = [
     "workspaces",
     # Classes
     "AgentConnector",
+    "AgentConnectorAction",
     "AgentConnectorDetails",
     "AgentConnectorInfo",
     "AgentConnectorMetadata",

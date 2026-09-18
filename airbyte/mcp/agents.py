@@ -37,7 +37,12 @@ from airbyte.agents._destination_docs import (
     build_destination_skill_docs,
     connector_id_from_skill_id,
 )
-from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
+from airbyte.agents.connectors import (
+    UNSUPPORTED_ACTIONS,
+    AgentAction,
+    AgentConnector,
+    AgentReadAction,
+)
 from airbyte.agents.models import AgentConnectorAction, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
@@ -268,7 +273,8 @@ class AgentConnectorDetailsResult(BaseModel):
     actions: list[AgentConnectorAction] = Field(default_factory=list)
     """Executable entity/action pairs with their parameter names. Use these to build
     `execute_agent_connector` calls; read `docs_skill_id` docs for types and descriptions.
-    Empty when the Agents API did not report them."""
+    Lists only actions PyAirbyte can execute: actions the Agents API reports but PyAirbyte
+    rejects (such as `download`) are omitted. Empty when the Agents API did not report them."""
 
     warnings: list[str]
     """Warnings the Agents API reported about this connector."""
@@ -971,7 +977,7 @@ def inspect_agent_connector(
         source_definition_name=details.source_definition_name,
         docs_skill_id=details.docs_skill_id,
         context_store_entities=details.context_store_entities,
-        actions=details.actions,
+        actions=[a for a in details.actions if a.action not in UNSUPPORTED_ACTIONS],
         warnings=[str(warning) for warning in details.warnings],
     )
 
