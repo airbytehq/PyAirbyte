@@ -434,6 +434,9 @@ def test_inspect_tool_reports_context_store_entities(
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _InspectableConnector()
 
+        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return AgentSkillDocs(metadata=AgentSkillInfo(id="connector:github"))
+
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_workspace",
@@ -450,6 +453,149 @@ def test_inspect_tool_reports_context_store_entities(
     assert result.context_store_entities == ["issues"]
     assert result.docs_skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
+
+
+def _inspect_workspace_with_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    docs: AgentSkillDocs | None,
+    docs_skill_id: str | None = "connector:github",
+) -> Any:  # noqa: ANN401
+    """Stub a workspace whose connector inspects cleanly and docs read as configured."""
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    class _InspectableConnector:
+        def inspect(self) -> AgentConnectorDetails:
+            return AgentConnectorDetails(
+                connector_id="connector-id",
+                name="GitHub",
+                docs_skill_id=docs_skill_id,
+                warnings=["Context Store is still syncing."],
+            )
+
+    class _InspectableWorkspace:
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _InspectableConnector()
+
+        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            calls.append((args, kwargs))
+            if docs is None:
+                raise AirbyteError(
+                    message="Skill docs failed", context={"status_code": 500}
+                )
+            return docs
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+    )
+    return calls
+
+
+def _inspect_connector_result() -> Any:  # noqa: ANN401
+    return agents_mcp.inspect_agent_connector(
+        ctx=cast(Context, object()),
+        connector_id="connector-id",
+        workspace_id="workspace-id",
+        organization_id=None,
+    )
+
+
+def test_inspect_tool_includes_docs_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `inspect_agent_connector` embeds the docs summary and guidance."""
+    docs = AgentSkillDocs(
+        metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+        outline=[
+            AgentSkillSection(
+                id="actions.issues.get",
+                title="issues.get",
+                summary="4 parameters; Get a specific issue",
+            )
+        ],
+        content=[{"type": "heading", "text": "Execution guidance", "level": 2}],
+    )
+    calls = _inspect_workspace_with_docs(monkeypatch, docs=docs)
+
+    result = _inspect_connector_result()
+
+    assert calls == [(("connector:github",), {})]
+    assert result.docs is not None
+    assert result.docs.title == "GitHub"
+    assert result.docs.outline[0].section_id == "actions.issues.get"
+    assert result.docs.content[0]["text"] == "Execution guidance"
+    assert "connector:github" in result.docs_guidance
+    assert "actions.issues.get" in result.docs_guidance
+    assert result.warnings == ["Context Store is still syncing."]
+
+
+def test_inspect_tool_warns_when_docs_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docs read failure degrades to `docs=None` plus a warning, never an error."""
+    _inspect_workspace_with_docs(monkeypatch, docs=None)
+
+    result = _inspect_connector_result()
+
+    assert result.docs_skill_id == "connector:github"
+    assert result.docs is None
+    assert result.docs_guidance is None
+    assert result.warnings == [
+        "Context Store is still syncing.",
+        "Connector docs are unavailable: Skill docs failed",
+    ]
+
+
+def test_inspect_tool_skips_docs_read_without_docs_skill_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `docs_skill_id` means no docs read and no extra warning."""
+
+    class _InspectableConnector:
+        def inspect(self) -> AgentConnectorDetails:
+            return AgentConnectorDetails(
+                connector_id="connector-id",
+                name="GitHub",
+                docs_skill_id=None,
+            )
+
+    class _InspectableWorkspace:
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _InspectableConnector()
+
+        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise AssertionError("must not run")
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+    )
+
+    result = _inspect_connector_result()
+
+    assert result.docs is None
+    assert result.docs_guidance is None
+    assert result.warnings == []
+
+
+def test_inspect_tool_docs_guidance_omits_example_without_outline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty outline still yields guidance, just without the example section."""
+    docs = AgentSkillDocs(
+        metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+        outline=[],
+    )
+    _inspect_workspace_with_docs(monkeypatch, docs=docs)
+
+    result = _inspect_connector_result()
+
+    assert result.docs_guidance is not None
+    assert "connector:github" in result.docs_guidance
+    assert "e.g." not in result.docs_guidance
 
 
 def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
@@ -1398,6 +1544,10 @@ def test_inspect_destination_fallback_reports_docs_skill(
     assert result.connector_id == "dest-snowflake"
     assert result.connector_name == "Snowflake dev"
     assert result.docs_skill_id == "connector-destination:dest-snowflake"
+    assert result.docs is not None
+    assert result.docs.skill_id == result.docs_skill_id
+    assert result.docs_guidance is not None
+    assert "sql-passthrough" in result.docs_guidance
     assert result.message is None
 
 
