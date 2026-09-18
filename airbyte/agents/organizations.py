@@ -15,12 +15,13 @@ from typing import TYPE_CHECKING, NamedTuple
 from airbyte.agents import _api_util
 from airbyte.agents.models import AgentWorkspaceInfo
 from airbyte.agents.workspaces import AgentWorkspace
+from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
-from airbyte.cloud.organizations import CloudOrganization
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
+    from airbyte.cloud.organizations import CloudOrganization
     from airbyte.secrets.base import SecretString
 
 
@@ -207,7 +208,7 @@ class AgentOrganization:
                     "environment variable."
                 ),
             )
-        return CloudOrganization(
+        return cloud_organizations.CloudOrganization(
             organization_id=self.organization_id,
             client_id=self._credentials.client_id,
             client_secret=self._credentials.client_secret,

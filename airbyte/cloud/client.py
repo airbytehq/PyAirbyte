@@ -88,6 +88,7 @@ from typing import TYPE_CHECKING, Any, Literal, NoReturn, overload
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.connectors import ConnectorFeature
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
@@ -108,6 +109,17 @@ if TYPE_CHECKING:
 
 MAX_ORGANIZATION_CANDIDATES = 10
 MAX_WORKSPACES_TO_VALIDATE = 25
+
+
+def _organization_has_feature(
+    organization: CloudOrganization,
+    feature: ConnectorFeature,
+) -> bool:
+    """Return whether `feature` is enabled for `organization`."""
+    if feature == ConnectorFeature.EXTERNAL_ACCESS:
+        return organization.external_access_enabled
+
+    return organization.search_indexing_enabled
 
 
 @dataclass(init=False, kw_only=True)
@@ -1166,15 +1178,38 @@ class CloudClient:
         self,
         *,
         name_contains: str | None = None,
+        with_feature: ConnectorFeature | None = None,
         limit: int | None = None,
     ) -> list[CloudOrganization]:
         """List organizations available to this client.
+
+        `with_feature` returns only organizations where that feature is enabled (see
+        `CloudOrganization.external_access_enabled` and
+        `CloudOrganization.search_indexing_enabled`); it is applied after discovery, so
+        `limit` bounds the filtered result.
 
         See the module docstring for how organization search and limits are resolved.
         """
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
 
+        if with_feature is None:
+            return self._list_organizations(name_contains=name_contains, limit=limit)
+
+        organizations = [
+            organization
+            for organization in self._list_organizations(name_contains=name_contains)
+            if _organization_has_feature(organization, with_feature)
+        ]
+        return organizations if limit is None else organizations[:limit]
+
+    def _list_organizations(
+        self,
+        *,
+        name_contains: str | None = None,
+        limit: int | None = None,
+    ) -> list[CloudOrganization]:
+        """List organizations by name and limit, preferring server-side search when possible."""
         if name_contains is not None or limit is not None:
             try:
                 return self._list_organizations_by_user_id(

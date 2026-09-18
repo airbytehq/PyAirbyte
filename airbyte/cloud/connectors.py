@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -91,6 +92,27 @@ class CheckResult:
         )
 
 
+class ConnectorType(str, Enum):
+    """The kind of a deployed Cloud connector."""
+
+    SOURCE = "source"
+    DESTINATION = "destination"
+
+
+class ConnectorFeature(str, Enum):
+    """Optional capabilities a deployed Cloud connector may have enabled."""
+
+    EXTERNAL_ACCESS = "external_access"
+    """The connector can be used by AI agents through the Airbyte Context layer."""
+
+    SEARCH_INDEXING = "search_indexing"
+    """Airbyte indexes the connector's data for fast search.
+
+    Distinct from any native search the connector itself may offer as a passthrough
+    operation.
+    """
+
+
 class CloudConnector(abc.ABC):
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
@@ -113,6 +135,34 @@ class CloudConnector(abc.ABC):
 
         self._connector_info: CloudSourceInfo | CloudDestinationInfo | None = None
         """The connection info object. (Cached.)"""
+
+        self._enabled_features: frozenset[ConnectorFeature] | None = None
+        """Features enabled for this connector. (Cached; `None` until resolved.)"""
+
+    def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
+        """Return the enabled features, resolving them through the workspace on first use."""
+        if self._enabled_features is None:
+            self._enabled_features = self.workspace._get_connector_features(self)  # noqa: SLF001
+
+        return self._enabled_features
+
+    @property
+    def external_access_enabled(self) -> bool:
+        """Whether AI agents can use this connector through the Airbyte Context layer.
+
+        Always `False` when the workspace's API root has no Context layer (for example,
+        self-managed deployments). Otherwise this may make API calls on first access.
+        """
+        return ConnectorFeature.EXTERNAL_ACCESS in self._get_enabled_features()
+
+    @property
+    def search_indexing_enabled(self) -> bool:
+        """Whether Airbyte indexes this connector's data for fast search.
+
+        Always `False` for destinations and when the workspace's API root has no Context
+        layer. Otherwise this may make API calls on first access.
+        """
+        return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
 
     @property
     def name(self) -> str | None:

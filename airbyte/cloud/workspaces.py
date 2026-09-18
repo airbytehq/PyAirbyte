@@ -43,23 +43,26 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 
 import requests
 import yaml
-from pydantic import ValidationError
 
 from airbyte import exceptions as exc
-from airbyte._util import api_util, text_util
+from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.agents import _api_util as agents_api_util
+from airbyte.agents._destination_docs import SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
 from airbyte.agents.models import AgentConnectorDetails, AgentConnectorInfo
+from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
+    CloudConnector,
     CloudDestination,
     CloudSource,
+    ConnectorFeature,
+    ConnectorType,
     CustomCloudSourceDefinition,
 )
 from airbyte.cloud.models import CloudWorkspaceInfo
-from airbyte.cloud.organizations import CloudOrganization
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
 
@@ -67,6 +70,7 @@ from airbyte.exceptions import AirbyteError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte.cloud.organizations import CloudOrganization
     from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
 
@@ -306,7 +310,7 @@ class CloudWorkspace:
             return None
 
         organization_credentials = self._credentials.with_organization_id(organization_id)
-        return CloudOrganization(
+        return cloud_organizations.CloudOrganization(
             organization_id=organization_id,
             organization_name=organization_name,
             client_id=organization_credentials.client_id,
@@ -344,12 +348,29 @@ class CloudWorkspace:
 
         return looked_up_id or configured_id
 
-    def is_agents_enabled(self) -> bool:
-        """Return whether this workspace is reachable through the Airbyte Agents API.
+    def _has_context_layer_api(self) -> bool:
+        """Return whether a Context layer (Agents) API exists for this workspace's API roots.
 
-        `False` when the Agents API reports the workspace as forbidden or not found, which is
-        how it answers for organizations without Airbyte Agents. Any other failure raises.
+        Answered from configuration alone, without any network call. When `False`, every
+        feature flag on this workspace and its connectors is `False`.
         """
+        return deployment.is_agents_api_available(
+            public_api_root=self.api_root,
+            config_api_root=self.config_api_root,
+        )
+
+    @cached_property
+    def external_access_enabled(self) -> bool:
+        """Whether this workspace is enabled for AI agents through the Airbyte Context layer.
+
+        `False` without any API call when the API root has no Context layer (for example,
+        self-managed deployments). Otherwise `False` when the Context layer API reports the
+        workspace as forbidden or not found, which is how it answers for organizations that
+        have not enabled it. Any other failure raises.
+        """
+        if not self._has_context_layer_api():
+            return False
+
         try:
             agents_api_util.get_agent_workspace(
                 workspace_id=self.workspace_id,
@@ -365,13 +386,22 @@ class CloudWorkspace:
 
         return True
 
-    def list_agent_source_search_status(self) -> dict[str, bool | None]:
-        """Map each Agents-enabled source ID to whether Context Store search is configured.
+    @property
+    def search_indexing_enabled(self) -> bool:
+        """Whether search indexing is available in this workspace.
 
-        Sources missing from the mapping are not enabled for Airbyte Agents. A source maps to
-        `None` when its Context Store status could not be inspected. Raises when the Agents
-        API is unreachable, denies these credentials access to the workspace, or returns a
-        connector listing that does not match `AgentConnectorInfo`.
+        Search indexing is available wherever external access is enabled; individual
+        sources report whether indexing is configured via
+        `CloudConnector.search_indexing_enabled`.
+        """
+        return self.external_access_enabled
+
+    def _list_source_search_indexing_status(self) -> dict[str, bool]:
+        """Map each externally accessible source ID to whether search indexing is configured.
+
+        Sources missing from the mapping are not enabled for external access. Raises when the
+        Context layer API is unreachable, denies these credentials access to the workspace, or
+        returns a payload that does not match the expected models.
         """
         organization_id = self._resolve_agents_organization_id()
         connectors = [
@@ -383,25 +413,52 @@ class CloudWorkspace:
             )
         ]
 
-        search_by_source_id: dict[str, bool | None] = {}
+        status_by_source_id: dict[str, bool] = {}
         for connector in connectors:
-            try:
-                details = AgentConnectorDetails.model_validate(
-                    agents_api_util.inspect_agent_connector(
-                        connector_id=connector.id,
-                        credentials=self._credentials,
-                        organization_id=organization_id,
-                    )
+            details = AgentConnectorDetails.model_validate(
+                agents_api_util.inspect_agent_connector(
+                    connector_id=connector.id,
+                    credentials=self._credentials,
+                    organization_id=organization_id,
                 )
-            except (AirbyteError, requests.RequestException, ValidationError):
-                search_by_source_id[connector.id] = None
-                continue
-
+            )
             readiness = details.context_store_readiness
-            search_by_source_id[connector.id] = bool(
+            status_by_source_id[connector.id] = bool(
                 readiness is not None and readiness.configured_cache_entities
             )
-        return search_by_source_id
+        return status_by_source_id
+
+    def _get_connector_features(
+        self,
+        connector: CloudConnector,
+        *,
+        source_search_indexing_status: dict[str, bool] | None = None,
+    ) -> frozenset[ConnectorFeature]:
+        """Resolve the enabled features for one connector in this workspace.
+
+        `source_search_indexing_status` lets `list_connectors()` share one Context layer
+        lookup across many sources instead of repeating it per connector.
+        """
+        if not self._has_context_layer_api():
+            return frozenset()
+
+        if connector.connector_type == ConnectorType.DESTINATION:
+            if (
+                self.external_access_enabled
+                and connector.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+            ):
+                return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
+            return frozenset()
+
+        if source_search_indexing_status is None:
+            source_search_indexing_status = self._list_source_search_indexing_status()
+        if connector.connector_id not in source_search_indexing_status:
+            return frozenset()
+
+        features = {ConnectorFeature.EXTERNAL_ACCESS}
+        if source_search_indexing_status[connector.connector_id]:
+            features.add(ConnectorFeature.SEARCH_INDEXING)
+        return frozenset(features)
 
     # Test connection and creds
 
@@ -879,6 +936,61 @@ class CloudWorkspace:
             )
             for destination in destinations
         ]
+
+    def list_connectors(
+        self,
+        *,
+        connector_type: ConnectorType | None = None,
+        with_feature: ConnectorFeature | None = None,
+        name_contains: str | None = None,
+        limit: int | None = None,
+    ) -> list[CloudConnector]:
+        """List sources and destinations in the workspace, with optional filters.
+
+        Items are `CloudSource` and `CloudDestination` objects. Each has its enabled features
+        resolved, so `external_access_enabled` and `search_indexing_enabled` read from cache.
+
+        Args:
+            connector_type: Return only sources or only destinations.
+            with_feature: Return only connectors with this feature enabled.
+            name_contains: Case-insensitive substring to match against connector names.
+            limit: Maximum number of connectors to return.
+        """
+        if limit is not None and limit <= 0:
+            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+
+        connectors: list[CloudConnector] = []
+        if connector_type in {None, ConnectorType.SOURCE}:
+            connectors.extend(self.list_sources())
+        if connector_type in {None, ConnectorType.DESTINATION}:
+            connectors.extend(self.list_destinations())
+
+        if name_contains:
+            needle = name_contains.casefold()
+            connectors = [
+                connector
+                for connector in connectors
+                if connector.name is not None and needle in connector.name.casefold()
+            ]
+
+        source_status: dict[str, bool] | None = None
+        if self._has_context_layer_api() and any(
+            connector.connector_type == ConnectorType.SOURCE for connector in connectors
+        ):
+            source_status = self._list_source_search_indexing_status()
+        for connector in connectors:
+            connector._enabled_features = self._get_connector_features(  # noqa: SLF001
+                connector,
+                source_search_indexing_status=source_status,
+            )
+
+        if with_feature is not None:
+            connectors = [
+                connector
+                for connector in connectors
+                if with_feature in connector._get_enabled_features()  # noqa: SLF001
+            ]
+        return connectors if limit is None else connectors[:limit]
 
     def publish_custom_source_definition(
         self,

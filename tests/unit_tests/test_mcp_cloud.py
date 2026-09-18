@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Callable, cast
 
 import pytest
-from airbyte.cloud.connectors import CheckResult
+from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -48,21 +48,15 @@ class _SyncResultLike:
 
 
 @dataclass
-class _CloudSourceLike:
-    """Subset of `CloudSource` used by tested MCP list tools."""
+class _CloudConnectorLike:
+    """Subset of `CloudConnector` used by tested MCP list tools."""
 
-    source_id: str
+    connector_id: str
+    connector_type: str
     name: str
     connector_url: str
-
-
-@dataclass
-class _CloudDestinationLike:
-    """Subset of `CloudDestination` used by tested MCP list tools."""
-
-    destination_id: str
-    name: str
-    connector_url: str
+    external_access_enabled: bool = False
+    search_indexing_enabled: bool = False
 
 
 @dataclass
@@ -157,14 +151,6 @@ class _CancellationWorkspace:
         return self.connection
 
 
-def _stub_agent_feature_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make Agents feature lookups report unknown status without network access."""
-    monkeypatch.setattr(
-        cloud_mcp, "_list_agent_source_search_status", lambda workspace: None
-    )
-    monkeypatch.setattr(cloud_mcp, "_is_agent_workspace", lambda workspace: None)
-
-
 class _CloudWorkspace:
     """Capture `limit` values passed from MCP list tools."""
 
@@ -172,32 +158,29 @@ class _CloudWorkspace:
         """Create a workspace test double."""
         self.limits: dict[str, int | None] = {}
 
-    def list_sources(self, *, limit: int | None = None) -> list[_CloudSourceLike]:
-        """Capture source list limit and return source test data."""
-        self.limits["sources"] = limit
+    def list_connectors(
+        self,
+        *,
+        connector_type: ConnectorType | None = None,
+        with_feature: ConnectorFeature | None = None,
+        name_contains: str | None = None,
+        limit: int | None = None,
+    ) -> list[_CloudConnectorLike]:
+        """Capture the list limit and mimic core filtering on connector test data."""
+        assert connector_type is not None
+        assert with_feature is None
+        self.limits[f"{connector_type.value}s"] = limit
         items = [
-            _CloudSourceLike(
-                source_id=f"source-{index}",
+            _CloudConnectorLike(
+                connector_id=f"{connector_type.value}-{index}",
+                connector_type=connector_type.value,
                 name="target" if index == 2 else "miss",
-                connector_url=f"https://cloud.airbyte.com/source-{index}",
+                connector_url=f"https://cloud.airbyte.com/{connector_type.value}-{index}",
             )
             for index in range(1, 3)
         ]
-        return items if limit is None else items[:limit]
-
-    def list_destinations(
-        self, *, limit: int | None = None
-    ) -> list[_CloudDestinationLike]:
-        """Capture destination list limit and return destination test data."""
-        self.limits["destinations"] = limit
-        items = [
-            _CloudDestinationLike(
-                destination_id=f"destination-{index}",
-                name="target" if index == 2 else "miss",
-                connector_url=f"https://cloud.airbyte.com/destination-{index}",
-            )
-            for index in range(1, 3)
-        ]
+        if name_contains:
+            items = [item for item in items if name_contains in item.name]
         return items if limit is None else items[:limit]
 
     def list_connections(
@@ -255,7 +238,6 @@ def test_mcp_cloud_list_tools_pass_limit_to_workspace(
         "_get_cloud_workspace",
         lambda ctx, workspace_id=None: workspace,
     )
-    _stub_agent_feature_lookups(monkeypatch)
 
     results = tool(
         ctx=object(),
@@ -270,23 +252,26 @@ def test_mcp_cloud_list_tools_pass_limit_to_workspace(
 
 
 @pytest.mark.parametrize(
-    "tool,limit_key,extra_kwargs",
+    "tool,limit_key,forwarded_limit,extra_kwargs",
     [
         pytest.param(
             cloud_mcp.list_deployed_cloud_source_connectors,
             "sources",
+            1,
             {},
             id="sources",
         ),
         pytest.param(
             cloud_mcp.list_deployed_cloud_destination_connectors,
             "destinations",
+            1,
             {},
             id="destinations",
         ),
         pytest.param(
             cloud_mcp.list_deployed_cloud_connections,
             "connections",
+            None,
             {"with_connection_status": False, "failing_connections_only": False},
             id="connections",
         ),
@@ -301,16 +286,20 @@ def test_mcp_cloud_list_tools_apply_limit_after_name_filter(
         | list[CloudConnectionResult],
     ],
     limit_key: str,
+    forwarded_limit: int | None,
     extra_kwargs: dict[str, object],
 ) -> None:
-    """Verify Cloud MCP list tools cap results after local name filtering."""
+    """Verify Cloud MCP list tools cap results after name filtering.
+
+    Connector tools delegate both filters to `CloudWorkspace.list_connectors()`, so the
+    limit is forwarded as-is; the connections tool still filters locally.
+    """
     workspace = _CloudWorkspace()
     monkeypatch.setattr(
         cloud_mcp,
         "_get_cloud_workspace",
         lambda ctx, workspace_id=None: workspace,
     )
-    _stub_agent_feature_lookups(monkeypatch)
 
     results = tool(
         ctx=object(),
@@ -320,7 +309,7 @@ def test_mcp_cloud_list_tools_apply_limit_after_name_filter(
         **extra_kwargs,
     )
 
-    assert workspace.limits[limit_key] is None
+    assert workspace.limits[limit_key] == forwarded_limit
     assert len(results) == 1
     assert results[0].name == "target"
 
@@ -710,6 +699,8 @@ def test_describe_cloud_organization_excludes_billing_fields(
         organization_id="org-id",
         organization_name="Organization",
         email="org@example.com",
+        external_access_enabled=False,
+        search_indexing_enabled=False,
     )
     monkeypatch.setattr(
         cloud_mcp,
