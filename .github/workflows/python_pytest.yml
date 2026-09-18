@@ -1,13 +1,12 @@
 # This workflow will run pytest.
 #
-# There are five jobs which run in parallel:
-# 1. pytest-fast: Run fast tests only, and fail fast so the dev knows asap if they broke something.
-# 2. pytest-no-creds: Run unit and docs tests without credentials, including on forks.
-# 3. pytest-unit: Run unit and docs tests across multiple Python versions and operating systems.
-# 4. pytest-integration: Run integration tests on a single Python version across four shards.
-# 5. pytest-coverage-combined: Combine coverage from pytest-unit (3.10/Ubuntu) and the integration shards into one report.
+# There are four jobs which run in parallel:
+# 1. pytest-no-creds: Run all tests that don't require credentials, with credentials blanked, so
+#    missing `requires_creds` markers are caught. Also runs on forks.
+# 2. pytest-unit: Run unit and docs tests across multiple Python versions and operating systems, failing fast.
+# 3. pytest-integration: Run integration tests on a single Python version across four shards.
+# 4. pytest-coverage-combined: Combine coverage from pytest-unit (3.10/Ubuntu) and the integration shards into one report.
 #
-# Note that pytest-fast also skips tests that require credentials, allowing it to run on forks.
 name: Run Tests
 
 on:
@@ -25,81 +24,6 @@ permissions:
   pull-requests: read
 
 jobs:
-  pytest-fast:
-    name: Pytest (Fast)
-    runs-on: ubuntu-latest
-    permissions:
-      checks: write
-      contents: read
-      code-quality: write
-      pull-requests: read
-    steps:
-    # Common steps:
-    - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-      with:
-        ref: ${{ github.event.pull_request.head.sha || github.sha }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
-      with:
-        version: "latest"
-        python-version: '3.10'
-    - name: Install dev dependencies
-      # We only need helper libraries
-      run: uv sync --group dev
-
-    - name: Run Pytest with Coverage (Fast Tests Only)
-      timeout-minutes: 60
-      env:
-        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        uv run coverage run -m pytest
-        --durations=5 --exitfirst
-        -m "not slow and not requires_creds and not linting and not flaky"
-
-    - name: Print Coverage Report
-      if: always()
-      run: uv run coverage report
-
-    - name: Create Coverage Artifacts
-      if: always()
-      run: |
-        uv run coverage html -d htmlcov
-        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
-
-    - name: Upload coverage to GitHub Artifacts
-      if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-      with:
-        name: fasttest-coverage
-        path: htmlcov/
-
-    - name: Upload coverage to GitHub Code Quality
-      if: always()
-      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
-      with:
-        file: htmlcov/coverage.xml
-        language: Python
-        label: code-coverage/pytest-fast
-        fail-on-error: false
-
-    - name: Upload logs to GitHub Artifacts
-      if: failure()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-      with:
-        name: pytest-fast-test-logs
-        path: /tmp/airbyte/logs/
-
-    - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
-      if: always() && !cancelled()
-      continue-on-error: true
-      with:
-        check_name: "PyTest Results (Fast Tests Only, No Creds)"
-        large_files: true
-        files: |
-          build/test-results/**/*.xml
-
   pytest-no-creds:
     name: Pytest (No Creds)
     runs-on: ubuntu-latest
@@ -131,8 +55,6 @@ jobs:
       run: >
         uv run coverage run -m pytest
         --durations=5 --exitfirst
-        tests/unit_tests/
-        tests/docs_tests/
         -m "not requires_creds and not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
@@ -220,7 +142,7 @@ jobs:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
         uv run coverage run -m pytest
-        --verbose
+        --verbose --exitfirst
         tests/unit_tests/
         tests/docs_tests/
         -m "not linting and not super_slow and not flaky"
