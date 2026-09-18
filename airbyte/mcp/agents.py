@@ -252,46 +252,6 @@ class AgentConnectorListResult(BaseModel):
     """Why the listing is empty, when the Agents API denied the request."""
 
 
-class AgentConnectorDetailsResult(BaseModel):
-    """Details about a single Airbyte Agents connector."""
-
-    connector_id: str
-    """The connector ID."""
-
-    connector_name: str | None = None
-    """Display name of the connector."""
-
-    workspace_id: str | None = None
-    """The workspace that owns the connector."""
-
-    source_definition_name: str | None = None
-    """The name of the underlying source definition, for example `GitHub`."""
-
-    docs_skill_id: str | None = None
-    """Skill ID for this connector's usage docs, when reported by the Agents API."""
-
-    context_store_entities: list[str]
-    """Entities this connector can cache in the Context Store.
-
-    This is not an exhaustive list of executable entities: an entity may be executable via
-    `execute_agent_connector` without appearing here.
-    """
-
-    docs: "AgentSkillDocsResult | None" = None
-    """The connector's usage docs summary: execution guidance plus the outline of per-action
-    sections. Each `outline[].section_id` can be passed as `section` to `read_agent_skill_docs`
-    for that action's full parameter list, types, and examples."""
-
-    docs_guidance: str | None = None
-    """How to get more detail than the inline docs summary."""
-
-    warnings: list[str]
-    """Warnings the Agents API reported about this connector."""
-
-    message: str | None = None
-    """Why the details are empty, when the Agents API denied the request."""
-
-
 class AgentSkillResult(BaseModel):
     """A skill discoverable on the Airbyte Agents platform."""
 
@@ -360,6 +320,46 @@ class AgentSkillDocsResult(BaseModel):
 
     message: str | None = None
     """Why the docs are empty, when the Agents API denied the request."""
+
+
+class AgentConnectorDetailsResult(BaseModel):
+    """Details about a single Airbyte Agents connector."""
+
+    connector_id: str
+    """The connector ID."""
+
+    connector_name: str | None = None
+    """Display name of the connector."""
+
+    workspace_id: str | None = None
+    """The workspace that owns the connector."""
+
+    source_definition_name: str | None = None
+    """The name of the underlying source definition, for example `GitHub`."""
+
+    docs_skill_id: str | None = None
+    """Skill ID for this connector's usage docs, when reported by the Agents API."""
+
+    context_store_entities: list[str]
+    """Entities this connector can cache in the Context Store.
+
+    This is not an exhaustive list of executable entities: an entity may be executable via
+    `execute_agent_connector` without appearing here.
+    """
+
+    docs: AgentSkillDocsResult | None = None
+    """The connector's usage docs summary: execution guidance plus the outline of per-action
+    sections. Each `outline[].section_id` can be passed as `section` to `read_agent_skill_docs`
+    for that action's full parameter list, types, and examples."""
+
+    docs_guidance: str | None = None
+    """How to get more detail than the inline docs summary."""
+
+    warnings: list[str]
+    """Warnings the Agents API reported about this connector."""
+
+    message: str | None = None
+    """Why the details are empty, when the Agents API denied the request."""
 
 
 class AgentExecuteToolResult(BaseModel):
