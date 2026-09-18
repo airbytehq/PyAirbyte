@@ -104,6 +104,8 @@ from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
+from airbyte.secrets import SecretSourceEnum
+from airbyte.secrets.config import disable_secret_source
 
 
 # =============================================================================
@@ -352,6 +354,9 @@ async def _mcp_mode_lifespan(  # noqa: RUF029
 ) -> AsyncIterator[dict[str, object]]:
     """Mark the process as running in MCP mode for the lifetime of the server."""
     set_mcp_mode()
+    # Secrets were loaded at import, before MCP mode was known; prompts would read
+    # from stdin, which belongs to the transport now.
+    disable_secret_source(SecretSourceEnum.PROMPT)
     yield {}
 
 
