@@ -23,11 +23,13 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
+from airbyte._util.deferred_setup import parse_deferred_setup_problem
 from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
+    AirbyteDeferredSetupError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
@@ -54,6 +56,9 @@ JWT_PART_COUNT = 3
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
 JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
+
+DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
+"""Connect and read timeouts for a deferred-credential create on the Config API."""
 
 
 def status_ok(status_code: int) -> bool:
@@ -1843,6 +1848,7 @@ def get_bearer_token(
     client_id: SecretString,
     client_secret: SecretString,
     api_root: str = CLOUD_API_ROOT,
+    timeout: tuple[float, float] | None = None,
 ) -> SecretString:
     """Get a bearer token.
 
@@ -1851,6 +1857,7 @@ def get_bearer_token(
     """
     response = requests.post(
         url=api_root + "/applications/token",
+        timeout=timeout,
         headers={
             "content-type": "application/json",
             "accept": "application/json",
@@ -1878,25 +1885,12 @@ def _make_config_api_request(
     config_api_root: str | None = None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
-
-    # Use provided bearer token or generate one from client credentials
-    if bearer_token is None:
-        if client_id is None or client_secret is None:
-            raise PyAirbyteInputError(
-                message="No authentication credentials provided.",
-                guidance="Provide either client_id and client_secret, or bearer_token.",
-            )
-        bearer_token = get_bearer_token(
-            client_id=client_id,
-            client_secret=client_secret,
-            api_root=api_root,
-        )
-    headers: dict[str, Any] = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {bearer_token}",
-        "User-Agent": "PyAirbyte Client",
-        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
-    }
+    headers = _config_api_headers(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
     full_url = config_api_root + path
     response = requests.request(
         method="POST",
@@ -1925,6 +1919,114 @@ def _make_config_api_request(
             ) from ex
 
     return response.json()
+
+
+def _config_api_headers(
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    timeout: tuple[float, float] | None = None,
+) -> dict[str, str]:
+    """Build Config API headers, minting a bearer token from client credentials if needed."""
+    if bearer_token is None:
+        if client_id is None or client_secret is None:
+            raise PyAirbyteInputError(
+                message="No authentication credentials provided.",
+                guidance="Provide either client_id and client_secret, or bearer_token.",
+            )
+        bearer_token = get_bearer_token(
+            client_id=client_id,
+            client_secret=client_secret,
+            api_root=api_root,
+            timeout=timeout,
+        )
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {bearer_token}",
+        "User-Agent": "PyAirbyte Client",
+        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
+    }
+
+
+def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
+    *,
+    connector_type: Literal["source", "destination"],
+    name: str,
+    workspace_id: str,
+    definition_id: str,
+    config: dict[str, Any],
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> str:
+    """Create a connector on the Config API with `deferCredentials: true` and return its ID.
+
+    The platform stores placeholders for the required credentials that are absent from `config`
+    so a person can complete them in Airbyte Cloud. A platform refusal (a
+    `deferred-credential-setup` 422 problem) or a create that Cloud did not acknowledge as
+    deferred raises `AirbyteDeferredSetupError`.
+
+    Redirects are not followed, since `requests` would replay the POST and could create the
+    connector twice, and both the create and any token request use bounded timeouts.
+    """
+    config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
+    path = f"/{connector_type}s/create"
+    full_url = config_api_root + path
+    response = requests.post(
+        full_url,
+        headers=_config_api_headers(
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            timeout=DEFERRED_CREATE_TIMEOUT_SECS,
+        ),
+        json={
+            "name": name,
+            "workspaceId": workspace_id,
+            f"{connector_type}DefinitionId": definition_id,
+            "connectionConfiguration": config,
+            "deferCredentials": True,
+        },
+        timeout=DEFERRED_CREATE_TIMEOUT_SECS,
+        allow_redirects=False,
+    )
+    if not status_ok(response.status_code):
+        problem = parse_deferred_setup_problem(
+            status_code=response.status_code,
+            body=response.content,
+        )
+        if problem is not None:
+            raise AirbyteDeferredSetupError(
+                message="Cloud refused the deferred-credential configuration.",
+                problem=problem,
+            )
+        raise AirbyteError(
+            message=f"API request failed with status {response.status_code}",
+            context={
+                "full_url": full_url,
+                "path": path,
+                "status_code": response.status_code,
+            },
+        )
+
+    body = response.json()
+    actor_id = body.get(f"{connector_type}Id")
+    if not isinstance(actor_id, str) or not actor_id:
+        raise AirbyteError(
+            message="Cloud did not return the created connector ID.",
+            context={"full_url": full_url, "path": path},
+        )
+    if body.get("credentialsDeferred") is not True:
+        raise AirbyteDeferredSetupError(
+            message="Cloud did not acknowledge the deferred-credential create.",
+            actor_id=actor_id,
+        )
+    return actor_id
 
 
 def check_connector(

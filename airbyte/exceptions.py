@@ -56,6 +56,7 @@ from airbyte.constants import (
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
+    from airbyte._util.deferred_setup import DeferredSetupProblem
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
@@ -690,6 +691,34 @@ class AirbyteDuplicateResourcesError(AirbyteError):
 
     resource_type: str | None = None
     resource_name: str | None = None
+
+
+@dataclass
+class AirbyteDeferredSetupError(AirbyteError):
+    """A deferred-credential create was refused or not acknowledged by Airbyte Cloud.
+
+    Carries only the platform's allowlisted problem (fixed codes and JSON pointers), never raw
+    responses, configuration or provider text.
+    """
+
+    actor_id: str | None = None
+    """The created connector ID when Cloud created it without acknowledging deferral."""
+
+    problem: DeferredSetupProblem | None = None
+    """The platform's sanitized refusal, when the create was refused."""
+
+    def get_message(self) -> str:
+        """Return the message plus the fixed, per-path diagnostics of the refusal."""
+        message = super().get_message()
+        if self.problem is None:
+            return message
+        lines = [f"{issue.path or '/'}: {issue.message}" for issue in self.problem.issues]
+        lines += [
+            "Authentication option: "
+            + ", ".join(f"{s.path} = {s.value!r}" for s in option.selectors)
+            for option in self.problem.auth_options
+        ]
+        return "\n".join([message, *lines])
 
 
 # Custom Warnings
