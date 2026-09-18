@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from http import HTTPStatus
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -52,6 +52,12 @@ ISSUE_MESSAGES: dict[str, str] = {
 }
 
 
+_JSON_POINTER_PATTERN = r"^(/[^/]*)*$"
+"""RFC 6901 pointer; the only shape the platform emits for issue and selector paths."""
+
+JsonPointer = Annotated[str, Field(max_length=256, pattern=_JSON_POINTER_PATTERN)]
+
+
 class _Allowlisted(BaseModel):
     model_config = ConfigDict(extra="ignore", strict=True)
 
@@ -59,7 +65,7 @@ class _Allowlisted(BaseModel):
 class DeferredSetupIssue(_Allowlisted):
     """A single sanitized issue; `message` is rebuilt from `code`."""
 
-    path: str = Field(max_length=256)
+    path: JsonPointer
     code: DeferredSetupIssueCode
 
     @property
@@ -71,8 +77,8 @@ class DeferredSetupIssue(_Allowlisted):
 class DeferredAuthSelector(_Allowlisted):
     """One non-secret `const`/singleton-`enum` value that selects an authentication method."""
 
-    path: str = Field(min_length=2, max_length=256)
-    value: str | int | float | bool
+    path: Annotated[JsonPointer, Field(min_length=2)]
+    value: Annotated[str, Field(max_length=256)] | int | float | bool
 
 
 class DeferredAuthOption(_Allowlisted):

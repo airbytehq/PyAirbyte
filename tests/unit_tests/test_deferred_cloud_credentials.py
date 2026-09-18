@@ -43,11 +43,13 @@ class _RecordingAdapter(requests.adapters.BaseAdapter):
         super().__init__()
         self._responses = list(responses)
         self.requests: list[requests.PreparedRequest] = []
+        self.send_kwargs: list[dict[str, Any]] = []
 
     def send(
         self, request: requests.PreparedRequest, **kwargs: Any
     ) -> requests.Response:  # noqa: ANN401
         self.requests.append(request)
+        self.send_kwargs.append(kwargs)
         status, body, headers = self._responses.pop(0)
         response = requests.Response()
         response.status_code = status
@@ -124,29 +126,33 @@ def _create(
 # --- Transport -----------------------------------------------------------------------------
 
 
-def test_deferred_session_applies_timeouts_and_refuses_redirects() -> None:
-    """The deferred session never follows a redirect (which would replay the create POST)."""
+@pytest.mark.parametrize("via", ["request", "send"])
+def test_deferred_session_applies_timeouts_and_refuses_redirects(via: str) -> None:
+    """The deferred session times out and never follows a redirect (which would replay the POST).
+
+    Both entry points are exercised because the generated SDK prepares requests itself and calls
+    `send` directly, bypassing `request`.
+    """
     adapter = _RecordingAdapter([
         (307, {}, {"Location": "https://elsewhere.test/v1/sources"})
     ])
     session = api_util.DeferredSetupSession()
     session.mount("https://", adapter)
-    sent_kwargs: dict[str, Any] = {}
-    original_send = requests.Session.send
-
-    def _send(
-        self: requests.Session, request: requests.PreparedRequest, **kwargs: Any
-    ) -> Any:  # noqa: ANN401
-        sent_kwargs.update(kwargs)
-        return original_send(self, request, **kwargs)
-
-    session.send = _send.__get__(session, requests.Session)  # type: ignore[method-assign]
 
     with pytest.raises(requests.TooManyRedirects):
-        session.post("https://api.airbyte.test/v1/sources", json={})
+        if via == "request":
+            session.post("https://api.airbyte.test/v1/sources", json={})
+        else:
+            session.send(
+                session.prepare_request(
+                    requests.Request(
+                        "POST", "https://api.airbyte.test/v1/sources", json={}
+                    )
+                )
+            )
 
     assert len(adapter.requests) == 1
-    assert sent_kwargs["timeout"] == (
+    assert adapter.send_kwargs[0]["timeout"] == (
         api_util.DEFERRED_CONNECT_TIMEOUT_SECS,
         api_util.DEFERRED_READ_TIMEOUT_SECS,
     )
@@ -275,6 +281,17 @@ def test_deferred_create_refusal_exposes_only_sanitized_problem(
             },
             None,
         ),
+        (
+            422,
+            {
+                "type": DEFERRED_SETUP_PROBLEM_TYPE,
+                "data": {
+                    "reason": "configuration_invalid",
+                    "issues": [{"path": "not a pointer", "code": "required"}],
+                },
+            },
+            None,
+        ),
         (422, "not json", None),
         (422, None, None),
     ],
@@ -338,7 +355,7 @@ def test_deploy_deferred_uses_bounded_session_and_flag(
     monkeypatch: pytest.MonkeyPatch,
     connector_type: str,
 ) -> None:
-    """Deferred deploys pass the flag, the definition and a dedicated bounded session."""
+    """Deferred deploys pass the flag and the definition through to the API layer."""
     call = _stub_create(monkeypatch, connector_type)
 
     deployed = _deploy(
@@ -353,7 +370,6 @@ def test_deploy_deferred_uses_bounded_session_and_flag(
     assert call.kwargs["defer_credentials"] is True
     assert call.kwargs["definition_id"] == DEFINITION_ID
     assert call.kwargs["config"] == {"count": 10}
-    assert isinstance(call.kwargs["http_session"], api_util.DeferredSetupSession)
 
 
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
@@ -361,6 +377,7 @@ def test_deploy_deferred_uses_bounded_session_and_flag(
     ("config", "kwargs", "match"),
     [
         ({"count": 10}, {}, "definition_id"),
+        ({"count": 10}, {"definition_id": ""}, "definition_id"),
         ("not a dict", {"definition_id": DEFINITION_ID}, "configuration dictionary"),
         (
             {"api_key": SecretString("k")},
@@ -369,6 +386,11 @@ def test_deploy_deferred_uses_bounded_session_and_flag(
         ),
         (
             {"credentials": [{"token": "secret_reference::MY_TOKEN"}]},
+            {"definition_id": DEFINITION_ID},
+            "secret values",
+        ),
+        (
+            {"credentials": ({"token": SecretString("k")},)},
             {"definition_id": DEFINITION_ID},
             "secret values",
         ),
@@ -484,7 +506,14 @@ def workspace_like(monkeypatch: pytest.MonkeyPatch) -> _WorkspaceLike:
     monkeypatch.setattr(
         cloud_mcp,
         "get_connector_metadata",
-        lambda name: type("Metadata", (), {"definition_id": DEFINITION_ID})(),
+        lambda name: type(
+            "Metadata",
+            (),
+            {
+                "definition_id": DEFINITION_ID,
+                "connector_type": name.split("-", 1)[0],
+            },
+        )(),
     )
     return workspace
 
@@ -536,6 +565,25 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     assert call["defer_credentials"] is True
     assert call["definition_id"] == DEFINITION_ID
     assert call[connector_type] == {"count": 10}
+
+
+def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
+    workspace_like: _WorkspaceLike,
+) -> None:
+    """A destination connector name cannot be deployed through the source tool."""
+    with pytest.raises(exc.PyAirbyteInputError, match="not a source connector"):
+        cloud_mcp.deploy_source_to_cloud(
+            ctx=cast(Context, object()),
+            source_name="My connector",
+            source_connector_name="destination-faker",
+            workspace_id=WORKSPACE_ID,
+            config={"count": 10},
+            config_secret_name=None,
+            unique=True,
+            defer_credentials=True,
+        )
+
+    assert workspace_like.deploy_calls == []
 
 
 def test_mcp_deploy_deferred_rejects_config_secret_name(

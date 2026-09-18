@@ -83,7 +83,7 @@ def _deferred_credentials_config(
             message="Deferred deployment requires a configuration dictionary.",
             guidance="Pass the non-secret configuration values, not a connector object.",
         )
-    if definition_id is None:
+    if not definition_id:
         raise exc.PyAirbyteInputError(
             message="`definition_id` is required when `defer_credentials=True`.",
         )
@@ -99,7 +99,7 @@ def _deferred_credentials_config(
         if isinstance(value, dict):
             for nested in value.values():
                 _reject_secrets(nested)
-        elif isinstance(value, list):
+        elif isinstance(value, (list, tuple)):
             for nested in value:
                 _reject_secrets(nested)
 
@@ -505,7 +505,6 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             defer_credentials=defer_credentials,
-            http_session=api_util.DeferredSetupSession() if defer_credentials else None,
         )
         return CloudSource(
             workspace=self,
@@ -574,7 +573,6 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             defer_credentials=defer_credentials,
-            http_session=api_util.DeferredSetupSession() if defer_credentials else None,
         )
         return CloudDestination(
             workspace=self,

@@ -78,15 +78,30 @@ class DeferredSetupSession(requests.Session):
         super().__init__()
         self.max_redirects = 0
 
-    def request(  # type: ignore[override]
+    def send(  # type: ignore[override]
         self,
-        method: str | bytes,
-        url: str | bytes,
-        **kwargs: Any,  # noqa: ANN401  # Mirrors `requests.Session.request`.
+        request: requests.PreparedRequest,
+        **kwargs: Any,  # noqa: ANN401  # Mirrors `requests.Session.send`.
     ) -> requests.Response:
-        """Send a request with the deferred-setup timeouts unless the caller set its own."""
-        kwargs.setdefault("timeout", (DEFERRED_CONNECT_TIMEOUT_SECS, DEFERRED_READ_TIMEOUT_SECS))
-        return super().request(method, url, **kwargs)
+        """Send a prepared request with the deferred-setup timeouts unless the caller set its own.
+
+        `send` (not `request`) is overridden because the generated SDK prepares requests itself
+        and calls `send` directly.
+        """
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = (DEFERRED_CONNECT_TIMEOUT_SECS, DEFERRED_READ_TIMEOUT_SECS)
+        return super().send(request, **kwargs)
+
+
+def _session_for_create(
+    http_session: requests.Session | None,
+    *,
+    defer_credentials: bool,
+) -> requests.Session | None:
+    """Default deferred creates to a bounded, non-redirecting session."""
+    if http_session is None and defer_credentials:
+        return DeferredSetupSession()
+    return http_session
 
 
 class _DeferCredentialsHook(BeforeRequestHook):
@@ -1206,7 +1221,7 @@ def create_source(  # noqa: PLR0913  # Mirrors the API surface.
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
-        http_session=http_session,
+        http_session=_session_for_create(http_session, defer_credentials=defer_credentials),
     )
     deferred_fields = _deferred_create_fields(airbyte_instance, defer_credentials=defer_credentials)
     try:
@@ -1458,7 +1473,7 @@ def create_destination(  # noqa: PLR0913  # Mirrors the API surface.
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
-        http_session=http_session,
+        http_session=_session_for_create(http_session, defer_credentials=defer_credentials),
     )
     definition_id_override: str | None = definition_id
     if definition_id is None and _get_destination_type_str(config) == "dev-null":

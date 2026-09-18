@@ -720,6 +720,11 @@ def _deploy_deferred_to_cloud(
     metadata = get_connector_metadata(connector_name)
     if metadata is None or metadata.definition_id is None:
         raise AirbyteConnectorNotRegisteredError(connector_name=connector_name)
+    if metadata.connector_type != connector_type:
+        raise PyAirbyteInputError(
+            message=f"`{connector_name}` is not a {connector_type} connector.",
+            guidance=f"Pass a `{connector_type}-*` connector name.",
+        )
     config_dict = resolve_connector_config(config=config)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
