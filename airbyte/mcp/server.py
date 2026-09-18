@@ -12,7 +12,8 @@ Supports two transport modes:
     - **Interactive** (humans in a browser): Keycloak Authorization Code + PKCE
       via `OIDCProxy`, active once `AIRBYTE_MCP_OIDC_CLIENT_ID`,
       `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and `AIRBYTE_MCP_OIDC_CONFIG_URL` (the
-      OIDC discovery URL) are supplied.
+      OIDC discovery URL) are supplied. Consent is collected on the IdP's own
+      branded login page; `OIDCProxy`'s generic consent screen is skipped.
     - **Headless** (agents, CI): the client mints its own short-lived bearer
       token via the OAuth 2.0 client credentials grant and sends it as
       `Authorization: Bearer <token>`. The server verifies it with a
@@ -177,6 +178,11 @@ OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 # identity-only token that downstream APIs reject.
 AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES: str = "openid email profile"
 
+# Forwarded to the upstream authorize endpoint. `prompt=consent` makes the IdP
+# render its own login/consent page rather than silently reusing an existing
+# browser session, so the branded page is what the user actually sees.
+AIRBYTE_CLOUD_EXTRA_AUTHORIZE_PARAMS: dict[str, str] = {"prompt": "consent"}
+
 # Headless JWT verifier. A signing-key source (`JWKS_URI_ENV` or
 # `JWT_PUBLIC_KEY_ENV`) activates it; issuer/audience/algorithm refine it.
 JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_JWKS_URI"
@@ -315,6 +321,12 @@ def _create_auth() -> AuthProvider | None:
             base_url=base_url,
             required_scopes=AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES.split(),
             client_storage=_resolve_client_storage(encryption_source_material=oidc_client_secret),
+            # Consent is collected upstream on the branded IdP login page.
+            # Leaving `OIDCProxy`'s own consent screen on would show the user a
+            # generic FastMCP page first; `"external"` skips it without the
+            # "consent disabled" warning that `False` logs on every startup.
+            require_authorization_consent="external",
+            extra_authorize_params=AIRBYTE_CLOUD_EXTRA_AUTHORIZE_PARAMS,
         )
 
     return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=base_url)
