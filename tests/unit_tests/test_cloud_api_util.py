@@ -1186,9 +1186,10 @@ def test_get_analytic_source_reflects_runtime_mode(
 
 
 @pytest.mark.parametrize(
-    ("hosted_mcp_mode", "headers", "expected"),
+    ("mcp_mode", "hosted_mcp_mode", "headers", "expected"),
     [
         pytest.param(
+            True,
             True,
             {"x-airbyte-analytic-source": "Coral-Support-Agent"},
             "coral-support-agent",
@@ -1196,26 +1197,29 @@ def test_get_analytic_source_reflects_runtime_mode(
         ),
         pytest.param(
             True,
+            True,
             {"x-airbyte-analytic-source": "evil"},
             "pyairbyte-mcp-hosted",
             id="unlisted_source_rejected",
         ),
-        pytest.param(True, {}, "pyairbyte-mcp-hosted", id="no_header_falls_back"),
+        pytest.param(True, True, {}, "pyairbyte-mcp-hosted", id="no_header_falls_back"),
         pytest.param(
             False,
+            False,
             {"x-airbyte-analytic-source": "coral-support-agent"},
-            "pyairbyte-mcp-local",
-            id="local_mode_ignores_header",
+            "coral-support-agent",
+            id="upstream_wins_outside_mcp_mode",
         ),
     ],
 )
 def test_get_analytic_source_upstream_header(
     monkeypatch: pytest.MonkeyPatch,
+    mcp_mode: bool,
     hosted_mcp_mode: bool,
     headers: dict,
     expected: str,
 ) -> None:
-    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
     monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
     monkeypatch.setattr(meta, "get_http_headers", lambda **_: headers)
 
