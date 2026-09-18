@@ -527,7 +527,7 @@ def test_inspect_tool_includes_docs_summary(
     assert result.docs.title == "GitHub"
     assert "outline" not in result.docs.model_dump()
     assert "section_id" not in result.docs.model_dump()
-    assert "## Execution guidance" in result.docs.content_markdown
+    assert "## Execution guidance" in result.docs.content
     assert "connector:github" in result.docs.guidance
     assert "actions.issues.get" in result.docs.guidance
     assert "read_agent_skill_docs" in result.docs.guidance
@@ -915,7 +915,7 @@ _ACCESS_FAILURE_CASES = [
             section=None,
             workspace_id="workspace-1",
         ),
-        {"skill_id": "connector:github", "outline": [], "content_markdown": ""},
+        {"skill_id": "connector:github", "outline": [], "content": ""},
         id="read_skill_docs",
     ),
     pytest.param(
@@ -1281,7 +1281,7 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
     assert docs.section_id == "setup"
     assert [section.section_id for section in docs.outline] == ["setup", "faq"]
     assert docs.outline[1].available is False
-    assert docs.content_markdown == "Hello"
+    assert docs.content == "Hello"
     assert docs.warnings == ["Partial runtime metadata."]
 
 
@@ -1760,7 +1760,7 @@ def test_read_docs_destination_fallback_outline_skips_connections_lookup(
         "connections",
         "streams",
     ]
-    assert result.content_markdown
+    assert result.content
     assert not destination.connections_looked_up
 
 
@@ -1791,7 +1791,7 @@ def test_read_docs_destination_fallback_sql_passthrough_section(
 
     result = _read_docs("connector-destination:dest-1", section="sql-passthrough")
 
-    rendered = result.content_markdown
+    rendered = result.content
     assert "SHOW TABLES" in rendered
     assert f'"sql_dialect": "{dialect}"' in rendered
 
@@ -1833,7 +1833,7 @@ def test_read_docs_destination_fallback_connections_and_streams(
     connections_result = _read_docs(
         "connector-destination:dest-snowflake", section="connections"
     )
-    rendered = connections_result.content_markdown
+    rendered = connections_result.content
     assert "GitHub to Snowflake" in rendered
     assert "conn-1" in rendered
     assert "GitHub" in rendered
@@ -1842,7 +1842,7 @@ def test_read_docs_destination_fallback_connections_and_streams(
     streams_result = _read_docs(
         "connector-destination:dest-snowflake", section="streams"
     )
-    rendered = streams_result.content_markdown
+    rendered = streams_result.content
     assert "GitHub to Snowflake" in rendered
     assert "issues" in rendered
 
@@ -1854,7 +1854,7 @@ def test_read_docs_destination_fallback_empty_connections(
 
     result = _read_docs("connector-destination:dest-snowflake", section="connections")
 
-    assert "No connections" in result.content_markdown
+    assert "No connections" in result.content
 
 
 def test_read_docs_destination_fallback_source_prefix_resolves(
@@ -1866,7 +1866,7 @@ def test_read_docs_destination_fallback_source_prefix_resolves(
     result = _read_docs("connector-source:dest-snowflake")
 
     assert result.message is None
-    assert result.content_markdown
+    assert result.content
 
 
 def test_read_docs_destination_fallback_rejects_unknown_section(

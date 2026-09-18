@@ -314,7 +314,7 @@ class AgentSkillDocsResult(BaseModel):
     outline: list[AgentSkillSectionResult]
     """The sections available for this skill."""
 
-    content_markdown: str
+    content: str
     """The docs content rendered as a single Markdown document."""
 
     guidance: str | None = None
@@ -340,7 +340,7 @@ class AgentConnectorDocsResult(BaseModel):
     title: str | None = None
     """The human-readable docs title."""
 
-    content_markdown: str
+    content: str
     """The docs content rendered as a single Markdown document."""
 
     guidance: str | None = None
@@ -582,7 +582,7 @@ def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
             )
             for docs_section in docs.outline
         ],
-        content_markdown=render_docs_content_markdown(docs.content),
+        content=render_docs_content_markdown(docs.content),
         warnings=[str(warning) for warning in docs.metadata.warnings],
     )
 
@@ -602,7 +602,7 @@ def _connector_docs_result(docs: AgentSkillDocsResult) -> AgentConnectorDocsResu
     return AgentConnectorDocsResult(
         skill_id=docs.skill_id,
         title=docs.title,
-        content_markdown=docs.content_markdown,
+        content=docs.content,
         guidance=_inspect_docs_guidance(docs.skill_id, docs.outline),
         warnings=docs.warnings,
         message=docs.message,
@@ -694,7 +694,7 @@ def _destination_skill_docs_fallback(
         skill_id=skill_id,
         section_id=section,
         outline=[],
-        content_markdown="",
+        content="",
         warnings=[],
         message=message,
     )
@@ -1047,7 +1047,7 @@ def inspect_agent_connector(
             warnings.append(f"Connector docs are unavailable: {detail}")
             docs_result = AgentConnectorDocsResult(
                 skill_id=details.docs_skill_id,
-                content_markdown="",
+                content="",
                 warnings=[],
                 message=f"Connector docs are unavailable: {detail}",
             )
@@ -1402,7 +1402,7 @@ def read_agent_skill_docs(
             description=(
                 "Skill ID, e.g. the `docs.skill_id` reported by `inspect_agent_connector`, "
                 "or a `skill_id` from `list_agent_skills`. `inspect_agent_connector` returns "
-                "only a docs summary (`docs.content_markdown` plus `docs.guidance`); call "
+                "only a docs summary (`docs.content` plus `docs.guidance`); call "
                 "this tool with no `section` for the full section outline, or with "
                 "`section` for one section's full detail. SQL passthrough destinations "
                 "use `connector-destination:<destination_id>`."
@@ -1446,7 +1446,7 @@ def read_agent_skill_docs(
             skill_id=skill_id,
             section_id=section,
             outline=[],
-            content_markdown="",
+            content="",
             warnings=[],
             message=message,
         )
