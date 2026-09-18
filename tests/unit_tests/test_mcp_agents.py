@@ -421,7 +421,7 @@ def test_inspect_tool_reports_context_store_entities(
                 connector_id="connector-id",
                 name="GitHub",
                 workspace_id="workspace-id",
-                source_definition_name="GitHub",
+                integration_name="GitHub",
                 docs_skill_id="connector:github",
                 context_store_readiness=AgentContextStoreReadiness(
                     supported_context_store_entities=[

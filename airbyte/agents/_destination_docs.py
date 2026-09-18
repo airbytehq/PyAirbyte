@@ -76,7 +76,7 @@ def build_destination_connector_details(destination: CloudDestination) -> AgentC
         name=destination.name,
         workspace_id=destination.workspace.workspace_id,
         docs_skill_id=destination_skill_id(destination.connector_id),
-        source_definition_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
+        integration_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
         warnings=[],
     )
 

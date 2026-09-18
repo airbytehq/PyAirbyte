@@ -594,7 +594,7 @@ def test_inspect(captured_requests: list[dict[str, Any]]) -> None:
     details = connector.inspect()
 
     assert details.name == "GitHub"
-    assert details.source_definition_name == "GitHub"
+    assert details.integration_name == "GitHub"
     assert details.docs_skill_id == "connector:github"
     assert details.context_store_entities == ["issues", "repositories"]
     assert connector.name == "GitHub"

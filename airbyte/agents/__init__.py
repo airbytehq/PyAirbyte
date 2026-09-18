@@ -68,7 +68,7 @@ organization = agents.AgentOrganization.from_env()
 for workspace in organization.list_workspaces():
     print(workspace.workspace_id, workspace.name)
 
-print(connector.inspect().source_definition_name)
+print(connector.inspect().integration_name)
 ```
 
 Convert between the Cloud and Agents domains:
