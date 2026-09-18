@@ -37,14 +37,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cached_property
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+import requests
 import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.agents import _api_util as agents_api_util
+from airbyte.agents.models import AgentConnectorDetails, AgentConnectorInfo
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
@@ -303,6 +307,83 @@ class CloudWorkspace:
             public_api_root=organization_credentials.public_api_root,
             config_api_root=organization_credentials.config_api_root,
         )
+
+    # Airbyte Agents (Context layer) status
+
+    def _resolve_agents_organization_id(self) -> str | None:
+        """Return the organization ID to send with Agents API requests, if known.
+
+        The Agents API needs an explicit organization when credentials span several
+        organizations. Falls back to the credentials' own organization ID when the parent
+        organization cannot be looked up.
+        """
+        try:
+            organization_id = self._organization_info.get("organizationId")
+        except (AirbyteError, NotImplementedError):
+            return self._credentials.organization_id
+
+        if isinstance(organization_id, str) and organization_id:
+            return organization_id
+
+        return self._credentials.organization_id
+
+    def is_agents_enabled(self) -> bool:
+        """Return whether this workspace is reachable through the Airbyte Agents API.
+
+        `False` when the Agents API reports the workspace as forbidden or not found, which is
+        how it answers for organizations without Airbyte Agents. Any other failure raises.
+        """
+        try:
+            agents_api_util.get_agent_workspace(
+                workspace_id=self.workspace_id,
+                credentials=self._credentials,
+                organization_id=self._resolve_agents_organization_id(),
+            )
+        except AirbyteError as error:
+            status_code = (error.context or {}).get("status_code")
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                return False
+
+            raise
+
+        return True
+
+    def list_agent_source_search_status(self) -> dict[str, bool | None]:
+        """Map each Agents-enabled source ID to whether Context Store search is configured.
+
+        Sources missing from the mapping are not enabled for Airbyte Agents. A source maps to
+        `None` when its Context Store status could not be inspected. Raises when the Agents
+        API is unreachable or denies these credentials access to the workspace.
+        """
+        organization_id = self._resolve_agents_organization_id()
+        connectors = [
+            AgentConnectorInfo.model_validate(record)
+            for record in agents_api_util.list_agent_connectors(
+                workspace_id=self.workspace_id,
+                credentials=self._credentials,
+                organization_id=organization_id,
+            )
+        ]
+
+        search_by_source_id: dict[str, bool | None] = {}
+        for connector in connectors:
+            try:
+                details = AgentConnectorDetails.model_validate(
+                    agents_api_util.inspect_agent_connector(
+                        connector_id=connector.id,
+                        credentials=self._credentials,
+                        organization_id=organization_id,
+                    )
+                )
+            except (AirbyteError, requests.RequestException):
+                search_by_source_id[connector.id] = None
+                continue
+
+            readiness = details.context_store_readiness
+            search_by_source_id[connector.id] = bool(
+                readiness is not None and readiness.configured_cache_entities
+            )
+        return search_by_source_id
 
     # Test connection and creds
 

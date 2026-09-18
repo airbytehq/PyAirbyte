@@ -24,7 +24,6 @@ from pydantic import BaseModel, Field
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.agents._destination_docs import SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -1097,78 +1096,20 @@ API root.
 """
 
 
-def _resolve_parent_organization_id(workspace: CloudWorkspace) -> str | None:
-    """Return the workspace's parent organization ID, or `None` if it cannot be resolved.
-
-    The Agents API needs an explicit organization when credentials span several organizations.
-    """
-    try:
-        return workspace.get_organization().organization_id
-    except _AGENTS_LOOKUP_ERRORS:
-        return None
-
-
 def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, bool | None] | None:
-    """Map each Agents-enabled source ID in the workspace to its Context Store search status.
-
-    Sources missing from the mapping are not enabled for Airbyte Agents. A source maps to
-    `None` when its Context Store status could not be inspected. Returns `None` when the
-    Agents API is unreachable or denies these credentials access to the workspace.
-    """
-    organization_id = _resolve_parent_organization_id(workspace)
-    if organization_id is None:
-        return None
-
+    """Return `CloudWorkspace.list_agent_source_search_status()`, or `None` if it fails."""
     try:
-        agent_workspace = AgentWorkspace.from_cloud_workspace(
-            workspace,
-            organization_id=organization_id,
-            verify=False,
-        )
-        connectors = agent_workspace.list_connectors()
+        return workspace.list_agent_source_search_status()
     except _AGENTS_LOOKUP_ERRORS:
         return None
-
-    search_by_source_id: dict[str, bool | None] = {}
-    for connector in connectors:
-        try:
-            readiness = connector.inspect().context_store_readiness
-        except _AGENTS_LOOKUP_ERRORS:
-            search_by_source_id[connector.connector_id] = None
-            continue
-
-        search_by_source_id[connector.connector_id] = bool(
-            readiness is not None and readiness.configured_cache_entities
-        )
-    return search_by_source_id
 
 
 def _is_agent_workspace(workspace: CloudWorkspace) -> bool | None:
-    """Return whether the Cloud workspace is reachable through the Airbyte Agents API.
-
-    `False` when the Agents API reports the workspace as not found or forbidden, `None` when
-    reachability could not be determined.
-    """
-    organization_id = _resolve_parent_organization_id(workspace)
-    if organization_id is None:
-        return None
-
+    """Return `CloudWorkspace.is_agents_enabled()`, or `None` if it fails."""
     try:
-        AgentWorkspace.from_cloud_workspace(
-            workspace,
-            organization_id=organization_id,
-            verify=True,
-        )
-    except (requests.RequestException, NotImplementedError):
+        return workspace.is_agents_enabled()
+    except _AGENTS_LOOKUP_ERRORS:
         return None
-    except AirbyteError as error:
-        status_code = (error.context or {}).get("status_code")
-        if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-            return False
-
-        return None
-
-    return True
 
 
 @mcp_tool(

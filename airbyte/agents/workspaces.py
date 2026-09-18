@@ -21,12 +21,13 @@ from airbyte.agents.models import (
     AgentWorkspaceInfo,
 )
 from airbyte.agents.skills import AgentSkill
+from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud._credentials import _AirbyteCredentials
-from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
+    from airbyte.cloud.workspaces import CloudWorkspace
     from airbyte.secrets.base import SecretString
 
 
@@ -259,7 +260,7 @@ class AgentWorkspace:
         Every Agents workspace is also a Cloud workspace, so this conversion always
         succeeds without calling either API.
         """
-        return CloudWorkspace(
+        return cloud_workspaces.CloudWorkspace(
             workspace_id=self.workspace_id,
             client_id=self._credentials.client_id,
             client_secret=self._credentials.client_secret,
