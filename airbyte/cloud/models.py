@@ -20,6 +20,12 @@ SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
 }
 """Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
 
+SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
+    SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
+    BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
+}
+"""Destination definition ID -> display name of the destination integration."""
+
 SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 """Destination definitions AI agents can query through SQL passthrough."""
 

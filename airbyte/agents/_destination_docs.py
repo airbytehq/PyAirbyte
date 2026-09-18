@@ -17,7 +17,10 @@ from airbyte.agents.models import (
     AgentSkillInfo,
     AgentSkillSection,
 )
-from airbyte.cloud.models import SQL_PASSTHROUGH_DESTINATION_DIALECTS
+from airbyte.cloud.models import (
+    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    SQL_PASSTHROUGH_DESTINATION_NAMES,
+)
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -25,7 +28,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from airbyte.cloud.connectors import CloudDestination
-
 
 DESTINATION_SKILL_PREFIX = "connector-destination:"
 SOURCE_SKILL_PREFIX = "connector-source:"
@@ -61,6 +63,7 @@ def build_destination_connector_details(destination: CloudDestination) -> AgentC
         name=destination.name,
         workspace_id=destination.workspace.workspace_id,
         docs_skill_id=destination_skill_id(destination.connector_id),
+        integration_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
         warnings=[],
     )
 
