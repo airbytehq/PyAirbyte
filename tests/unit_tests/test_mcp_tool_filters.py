@@ -269,7 +269,7 @@ def test_safe_mode_hides_external_access_by_default(
     mcp_config: dict[str, str],
 ) -> None:
     """Safe mode disables external access unless explicitly allowed."""
-    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    monkeypatch.setenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1")
     mcp_config[MCP_CONFIG_INSIDERS] = "1"
 
     assert not _visible("agents")
@@ -280,11 +280,24 @@ def test_safe_mode_external_access_override_bypasses_safe_mode(
     mcp_config: dict[str, str],
 ) -> None:
     """Explicit external access permission overrides safe mode."""
-    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    monkeypatch.setenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1")
     monkeypatch.setenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, "1")
     mcp_config[MCP_CONFIG_API_URL] = "https://api.airbyte.com/v1/"
     mcp_config[MCP_CONFIG_CONFIG_API_URL] = "https://cloud.airbyte.com/api/v1/"
 
+    assert _visible("agents")
+
+
+def test_unset_safe_mode_preserves_unset_external_access_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """Unset safe mode preserves the existing unset external-access behavior."""
+    monkeypatch.delenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", raising=False)
+    monkeypatch.delenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, raising=False)
+    mcp_config[MCP_CONFIG_INSIDERS] = "1"
+
+    assert _tool_utils.external_access_allowed(APP) is None
     assert _visible("agents")
 
 

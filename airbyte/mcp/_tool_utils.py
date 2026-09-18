@@ -113,6 +113,11 @@ def _resolve_safe_mode() -> bool:
     return _str_to_bool(value) is not False
 
 
+def _safe_mode_explicitly_enabled() -> bool:
+    """Return True only when safe mode is explicitly enabled via its environment variable."""
+    return _str_to_bool(os.environ.get(CLOUD_MCP_SAFE_MODE_ENV_VAR)) is True
+
+
 AIRBYTE_CLOUD_MCP_SAFE_MODE = _resolve_safe_mode()
 """Whether safe mode is enabled for Cloud operations."""
 
@@ -533,8 +538,9 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
     """Return the effective permission for Agents external access.
 
-    When no explicit permission is configured, safe mode and disabled pipeline changes
-    both disable external access; otherwise the result follows the insiders default.
+    When no explicit permission is configured, explicitly enabled safe mode and disabled
+    pipeline changes both disable external access; otherwise the result follows the insiders
+    default.
     """
     explicit_value = _resolve_policy(
         app_or_ctx,
@@ -545,7 +551,7 @@ def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
         return explicit_value
     return (
         False
-        if (pipeline_changes_allowed(app_or_ctx) is False or AIRBYTE_CLOUD_MCP_SAFE_MODE)
+        if (pipeline_changes_allowed(app_or_ctx) is False or _safe_mode_explicitly_enabled())
         else None
     )
 
