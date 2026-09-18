@@ -1101,8 +1101,9 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake or bigquery) in "
                 "`api_args` and any value for `entity_type`; the `connector_id` is a "
-                "destination listed by `list_agent_connectors`, and `SHOW TABLES` / `DESCRIBE "
-                "TABLE <name>` discover its tables and columns. The `download` action "
+                "destination listed by `list_agent_connectors`; `SHOW TABLES` lists its tables "
+                'and `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` '
+                "returns its columns without reading rows. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
