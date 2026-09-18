@@ -130,7 +130,8 @@ jobs:
       run: >
         uv run coverage run -m pytest
         --durations=5 --exitfirst
-        tests/unit_tests/ tests/docs_tests/
+        tests/unit_tests/
+        tests/docs_tests/
         -m "not requires_creds and not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
@@ -219,7 +220,8 @@ jobs:
       run: >
         uv run coverage run -m pytest
         --verbose
-        tests/unit_tests/ tests/docs_tests/
+        tests/unit_tests/
+        tests/docs_tests/
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
