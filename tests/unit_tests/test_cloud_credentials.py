@@ -11,6 +11,7 @@ from airbyte_api import models
 
 from airbyte import constants
 from airbyte._util import api_util
+from airbyte.agents.models import AgentConnectorDetails, AgentContextStoreReadiness
 from airbyte.cloud import _credentials as cloud_credentials
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.models import CloudWorkspaceInfo, WorkspacePrivilegeScope
@@ -1825,6 +1826,9 @@ def test_mcp_list_cloud_workspaces_agents_enabled_only_empty_message(
             AirbyteAgentsUnavailableError(message="unavailable"), None, id="unavailable"
         ),
         pytest.param(requests.ConnectionError("offline"), None, id="transport"),
+        pytest.param(
+            NotImplementedError("custom api root"), None, id="custom_api_root"
+        ),
     ],
 )
 def test_mcp_list_agent_enabled_workspace_ids_errors(
@@ -2041,6 +2045,12 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
         pytest.param(
             "organization-id", requests.ConnectionError("offline"), None, id="transport"
         ),
+        pytest.param(
+            "organization-id",
+            NotImplementedError("custom api root"),
+            None,
+            id="custom_api_root",
+        ),
         pytest.param(None, None, None, id="unknown_organization"),
     ],
 )
@@ -2075,6 +2085,9 @@ def test_mcp_is_agent_workspace(
         pytest.param(None, "organization-id", id="resolved"),
         pytest.param(AirbyteError(context={"status_code": 403}), None, id="forbidden"),
         pytest.param(requests.ConnectionError("offline"), None, id="transport"),
+        pytest.param(
+            NotImplementedError("custom api root"), None, id="custom_api_root"
+        ),
     ],
 )
 def test_mcp_resolve_parent_organization_id(
@@ -2093,6 +2106,99 @@ def test_mcp_resolve_parent_organization_id(
 
     assert (
         mcp_cloud._resolve_parent_organization_id(cast(CloudWorkspace, FakeWorkspace()))
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("organization_id", "list_error", "connectors", "expected"),
+    [
+        pytest.param(
+            "organization-id",
+            None,
+            {
+                "cached": [{"entity": "issues"}],
+                "not_cached": [],
+                "no_readiness": None,
+                "inspect_fails": AirbyteError(context={"status_code": 500}),
+            },
+            {
+                "cached": True,
+                "not_cached": False,
+                "no_readiness": False,
+                "inspect_fails": None,
+            },
+            id="mixed_connectors",
+        ),
+        pytest.param(
+            "organization-id",
+            AirbyteError(context={"status_code": 403}),
+            {},
+            None,
+            id="list_forbidden",
+        ),
+        pytest.param(
+            "organization-id",
+            NotImplementedError("custom api root"),
+            {},
+            None,
+            id="custom_api_root",
+        ),
+        pytest.param(None, None, {}, None, id="unknown_organization"),
+    ],
+)
+def test_mcp_list_agent_source_search_status(
+    monkeypatch: pytest.MonkeyPatch,
+    organization_id: str | None,
+    list_error: Exception | None,
+    connectors: dict[str, list[dict[str, str]] | Exception | None],
+    expected: dict[str, bool | None] | None,
+) -> None:
+    class FakeConnector:
+        def __init__(
+            self,
+            connector_id: str,
+            outcome: list[dict[str, str]] | Exception | None,
+        ) -> None:
+            self.connector_id = connector_id
+            self._outcome = outcome
+
+        def inspect(self) -> AgentConnectorDetails:
+            if isinstance(self._outcome, Exception):
+                raise self._outcome
+            if self._outcome is None:
+                return AgentConnectorDetails(connector_id=self.connector_id)
+            return AgentConnectorDetails(
+                connector_id=self.connector_id,
+                context_store_readiness=AgentContextStoreReadiness(
+                    configured_cache_entities=self._outcome
+                ),
+            )
+
+    class FakeAgentWorkspace:
+        @classmethod
+        def from_cloud_workspace(
+            cls, _workspace: object, *, organization_id: str, verify: bool
+        ) -> "FakeAgentWorkspace":
+            assert organization_id == "organization-id"
+            assert verify is False
+            return cls()
+
+        def list_connectors(self) -> list[FakeConnector]:
+            if list_error is not None:
+                raise list_error
+            return [
+                FakeConnector(connector_id, outcome)
+                for connector_id, outcome in connectors.items()
+            ]
+
+    monkeypatch.setattr(mcp_cloud, "AgentWorkspace", FakeAgentWorkspace)
+    monkeypatch.setattr(
+        mcp_cloud, "_resolve_parent_organization_id", lambda _workspace: organization_id
+    )
+
+    assert (
+        mcp_cloud._list_agent_source_search_status(cast(CloudWorkspace, object()))
         == expected
     )
 

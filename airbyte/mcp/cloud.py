@@ -1091,6 +1091,18 @@ def list_deployed_cloud_source_connectors(
     return results
 
 
+_AGENTS_LOOKUP_ERRORS: tuple[type[Exception], ...] = (
+    AirbyteError,
+    requests.RequestException,
+    NotImplementedError,
+)
+"""Errors that make an Agents feature lookup inconclusive rather than fatal.
+
+`NotImplementedError` is raised when a custom Cloud API root has no derivable Config or Agents
+API root.
+"""
+
+
 def _resolve_parent_organization_id(workspace: CloudWorkspace) -> str | None:
     """Return the workspace's parent organization ID, or `None` if it cannot be resolved.
 
@@ -1098,7 +1110,7 @@ def _resolve_parent_organization_id(workspace: CloudWorkspace) -> str | None:
     """
     try:
         return workspace.get_organization().organization_id
-    except (AirbyteError, requests.RequestException):
+    except _AGENTS_LOOKUP_ERRORS:
         return None
 
 
@@ -1119,14 +1131,14 @@ def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, boo
             verify=False,
         )
         connectors = agent_workspace.list_connectors()
-    except (AirbyteError, requests.RequestException):
+    except _AGENTS_LOOKUP_ERRORS:
         return None
 
     search_by_source_id: dict[str, bool | None] = {}
     for connector in connectors:
         try:
             readiness = connector.inspect().context_store_readiness
-        except (AirbyteError, requests.RequestException):
+        except _AGENTS_LOOKUP_ERRORS:
             search_by_source_id[connector.connector_id] = None
             continue
         search_by_source_id[connector.connector_id] = bool(
@@ -1150,7 +1162,7 @@ def _is_agent_workspace(workspace: CloudWorkspace) -> bool | None:
             organization_id=organization_id,
             verify=True,
         )
-    except requests.RequestException:
+    except (requests.RequestException, NotImplementedError):
         return None
     except AirbyteError as error:
         status_code = (error.context or {}).get("status_code")
@@ -1876,7 +1888,7 @@ def _list_agent_enabled_workspace_ids(
             enabled_ids[organization_id] = {
                 workspace.workspace_id for workspace in organization.list_workspaces()
             }
-        except (AirbyteError, requests.RequestException):
+        except _AGENTS_LOOKUP_ERRORS:
             enabled_ids[organization_id] = None
     return enabled_ids
 
