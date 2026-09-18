@@ -125,8 +125,9 @@ class CloudWorkspace:
     ) -> None:
         """Validate and initialize credentials.
 
-        `organization_id` optionally scopes requests that need an explicit organization (for
-        example Airbyte Agents lookups) when the credentials span several organizations.
+        `organization_id` is optional. The workspace's parent organization is always looked up
+        from the Config API; when given, this value is checked against that lookup (a mismatch
+        raises) and used only as a fallback when the lookup itself is unavailable.
         """
         env_vars = not (client_id or client_secret or bearer_token)
         credentials = _AirbyteCredentials.from_auth(
@@ -320,22 +321,28 @@ class CloudWorkspace:
     def _resolve_agents_organization_id(self) -> str | None:
         """Return the organization ID to send with Agents API requests, if known.
 
-        The Agents API needs an explicit organization when credentials span several
-        organizations. An organization configured on this workspace wins; otherwise the
-        workspace's parent organization is looked up. `None` when neither is available.
+        The workspace's parent organization is looked up from the Config API. A configured
+        `organization_id` acts as a guard: it must match the lookup when both are known, and
+        it is used only when the lookup is unavailable. `None` when neither is available.
         """
-        if self._credentials.organization_id:
-            return self._credentials.organization_id
-
+        configured_id = self._credentials.organization_id or None
         try:
-            organization_id = self._organization_info.get("organizationId")
+            looked_up = self._organization_info.get("organizationId")
         except (AirbyteError, NotImplementedError, requests.RequestException):
-            return None
+            return configured_id
 
-        if isinstance(organization_id, str) and organization_id:
-            return organization_id
+        looked_up_id = looked_up if isinstance(looked_up, str) and looked_up else None
+        if looked_up_id and configured_id and looked_up_id != configured_id:
+            raise exc.PyAirbyteInputError(
+                message="Configured organization ID does not match the workspace's organization.",
+                context={
+                    "workspace_id": self.workspace_id,
+                    "configured_organization_id": configured_id,
+                    "workspace_organization_id": looked_up_id,
+                },
+            )
 
-        return None
+        return looked_up_id or configured_id
 
     def is_agents_enabled(self) -> bool:
         """Return whether this workspace is reachable through the Airbyte Agents API.

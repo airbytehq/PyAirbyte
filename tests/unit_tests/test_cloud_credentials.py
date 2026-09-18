@@ -1820,10 +1820,16 @@ def _make_workspace(
             id="resolved_without_name",
         ),
         pytest.param(
-            "configured-organization-id",
+            "organization-id",
             {"organizationId": "organization-id"},
+            "organization-id",
+            id="configured_matches_lookup",
+        ),
+        pytest.param(
             "configured-organization-id",
-            id="configured_wins",
+            {},
+            "configured-organization-id",
+            id="configured_fills_missing_lookup",
         ),
         pytest.param(
             "configured-organization-id",
@@ -1854,6 +1860,19 @@ def test_cloud_workspace_resolve_agents_organization_id(
     )
 
     assert workspace._resolve_agents_organization_id() == expected
+
+
+def test_cloud_workspace_resolve_agents_organization_id_rejects_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch,
+        organization_info={"organizationId": "organization-id"},
+        configured_organization_id="other-organization-id",
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="does not match"):
+        workspace._resolve_agents_organization_id()
 
 
 @pytest.mark.parametrize(

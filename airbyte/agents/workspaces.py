@@ -267,6 +267,7 @@ class AgentWorkspace:
             bearer_token=self._credentials.bearer_token,
             api_root=self._credentials.public_api_root,
             config_api_root=self._credentials.config_api_root,
+            organization_id=self._credentials.organization_id,
         )
 
     @classmethod
