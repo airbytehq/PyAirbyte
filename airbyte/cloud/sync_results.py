@@ -202,9 +202,7 @@ class SyncAttempt:
                     timestamp = event.get("timestamp", "")
                     level = event.get("level", "INFO")
                     message = event.get("message", "")
-                    log_lines.append(
-                        f"[{timestamp}] {level}: {message}"  # pyrefly: ignore[bad-argument-type]
-                    )
+                    log_lines.append(f"[{timestamp}] {level}: {message}")
                 result = "\n".join(log_lines)
         elif "logLines" in logs_data:
             log_lines = logs_data["logLines"]
@@ -478,7 +476,7 @@ class SyncResult:
     @property
     def streams(
         self,
-    ) -> _SyncResultStreams:  # pyrefly: ignore[unknown-name]
+    ) -> _SyncResultStreams:
         """Return a mapping of stream names to `airbyte.CachedDataset` objects.
 
         This is a convenience wrapper around the `stream_names`
