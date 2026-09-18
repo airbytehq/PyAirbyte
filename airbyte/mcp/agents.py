@@ -118,14 +118,15 @@ AGENTS_FORBIDDEN_MESSAGE = (
 )
 """Fallback explanation for a 403 whose response body carries no `message`/`detail`."""
 
-DOCS_GUIDANCE_TEMPLATE = (
-    "`docs` is a summary: execution guidance plus one outline entry per action. Before calling "
+INSPECT_DOCS_GUIDANCE_TEMPLATE = (
+    "`docs` is a summary of the connector's usage docs. Before calling "
     "`execute_agent_connector`, read the target action's section for its exact parameter names: "
-    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<a section_id from docs.outline>)`, "
-    "e.g. `section={example!r}`."
+    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<section_id>)`, e.g. "
+    "`section={example!r}`. Call `read_agent_skill_docs(skill_id={skill_id!r})` with no "
+    "`section` for the full section outline."
 )
-DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE = (
-    "`docs` is a summary. No sections are currently available in `docs.outline`; "
+INSPECT_DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE = (
+    "`docs` is a summary. No sections are currently available; "
     "`read_agent_skill_docs(skill_id={skill_id!r})` returns the same summary."
 )
 
@@ -325,6 +326,32 @@ class AgentSkillDocsResult(BaseModel):
     """Why the docs are empty, when the Agents API denied the request."""
 
 
+class AgentConnectorDocsResult(BaseModel):
+    """Docs summary embedded in `inspect_agent_connector` results.
+
+    The section outline is intentionally omitted here; `read_agent_skill_docs`
+    returns it as `outline`.
+    """
+
+    skill_id: str
+    """The skill ID of the connector's usage docs."""
+
+    title: str | None = None
+    """The human-readable docs title."""
+
+    content: list[dict[str, Any]]
+    """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
+
+    guidance: str | None = None
+    """How to read more of this connector's docs with `read_agent_skill_docs`."""
+
+    warnings: list[str]
+    """Non-fatal issues reported while building or reading the docs."""
+
+    message: str | None = None
+    """Why the docs are empty, when the docs read failed."""
+
+
 class AgentConnectorDetailsResult(BaseModel):
     """Details about a single Airbyte Agents connector."""
 
@@ -347,10 +374,10 @@ class AgentConnectorDetailsResult(BaseModel):
     `execute_agent_connector` without appearing here.
     """
 
-    docs: AgentSkillDocsResult | None = None
+    docs: AgentConnectorDocsResult | None = None
     """Summary of the connector's usage docs, when available.
 
-    Pass `docs.skill_id` and a `docs.outline[].section_id` to `read_agent_skill_docs` for a
+    Pass `docs.skill_id` to `read_agent_skill_docs` for the section outline and a
     section's full detail.
     """
 
@@ -559,12 +586,29 @@ def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
     )
 
 
-def _docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
-    """Build the `guidance` hint for a skill's section outline."""
+def _inspect_docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
+    """Build the `guidance` hint for a docs summary embedded in an inspect result."""
     example_section = next((section for section in outline if section.available), None)
     if example_section is None:
-        return DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
-    return DOCS_GUIDANCE_TEMPLATE.format(skill_id=skill_id, example=example_section.section_id)
+        return INSPECT_DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
+    return INSPECT_DOCS_GUIDANCE_TEMPLATE.format(
+        skill_id=skill_id, example=example_section.section_id
+    )
+
+
+def _connector_docs_result(
+    docs: AgentSkillDocsResult,
+    skill_id: str,
+) -> AgentConnectorDocsResult:
+    """Shape a skill docs result into the docs summary embedded in inspect results."""
+    return AgentConnectorDocsResult(
+        skill_id=docs.skill_id,
+        title=docs.title,
+        content=docs.content,
+        guidance=_inspect_docs_guidance(skill_id, docs.outline),
+        warnings=docs.warnings,
+        message=docs.message,
+    )
 
 
 def _inspect_destination_fallback(
@@ -586,9 +630,8 @@ def _inspect_destination_fallback(
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         details = build_destination_connector_details(destination)
-        docs_result = _skill_docs_result(build_destination_skill_docs(destination))
-        if details.docs_skill_id:
-            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
+        skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
+        docs_result = _connector_docs_result(skill_docs, skill_docs.skill_id)
         return AgentConnectorDetailsResult(
             connector_id=details.connector_id,
             connector_name=details.name,
@@ -997,23 +1040,23 @@ def inspect_agent_connector(
         )
 
     warnings = [str(warning) for warning in details.warnings]
-    docs_result: AgentSkillDocsResult | None = None
+    docs_result: AgentConnectorDocsResult | None = None
     if details.docs_skill_id:
         try:
             connector_docs = workspace.read_skill_docs(details.docs_skill_id)
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
             warnings.append(f"Connector docs are unavailable: {detail}")
-            docs_result = AgentSkillDocsResult(
+            docs_result = AgentConnectorDocsResult(
                 skill_id=details.docs_skill_id,
-                outline=[],
                 content=[],
                 warnings=[],
                 message=f"Connector docs are unavailable: {detail}",
             )
         else:
-            docs_result = _skill_docs_result(connector_docs)
-            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
+            docs_result = _connector_docs_result(
+                _skill_docs_result(connector_docs), details.docs_skill_id
+            )
 
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,

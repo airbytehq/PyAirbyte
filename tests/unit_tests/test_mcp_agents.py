@@ -525,10 +525,12 @@ def test_inspect_tool_includes_docs_summary(
     assert calls == [(("connector:github",), {})]
     assert result.docs is not None
     assert result.docs.title == "GitHub"
-    assert result.docs.outline[0].section_id == "actions.issues.get"
+    assert "outline" not in result.docs.model_dump()
+    assert "section_id" not in result.docs.model_dump()
     assert result.docs.content[0]["text"] == "Execution guidance"
     assert "connector:github" in result.docs.guidance
     assert "actions.issues.get" in result.docs.guidance
+    assert "read_agent_skill_docs" in result.docs.guidance
     assert result.warnings == ["Context Store is still syncing."]
 
 
@@ -542,7 +544,7 @@ def test_inspect_tool_warns_when_docs_unavailable(
 
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
-    assert result.docs.outline == []
+    assert "outline" not in result.docs.model_dump()
     assert result.docs.message == "Connector docs are unavailable: Skill docs failed"
     assert result.warnings == [
         "Context Store is still syncing.",
@@ -656,7 +658,7 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     assert result.connector_name == "GitHub"
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
-    assert result.docs.outline == []
+    assert "outline" not in result.docs.model_dump()
     assert result.docs.message == "Connector docs are unavailable: docs timed out"
     assert result.warnings == ["Connector docs are unavailable: docs timed out"]
 
