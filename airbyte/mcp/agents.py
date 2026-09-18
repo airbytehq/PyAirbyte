@@ -321,11 +321,12 @@ class AgentSkillDocsResult(BaseModel):
     guidance: str | None = None
     """How to read more of this skill's docs with `read_agent_skill_docs`, when applicable."""
 
-    warnings: list[str]
+    warnings: list[str] | None = None
     """Non-fatal issues reported while building or reading the docs."""
 
-    message: str | None = None
-    """Why the docs are empty, when the Agents API denied the request."""
+    errors: list[str] | None = None
+    """Why the result is empty, when the request failed (for example access denied
+    or connector not found)."""
 
 
 class AgentConnectorDocsResult(BaseModel):
@@ -347,11 +348,12 @@ class AgentConnectorDocsResult(BaseModel):
     guidance: str | None = None
     """How to read more of this connector's docs with `read_agent_skill_docs`."""
 
-    warnings: list[str]
+    warnings: list[str] | None = None
     """Non-fatal issues reported while building or reading the docs."""
 
-    message: str | None = None
-    """Why the docs are empty, when the docs read failed."""
+    errors: list[str] | None = None
+    """Why the result is empty, when the request failed (for example access denied
+    or connector not found)."""
 
 
 class AgentConnectorDetailsResult(BaseModel):
@@ -369,13 +371,6 @@ class AgentConnectorDetailsResult(BaseModel):
     integration_name: str | None = None
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
-    context_store_entities: list[str]
-    """Entities this connector can cache in the Context Store.
-
-    This is not an exhaustive list of executable entities: an entity may be executable via
-    `execute_agent_connector` without appearing here.
-    """
-
     docs: AgentConnectorDocsResult | None = None
     """Summary of the connector's usage docs, when available.
 
@@ -383,11 +378,12 @@ class AgentConnectorDetailsResult(BaseModel):
     section's full detail.
     """
 
-    warnings: list[str]
+    warnings: list[str] | None = None
     """Warnings the Agents API reported about this connector."""
 
-    message: str | None = None
-    """Why the details are empty, when the Agents API denied the request."""
+    errors: list[str] | None = None
+    """Why the result is empty, when the request failed (for example access denied
+    or connector not found)."""
 
 
 class AgentExecuteToolResult(BaseModel):
@@ -568,6 +564,11 @@ def _connector_unavailable_error(
     )
 
 
+def _or_none(items: list[str]) -> list[str] | None:
+    """Return `None` for empty lists so optional list fields stay unset."""
+    return items or None
+
+
 def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
     """Shape an `AgentSkillDocs` into an `AgentSkillDocsResult`."""
     return AgentSkillDocsResult(
@@ -584,7 +585,7 @@ def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
             for docs_section in docs.outline
         ],
         content=render_docs_content_markdown(docs.content),
-        warnings=[str(warning) for warning in docs.metadata.warnings],
+        warnings=_or_none([str(warning) for warning in docs.metadata.warnings]),
     )
 
 
@@ -606,7 +607,7 @@ def _connector_docs_result(docs: AgentSkillDocsResult) -> AgentConnectorDocsResu
         content=docs.content,
         guidance=_inspect_docs_guidance(docs.skill_id, docs.outline),
         warnings=docs.warnings,
-        message=docs.message,
+        errors=docs.errors,
     )
 
 
@@ -618,8 +619,8 @@ def _inspect_destination_fallback(
 ) -> AgentConnectorDetailsResult:
     """Build an inspect result for a connector ID the Agents API returned 404 for.
 
-    SQL passthrough destinations get built-in details; anything else gets a message
-    instead of an error.
+    SQL passthrough destinations get built-in details; anything else gets an `errors`
+    entry instead of raising.
     """
     agent_workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
     resolved_workspace_id = agent_workspace.workspace_id
@@ -634,12 +635,12 @@ def _inspect_destination_fallback(
             skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
-            warnings.append(f"Connector docs are unavailable: {detail}")
+            docs_unavailable = f"Connector docs are unavailable: {detail}"
+            warnings.append(docs_unavailable)
             docs_result = AgentConnectorDocsResult(
                 skill_id=destination_skill_id(destination.connector_id),
                 content="",
-                warnings=[],
-                message=f"Connector docs are unavailable: {detail}",
+                warnings=[docs_unavailable],
             )
         else:
             docs_result = _connector_docs_result(skill_docs)
@@ -648,9 +649,8 @@ def _inspect_destination_fallback(
             connector_name=details.name,
             workspace_id=details.workspace_id,
             integration_name=details.integration_name,
-            context_store_entities=[],
             docs=docs_result,
-            warnings=warnings,
+            warnings=_or_none(warnings),
         )
     if destination is not None:
         message = (
@@ -671,9 +671,7 @@ def _inspect_destination_fallback(
         )
     return AgentConnectorDetailsResult(
         connector_id=connector_id,
-        context_store_entities=[],
-        warnings=[],
-        message=message,
+        errors=[message],
     )
 
 
@@ -709,8 +707,7 @@ def _destination_skill_docs_fallback(
         section_id=section,
         outline=[],
         content="",
-        warnings=[],
-        message=message,
+        errors=[message],
     )
 
 
@@ -1046,9 +1043,7 @@ def inspect_agent_connector(
             raise
         return AgentConnectorDetailsResult(
             connector_id=connector_id,
-            context_store_entities=[],
-            warnings=[],
-            message=message,
+            errors=[message],
         )
 
     warnings = [str(warning) for warning in details.warnings]
@@ -1058,12 +1053,12 @@ def inspect_agent_connector(
             connector_docs = workspace.read_skill_docs(details.docs_skill_id)
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
-            warnings.append(f"Connector docs are unavailable: {detail}")
+            docs_unavailable = f"Connector docs are unavailable: {detail}"
+            warnings.append(docs_unavailable)
             docs_result = AgentConnectorDocsResult(
                 skill_id=details.docs_skill_id,
                 content="",
-                warnings=[],
-                message=f"Connector docs are unavailable: {detail}",
+                warnings=[docs_unavailable],
             )
         else:
             docs_result = _connector_docs_result(_skill_docs_result(connector_docs))
@@ -1073,9 +1068,8 @@ def inspect_agent_connector(
         connector_name=details.name,
         workspace_id=details.workspace_id,
         integration_name=details.integration_name,
-        context_store_entities=details.context_store_entities,
         docs=docs_result,
-        warnings=warnings,
+        warnings=_or_none(warnings),
     )
 
 
@@ -1461,8 +1455,7 @@ def read_agent_skill_docs(
             section_id=section,
             outline=[],
             content="",
-            warnings=[],
-            message=message,
+            errors=[message],
         )
 
     return _skill_docs_result(docs)

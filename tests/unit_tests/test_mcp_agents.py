@@ -12,8 +12,6 @@ import requests
 from airbyte.agents.models import (
     AgentConnectorDetails,
     AgentConnectorMetadata,
-    AgentContextStoreEntity,
-    AgentContextStoreReadiness,
     AgentExecuteResult,
     AgentExecutionMetadata,
     AgentSkillDocs,
@@ -414,10 +412,10 @@ def test_read_only_tool_action_type_excludes_writes() -> None:
     assert "download" not in {member.value for member in AgentWriteAction}
 
 
-def test_inspect_tool_reports_context_store_entities(
+def test_inspect_tool_reports_connector_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `inspect_agent_connector` surfaces entities, docs, and warnings."""
+    """Verify `inspect_agent_connector` surfaces connector metadata, docs, and warnings."""
 
     class _InspectableConnector:
         def inspect(self) -> AgentConnectorDetails:
@@ -427,11 +425,6 @@ def test_inspect_tool_reports_context_store_entities(
                 workspace_id="workspace-id",
                 integration_name="GitHub",
                 docs_skill_id="connector:github",
-                context_store_readiness=AgentContextStoreReadiness(
-                    supported_context_store_entities=[
-                        AgentContextStoreEntity(entity="issues")
-                    ],
-                ),
                 warnings=["Context Store is still syncing."],
             )
 
@@ -456,7 +449,6 @@ def test_inspect_tool_reports_context_store_entities(
     )
 
     assert result.integration_name == "GitHub"
-    assert result.context_store_entities == ["issues"]
     assert result.docs.skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
 
@@ -542,7 +534,7 @@ def test_inspect_tool_includes_docs_summary(
 def test_inspect_tool_warns_when_docs_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A docs read failure degrades to a `docs` message plus a warning, never an error."""
+    """A docs read failure degrades to a docs warning plus a warning, never an error."""
     _inspect_workspace_with_docs(monkeypatch, docs=None)
 
     result = _inspect_connector_result()
@@ -550,7 +542,7 @@ def test_inspect_tool_warns_when_docs_unavailable(
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
     assert "outline" not in result.docs.model_dump()
-    assert result.docs.message == "Connector docs are unavailable: Skill docs failed"
+    assert result.docs.warnings == ["Connector docs are unavailable: Skill docs failed"]
     assert result.warnings == [
         "Context Store is still syncing.",
         "Connector docs are unavailable: Skill docs failed",
@@ -586,7 +578,7 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
     result = _inspect_connector_result()
 
     assert result.docs is None
-    assert result.warnings == []
+    assert result.warnings is None
 
 
 def test_inspect_tool_docs_guidance_uses_first_available_section(
@@ -664,7 +656,7 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
     assert "outline" not in result.docs.model_dump()
-    assert result.docs.message == "Connector docs are unavailable: docs timed out"
+    assert result.docs.warnings == ["Connector docs are unavailable: docs timed out"]
     assert result.warnings == ["Connector docs are unavailable: docs timed out"]
 
 
@@ -932,7 +924,7 @@ _ACCESS_FAILURE_CASES = [
             workspace_id="workspace-1",
             organization_id=None,
         ),
-        {"context_store_entities": [], "connector_id": "connector-id"},
+        {"connector_id": "connector-id"},
         id="inspect",
     ),
 ]
@@ -968,7 +960,10 @@ def test_agents_tools_report_access_failures(
 
     result = call_tool()
 
-    assert result.message == expected_message
+    if getattr(result, "errors", None) is not None:
+        assert result.errors == [expected_message]
+    else:
+        assert result.message == expected_message
     for field, expected_value in expected_result_fields.items():
         assert getattr(result, field) == expected_value
 
@@ -1643,13 +1638,13 @@ def test_inspect_destination_fallback_reports_docs_skill(
     assert result.docs.guidance is not None
     assert "sql-passthrough" in result.docs.guidance
     assert "No connections sync into this destination" in result.docs.content
-    assert result.message is None
+    assert result.errors is None
 
 
 def test_inspect_destination_fallback_docs_failure_yields_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A docs build failure degrades to a `docs` message plus a warning, never an error."""
+    """A docs build failure degrades to a docs warning plus a warning, never an error."""
     destination = _FakeDestinationForDocs(
         connector_id="dest-snowflake",
         name="Snowflake dev",
@@ -1665,7 +1660,7 @@ def test_inspect_destination_fallback_docs_failure_yields_warning(
     assert result.docs is not None
     assert result.docs.content == ""
     assert result.warnings == ["Connector docs are unavailable: boom"]
-    assert result.docs.message == "Connector docs are unavailable: boom"
+    assert result.docs.warnings == ["Connector docs are unavailable: boom"]
 
 
 def test_inspect_destination_fallback_reports_unsupported(
@@ -1676,8 +1671,8 @@ def test_inspect_destination_fallback_reports_unsupported(
 
     result = _inspect("dest-null")
 
-    assert result.message is not None
-    assert "not a SQL passthrough destination" in result.message
+    assert result.errors is not None
+    assert "not a SQL passthrough destination" in result.errors[0]
     assert result.docs is None
 
 
@@ -1689,9 +1684,9 @@ def test_inspect_destination_fallback_reports_unknown_id(
 
     result = _inspect("dest-unknown")
 
-    assert result.message is not None
-    assert "not found" in result.message
-    assert "list_agent_connectors" in result.message
+    assert result.errors is not None
+    assert "not found" in result.errors[0]
+    assert "list_agent_connectors" in result.errors[0]
 
 
 def test_inspect_reports_cloud_source_not_enabled_for_agents(
@@ -1706,11 +1701,11 @@ def test_inspect_reports_cloud_source_not_enabled_for_agents(
 
     result = _inspect("src-disabled")
 
-    assert result.message is not None
-    assert "'GitHub prod' (src-disabled)" in result.message
-    assert "not enabled for Agents access" in result.message
-    assert "Context layer" in result.message
-    assert "not found" not in result.message
+    assert result.errors is not None
+    assert "'GitHub prod' (src-disabled)" in result.errors[0]
+    assert "not enabled for Agents access" in result.errors[0]
+    assert "Context layer" in result.errors[0]
+    assert "not found" not in result.errors[0]
 
 
 def test_list_agent_connectors_empty_explains_how_to_enable(
@@ -1945,7 +1940,7 @@ def test_read_docs_destination_fallback_source_prefix_resolves(
 
     result = _read_docs("connector-source:dest-snowflake")
 
-    assert result.message is None
+    assert result.errors is None
     assert result.content
 
 
@@ -1964,12 +1959,12 @@ def test_read_docs_destination_fallback_reports_unsupported_and_unknown(
     _patch_destination_404(monkeypatch, [_UNSUPPORTED_DESTINATION])
 
     unsupported = _read_docs("connector-destination:dest-null")
-    assert unsupported.message is not None
-    assert "not a SQL passthrough destination" in unsupported.message
+    assert unsupported.errors is not None
+    assert "not a SQL passthrough destination" in unsupported.errors[0]
 
     unknown = _read_docs("connector-destination:dest-unknown")
-    assert unknown.message is not None
-    assert "not found" in unknown.message
+    assert unknown.errors is not None
+    assert "not found" in unknown.errors[0]
 
 
 def test_inspect_destination_fallback_handles_get_connector_miss(
@@ -1995,8 +1990,8 @@ def test_inspect_destination_fallback_handles_get_connector_miss(
 
     result = _inspect("dest-unknown")
 
-    assert result.message is not None
-    assert "not found" in result.message
+    assert result.errors is not None
+    assert "not found" in result.errors[0]
 
 
 def test_inspect_destination_fallback_lists_destinations_once(
