@@ -23,6 +23,7 @@ from airbyte.exceptions import PyAirbyteInputError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.connectors import CloudDestination
 
 SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
@@ -39,6 +40,12 @@ SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
     BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
 }
 """Destination definition ID -> display name of the destination integration."""
+
+_DESTINATION_LOCATION_KEYS: Mapping[str, tuple[tuple[str, str], tuple[str, str]]] = {
+    SNOWFLAKE_DESTINATION_DEFINITION_ID: (("database", "database"), ("schema", "schema")),
+    BIGQUERY_DESTINATION_DEFINITION_ID: (("project", "project_id"), ("dataset", "dataset_id")),
+}
+"""Destination definition ID -> (label, configuration key) pairs locating synced tables."""
 
 SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 
@@ -81,6 +88,16 @@ def build_destination_connector_details(destination: CloudDestination) -> AgentC
     )
 
 
+def _destination_location(destination: CloudDestination) -> list[tuple[str, str]]:
+    """Return (label, value) pairs locating synced tables (for example database/schema)."""
+    configuration = destination.configuration or {}
+    return [
+        (label, value)
+        for label, key in _DESTINATION_LOCATION_KEYS.get(destination.definition_id, ())
+        if isinstance(value := configuration.get(key), str) and value
+    ]
+
+
 def _destination_connections(destination: CloudDestination) -> list[Any]:
     return [
         connection
@@ -114,21 +131,25 @@ def build_destination_skill_docs(
 
     if section is None:
         connections = _destination_connections(destination)
-        content: list[dict[str, Any]] = [
-            {
-                "type": "paragraph",
-                "text": (
-                    f"`{destination.name}` is an Airbyte Cloud destination, reachable via "
-                    '`execute_agent_connector_ro` with `action="sql_select"` and '
-                    f'`"sql_dialect": "{dialect}"` in `api_args`. Read the `sql-passthrough` '
-                    "section for query syntax. The connections and enabled streams below "
-                    "describe what data lands here; re-read the `connections` or `streams` "
-                    "section to refresh them."
-                ),
-            }
-        ]
+        location = _destination_location(destination)
+        text = (
+            f"`{destination.name}` is an Airbyte Cloud destination, reachable via "
+            '`execute_agent_connector_ro` with `action="sql_select"` and '
+            f'`"sql_dialect": "{dialect}"` in `api_args`. '
+        )
+        if location:
+            location_text = ", ".join(f"{label} `{value}`" for label, value in location)
+            text += (
+                f"Tables land in {location_text} unless a connection overrides the " "namespace. "
+            )
+        text += (
+            "Read the `sql-passthrough` section for query syntax. The connections and "
+            "enabled streams below describe what data lands here; re-read the "
+            "`connections` or `streams` section to refresh them."
+        )
+        content: list[dict[str, Any]] = [{"type": "paragraph", "text": text}]
         content += _connections_section(destination, connections)
-        content += _streams_section(connections)
+        content += _streams_section(connections, location)
         return AgentSkillDocs(metadata=metadata, outline=outline, section_id=None, content=content)
 
     if section == SECTION_SQL_PASSTHROUGH:
@@ -136,7 +157,9 @@ def build_destination_skill_docs(
     elif section == SECTION_CONNECTIONS:
         content = _connections_section(destination, _destination_connections(destination))
     elif section == SECTION_STREAMS:
-        content = _streams_section(_destination_connections(destination))
+        content = _streams_section(
+            _destination_connections(destination), _destination_location(destination)
+        )
     else:
         raise PyAirbyteInputError(
             message=f"Unknown section {section!r} for skill {skill_id!r}.",
@@ -181,7 +204,7 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
         {
             "type": "code",
             "language": "sql",
-            "code": "SELECT * FROM <table> LIMIT 10",
+            "code": _qualified_table_example(destination),
         },
         {
             "type": "paragraph",
@@ -191,6 +214,18 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
             ),
         },
     ]
+
+
+def _qualified_table_example(destination: CloudDestination) -> str:
+    """Return an example `SELECT` qualifying the table with the destination's namespace."""
+    location = _destination_location(destination)
+    namespace_entries = location[1:]
+    if not namespace_entries:
+        return "SELECT * FROM <table> LIMIT 10"
+    namespace = namespace_entries[0][1]
+    if destination.definition_id == BIGQUERY_DESTINATION_DEFINITION_ID:
+        return f"SELECT * FROM `{namespace}.<table>` LIMIT 10"
+    return f"SELECT * FROM {namespace}.<table> LIMIT 10"
 
 
 def _connections_section(
@@ -223,7 +258,33 @@ def _connections_section(
     ]
 
 
-def _streams_section(connections: list[Any]) -> list[dict[str, Any]]:
+def _connection_namespace_note(
+    connection: CloudConnection,
+    location: list[tuple[str, str]],
+) -> str:
+    """Describe where a connection's tables land: namespace choice plus table prefix."""
+    prefix_clause = (
+        f", with table prefix {connection.table_prefix!r}."
+        if connection.table_prefix
+        else ", with no table prefix."
+    )
+    namespace_definition = connection.namespace_definition
+    if namespace_definition == "source":
+        note = "Streams land in a namespace mirroring the source's own namespace (e.g. its schema)"
+    elif namespace_definition == "custom_format":
+        note = f"Streams land in namespace format `{connection.namespace_format}`"
+    else:
+        note = "Streams land in the destination's default namespace"
+        if namespace_entries := location[1:]:
+            label, value = namespace_entries[0]
+            note += f", {label} `{value}`"
+    return note + prefix_clause
+
+
+def _streams_section(
+    connections: list[Any],
+    location: list[tuple[str, str]],
+) -> list[dict[str, Any]]:
     if not connections:
         return [
             {
@@ -236,14 +297,12 @@ def _streams_section(connections: list[Any]) -> list[dict[str, Any]]:
     ]
     for connection in connections:
         blocks.append({"type": "heading", "level": 3, "text": str(connection.name)})
-        prefix_note = (
-            f"Sync writes these streams with table prefix {connection.table_prefix!r}."
-            if connection.table_prefix
-            else "Sync writes these streams with no table prefix."
-        )
         blocks.extend(
             [
-                {"type": "paragraph", "text": prefix_note},
+                {
+                    "type": "paragraph",
+                    "text": _connection_namespace_note(connection, location),
+                },
                 {"type": "list", "items": list(connection.stream_names)},
             ]
         )

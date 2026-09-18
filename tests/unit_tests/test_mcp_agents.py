@@ -1474,10 +1474,12 @@ class _FakeDestinationForDocs:
         connections: list[Any] | None = None,
         sources: list[Any] | None = None,
         connections_error: Exception | None = None,
+        configuration: dict[str, Any] | None = None,
     ) -> None:
         self.connector_id = connector_id
         self.name = name
         self.definition_id = definition_id
+        self.configuration = configuration
         self.connections_looked_up = False
         self._connections = connections or []
         self._sources = sources or []
@@ -1509,6 +1511,8 @@ class _FakeConnectionForDocs:
         destination_id: str,
         stream_names: list[str] | None = None,
         table_prefix: str = "",
+        namespace_definition: str | None = None,
+        namespace_format: str | None = None,
     ) -> None:
         self.connection_id = connection_id
         self.name = name
@@ -1516,6 +1520,8 @@ class _FakeConnectionForDocs:
         self.source_id = "source-1"
         self.stream_names = stream_names or []
         self.table_prefix = table_prefix
+        self.namespace_definition = namespace_definition
+        self.namespace_format = namespace_format
 
     @property
     def source(self) -> Any:
