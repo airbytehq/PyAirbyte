@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
+import requests
 from airbyte.agents.models import (
     AgentConnectorDetails,
     AgentConnectorMetadata,
@@ -581,21 +582,80 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
     assert result.warnings == []
 
 
-def test_inspect_tool_docs_guidance_omits_example_without_outline(
+def test_inspect_tool_docs_guidance_uses_first_available_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An empty outline still yields guidance, just without the example section."""
+    """The guidance example picks the first available outline section."""
     docs = AgentSkillDocs(
         metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
-        outline=[],
+        outline=[
+            AgentSkillSection(id="actions.a", title="a", available=False),
+            AgentSkillSection(id="actions.b", title="b"),
+        ],
     )
     _inspect_workspace_with_docs(monkeypatch, docs=docs)
 
     result = _inspect_connector_result()
 
-    assert result.docs_guidance is not None
-    assert "connector:github" in result.docs_guidance
-    assert "e.g." not in result.docs_guidance
+    assert "actions.b" in result.docs_guidance
+    assert "actions.a" not in result.docs_guidance
+
+
+def test_inspect_tool_docs_guidance_omits_example_without_outline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty or fully unavailable outline yields guidance with no section example."""
+    for outline in (
+        [],
+        [AgentSkillSection(id="actions.a", title="a", available=False)],
+    ):
+        docs = AgentSkillDocs(
+            metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+            outline=outline,
+        )
+        _inspect_workspace_with_docs(monkeypatch, docs=docs)
+
+        result = _inspect_connector_result()
+
+        assert result.docs_guidance is not None
+        assert "connector:github" in result.docs_guidance
+        assert "No sections are currently available" in result.docs_guidance
+        assert "e.g." not in result.docs_guidance
+        assert "section=" not in result.docs_guidance
+
+
+def test_inspect_tool_warns_when_docs_read_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transport error reading docs degrades to `docs=None` plus a warning."""
+
+    class _InspectableConnector:
+        def inspect(self) -> AgentConnectorDetails:
+            return AgentConnectorDetails(
+                connector_id="connector-id",
+                name="GitHub",
+                docs_skill_id="connector:github",
+            )
+
+    class _InspectableWorkspace:
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _InspectableConnector()
+
+        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise requests.exceptions.Timeout("docs timed out")
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+    )
+
+    result = _inspect_connector_result()
+
+    assert result.connector_name == "GitHub"
+    assert result.docs is None
+    assert result.docs_guidance is None
+    assert result.warnings == ["Connector docs are unavailable: docs timed out"]
 
 
 def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:

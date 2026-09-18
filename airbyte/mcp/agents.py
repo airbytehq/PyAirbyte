@@ -26,6 +26,7 @@ import json
 from http import HTTPStatus
 from typing import Annotated, Any, Literal
 
+import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -120,7 +121,12 @@ AGENTS_FORBIDDEN_MESSAGE = (
 DOCS_GUIDANCE_TEMPLATE = (
     "`docs` is a summary: execution guidance plus one outline entry per action. Before calling "
     "`execute_agent_connector`, read the target action's section for its exact parameter names: "
-    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<outline[].section_id>)`"
+    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<a section_id from docs.outline>)`, "
+    "e.g. `section={example!r}`."
+)
+DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE = (
+    "`docs` is a summary. No sections are currently available in `docs.outline`; "
+    "`read_agent_skill_docs(skill_id={skill_id!r})` returns the same summary."
 )
 
 AGENTS_ACTOR_NOT_ENABLED_DETAIL = "Actor is not enabled for Agents access."
@@ -556,8 +562,10 @@ def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
 
 def _docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
     """Build the `docs_guidance` hint for a skill's section outline."""
-    example_clause = f", e.g. `section={outline[0].section_id!r}`" if outline else ""
-    return DOCS_GUIDANCE_TEMPLATE.format(skill_id=skill_id) + example_clause + "."
+    example_section = next((section for section in outline if section.available), None)
+    if example_section is None:
+        return DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
+    return DOCS_GUIDANCE_TEMPLATE.format(skill_id=skill_id, example=example_section.section_id)
 
 
 def _inspect_destination_fallback(
@@ -999,8 +1007,9 @@ def inspect_agent_connector(
     if details.docs_skill_id:
         try:
             connector_docs = workspace.read_skill_docs(details.docs_skill_id)
-        except AirbyteError as error:
-            warnings.append(f"Connector docs are unavailable: {error.get_message()}")
+        except (AirbyteError, requests.RequestException) as error:
+            detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
+            warnings.append(f"Connector docs are unavailable: {detail}")
         else:
             docs_result = _skill_docs_result(connector_docs)
             docs_guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
