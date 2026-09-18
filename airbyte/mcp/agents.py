@@ -79,7 +79,7 @@ AGENTS_AUTH_TIP_TEXT = (
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. Call `list_agent_connectors` to discover connector "
     f"IDs, then `inspect_agent_connector` to learn which entities a connector supports, "
     f"before calling `execute_agent_connector`. Use `list_agent_skills` "
-    f"to discover skills, and pass a `docs_skill_id` reported by "
+    f"to discover skills, and pass the `docs.skill_id` reported by "
     f"`inspect_agent_connector` to `read_agent_skill_docs` for connector usage docs."
 )
 WORKSPACE_ID_TIP_TEXT = (
@@ -340,9 +340,6 @@ class AgentConnectorDetailsResult(BaseModel):
     source_definition_name: str | None = None
     """The name of the underlying source definition, for example `GitHub`."""
 
-    docs_skill_id: str | None = None
-    """Skill ID for this connector's usage docs, when reported by the Agents API."""
-
     context_store_entities: list[str]
     """Entities this connector can cache in the Context Store.
 
@@ -594,7 +591,6 @@ def _inspect_destination_fallback(
             connector_id=details.connector_id,
             connector_name=details.name,
             workspace_id=details.workspace_id,
-            docs_skill_id=details.docs_skill_id,
             context_store_entities=[],
             docs=docs_result,
             warnings=[],
@@ -977,7 +973,7 @@ def inspect_agent_connector(
 
     Call this before `execute_agent_connector` to learn what the connector exposes.
     The connector's usage docs summary is returned inline in `docs`: execution guidance
-    plus one `outline` entry per action. `read_agent_skill_docs(skill_id=docs_skill_id,
+    plus one `outline` entry per action. `read_agent_skill_docs(skill_id=docs.skill_id,
     section=...)` is only needed to read a single action's full parameter detail.
     Airbyte Cloud destinations in the workspace are also accepted and resolve to
     built-in docs under `connector-destination:<id>`.
@@ -1006,6 +1002,13 @@ def inspect_agent_connector(
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
             warnings.append(f"Connector docs are unavailable: {detail}")
+            docs_result = AgentSkillDocsResult(
+                skill_id=details.docs_skill_id,
+                outline=[],
+                content=[],
+                warnings=[],
+                message=f"Connector docs are unavailable: {detail}",
+            )
         else:
             docs_result = _skill_docs_result(connector_docs)
             docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
@@ -1015,7 +1018,6 @@ def inspect_agent_connector(
         connector_name=details.name,
         workspace_id=details.workspace_id,
         source_definition_name=details.source_definition_name,
-        docs_skill_id=details.docs_skill_id,
         context_store_entities=details.context_store_entities,
         docs=docs_result,
         warnings=warnings,
@@ -1357,7 +1359,7 @@ def read_agent_skill_docs(
         str,
         Field(
             description=(
-                "Skill ID, e.g. the `docs_skill_id` reported by `inspect_agent_connector`, "
+                "Skill ID, e.g. the `docs.skill_id` reported by `inspect_agent_connector`, "
                 "or a `skill_id` from `list_agent_skills`. `inspect_agent_connector` already "
                 "returns the docs summary and section outline inline, so this tool is only "
                 "needed to read a single section's full detail. SQL passthrough destinations "

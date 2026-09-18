@@ -452,7 +452,7 @@ def test_inspect_tool_reports_context_store_entities(
     )
 
     assert result.context_store_entities == ["issues"]
-    assert result.docs_skill_id == "connector:github"
+    assert result.docs.skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
 
 
@@ -535,13 +535,15 @@ def test_inspect_tool_includes_docs_summary(
 def test_inspect_tool_warns_when_docs_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A docs read failure degrades to `docs=None` plus a warning, never an error."""
+    """A docs read failure degrades to a `docs` message plus a warning, never an error."""
     _inspect_workspace_with_docs(monkeypatch, docs=None)
 
     result = _inspect_connector_result()
 
-    assert result.docs_skill_id == "connector:github"
-    assert result.docs is None
+    assert result.docs is not None
+    assert result.docs.skill_id == "connector:github"
+    assert result.docs.outline == []
+    assert result.docs.message == "Connector docs are unavailable: Skill docs failed"
     assert result.warnings == [
         "Context Store is still syncing.",
         "Connector docs are unavailable: Skill docs failed",
@@ -626,7 +628,7 @@ def test_inspect_tool_docs_guidance_omits_example_without_outline(
 def test_inspect_tool_warns_when_docs_read_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A transport error reading docs degrades to `docs=None` plus a warning."""
+    """A transport error reading docs degrades to a `docs` message plus a warning."""
 
     class _InspectableConnector:
         def inspect(self) -> AgentConnectorDetails:
@@ -652,7 +654,10 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     result = _inspect_connector_result()
 
     assert result.connector_name == "GitHub"
-    assert result.docs is None
+    assert result.docs is not None
+    assert result.docs.skill_id == "connector:github"
+    assert result.docs.outline == []
+    assert result.docs.message == "Connector docs are unavailable: docs timed out"
     assert result.warnings == ["Connector docs are unavailable: docs timed out"]
 
 
@@ -1601,9 +1606,8 @@ def test_inspect_destination_fallback_reports_docs_skill(
 
     assert result.connector_id == "dest-snowflake"
     assert result.connector_name == "Snowflake dev"
-    assert result.docs_skill_id == "connector-destination:dest-snowflake"
     assert result.docs is not None
-    assert result.docs.skill_id == result.docs_skill_id
+    assert result.docs.skill_id == "connector-destination:dest-snowflake"
     assert result.docs.guidance is not None
     assert "sql-passthrough" in result.docs.guidance
     assert result.message is None
@@ -1619,7 +1623,7 @@ def test_inspect_destination_fallback_reports_unsupported(
 
     assert result.message is not None
     assert "not a SQL passthrough destination" in result.message
-    assert result.docs_skill_id is None
+    assert result.docs is None
 
 
 def test_inspect_destination_fallback_reports_unknown_id(
@@ -1921,5 +1925,5 @@ def test_inspect_destination_fallback_lists_destinations_once(
 
     result = _inspect("dest-snowflake")
 
-    assert result.docs_skill_id == "connector-destination:dest-snowflake"
+    assert result.docs.skill_id == "connector-destination:dest-snowflake"
     assert cloud_workspace.list_destinations_calls == 1
