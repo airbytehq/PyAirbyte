@@ -48,7 +48,6 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.agents import _api_util as agents_api_util
-from airbyte.agents._destination_docs import SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
 from airbyte.agents.models import AgentConnectorDetails, AgentConnectorInfo
 from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
@@ -62,7 +61,10 @@ from airbyte.cloud.connectors import (
     ConnectorType,
     CustomCloudSourceDefinition,
 )
-from airbyte.cloud.models import CloudWorkspaceInfo
+from airbyte.cloud.models import (
+    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    CloudWorkspaceInfo,
+)
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
 

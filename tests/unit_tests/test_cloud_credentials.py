@@ -14,7 +14,6 @@ from airbyte import constants
 from airbyte._util import api_util
 from airbyte.cloud import _credentials as cloud_credentials
 from airbyte.cloud.client import CloudClient
-from airbyte.agents._destination_docs import SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
 from airbyte.cloud.connectors import (
     CloudDestination,
     CloudSource,
@@ -22,6 +21,7 @@ from airbyte.cloud.connectors import (
     ConnectorType,
 )
 from airbyte.cloud.models import (
+    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     CloudDestinationInfo,
     CloudSourceInfo,
     CloudWorkspaceInfo,

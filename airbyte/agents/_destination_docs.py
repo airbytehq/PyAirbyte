@@ -17,6 +17,7 @@ from airbyte.agents.models import (
     AgentSkillInfo,
     AgentSkillSection,
 )
+from airbyte.cloud.models import SQL_PASSTHROUGH_DESTINATION_DIALECTS
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -25,16 +26,6 @@ if TYPE_CHECKING:
 
     from airbyte.cloud.connectors import CloudDestination
 
-SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
-BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
-
-SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: "snowflake",
-    BIGQUERY_DESTINATION_DEFINITION_ID: "bigquery",
-}
-"""Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
-
-SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 
 DESTINATION_SKILL_PREFIX = "connector-destination:"
 SOURCE_SKILL_PREFIX = "connector-source:"
