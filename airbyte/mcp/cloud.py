@@ -11,17 +11,21 @@
 __all__: list[str] = []
 
 from collections.abc import Callable
+from enum import Enum
 from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, cast
 
+import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
+from airbyte.agents._destination_docs import SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
 from airbyte.agents.organizations import AgentOrganization
+from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -49,7 +53,6 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
-    AirbyteAgentsUnavailableError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
@@ -115,6 +118,23 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
     )
 
 
+class ConnectorFeature(str, Enum):
+    """Optional Airbyte Agents (Context layer) capabilities a Cloud connector may have."""
+
+    EXTERNAL_ACCESS = "external_access"
+    """The connector can be used by Airbyte Agents through the Context layer."""
+
+    SEARCH = "search"
+    """The connector has Context Store caching (search) configured."""
+
+
+WITH_FEATURE_TIP_TEXT = (
+    "Optional feature filter: `external_access` returns only connectors enabled for Airbyte "
+    "Agents (the Context layer); `search` returns only connectors with Context Store caching "
+    "configured. Omit to list every connector along with its feature flags."
+)
+
+
 class CloudSourceResult(BaseModel):
     """Information about a deployed source connector in Airbyte Cloud."""
 
@@ -124,6 +144,12 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
+    external_access_enabled: bool | None = None
+    """Whether the source is enabled for Airbyte Agents (the Context layer). `None` when this
+    could not be determined, for example because the Agents API was unavailable."""
+    search_enabled: bool | None = None
+    """Whether the source has Context Store caching (search) configured. `None` when this
+    could not be determined."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -135,6 +161,13 @@ class CloudDestinationResult(BaseModel):
     """Display name of the destination."""
     url: str
     """Web URL for managing this destination in Airbyte Cloud."""
+    external_access_enabled: bool | None = None
+    """Whether Airbyte Agents can query the destination with `sql_select`: the workspace is
+    enabled for Agents and the destination is a SQL passthrough type (Snowflake, BigQuery).
+    `None` when this could not be determined."""
+    search_enabled: bool | None = None
+    """Whether the destination has Context Store caching (search) configured. Always `False`
+    today: destinations do not participate in the Context Store."""
 
 
 class CloudConnectionResult(BaseModel):
@@ -1004,27 +1037,102 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ],
+    with_feature: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=WITH_FEATURE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
 ) -> list[CloudSourceResult]:
-    """List all deployed source connectors in the Airbyte Cloud workspace."""
+    """List all deployed source connectors in the Airbyte Cloud workspace.
+
+    Each source reports `external_access_enabled` (usable by Airbyte Agents) and
+    `search_enabled` (Context Store caching configured); pass `with_feature` to return only
+    sources with one of those features.
+    """
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    sources = workspace.list_sources(limit=None if name_contains else limit)
+    sources = workspace.list_sources(limit=None if name_contains or with_feature else limit)
 
     # Filter by name if requested
     if name_contains:
         needle = name_contains.lower()
         sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
-    if limit is not None:
-        sources = sources[:limit]
 
-    # Note: name and url are guaranteed non-null from list API responses
-    return [
-        CloudSourceResult(
-            id=source.source_id,
-            name=cast(str, source.name),
-            url=cast(str, source.connector_url),
+    search_by_source_id = _list_agent_source_search_status(workspace)
+    results: list[CloudSourceResult] = []
+    for source in sources:
+        external_access_enabled: bool | None = None
+        search_enabled: bool | None = None
+        if search_by_source_id is not None:
+            external_access_enabled = source.source_id in search_by_source_id
+            search_enabled = (
+                search_by_source_id[source.source_id] if external_access_enabled else False
+            )
+        # Note: name and url are guaranteed non-null from list API responses
+        results.append(
+            CloudSourceResult(
+                id=source.source_id,
+                name=cast(str, source.name),
+                url=cast(str, source.connector_url),
+                external_access_enabled=external_access_enabled,
+                search_enabled=search_enabled,
+            )
         )
-        for source in sources
-    ]
+
+    if with_feature is ConnectorFeature.EXTERNAL_ACCESS:
+        results = [result for result in results if result.external_access_enabled]
+    elif with_feature is ConnectorFeature.SEARCH:
+        results = [result for result in results if result.search_enabled]
+    if limit is not None:
+        results = results[:limit]
+    return results
+
+
+def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, bool | None] | None:
+    """Map each Agents-enabled source ID in the workspace to its Context Store search status.
+
+    Sources missing from the mapping are not enabled for Airbyte Agents. A source maps to
+    `None` when its Context Store status could not be inspected. Returns `None` when the
+    Agents API is unreachable or denies these credentials access to the workspace.
+    """
+    try:
+        agent_workspace = AgentWorkspace.from_cloud_workspace(workspace, verify=False)
+        connectors = agent_workspace.list_connectors()
+    except (AirbyteError, requests.RequestException):
+        return None
+
+    search_by_source_id: dict[str, bool | None] = {}
+    for connector in connectors:
+        try:
+            readiness = connector.inspect().context_store_readiness
+        except (AirbyteError, requests.RequestException):
+            search_by_source_id[connector.connector_id] = None
+            continue
+        search_by_source_id[connector.connector_id] = bool(
+            readiness is not None and readiness.configured_cache_entities
+        )
+    return search_by_source_id
+
+
+def _is_agent_workspace(workspace: CloudWorkspace) -> bool | None:
+    """Return whether the Cloud workspace is reachable through the Airbyte Agents API.
+
+    `False` when the Agents API reports the workspace as not found or forbidden, `None` when
+    reachability could not be determined.
+    """
+    try:
+        AgentWorkspace.from_cloud_workspace(workspace, verify=True)
+    except requests.RequestException:
+        return None
+    except AirbyteError as error:
+        status_code = (error.context or {}).get("status_code")
+        if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+            return False
+        return None
+    return True
 
 
 @mcp_tool(
@@ -1057,27 +1165,59 @@ def list_deployed_cloud_destination_connectors(
             default=None,
         ),
     ],
+    with_feature: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=WITH_FEATURE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
 ) -> list[CloudDestinationResult]:
-    """List all deployed destination connectors in the Airbyte Cloud workspace."""
+    """List all deployed destination connectors in the Airbyte Cloud workspace.
+
+    Each destination reports `external_access_enabled` (queryable by Airbyte Agents via
+    `sql_select`) and `search_enabled`; pass `with_feature` to return only destinations with
+    one of those features.
+    """
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destinations = workspace.list_destinations(limit=None if name_contains else limit)
+    destinations = workspace.list_destinations(
+        limit=None if name_contains or with_feature else limit
+    )
 
     # Filter by name if requested
     if name_contains:
         needle = name_contains.lower()
         destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
-    if limit is not None:
-        destinations = destinations[:limit]
 
-    # Note: name and url are guaranteed non-null from list API responses
-    return [
-        CloudDestinationResult(
-            id=destination.destination_id,
-            name=cast(str, destination.name),
-            url=cast(str, destination.connector_url),
+    is_agent_workspace = _is_agent_workspace(workspace)
+    results: list[CloudDestinationResult] = []
+    for destination in destinations:
+        external_access_enabled: bool | None = None
+        if is_agent_workspace is not None:
+            external_access_enabled = (
+                is_agent_workspace
+                and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+            )
+        # Note: name and url are guaranteed non-null from list API responses
+        results.append(
+            CloudDestinationResult(
+                id=destination.destination_id,
+                name=cast(str, destination.name),
+                url=cast(str, destination.connector_url),
+                external_access_enabled=external_access_enabled,
+                search_enabled=False,
+            )
         )
-        for destination in destinations
-    ]
+
+    if with_feature is ConnectorFeature.EXTERNAL_ACCESS:
+        results = [result for result in results if result.external_access_enabled]
+    elif with_feature is ConnectorFeature.SEARCH:
+        results = [result for result in results if result.search_enabled]
+    if limit is not None:
+        results = results[:limit]
+    return results
 
 
 @mcp_tool(
@@ -1590,6 +1730,8 @@ def list_cloud_workspaces(
     which tells whether it is enabled for Airbyte Agents; pass `agents_enabled_only` to
     return only those workspaces.
     """
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
     client = _get_cloud_client(ctx)
 
     try:
@@ -1653,7 +1795,7 @@ def list_cloud_workspaces(
             for result in results:
                 if result.organization_id == resolved_organization_id:
                     result.organization_name = organization.organization_name
-            if organization_id is None and organization_name is None:
+            if results and organization_id is None and organization_name is None:
                 resolved_organization = (
                     f"{organization.organization_name} ({resolved_organization_id})"
                     if organization.organization_name is not None
@@ -1672,8 +1814,8 @@ def _list_agent_enabled_workspace_ids(
 ) -> dict[str, set[str] | None]:
     """Map each organization to the IDs of its workspaces enabled for Airbyte Agents.
 
-    An organization maps to an empty set when the Agents API denies it access (no Agents
-    subscription), and to `None` when enablement could not be determined.
+    An organization maps to `None` when enablement could not be determined, including when
+    the Agents API is unreachable or denies these credentials access.
     """
     enabled_ids: dict[str, set[str] | None] = {}
     for organization_id in organization_ids:
@@ -1689,11 +1831,8 @@ def _list_agent_enabled_workspace_ids(
             enabled_ids[organization_id] = {
                 workspace.workspace_id for workspace in organization.list_workspaces()
             }
-        except AirbyteAgentsUnavailableError:
+        except (AirbyteError, requests.RequestException):
             enabled_ids[organization_id] = None
-        except AirbyteError as error:
-            status_code = (error.context or {}).get("status_code")
-            enabled_ids[organization_id] = set() if status_code == HTTPStatus.FORBIDDEN else None
     return enabled_ids
 
 

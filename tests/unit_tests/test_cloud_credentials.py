@@ -1760,21 +1760,61 @@ def test_mcp_list_cloud_workspaces_agents_enabled_only(
     assert result.message is None
 
 
+def test_mcp_list_cloud_workspaces_agents_enabled_only_empty_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DiscoveryClient:
+        def list_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
+            return [
+                CloudWorkspaceInfo(
+                    workspaceId="workspace-id",
+                    name="Workspace",
+                    organizationId="organization-id",
+                )
+            ]
+
+        def get_organization(self, *, organization_id: str) -> CloudOrganization:
+            return CloudOrganization(
+                organization_id=organization_id, organization_name="Org"
+            )
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+    monkeypatch.setattr(
+        mcp_cloud,
+        "_list_agent_enabled_workspace_ids",
+        lambda _client, _organization_ids: {"organization-id": set()},
+    )
+
+    result = mcp_cloud.list_cloud_workspaces(
+        None,
+        organization_id=None,
+        organization_name=None,
+        name_contains=None,
+        limit=None,
+        privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+        agents_enabled_only=True,
+    )
+
+    assert result.workspaces == []
+    assert "No workspaces enabled for Airbyte Agents" in (result.message or "")
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
-        pytest.param(AirbyteError(context={"status_code": 403}), set(), id="forbidden"),
+        pytest.param(AirbyteError(context={"status_code": 403}), None, id="forbidden"),
         pytest.param(
             AirbyteError(context={"status_code": 401}), None, id="unauthorized"
         ),
         pytest.param(
             AirbyteAgentsUnavailableError(message="unavailable"), None, id="unavailable"
         ),
+        pytest.param(requests.ConnectionError("offline"), None, id="transport"),
     ],
 )
 def test_mcp_list_agent_enabled_workspace_ids_errors(
     monkeypatch: pytest.MonkeyPatch,
-    error: AirbyteError,
+    error: Exception,
     expected: set[str] | None,
 ) -> None:
     class FakeAgentOrganization:
@@ -1797,6 +1837,198 @@ def test_mcp_list_agent_enabled_workspace_ids_errors(
         cast(CloudClient, Client()), {"organization-id"}
     )
     assert result == {"organization-id": expected}
+
+
+class _FakeSource:
+    def __init__(self, source_id: str, name: str) -> None:
+        self.source_id = source_id
+        self.name = name
+        self.connector_url = f"https://cloud.airbyte.com/sources/{source_id}"
+
+
+@pytest.mark.parametrize(
+    ("with_feature", "search_status", "limit", "expected_ids", "expected_flags"),
+    [
+        pytest.param(
+            None,
+            {"source-1": True, "source-2": False},
+            None,
+            ["source-1", "source-2", "source-3"],
+            [(True, True), (True, False), (False, False)],
+            id="no_filter",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            ["source-1", "source-2", "source-3"],
+            [(None, None), (None, None), (None, None)],
+            id="agents_api_unavailable",
+        ),
+        pytest.param(
+            mcp_cloud.ConnectorFeature.EXTERNAL_ACCESS,
+            {"source-1": True, "source-2": None},
+            1,
+            ["source-1"],
+            [(True, True)],
+            id="external_access_with_limit",
+        ),
+        pytest.param(
+            mcp_cloud.ConnectorFeature.SEARCH,
+            {"source-1": False, "source-2": True},
+            None,
+            ["source-2"],
+            [(True, True)],
+            id="search",
+        ),
+    ],
+)
+def test_mcp_list_deployed_cloud_source_connectors_features(
+    monkeypatch: pytest.MonkeyPatch,
+    with_feature: mcp_cloud.ConnectorFeature | None,
+    search_status: dict[str, bool | None] | None,
+    limit: int | None,
+    expected_ids: list[str],
+    expected_flags: list[tuple[bool | None, bool | None]],
+) -> None:
+    captured_limit: int | None = -1
+
+    class FakeWorkspace:
+        def list_sources(self, *, limit: int | None = None) -> list[_FakeSource]:
+            nonlocal captured_limit
+            captured_limit = limit
+            return [
+                _FakeSource(f"source-{index}", f"Source {index}") for index in (1, 2, 3)
+            ]
+
+    monkeypatch.setattr(
+        mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: FakeWorkspace()
+    )
+    monkeypatch.setattr(
+        mcp_cloud, "_list_agent_source_search_status", lambda _workspace: search_status
+    )
+
+    results = mcp_cloud.list_deployed_cloud_source_connectors(
+        None,
+        workspace_id=None,
+        name_contains=None,
+        limit=limit,
+        with_feature=with_feature,
+    )
+
+    assert captured_limit == (None if with_feature else limit)
+    assert [result.id for result in results] == expected_ids
+    assert [
+        (result.external_access_enabled, result.search_enabled) for result in results
+    ] == expected_flags
+
+
+class _FakeDestination:
+    def __init__(self, destination_id: str, definition_id: str) -> None:
+        self.destination_id = destination_id
+        self.definition_id = definition_id
+        self.name = destination_id
+        self.connector_url = f"https://cloud.airbyte.com/destinations/{destination_id}"
+
+
+@pytest.mark.parametrize(
+    ("with_feature", "is_agent_workspace", "expected_ids", "expected_flags"),
+    [
+        pytest.param(
+            None, True, ["snowflake", "postgres"], [True, False], id="no_filter_enabled"
+        ),
+        pytest.param(
+            None,
+            False,
+            ["snowflake", "postgres"],
+            [False, False],
+            id="no_filter_disabled",
+        ),
+        pytest.param(
+            None,
+            None,
+            ["snowflake", "postgres"],
+            [None, None],
+            id="agents_api_unavailable",
+        ),
+        pytest.param(
+            mcp_cloud.ConnectorFeature.EXTERNAL_ACCESS,
+            True,
+            ["snowflake"],
+            [True],
+            id="external_access",
+        ),
+        pytest.param(mcp_cloud.ConnectorFeature.SEARCH, True, [], [], id="search"),
+    ],
+)
+def test_mcp_list_deployed_cloud_destination_connectors_features(
+    monkeypatch: pytest.MonkeyPatch,
+    with_feature: mcp_cloud.ConnectorFeature | None,
+    is_agent_workspace: bool | None,
+    expected_ids: list[str],
+    expected_flags: list[bool | None],
+) -> None:
+    snowflake_definition_id = next(
+        iter(mcp_cloud.SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS)
+    )
+
+    class FakeWorkspace:
+        def list_destinations(
+            self, *, limit: int | None = None
+        ) -> list[_FakeDestination]:
+            return [
+                _FakeDestination("snowflake", snowflake_definition_id),
+                _FakeDestination("postgres", "not-a-passthrough-definition"),
+            ]
+
+    monkeypatch.setattr(
+        mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: FakeWorkspace()
+    )
+    monkeypatch.setattr(
+        mcp_cloud, "_is_agent_workspace", lambda _workspace: is_agent_workspace
+    )
+
+    results = mcp_cloud.list_deployed_cloud_destination_connectors(
+        None,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        with_feature=with_feature,
+    )
+
+    assert [result.id for result in results] == expected_ids
+    assert [result.external_access_enabled for result in results] == expected_flags
+    assert all(result.search_enabled is False for result in results)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(None, True, id="reachable"),
+        pytest.param(AirbyteError(context={"status_code": 403}), False, id="forbidden"),
+        pytest.param(AirbyteError(context={"status_code": 404}), False, id="not_found"),
+        pytest.param(
+            AirbyteError(context={"status_code": 500}), None, id="server_error"
+        ),
+        pytest.param(requests.ConnectionError("offline"), None, id="transport"),
+    ],
+)
+def test_mcp_is_agent_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception | None,
+    expected: bool | None,
+) -> None:
+    class FakeAgentWorkspace:
+        @classmethod
+        def from_cloud_workspace(cls, _workspace: object, *, verify: bool) -> object:
+            assert verify is True
+            if error is not None:
+                raise error
+            return cls()
+
+    monkeypatch.setattr(mcp_cloud, "AgentWorkspace", FakeAgentWorkspace)
+
+    assert mcp_cloud._is_agent_workspace(cast(CloudWorkspace, object())) is expected
 
 
 def test_mcp_list_cloud_organizations_forwards_filter_and_limit(

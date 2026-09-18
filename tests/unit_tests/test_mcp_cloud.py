@@ -157,6 +157,14 @@ class _CancellationWorkspace:
         return self.connection
 
 
+def _stub_agent_feature_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make Agents feature lookups report unknown status without network access."""
+    monkeypatch.setattr(
+        cloud_mcp, "_list_agent_source_search_status", lambda workspace: None
+    )
+    monkeypatch.setattr(cloud_mcp, "_is_agent_workspace", lambda workspace: None)
+
+
 class _CloudWorkspace:
     """Capture `limit` values passed from MCP list tools."""
 
@@ -247,6 +255,7 @@ def test_mcp_cloud_list_tools_pass_limit_to_workspace(
         "_get_cloud_workspace",
         lambda ctx, workspace_id=None: workspace,
     )
+    _stub_agent_feature_lookups(monkeypatch)
 
     results = tool(
         ctx=object(),
@@ -301,6 +310,7 @@ def test_mcp_cloud_list_tools_apply_limit_after_name_filter(
         "_get_cloud_workspace",
         lambda ctx, workspace_id=None: workspace,
     )
+    _stub_agent_feature_lookups(monkeypatch)
 
     results = tool(
         ctx=object(),
