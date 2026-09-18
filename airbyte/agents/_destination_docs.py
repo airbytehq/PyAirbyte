@@ -62,8 +62,10 @@ _NAMESPACE_NOUNS: Mapping[str, str] = {
 
 _DIALECT_NOTES: Mapping[str, list[str]] = {
     "snowflake": [
-        "Unquoted identifiers are upper-cased and case-insensitive; Airbyte writes tables in "
-        "upper case, so stream `users` is table `USERS`.",
+        "Unquoted identifiers are upper-cased and case-insensitive. With the default "
+        "destination settings Airbyte writes upper-cased table names, so stream `users` "
+        "is table `USERS`; connections using the legacy case-preserving raw-table mode "
+        "keep the original case. Confirm names with `SHOW TABLES`.",
         "Qualify tables in another schema as `<database>.<schema>.<table>`.",
         "Avoid `INFORMATION_SCHEMA` scans: on large accounts they can exceed the query time "
         "budget. `SHOW TABLES` is served from metadata and returns quickly.",
@@ -77,7 +79,8 @@ _DIALECT_NOTES: Mapping[str, list[str]] = {
 
 _AIRBYTE_METADATA_COLUMNS = (
     "Every Airbyte-written table also carries `_airbyte_raw_id`, `_airbyte_extracted_at` "
-    "(sync time, useful for freshness checks), `_airbyte_meta` (per-row sync errors), and "
+    "(when the record was extracted from the source; useful for freshness checks), "
+    "`_airbyte_meta` (per-row sync errors), and "
     "`_airbyte_generation_id`. Raw records live in the `airbyte_internal` namespace."
 )
 
@@ -202,7 +205,7 @@ def _overview(destination: CloudDestination, dialect: str) -> list[dict[str, Any
                 '`"dry_run": true` in `api_args`; only the column list is returned.',
                 "Results are capped by the server; when a response includes `end_cursor`, pass it "
                 "back as the top-level `cursor` argument to fetch the next page. Always add a "
-                "`LIMIT` clause.",
+                "`LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no `LIMIT`).",
                 "Statements are cancelled after a fixed time budget (about a minute) and return "
                 "an error; narrow the query rather than retrying it unchanged.",
                 _AIRBYTE_METADATA_COLUMNS,
@@ -268,7 +271,8 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
                 "Row count and response size are capped by the server. When a response includes "
                 "`end_cursor`, pass it back as the top-level `cursor` argument to fetch the next "
                 "page (`dry_run` cannot be combined with `cursor`).",
-                "Always add a `LIMIT` clause and select only the columns you need.",
+                "Always add a `LIMIT` clause to `SELECT` queries and select only the "
+                "columns you need (`SHOW TABLES` takes no `LIMIT`).",
                 "Statements are cancelled after a fixed time budget (about a minute) and return "
                 "an error; narrow the query rather than retrying it unchanged.",
             ],
@@ -327,7 +331,8 @@ def _streams_section(destination: CloudDestination, dialect: str) -> list[dict[s
             "text": (
                 "Each enabled stream is written to a table named `<table_prefix><stream_name>` "
                 f"in the destination's configured {_NAMESPACE_NOUNS[dialect]}. Query these "
-                "names directly (unqualified) with `sql_select`."
+                "names directly (unqualified) with `sql_select`. Names below assume the "
+                "destination's default identifier casing; confirm with `SHOW TABLES`."
             ),
         },
     ]
