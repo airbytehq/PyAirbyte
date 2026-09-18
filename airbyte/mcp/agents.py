@@ -316,7 +316,7 @@ class AgentSkillDocsResult(BaseModel):
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
     guidance: str | None = None
-    """How to drill into a section for full detail, when this is an inline summary."""
+    """How to read more of this skill's docs with `read_agent_skill_docs`, when applicable."""
 
     warnings: list[str]
     """Non-fatal issues reported while building or reading the docs."""
@@ -348,9 +348,11 @@ class AgentConnectorDetailsResult(BaseModel):
     """
 
     docs: AgentSkillDocsResult | None = None
-    """The connector's usage docs summary: execution guidance plus the outline of per-action
-    sections. Each `outline[].section_id` can be passed as `section` to `read_agent_skill_docs`
-    for that action's full parameter list, types, and examples. See `docs.guidance`."""
+    """Summary of the connector's usage docs, when available.
+
+    Pass `docs.skill_id` and a `docs.outline[].section_id` to `read_agent_skill_docs` for a
+    section's full detail.
+    """
 
     warnings: list[str]
     """Warnings the Agents API reported about this connector."""
@@ -972,9 +974,9 @@ def inspect_agent_connector(
     """Inspect an Airbyte Agents connector: metadata, readiness, warnings, and inline `docs`.
 
     Call this before `execute_agent_connector` to learn what the connector exposes.
-    The connector's usage docs summary is returned inline in `docs`: execution guidance
-    plus one `outline` entry per action. `read_agent_skill_docs(skill_id=docs.skill_id,
-    section=...)` is only needed to read a single action's full parameter detail.
+    The connector's usage docs summary is returned inline in `docs`; use
+    `read_agent_skill_docs(skill_id=docs.skill_id, section=...)` for a single section's
+    full detail.
     Airbyte Cloud destinations in the workspace are also accepted and resolve to
     built-in docs under `connector-destination:<id>`.
     """
