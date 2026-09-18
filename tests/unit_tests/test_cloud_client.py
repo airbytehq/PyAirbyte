@@ -88,6 +88,18 @@ def test_configured_workspace_beats_authenticated_user_default() -> None:
     get_user.assert_not_called()
 
 
+def test_get_workspace_forwards_configured_organization_id() -> None:
+    patches = _api_patches(user={"userId": "user-id"})
+    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        workspace = CloudClient(
+            bearer_token="token",
+            workspace_id="configured-workspace",
+            organization_id="configured-organization",
+        ).get_workspace()
+
+    assert workspace._credentials.organization_id == "configured-organization"
+
+
 @pytest.mark.parametrize(
     ("permissions", "expected_workspace_id"),
     [

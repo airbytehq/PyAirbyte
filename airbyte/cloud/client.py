@@ -255,6 +255,7 @@ class CloudClient:
             bearer_token=credentials.bearer_token,
             api_root=credentials.public_api_root,
             config_api_root=credentials.config_api_root,
+            organization_id=credentials.organization_id,
         )
 
     def create_workspace(

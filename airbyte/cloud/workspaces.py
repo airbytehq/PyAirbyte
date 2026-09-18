@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 
 import requests
 import yaml
+from pydantic import ValidationError
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
@@ -120,11 +121,17 @@ class CloudWorkspace:
         api_root: str | None = None,
         config_api_root: str | None = None,
         bearer_token: str | SecretString | None = None,
+        organization_id: str | None = None,
     ) -> None:
-        """Validate and initialize credentials."""
+        """Validate and initialize credentials.
+
+        `organization_id` optionally scopes requests that need an explicit organization (for
+        example Airbyte Agents lookups) when the credentials span several organizations.
+        """
         env_vars = not (client_id or client_secret or bearer_token)
         credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
+            organization_id=organization_id,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
@@ -314,18 +321,21 @@ class CloudWorkspace:
         """Return the organization ID to send with Agents API requests, if known.
 
         The Agents API needs an explicit organization when credentials span several
-        organizations. Falls back to the credentials' own organization ID when the parent
-        organization cannot be looked up.
+        organizations. An organization configured on this workspace wins; otherwise the
+        workspace's parent organization is looked up. `None` when neither is available.
         """
+        if self._credentials.organization_id:
+            return self._credentials.organization_id
+
         try:
             organization_id = self._organization_info.get("organizationId")
-        except (AirbyteError, NotImplementedError):
-            return self._credentials.organization_id
+        except (AirbyteError, NotImplementedError, requests.RequestException):
+            return None
 
         if isinstance(organization_id, str) and organization_id:
             return organization_id
 
-        return self._credentials.organization_id
+        return None
 
     def is_agents_enabled(self) -> bool:
         """Return whether this workspace is reachable through the Airbyte Agents API.
@@ -353,7 +363,8 @@ class CloudWorkspace:
 
         Sources missing from the mapping are not enabled for Airbyte Agents. A source maps to
         `None` when its Context Store status could not be inspected. Raises when the Agents
-        API is unreachable or denies these credentials access to the workspace.
+        API is unreachable, denies these credentials access to the workspace, or returns a
+        connector listing that does not match `AgentConnectorInfo`.
         """
         organization_id = self._resolve_agents_organization_id()
         connectors = [
@@ -375,7 +386,7 @@ class CloudWorkspace:
                         organization_id=organization_id,
                     )
                 )
-            except (AirbyteError, requests.RequestException):
+            except (AirbyteError, requests.RequestException, ValidationError):
                 search_by_source_id[connector.id] = None
                 continue
 

@@ -7,6 +7,7 @@ from typing import NoReturn
 
 import pytest
 import requests
+from pydantic import ValidationError
 from airbyte_api import models
 
 from airbyte import constants
@@ -1755,18 +1756,42 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
     assert all(result.search_enabled is False for result in results)
 
 
-class _FakeWorkspaceCredentials:
-    organization_id: str | None = "credential-organization-id"
+@pytest.mark.parametrize(
+    "list_tool",
+    [
+        pytest.param(mcp_cloud.list_deployed_cloud_source_connectors, id="sources"),
+        pytest.param(
+            mcp_cloud.list_deployed_cloud_destination_connectors, id="destinations"
+        ),
+    ],
+)
+@pytest.mark.parametrize("limit", [0, -1])
+def test_mcp_list_deployed_cloud_connectors_rejects_non_positive_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    list_tool: Callable[..., object],
+    limit: int,
+) -> None:
+    def fail_get_cloud_workspace(_ctx: object, _id: object) -> object:
+        raise AssertionError("workspace lookup should not run")
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", fail_get_cloud_workspace)
+
+    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+        list_tool(None, workspace_id=None, name_contains=None, limit=limit)
 
 
 def _make_workspace(
     monkeypatch: pytest.MonkeyPatch,
     *,
     organization_info: dict[str, object] | Exception,
+    configured_organization_id: str | None = None,
 ) -> CloudWorkspace:
     """Return a `CloudWorkspace` whose organization lookup is stubbed."""
-    workspace = CloudWorkspace(workspace_id="workspace-id", bearer_token="token")
-    monkeypatch.setattr(workspace, "_credentials", _FakeWorkspaceCredentials())
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+        organization_id=configured_organization_id,
+    )
 
     def fake_organization_info(self: CloudWorkspace) -> dict[str, object]:
         if isinstance(organization_info, Exception):
@@ -1780,35 +1805,53 @@ def _make_workspace(
 
 
 @pytest.mark.parametrize(
-    ("organization_info", "expected"),
+    ("configured_organization_id", "organization_info", "expected"),
     [
         pytest.param(
-            {"organizationId": "organization-id"}, "organization-id", id="resolved"
+            None,
+            {"organizationId": "organization-id"},
+            "organization-id",
+            id="resolved",
         ),
         pytest.param(
+            None,
             {"organizationId": "organization-id", "organizationName": None},
             "organization-id",
             id="resolved_without_name",
         ),
-        pytest.param({}, "credential-organization-id", id="missing_falls_back"),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
-            "credential-organization-id",
-            id="forbidden_falls_back",
+            "configured-organization-id",
+            {"organizationId": "organization-id"},
+            "configured-organization-id",
+            id="configured_wins",
         ),
         pytest.param(
-            NotImplementedError("custom api root"),
-            "credential-organization-id",
-            id="custom_api_root_falls_back",
+            "configured-organization-id",
+            AirbyteError(context={"status_code": 403}),
+            "configured-organization-id",
+            id="configured_without_lookup",
+        ),
+        pytest.param(None, {}, None, id="missing"),
+        pytest.param(
+            None, AirbyteError(context={"status_code": 403}), None, id="forbidden"
+        ),
+        pytest.param(None, requests.ConnectionError("offline"), None, id="transport"),
+        pytest.param(
+            None, NotImplementedError("custom api root"), None, id="custom_api_root"
         ),
     ],
 )
 def test_cloud_workspace_resolve_agents_organization_id(
     monkeypatch: pytest.MonkeyPatch,
+    configured_organization_id: str | None,
     organization_info: dict[str, object] | Exception,
     expected: str | None,
 ) -> None:
-    workspace = _make_workspace(monkeypatch, organization_info=organization_info)
+    workspace = _make_workspace(
+        monkeypatch,
+        organization_info=organization_info,
+        configured_organization_id=configured_organization_id,
+    )
 
     assert workspace._resolve_agents_organization_id() == expected
 
@@ -1892,12 +1935,24 @@ def test_cloud_workspace_is_agents_enabled(
             None,
             id="custom_api_root",
         ),
+        pytest.param(
+            None,
+            {"malformed_inspect": {"connector_id": 123}},
+            {"malformed_inspect": None},
+            id="malformed_inspect_payload",
+        ),
+        pytest.param(
+            [{"name": "missing-id"}],
+            {},
+            None,
+            id="malformed_list_payload",
+        ),
     ],
 )
 def test_cloud_workspace_list_agent_source_search_status(
     monkeypatch: pytest.MonkeyPatch,
-    list_error: Exception | None,
-    connectors: dict[str, list[dict[str, str]] | Exception | None],
+    list_error: Exception | list[dict[str, object]] | None,
+    connectors: dict[str, list[dict[str, str]] | dict[str, object] | Exception | None],
     expected: dict[str, bool | None] | None,
 ) -> None:
     workspace = _make_workspace(
@@ -1909,8 +1964,10 @@ def test_cloud_workspace_list_agent_source_search_status(
     ) -> list[dict[str, object]]:
         assert workspace_id == "workspace-id"
         assert organization_id == "organization-id"
-        if list_error is not None:
+        if isinstance(list_error, Exception):
             raise list_error
+        if list_error is not None:
+            return list_error
         return [{"id": connector_id} for connector_id in connectors]
 
     def fake_inspect_agent_connector(
@@ -1920,6 +1977,8 @@ def test_cloud_workspace_list_agent_source_search_status(
         outcome = connectors[connector_id]
         if isinstance(outcome, Exception):
             raise outcome
+        if isinstance(outcome, dict):
+            return outcome
         if outcome is None:
             return {"connector_id": connector_id}
         return {
@@ -1939,7 +1998,10 @@ def test_cloud_workspace_list_agent_source_search_status(
     )
 
     if expected is None:
-        with pytest.raises(type(list_error)):
+        expected_error = (
+            type(list_error) if isinstance(list_error, Exception) else ValidationError
+        )
+        with pytest.raises(expected_error):
             workspace.list_agent_source_search_status()
         assert mcp_cloud._list_agent_source_search_status(workspace) is None
     else:

@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal, TypeVar, cast
 import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
@@ -46,6 +46,7 @@ from airbyte.constants import (
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
+    MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_WORKSPACE_ID_HEADER,
 )
@@ -494,7 +495,7 @@ def _get_cloud_client(
         public_api_root=api_url,
         config_api_root=config_api_url,
         workspace_id=workspace_id,
-        organization_id=organization_id,
+        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
     )
 
 
@@ -1088,6 +1089,7 @@ _AGENTS_LOOKUP_ERRORS: tuple[type[Exception], ...] = (
     AirbyteError,
     requests.RequestException,
     NotImplementedError,
+    ValidationError,
 )
 """Errors that make an Agents feature lookup inconclusive rather than fatal.
 
