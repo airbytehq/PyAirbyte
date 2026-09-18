@@ -162,6 +162,9 @@ class CloudConnector(abc.ABC):
         Always `False` for destinations and when the workspace's API root has no Context
         layer. Otherwise this may make API calls on first access.
         """
+        if self.connector_type == ConnectorType.DESTINATION:
+            return False
+
         return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
 
     @property

@@ -2181,8 +2181,20 @@ def test_cloud_workspace_external_access_enabled(
         pytest.param(
             AirbyteError(context={"status_code": 403}),
             {},
-            AirbyteError,
+            {},
             id="list_forbidden",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 404}),
+            {},
+            {},
+            id="list_not_found",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 500}),
+            {},
+            AirbyteError,
+            id="list_server_error",
         ),
         pytest.param(
             requests.ConnectionError("offline"),
@@ -2394,6 +2406,34 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
         result.message == "Showing the first 1 organizations; more may exist. "
         "Pass `name_contains` to narrow the search, or a larger `limit`."
     )
+
+
+@pytest.mark.parametrize(
+    ("with_feature", "expected_fragment"),
+    [
+        pytest.param(None, "Verify the credentials", id="no_filter"),
+        pytest.param(
+            ConnectorFeature.EXTERNAL_ACCESS,
+            "have `external_access` enabled",
+            id="feature_filter",
+        ),
+    ],
+)
+def test_mcp_list_cloud_organizations_empty_message(
+    monkeypatch: pytest.MonkeyPatch,
+    with_feature: ConnectorFeature | None,
+    expected_fragment: str,
+) -> None:
+    class DiscoveryClient:
+        def list_organizations(self, **_: object) -> list[CloudOrganization]:
+            return []
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(None, with_feature=with_feature)
+
+    assert result.organizations == []
+    assert expected_fragment in (result.message or "")
 
 
 @pytest.mark.parametrize(

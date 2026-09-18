@@ -1887,6 +1887,15 @@ def list_cloud_organizations(
             ),
         )
 
+    if not organizations and with_feature is not None:
+        return CloudOrganizationListResult(
+            organizations=[],
+            message=(
+                f"No organizations visible to these credentials have `{with_feature.value}` "
+                "enabled. Omit `with_feature` to list every organization with its feature flags."
+            ),
+        )
+
     if not organizations:
         return CloudOrganizationListResult(
             organizations=[],

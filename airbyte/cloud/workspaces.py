@@ -401,19 +401,26 @@ class CloudWorkspace:
     def _list_source_search_indexing_status(self) -> dict[str, bool]:
         """Map each externally accessible source ID to whether search indexing is configured.
 
-        Sources missing from the mapping are not enabled for external access. Raises when the
-        Context layer API is unreachable, denies these credentials access to the workspace, or
-        returns a payload that does not match the expected models.
+        Sources missing from the mapping are not enabled for external access. The mapping is
+        empty when the Context layer API reports the workspace as forbidden or not found.
+        Raises when the API is unreachable or returns a payload that does not match the
+        expected models.
         """
         organization_id = self._resolve_agents_organization_id()
-        connectors = [
-            AgentConnectorInfo.model_validate(record)
-            for record in agents_api_util.list_agent_connectors(
+        try:
+            records = agents_api_util.list_agent_connectors(
                 workspace_id=self.workspace_id,
                 credentials=self._credentials,
                 organization_id=organization_id,
             )
-        ]
+        except AirbyteError as error:
+            status_code = (error.context or {}).get("status_code")
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                return {}
+
+            raise
+
+        connectors = [AgentConnectorInfo.model_validate(record) for record in records]
 
         status_by_source_id: dict[str, bool] = {}
         for connector in connectors:
@@ -446,8 +453,8 @@ class CloudWorkspace:
 
         if connector.connector_type == ConnectorType.DESTINATION:
             if (
-                self.external_access_enabled
-                and connector.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+                connector.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+                and self.external_access_enabled
             ):
                 return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
             return frozenset()
