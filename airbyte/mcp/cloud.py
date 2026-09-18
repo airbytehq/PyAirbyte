@@ -22,7 +22,12 @@ from pydantic import BaseModel, Field
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
-from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
+from airbyte.cloud.connectors import (
+    CheckResult,
+    ConnectorFeature,
+    ConnectorType,
+    CustomCloudSourceDefinition,
+)
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
@@ -43,6 +48,7 @@ from airbyte.constants import (
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
+    MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_WORKSPACE_ID_HEADER,
 )
@@ -113,6 +119,14 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
     )
 
 
+WITH_FEATURE_TIP_TEXT = (
+    "Optional feature filter: `external_access` returns only connectors that AI agents can use "
+    "through the Airbyte Context layer; `search_indexing` returns only connectors whose data "
+    "Airbyte indexes for fast search (distinct from any native search the connector itself "
+    "offers). Omit to list every connector along with its feature flags."
+)
+
+
 class CloudSourceResult(BaseModel):
     """Information about a deployed source connector in Airbyte Cloud."""
 
@@ -122,6 +136,11 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
+    external_access_enabled: bool
+    """Whether AI agents can use the source through the Airbyte Context layer."""
+    search_indexing_enabled: bool
+    """Whether Airbyte indexes the source's data for fast search. Distinct from any native
+    search the connector itself offers."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -133,6 +152,13 @@ class CloudDestinationResult(BaseModel):
     """Display name of the destination."""
     url: str
     """Web URL for managing this destination in Airbyte Cloud."""
+    external_access_enabled: bool
+    """Whether AI agents can query the destination with `sql_select`: the workspace is
+    enabled for the Airbyte Context layer and the destination is a SQL passthrough type
+    (Snowflake, BigQuery)."""
+    search_indexing_enabled: bool
+    """Whether Airbyte indexes the destination's data for fast search. Always `False` today:
+    destinations are not indexed."""
 
 
 class CloudConnectionResult(BaseModel):
@@ -222,6 +248,10 @@ class CloudOrganizationResult(BaseModel):
     """Display name of the organization, when available."""
     email: str | None = None
     """Email associated with the organization, when available."""
+    external_access_enabled: bool
+    """Whether the organization is enabled for AI agents through the Airbyte Context layer."""
+    search_indexing_enabled: bool
+    """Whether search indexing is available in the organization."""
 
 
 class CloudOrganizationListResult(BaseModel):
@@ -461,7 +491,7 @@ def _get_cloud_client(
         public_api_root=api_url,
         config_api_root=config_api_url,
         workspace_id=workspace_id,
-        organization_id=organization_id,
+        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
     )
 
 
@@ -996,24 +1026,34 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ],
+    with_feature: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=WITH_FEATURE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
 ) -> list[CloudSourceResult]:
-    """List all deployed source connectors in the Airbyte Cloud workspace."""
+    """List all deployed source connectors in the Airbyte Cloud workspace.
+
+    Each source reports `external_access_enabled` and `search_indexing_enabled`; pass
+    `with_feature` to return only sources with one of those features.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    sources = workspace.list_sources(limit=None if name_contains else limit)
-
-    # Filter by name if requested
-    if name_contains:
-        needle = name_contains.lower()
-        sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
-    if limit is not None:
-        sources = sources[:limit]
-
+    sources = workspace.list_connectors(
+        connector_type=ConnectorType.SOURCE,
+        with_feature=with_feature,
+        name_contains=name_contains,
+        limit=limit,
+    )
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudSourceResult(
-            id=source.source_id,
+            id=source.connector_id,
             name=cast(str, source.name),
-            url=cast(str, source.connector_url),
+            url=source.connector_url,
+            external_access_enabled=source.external_access_enabled,
+            search_indexing_enabled=source.search_indexing_enabled,
         )
         for source in sources
     ]
@@ -1049,24 +1089,35 @@ def list_deployed_cloud_destination_connectors(
             default=None,
         ),
     ],
+    with_feature: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=WITH_FEATURE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
 ) -> list[CloudDestinationResult]:
-    """List all deployed destination connectors in the Airbyte Cloud workspace."""
+    """List all deployed destination connectors in the Airbyte Cloud workspace.
+
+    Each destination reports `external_access_enabled` (queryable by AI agents via
+    `sql_select`) and `search_indexing_enabled`; pass `with_feature` to return only
+    destinations with one of those features.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destinations = workspace.list_destinations(limit=None if name_contains else limit)
-
-    # Filter by name if requested
-    if name_contains:
-        needle = name_contains.lower()
-        destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
-    if limit is not None:
-        destinations = destinations[:limit]
-
+    destinations = workspace.list_connectors(
+        connector_type=ConnectorType.DESTINATION,
+        with_feature=with_feature,
+        name_contains=name_contains,
+        limit=limit,
+    )
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudDestinationResult(
-            id=destination.destination_id,
+            id=destination.connector_id,
             name=cast(str, destination.name),
-            url=cast(str, destination.connector_url),
+            url=destination.connector_url,
+            external_access_enabled=destination.external_access_enabled,
+            search_indexing_enabled=destination.search_indexing_enabled,
         )
         for destination in destinations
     ]
@@ -1802,12 +1853,29 @@ def list_cloud_organizations(
             default=None,
         ),
     ] = None,
+    with_feature: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=(
+                "Optional feature filter: `external_access` returns only organizations enabled "
+                "for AI agents through the Airbyte Context layer; `search_indexing` returns only "
+                "organizations where search indexing is available. Omit to list every "
+                "organization along with its feature flags."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> CloudOrganizationListResult:
-    """List organizations visible to the authenticated Airbyte Cloud credentials."""
+    """List organizations visible to the authenticated Airbyte Cloud credentials.
+
+    Each organization reports `external_access_enabled` and `search_indexing_enabled`; pass
+    `with_feature` to return only organizations with one of those features.
+    """
     effective_limit = 100 if limit is None else limit
     try:
         organizations = _get_cloud_client(ctx).list_organizations(
             name_contains=name_contains,
+            with_feature=with_feature,
             limit=effective_limit,
         )
     except AirbyteError as error:
@@ -1816,6 +1884,15 @@ def list_cloud_organizations(
             make_result=lambda message: CloudOrganizationListResult(
                 organizations=[],
                 message=message,
+            ),
+        )
+
+    if not organizations and with_feature is not None:
+        return CloudOrganizationListResult(
+            organizations=[],
+            message=(
+                f"No organizations visible to these credentials have `{with_feature.value}` "
+                "enabled. Omit `with_feature` to list every organization with its feature flags."
             ),
         )
 
@@ -1835,6 +1912,8 @@ def list_cloud_organizations(
                 id=organization.organization_id,
                 name=organization.organization_name,
                 email=organization.email,
+                external_access_enabled=organization.external_access_enabled,
+                search_indexing_enabled=organization.search_indexing_enabled,
             )
             for organization in organizations
         ],
@@ -1920,7 +1999,7 @@ def describe_cloud_organization(
         ),
     ],
 ) -> CloudOrganizationResult:
-    """Get basic details about an organization (ID, name, email).
+    """Get basic details about an organization (ID, name, email, feature flags).
 
     Billing/account status is available via `get_cloud_organization_billing_status`.
 
@@ -1938,6 +2017,8 @@ def describe_cloud_organization(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+        external_access_enabled=org.external_access_enabled,
+        search_indexing_enabled=org.search_indexing_enabled,
     )
 
 

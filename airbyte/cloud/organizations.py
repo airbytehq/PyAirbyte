@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
+from http import HTTPStatus
 from typing import Any
 
 import requests
 
-from airbyte._util import api_util
+from airbyte._util import api_util, deployment
+from airbyte.agents import _api_util as agents_api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.models import CloudOrganizationBillingInfo
 from airbyte.exceptions import AirbyteError
@@ -150,3 +153,42 @@ class CloudOrganization:
     def is_account_locked(self) -> bool:
         """Whether the account is locked due to billing issues."""
         return api_util.is_account_locked(self.payment_status, self.subscription_status)
+
+    @cached_property
+    def external_access_enabled(self) -> bool:
+        """Whether this organization is enabled for AI agents through the Airbyte Context layer.
+
+        `False` without any API call when the API root has no Context layer (for example,
+        self-managed deployments). Otherwise `False` when the Context layer API reports the
+        organization as forbidden or not found, which is how it answers for organizations
+        that have not enabled it. Any other failure raises.
+        """
+        if not deployment.is_agents_api_available(
+            public_api_root=self._credentials.public_api_root,
+            config_api_root=self._credentials.config_api_root,
+        ):
+            return False
+
+        try:
+            agents_api_util.list_agent_workspaces(
+                credentials=self._credentials,
+                organization_id=self.organization_id,
+            )
+        except AirbyteError as error:
+            status_code = (error.context or {}).get("status_code")
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                return False
+
+            raise
+
+        return True
+
+    @property
+    def search_indexing_enabled(self) -> bool:
+        """Whether search indexing is available in this organization.
+
+        Search indexing is available wherever external access is enabled; individual
+        sources report whether indexing is configured via
+        `CloudConnector.search_indexing_enabled`.
+        """
+        return self.external_access_enabled

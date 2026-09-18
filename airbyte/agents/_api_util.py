@@ -16,11 +16,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import requests
 
+from airbyte._util import deployment
 from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte._util.deployment import (
-    get_agents_api_root_override,
-    is_agents_api_available,
-)
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
 
@@ -54,7 +51,7 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
     Cloud would therefore silently discard those roots, so the conversion is refused unless
     `AIRBYTE_AGENTS_API_URL` explicitly configures the Agents API root.
     """
-    if not is_agents_api_available(
+    if not deployment.is_agents_api_available(
         public_api_root=credentials.public_api_root,
         config_api_root=credentials.config_api_root,
     ):
@@ -75,7 +72,7 @@ def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
     3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
     """
-    override = get_agents_api_root_override()
+    override = deployment.get_agents_api_root_override()
     if override:
         return override
     check_public_cloud_api_roots(credentials)
