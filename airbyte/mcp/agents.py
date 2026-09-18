@@ -143,7 +143,8 @@ AGENTS_ENABLE_ACTOR_GUIDANCE = (
 )
 AGENTS_DESTINATION_ACCESS_NOTE = (
     'Query with `execute_agent_connector_ro` and `action="sql_select"` only; `inspect` returns '
-    "built-in docs and `SHOW TABLES` / `DESCRIBE TABLE` discover tables and columns. If "
+    "built-in docs; `SHOW TABLES` lists tables and "
+    '`SELECT * FROM <table> LIMIT 1` with `"dry_run": true` returns columns. If '
     "`sql_select` returns `access_denied`, an organization admin must enable the destination "
     "in Airbyte Cloud under Settings -> Context layer (workspace -> Destinations toggle)."
 )
@@ -1109,8 +1110,9 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake or bigquery) in "
                 "`api_args` and any value for `entity_type`; the `connector_id` is a "
-                "destination listed by `list_agent_connectors`, and `SHOW TABLES` / `DESCRIBE "
-                "TABLE <name>` discover its tables and columns. The `download` action "
+                "destination listed by `list_agent_connectors`; `SHOW TABLES` lists its tables "
+                'and `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` '
+                "returns its columns without reading rows. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -1193,8 +1195,9 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     belong to the given workspace.
 
     To query a destination, use `action="sql_select"` with the destination's `connector_id`
-    and `sql_dialect` as reported by `list_agent_connectors`. Start with `SHOW TABLES` and
-    `DESCRIBE TABLE <name>` to discover tables and columns before selecting data.
+    and `sql_dialect` as reported by `list_agent_connectors`. Start with `SHOW TABLES` to
+    discover tables, then `SELECT * FROM <table> LIMIT 1` with "dry_run": true in
+    `api_args` to discover columns before selecting data.
     """
     return _execute(
         ctx,

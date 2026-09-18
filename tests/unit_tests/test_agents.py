@@ -1455,6 +1455,10 @@ def test_build_destination_skill_docs_index_includes_connections_and_streams() -
     ]
     assert all(section.available for section in docs.outline)
     rendered = str(docs.content)
+    assert '"sql": "SHOW TABLES"' in rendered
+    assert '"dry_run": true' in rendered
+    assert "end_cursor" in rendered
+    assert "_airbyte_extracted_at" in rendered
     assert "Connections syncing into this destination" in rendered
     assert "Streams enabled per connection" in rendered
     assert "GitHub to Snowflake" in rendered
@@ -1596,12 +1600,15 @@ def test_build_destination_skill_docs_sql_passthrough_section(
         section=destination_docs.SECTION_SQL_PASSTHROUGH,
     )
 
-    rendered = " ".join(
-        str(block.get("text") or block.get("code")) for block in docs.content
-    )
+    rendered = str(docs.content)
     assert "SHOW TABLES" in rendered
     assert f'"sql_dialect": "{dialect}"' in rendered
     assert "sql_select" in rendered
+    assert '"dry_run": True' in rendered
+    assert "end_cursor" in rendered
+    assert "_airbyte_extracted_at" in rendered
+    for note in destination_docs._DIALECT_NOTES[dialect]:
+        assert note in rendered
 
 
 def test_build_destination_skill_docs_connections_section_filters_destination() -> None:
@@ -1651,26 +1658,53 @@ def test_build_destination_skill_docs_connections_section_empty() -> None:
     assert "No connections" in str(docs.content)
 
 
-def test_build_destination_skill_docs_streams_section() -> None:
+@pytest.mark.parametrize(
+    ("definition_id", "expected_tables"),
+    [
+        pytest.param(
+            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            ["`RAW_ISSUES`", "`RAW_PULL_REQUESTS`"],
+            id="snowflake-upper-cases",
+        ),
+        pytest.param(
+            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            ["`raw_issues`", "`raw_pull_requests`"],
+            id="bigquery-preserves-case",
+        ),
+    ],
+)
+def test_build_destination_skill_docs_streams_section(
+    definition_id: str,
+    expected_tables: list[str],
+) -> None:
     connection = _FakeConnection(
         connection_id="conn-1",
-        name="GitHub to Snowflake",
+        name="GitHub to warehouse",
         destination_id="dest-1",
         stream_names=["issues", "pull_requests"],
         table_prefix="raw_",
     )
-    destination = _snowflake_destination(connections=[connection])
+    destination = _FakeDestination(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=definition_id,
+        connections=[connection],
+    )
 
     docs = destination_docs.build_destination_skill_docs(
         cast(Any, destination),
         section=destination_docs.SECTION_STREAMS,
     )
 
+    table = next(block for block in docs.content if block["type"] == "table")
+    assert table["headers"] == ["Stream", "Table"]
+    assert table["rows"] == [
+        ["issues", expected_tables[0]],
+        ["pull_requests", expected_tables[1]],
+    ]
     rendered = str(docs.content)
-    assert "GitHub to Snowflake" in rendered
-    assert "issues" in rendered
-    assert "pull_requests" in rendered
-    assert "raw_" in rendered
+    assert "GitHub to warehouse" in rendered
+    assert "'raw_'" in rendered
 
 
 def test_build_destination_skill_docs_streams_section_empty() -> None:
