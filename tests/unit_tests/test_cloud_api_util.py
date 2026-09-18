@@ -1207,8 +1207,15 @@ def test_get_analytic_source_reflects_runtime_mode(
             False,
             False,
             {"x-airbyte-analytic-source": "coral-support-agent"},
+            "pyairbyte",
+            id="header_ignored_outside_mcp_mode",
+        ),
+        pytest.param(
+            True,
+            False,
+            {"x-airbyte-analytic-source": "coral-support-agent"},
             "coral-support-agent",
-            id="upstream_wins_outside_mcp_mode",
+            id="upstream_wins_local_mcp_mode",
         ),
     ],
 )
