@@ -1419,8 +1419,20 @@ def test_build_destination_connector_details() -> None:
     assert details.warnings == []
 
 
-def test_build_destination_skill_docs_outline_without_connections_lookup() -> None:
-    destination = _snowflake_destination(fail_on_connections=True)
+def test_build_destination_skill_docs_index_includes_connections_and_streams() -> None:
+    """The no-section response embeds connections and their enabled streams inline."""
+    matching = _FakeConnection(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-1",
+        stream_names=["issues"],
+    )
+    other = _FakeConnection(
+        connection_id="conn-2",
+        name="Slack elsewhere",
+        destination_id="dest-elsewhere",
+    )
+    destination = _snowflake_destination(connections=[matching, other])
 
     docs = destination_docs.build_destination_skill_docs(cast(Any, destination))
 
@@ -1433,7 +1445,12 @@ def test_build_destination_skill_docs_outline_without_connections_lookup() -> No
         destination_docs.SECTION_STREAMS,
     ]
     assert all(section.available for section in docs.outline)
-    assert docs.content
+    rendered = str(docs.content)
+    assert "Connections syncing into this destination" in rendered
+    assert "Streams enabled per connection" in rendered
+    assert "GitHub to Snowflake" in rendered
+    assert "issues" in rendered
+    assert "Slack elsewhere" not in rendered
 
 
 @pytest.mark.parametrize(
