@@ -296,6 +296,18 @@ class CloudDestination(CloudConnector):
         """
         return self.connector_id
 
+    @property
+    def configuration(self) -> dict[str, Any] | None:
+        """The destination configuration as returned by the API.
+
+        Secret values are redacted by the API.
+        """
+        if not self._connector_info:
+            self._connector_info = self._fetch_connector_info()
+        if isinstance(self._connector_info, CloudDestinationInfo):
+            return self._connector_info.configuration
+        return None
+
     def _fetch_connector_info(self) -> CloudDestinationInfo:
         """Populate the destination with data from the API."""
         return CloudDestinationInfo.from_api_response(
