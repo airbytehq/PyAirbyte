@@ -1,10 +1,11 @@
 # This workflow will run pytest.
 #
-# There are four jobs which run in parallel:
+# There are five jobs which run in parallel:
 # 1. pytest-fast: Run fast tests only, and fail fast so the dev knows asap if they broke something.
 # 2. pytest-no-creds: Run unit and docs tests without credentials, including on forks.
 # 3. pytest-unit: Run unit and docs tests across multiple Python versions and operating systems.
 # 4. pytest-integration: Run integration tests on a single Python version across four shards.
+# 5. pytest-coverage-combined: Combine coverage from pytest-unit (3.10/Ubuntu) and the integration shards into one report.
 #
 # Note that pytest-fast also skips tests that require credentials, allowing it to run on forks.
 name: Run Tests
@@ -241,6 +242,15 @@ jobs:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-unit-test-coverage
         path: htmlcov/
 
+    - name: Upload coverage data for combined report
+      if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: coverage-data-unit
+        path: .coverage
+        include-hidden-files: true
+        if-no-files-found: error
+
     - name: Upload coverage to GitHub Code Quality
       if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
       uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
@@ -290,7 +300,6 @@ jobs:
     permissions:
       checks: write
       contents: read
-      code-quality: write
       pull-requests: read
     steps:
     # Common steps:
@@ -335,14 +344,14 @@ jobs:
         name: integration-${{ matrix.shard }}-test-coverage
         path: htmlcov/
 
-    - name: Upload coverage to GitHub Code Quality
+    - name: Upload coverage data for combined report
       if: always()
-      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
-        file: htmlcov/coverage.xml
-        language: Python
-        label: code-coverage/pytest-integration-${{ matrix.shard }}
-        fail-on-error: false
+        name: coverage-data-integration-${{ matrix.shard }}
+        path: .coverage
+        include-hidden-files: true
+        if-no-files-found: error
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
@@ -360,6 +369,61 @@ jobs:
         large_files: true
         files: |
           build/test-results/**/*.xml
+
+  pytest-coverage-combined:
+    name: Pytest (Combined Coverage)
+    needs: [pytest-unit, pytest-integration]
+    # Runs whenever the upstream jobs ran (even if some tests failed); skipped on forks with them.
+    if: always() && needs.pytest-integration.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      code-quality: write
+      pull-requests: read
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    - name: Install uv
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
+      with:
+        version: "latest"
+        python-version: '3.10'
+    - name: Install dev dependencies
+      # We only need helper libraries
+      run: uv sync --group dev
+
+    - name: Download coverage data
+      uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+      with:
+        pattern: coverage-data-*
+        path: coverage-data/
+
+    - name: Combine coverage data
+      run: uv run coverage combine --keep coverage-data/*/.coverage
+
+    - name: Print Coverage Report
+      run: uv run coverage report
+
+    - name: Create Coverage Artifacts
+      run: |
+        uv run coverage html -d htmlcov
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: combined-test-coverage
+        path: htmlcov/
+
+    - name: Upload coverage to GitHub Code Quality
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+      with:
+        file: htmlcov/coverage.xml
+        language: Python
+        label: code-coverage/pytest
+        fail-on-error: false
 
   dependency-analysis:
     name: Dependency Analysis with Deptry
