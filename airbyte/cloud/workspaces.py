@@ -49,6 +49,7 @@ from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
+    CheckResult,
     CloudDestination,
     CloudSource,
     CustomCloudSourceDefinition,
@@ -64,7 +65,6 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte.cloud.connectors import CheckResult
     from airbyte.sources.base import Source
 
 
