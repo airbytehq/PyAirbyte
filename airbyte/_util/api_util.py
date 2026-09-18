@@ -1848,6 +1848,7 @@ def get_bearer_token(
     client_id: SecretString,
     client_secret: SecretString,
     api_root: str = CLOUD_API_ROOT,
+    timeout: tuple[float, float] | None = None,
 ) -> SecretString:
     """Get a bearer token.
 
@@ -1856,6 +1857,7 @@ def get_bearer_token(
     """
     response = requests.post(
         url=api_root + "/applications/token",
+        timeout=timeout,
         headers={
             "content-type": "application/json",
             "accept": "application/json",
@@ -1925,6 +1927,7 @@ def _config_api_headers(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, str]:
     """Build Config API headers, minting a bearer token from client credentials if needed."""
     if bearer_token is None:
@@ -1937,6 +1940,7 @@ def _config_api_headers(
             client_id=client_id,
             client_secret=client_secret,
             api_root=api_root,
+            timeout=timeout,
         )
     return {
         "Content-Type": "application/json",
@@ -1967,7 +1971,7 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
     deferred raises `AirbyteDeferredSetupError`.
 
     Redirects are not followed, since `requests` would replay the POST and could create the
-    connector twice, and the request uses bounded timeouts.
+    connector twice, and both the create and any token request use bounded timeouts.
     """
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
     path = f"/{connector_type}s/create"
@@ -1979,6 +1983,7 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
+            timeout=DEFERRED_CREATE_TIMEOUT_SECS,
         ),
         json={
             "name": name,

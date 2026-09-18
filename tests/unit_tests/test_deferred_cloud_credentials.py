@@ -147,6 +147,47 @@ def test_deferred_create_uses_bounded_timeouts_and_never_follows_redirects(
 
 
 @responses.activate
+def test_deferred_create_bounds_token_request_for_client_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Minting a bearer token from client credentials is bounded like the create itself."""
+    responses.post(
+        f"{PUBLIC_API_ROOT}/applications/token", json={"access_token": TOKEN}
+    )
+    responses.post(
+        f"{CONFIG_API_ROOT}/sources/create",
+        json=_actor_body("source", deferred=True),
+    )
+    post_kwargs: list[dict[str, Any]] = []
+    real_post = requests.post
+
+    def _recording_post(*args: Any, **kwargs: Any) -> requests.Response:  # noqa: ANN401
+        post_kwargs.append(kwargs)
+        return real_post(*args, **kwargs)
+
+    monkeypatch.setattr(api_util.requests, "post", _recording_post)
+
+    actor_id = api_util.create_connector_deferred(
+        connector_type="source",
+        name="My connector",
+        workspace_id=WORKSPACE_ID,
+        definition_id=DEFINITION_ID,
+        config={"count": 10},
+        api_root=PUBLIC_API_ROOT,
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+    )
+
+    assert actor_id == ACTOR_ID
+    token_kwargs, create_kwargs = post_kwargs
+    assert token_kwargs["url"] == f"{PUBLIC_API_ROOT}/applications/token"
+    assert token_kwargs["timeout"] == api_util.DEFERRED_CREATE_TIMEOUT_SECS
+    assert create_kwargs["timeout"] == api_util.DEFERRED_CREATE_TIMEOUT_SECS
+    assert responses.calls[1].request.headers["Authorization"] == f"Bearer {TOKEN}"
+
+
+@responses.activate
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
 def test_deferred_create_without_acknowledgment_raises_with_actor_id(
     connector_type: Literal["source", "destination"],
