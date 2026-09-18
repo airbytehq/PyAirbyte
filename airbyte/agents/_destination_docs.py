@@ -62,13 +62,17 @@ _NAMESPACE_NOUNS: Mapping[str, str] = {
 
 _DIALECT_NOTES: Mapping[str, list[str]] = {
     "snowflake": [
-        "Unquoted identifiers are upper-cased and case-insensitive. With the default "
-        "destination settings Airbyte writes upper-cased table names, so stream `users` "
-        "is table `USERS`; connections using the legacy case-preserving raw-table mode "
-        "keep the original case. Confirm names with `SHOW TABLES`.",
+        (
+            "Unquoted identifiers are upper-cased and case-insensitive. With the default "
+            "destination settings Airbyte writes upper-cased table names, so stream `users` "
+            "is table `USERS`; connections using the legacy case-preserving raw-table mode "
+            "keep the original case. Confirm names with `SHOW TABLES`."
+        ),
         "Qualify tables in another schema as `<database>.<schema>.<table>`.",
-        "Avoid `INFORMATION_SCHEMA` scans: on large accounts they can exceed the query time "
-        "budget. `SHOW TABLES` is served from metadata and returns quickly.",
+        (
+            "Avoid `INFORMATION_SCHEMA` scans: on large accounts they can exceed the query "
+            "time budget. `SHOW TABLES` is served from metadata and returns quickly."
+        ),
     ],
     "bigquery": [
         "Table names are case-sensitive and match the stream name.",
@@ -201,13 +205,21 @@ def _overview(destination: CloudDestination, dialect: str) -> list[dict[str, Any
             "type": "list",
             "items": [
                 *_DIALECT_NOTES[dialect],
-                "Discover columns without reading rows: send `SELECT * FROM <table> LIMIT 1` with "
-                '`"dry_run": true` in `api_args`; only the column list is returned.',
-                "Results are capped by the server; when a response includes `end_cursor`, pass it "
-                "back as the top-level `cursor` argument to fetch the next page. Always add a "
-                "`LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no `LIMIT`).",
-                "Statements are cancelled after a fixed time budget (about a minute) and return "
-                "an error; narrow the query rather than retrying it unchanged.",
+                (
+                    "Discover columns without reading rows: send `SELECT * FROM <table> "
+                    'LIMIT 1` with `"dry_run": true` in `api_args`; only the column list is '
+                    "returned."
+                ),
+                (
+                    "Results are capped by the server; when a response includes `end_cursor`, "
+                    "pass it back as the top-level `cursor` argument to fetch the next page. "
+                    "Always add a `LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no "
+                    "`LIMIT`)."
+                ),
+                (
+                    "Statements are cancelled after a fixed time budget (about a minute) and "
+                    "return an error; narrow the query rather than retrying it unchanged."
+                ),
                 _AIRBYTE_METADATA_COLUMNS,
             ],
         },
@@ -268,13 +280,19 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
         {
             "type": "list",
             "items": [
-                "Row count and response size are capped by the server. When a response includes "
-                "`end_cursor`, pass it back as the top-level `cursor` argument to fetch the next "
-                "page (`dry_run` cannot be combined with `cursor`).",
-                "Always add a `LIMIT` clause to `SELECT` queries and select only the "
-                "columns you need (`SHOW TABLES` takes no `LIMIT`).",
-                "Statements are cancelled after a fixed time budget (about a minute) and return "
-                "an error; narrow the query rather than retrying it unchanged.",
+                (
+                    "Row count and response size are capped by the server. When a response "
+                    "includes `end_cursor`, pass it back as the top-level `cursor` argument "
+                    "to fetch the next page (`dry_run` cannot be combined with `cursor`)."
+                ),
+                (
+                    "Always add a `LIMIT` clause to `SELECT` queries and select only the "
+                    "columns you need (`SHOW TABLES` takes no `LIMIT`)."
+                ),
+                (
+                    "Statements are cancelled after a fixed time budget (about a minute) and "
+                    "return an error; narrow the query rather than retrying it unchanged."
+                ),
             ],
         },
         {"type": "heading", "level": 3, "text": "Airbyte metadata columns"},
