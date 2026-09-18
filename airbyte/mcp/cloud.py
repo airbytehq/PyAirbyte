@@ -1091,6 +1091,17 @@ def list_deployed_cloud_source_connectors(
     return results
 
 
+def _resolve_parent_organization_id(workspace: CloudWorkspace) -> str | None:
+    """Return the workspace's parent organization ID, or `None` if it cannot be resolved.
+
+    The Agents API needs an explicit organization when credentials span several organizations.
+    """
+    try:
+        return workspace.get_organization().organization_id
+    except (AirbyteError, requests.RequestException):
+        return None
+
+
 def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, bool | None] | None:
     """Map each Agents-enabled source ID in the workspace to its Context Store search status.
 
@@ -1098,8 +1109,15 @@ def _list_agent_source_search_status(workspace: CloudWorkspace) -> dict[str, boo
     `None` when its Context Store status could not be inspected. Returns `None` when the
     Agents API is unreachable or denies these credentials access to the workspace.
     """
+    organization_id = _resolve_parent_organization_id(workspace)
+    if organization_id is None:
+        return None
     try:
-        agent_workspace = AgentWorkspace.from_cloud_workspace(workspace, verify=False)
+        agent_workspace = AgentWorkspace.from_cloud_workspace(
+            workspace,
+            organization_id=organization_id,
+            verify=False,
+        )
         connectors = agent_workspace.list_connectors()
     except (AirbyteError, requests.RequestException):
         return None
@@ -1123,8 +1141,15 @@ def _is_agent_workspace(workspace: CloudWorkspace) -> bool | None:
     `False` when the Agents API reports the workspace as not found or forbidden, `None` when
     reachability could not be determined.
     """
+    organization_id = _resolve_parent_organization_id(workspace)
+    if organization_id is None:
+        return None
     try:
-        AgentWorkspace.from_cloud_workspace(workspace, verify=True)
+        AgentWorkspace.from_cloud_workspace(
+            workspace,
+            organization_id=organization_id,
+            verify=True,
+        )
     except requests.RequestException:
         return None
     except AirbyteError as error:
@@ -1769,19 +1794,16 @@ def list_cloud_workspaces(
         enabled_ids = agent_workspace_ids.get(result.organization_id)
         if enabled_ids is not None:
             result.agents_enabled = result.workspace_id in enabled_ids
+    agents_status_unknown = any(result.agents_enabled is None for result in results)
     if agents_enabled_only:
         results = [result for result in results if result.agents_enabled]
         if limit is not None:
             results = results[:limit]
-    message = (
-        "No workspaces were returned for these credentials. By default only direct "
-        "workspace memberships are listed; pass `organization_id` or a broader "
-        "`privilege_scope` to discover organization-wide workspaces, or call "
-        "`get_default_cloud_context` to inspect your memberships."
-        if not results and not agents_enabled_only
-        else "No workspaces enabled for Airbyte Agents were found. Enable the Context layer "
-        "for a workspace in Airbyte Cloud, or omit `agents_enabled_only` to list every "
-        "workspace along with its `agents_enabled` status."
+    message: str | None = (
+        _empty_workspaces_message(
+            agents_enabled_only=agents_enabled_only,
+            agents_status_unknown=agents_status_unknown,
+        )
         if not results
         else None
     )
@@ -1805,6 +1827,29 @@ def list_cloud_workspaces(
     return CloudWorkspaceListResult(
         workspaces=results,
         message=message,
+    )
+
+
+def _empty_workspaces_message(*, agents_enabled_only: bool, agents_status_unknown: bool) -> str:
+    """Explain why `list_cloud_workspaces` returned nothing and how to widen the search."""
+    if not agents_enabled_only:
+        return (
+            "No workspaces were returned for these credentials. By default only direct "
+            "workspace memberships are listed; pass `organization_id` or a broader "
+            "`privilege_scope` to discover organization-wide workspaces, or call "
+            "`get_default_cloud_context` to inspect your memberships."
+        )
+    if agents_status_unknown:
+        return (
+            "Could not determine which workspaces are enabled for Airbyte Agents: the Agents "
+            "API was unreachable or these credentials cannot access it. Omit "
+            "`agents_enabled_only` to list every workspace; `agents_enabled` will be null "
+            "where the status is unknown."
+        )
+    return (
+        "No workspaces enabled for Airbyte Agents were found. Enable the Context layer "
+        "for a workspace in Airbyte Cloud, or omit `agents_enabled_only` to list every "
+        "workspace along with its `agents_enabled` status."
     )
 
 

@@ -1760,8 +1760,23 @@ def test_mcp_list_cloud_workspaces_agents_enabled_only(
     assert result.message is None
 
 
+@pytest.mark.parametrize(
+    ("enabled_ids", "expected_message"),
+    [
+        pytest.param(
+            set(), "No workspaces enabled for Airbyte Agents", id="none_enabled"
+        ),
+        pytest.param(
+            None,
+            "Could not determine which workspaces are enabled for Airbyte Agents",
+            id="status_unknown",
+        ),
+    ],
+)
 def test_mcp_list_cloud_workspaces_agents_enabled_only_empty_message(
     monkeypatch: pytest.MonkeyPatch,
+    enabled_ids: set[str] | None,
+    expected_message: str,
 ) -> None:
     class DiscoveryClient:
         def list_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
@@ -1782,7 +1797,7 @@ def test_mcp_list_cloud_workspaces_agents_enabled_only_empty_message(
     monkeypatch.setattr(
         mcp_cloud,
         "_list_agent_enabled_workspace_ids",
-        lambda _client, _organization_ids: {"organization-id": set()},
+        lambda _client, _organization_ids: {"organization-id": enabled_ids},
     )
 
     result = mcp_cloud.list_cloud_workspaces(
@@ -1796,7 +1811,7 @@ def test_mcp_list_cloud_workspaces_agents_enabled_only_empty_message(
     )
 
     assert result.workspaces == []
-    assert "No workspaces enabled for Airbyte Agents" in (result.message or "")
+    assert expected_message in (result.message or "")
 
 
 @pytest.mark.parametrize(
@@ -2002,33 +2017,84 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
 
 
 @pytest.mark.parametrize(
-    ("error", "expected"),
+    ("organization_id", "error", "expected"),
     [
-        pytest.param(None, True, id="reachable"),
-        pytest.param(AirbyteError(context={"status_code": 403}), False, id="forbidden"),
-        pytest.param(AirbyteError(context={"status_code": 404}), False, id="not_found"),
+        pytest.param("organization-id", None, True, id="reachable"),
         pytest.param(
-            AirbyteError(context={"status_code": 500}), None, id="server_error"
+            "organization-id",
+            AirbyteError(context={"status_code": 403}),
+            False,
+            id="forbidden",
         ),
-        pytest.param(requests.ConnectionError("offline"), None, id="transport"),
+        pytest.param(
+            "organization-id",
+            AirbyteError(context={"status_code": 404}),
+            False,
+            id="not_found",
+        ),
+        pytest.param(
+            "organization-id",
+            AirbyteError(context={"status_code": 500}),
+            None,
+            id="server_error",
+        ),
+        pytest.param(
+            "organization-id", requests.ConnectionError("offline"), None, id="transport"
+        ),
+        pytest.param(None, None, None, id="unknown_organization"),
     ],
 )
 def test_mcp_is_agent_workspace(
     monkeypatch: pytest.MonkeyPatch,
+    organization_id: str | None,
     error: Exception | None,
     expected: bool | None,
 ) -> None:
     class FakeAgentWorkspace:
         @classmethod
-        def from_cloud_workspace(cls, _workspace: object, *, verify: bool) -> object:
+        def from_cloud_workspace(
+            cls, _workspace: object, *, organization_id: str, verify: bool
+        ) -> object:
+            assert organization_id == "organization-id"
             assert verify is True
             if error is not None:
                 raise error
             return cls()
 
     monkeypatch.setattr(mcp_cloud, "AgentWorkspace", FakeAgentWorkspace)
+    monkeypatch.setattr(
+        mcp_cloud, "_resolve_parent_organization_id", lambda _workspace: organization_id
+    )
 
     assert mcp_cloud._is_agent_workspace(cast(CloudWorkspace, object())) is expected
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(None, "organization-id", id="resolved"),
+        pytest.param(AirbyteError(context={"status_code": 403}), None, id="forbidden"),
+        pytest.param(requests.ConnectionError("offline"), None, id="transport"),
+    ],
+)
+def test_mcp_resolve_parent_organization_id(
+    error: Exception | None,
+    expected: str | None,
+) -> None:
+    class FakeWorkspace:
+        def get_organization(self) -> CloudOrganization:
+            if error is not None:
+                raise error
+            return CloudOrganization(
+                organization_id="organization-id",
+                organization_name="Org",
+                email="test@example.com",
+            )
+
+    assert (
+        mcp_cloud._resolve_parent_organization_id(cast(CloudWorkspace, FakeWorkspace()))
+        == expected
+    )
 
 
 def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
