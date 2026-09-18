@@ -104,10 +104,6 @@ class _RaisingWorkspace:
         """Raise the configured error."""
         raise self._error
 
-    def search_skills(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        """Raise the configured error."""
-        raise self._error
-
     def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
@@ -469,7 +465,6 @@ def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
     assert tools["execute_agent_connector_ro"].annotations.readOnlyHint is True
     assert tools["execute_agent_connector"].annotations.readOnlyHint is False
     assert tools["list_agent_skills"].annotations.readOnlyHint is True
-    assert tools["search_agent_skills"].annotations.readOnlyHint is True
     assert tools["read_agent_skill_docs"].annotations.readOnlyHint is True
     assert "read_only" in tools["execute_agent_connector"].parameters["properties"]
     assert (
@@ -699,17 +694,6 @@ _ACCESS_FAILURE_CASES = [
         ),
         {"skills": []},
         id="list_skills",
-    ),
-    pytest.param(
-        "_get_agent_workspace",
-        _RaisingWorkspace,
-        lambda: agents_mcp.search_agent_skills(
-            ctx=cast(Context, object()),
-            query="github",
-            workspace_id="workspace-1",
-        ),
-        {"skills": []},
-        id="search_skills",
     ),
     pytest.param(
         "_get_agent_workspace",
@@ -1030,9 +1014,6 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
                 _SkillLike(AgentSkillInfo(id="context-store", title="Context Store")),
             ]
 
-        def search_skills(self, query: str) -> list[Any]:
-            return []
-
         def read_skill_docs(
             self,
             skill_id: str,
@@ -1077,13 +1058,6 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
             tags=[],
         ),
     ]
-
-    searched = agents_mcp.search_agent_skills(
-        ctx=cast(Context, object()),
-        query="github",
-        workspace_id="workspace-1",
-    )
-    assert searched.skills == []
 
     docs = agents_mcp.read_agent_skill_docs(
         ctx=cast(Context, object()),

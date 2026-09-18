@@ -105,27 +105,6 @@ def list_skills(
     )
 
 
-def search_skills(
-    query: str,
-    *,
-    credentials: _AirbyteCredentials,
-    workspace_id: str | None = None,
-    limit: int | None = None,
-    cursor: str | None = None,
-) -> AgentSkillList:
-    """Search skills by keyword, returning a page of matching skills."""
-    return AgentSkillList.model_validate(
-        _api_util.search_agent_skills(
-            query=query,
-            credentials=credentials,
-            organization_id=credentials.organization_id,
-            workspace_id=workspace_id,
-            limit=limit,
-            cursor=cursor,
-        )
-    )
-
-
 def _iter_skill_pages(
     fetch_page: Callable[[str | None], AgentSkillList],
 ) -> Iterator[AgentSkillInfo]:
@@ -157,23 +136,6 @@ def iter_skills(
     """
     return _iter_skill_pages(
         lambda cursor: list_skills(
-            credentials=credentials,
-            workspace_id=workspace_id,
-            cursor=cursor,
-        )
-    )
-
-
-def iter_skill_search(
-    query: str,
-    *,
-    credentials: _AirbyteCredentials,
-    workspace_id: str | None = None,
-) -> Iterator[AgentSkillInfo]:
-    """Yield all skills matching `query`, following the API's pagination cursor."""
-    return _iter_skill_pages(
-        lambda cursor: search_skills(
-            query,
             credentials=credentials,
             workspace_id=workspace_id,
             cursor=cursor,

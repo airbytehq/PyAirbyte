@@ -146,7 +146,7 @@ def captured_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
             return _FakeResponse(EXECUTE_RESPONSE)
         if url.endswith("/skills/docs"):
             return _FakeResponse(SKILL_DOCS_RESPONSE)
-        if url.endswith("/skills/search") or url.endswith("/skills"):
+        if url.endswith("/skills"):
             return _FakeResponse(SKILL_LIST_RESPONSE)
         if url.endswith("/connectors"):
             return _FakeResponse(CONNECTORS_RESPONSE)
@@ -1096,25 +1096,6 @@ def test_conversion_rejects_non_public_cloud_api_roots(
             id="list_skills",
         ),
         pytest.param(
-            lambda: _api_util.search_agent_skills(
-                query="github",
-                credentials=_credentials(),
-                organization_id="org-id",
-                workspace_id="workspace-id",
-                limit=5,
-                cursor="c1",
-            ),
-            "/skills/search",
-            {
-                "query": "github",
-                "limit": 5,
-                "cursor": "c1",
-                "organization_id": "org-id",
-                "workspace_id": "workspace-id",
-            },
-            id="search_skills",
-        ),
-        pytest.param(
             lambda: _api_util.read_agent_skill_docs(
                 skill_id="connector:github",
                 credentials=_credentials(),
@@ -1162,17 +1143,11 @@ def test_skill_requests_omit_none_params(
     _api_util.list_agent_skills(credentials=_credentials(organization_id=None))
     assert captured_requests[0]["params"] is None
 
-    _api_util.search_agent_skills(
-        query="github",
-        credentials=_credentials(organization_id=None),
-    )
-    assert captured_requests[1]["params"] == {"query": "github"}
-
     _api_util.read_agent_skill_docs(
         skill_id="connector:github",
         credentials=_credentials(organization_id=None),
     )
-    assert captured_requests[2]["params"] == {"id": "connector:github"}
+    assert captured_requests[1]["params"] == {"id": "connector:github"}
 
 
 def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> None:
@@ -1188,17 +1163,9 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
     assert skills[0].title == "GitHub"
     assert len(captured_requests) == 1
 
-    skills = workspace.search_skills("github")
-    assert captured_requests[1]["url"].endswith("/skills/search")
-    assert captured_requests[1]["params"] == {
-        "query": "github",
-        "workspace_id": "workspace-id",
-    }
-    assert [skill.skill_id for skill in skills] == ["connector:github"]
-
     docs = workspace.read_skill_docs("connector:github", section="setup")
-    assert captured_requests[2]["url"].endswith("/skills/docs")
-    assert captured_requests[2]["params"] == {
+    assert captured_requests[1]["url"].endswith("/skills/docs")
+    assert captured_requests[1]["params"] == {
         "id": "connector:github",
         "section": "setup",
         "workspace_id": "workspace-id",

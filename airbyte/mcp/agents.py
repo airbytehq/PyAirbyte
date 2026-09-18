@@ -77,8 +77,8 @@ AGENTS_AUTH_TIP_TEXT = (
     f"environment variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. Call `list_agent_connectors` to discover connector "
     f"IDs, then `inspect_agent_connector` to learn which entities a connector supports, "
-    f"before calling `execute_agent_connector`. Use `list_agent_skills` or "
-    f"`search_agent_skills` to discover skills, and pass a `docs_skill_id` reported by "
+    f"before calling `execute_agent_connector`. Use `list_agent_skills` "
+    f"to discover skills, and pass a `docs_skill_id` reported by "
     f"`inspect_agent_connector` to `read_agent_skill_docs` for connector usage docs."
 )
 WORKSPACE_ID_TIP_TEXT = (
@@ -1282,48 +1282,6 @@ def list_agent_skills(
     workspace = _get_agent_workspace(ctx, workspace_id)
     try:
         skills = workspace.list_skills()
-    except AirbyteError as error:
-        message = _agents_access_message(error)
-        if message is None:
-            raise
-        return AgentSkillListResult(skills=[], message=message)
-
-    return AgentSkillListResult(
-        skills=[_agent_skill_result(skill.info) for skill in skills],
-    )
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=AGENTS_AUTH_TIP_TEXT,
-)
-def search_agent_skills(
-    ctx: Context,
-    query: Annotated[
-        str,
-        Field(
-            description=("Keyword query to match against skill titles, summaries, and tags."),
-        ),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> AgentSkillListResult:
-    """Search skills by keyword in an Airbyte Agents workspace.
-
-    All pages are fetched, so no pagination arguments are needed. Pass a matching skill's
-    `skill_id` to `read_agent_skill_docs` to read it.
-    """
-    workspace = _get_agent_workspace(ctx, workspace_id)
-    try:
-        skills = workspace.search_skills(query)
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:

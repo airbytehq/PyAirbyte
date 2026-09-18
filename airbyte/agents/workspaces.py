@@ -160,22 +160,6 @@ class AgentWorkspace:
             )
         ]
 
-    def search_skills(self, query: str) -> list[AgentSkill]:
-        """Search skills by keyword, returning all matching skills across pages."""
-        return [
-            AgentSkill(
-                skill_id=info.id,
-                credentials=self._credentials,
-                workspace_id=self.workspace_id,
-                info=info,
-            )
-            for info in _skills.iter_skill_search(
-                query,
-                credentials=self._credentials,
-                workspace_id=self.workspace_id,
-            )
-        ]
-
     def get_skill(self, skill_id: str) -> AgentSkill:
         """Get a skill by ID, without calling the Agents API."""
         return AgentSkill(

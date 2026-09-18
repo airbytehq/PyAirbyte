@@ -318,36 +318,6 @@ def list_agent_skills(
     )
 
 
-def search_agent_skills(
-    *,
-    query: str,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-    workspace_id: str | None = None,
-    limit: int | None = None,
-    cursor: str | None = None,
-) -> dict[str, Any]:
-    """Search skills by keyword, returning the raw paginated response."""
-    params = {
-        key: value
-        for key, value in {
-            "query": query,
-            "limit": limit,
-            "cursor": cursor,
-            "organization_id": organization_id,
-            "workspace_id": workspace_id,
-        }.items()
-        if value is not None
-    }
-    return make_agents_api_request(
-        method="GET",
-        path="/skills/search",
-        params=params,
-        credentials=credentials,
-        organization_id=organization_id,
-    )
-
-
 def read_agent_skill_docs(
     *,
     skill_id: str,
