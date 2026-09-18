@@ -260,6 +260,22 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.prefix or ""
 
     @property
+    def namespace_definition(self) -> str | None:
+        """How destination namespaces are chosen: `source`, `destination`, or `custom_format`."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.namespace_definition
+
+    @property
+    def namespace_format(self) -> str | None:
+        """The namespace format template, when `namespace_definition` is `custom_format`."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.namespace_format
+
+    @property
     def connection_url(self) -> str | None:
         """The web URL to the connection."""
         return f"{self.workspace.workspace_url}/connections/{self.connection_id}"
