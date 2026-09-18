@@ -9,6 +9,7 @@ from typing import Any, Callable, Literal, cast
 
 import pytest
 import requests
+import responses
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte._util.deferred_setup import (
@@ -20,7 +21,6 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import ConnectorSetupCheckResult, DeferredDeployResult
 from airbyte.secrets.base import SecretString
-from airbyte_api._hooks.types import BeforeRequestContext, HookContext  # noqa: PLC2701
 from fastmcp import Context
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
@@ -34,43 +34,17 @@ TOKEN = SecretString("test-bearer-token")
 CONNECTOR_TYPES: list[Literal["source", "destination"]] = ["source", "destination"]
 
 
-class _RecordingAdapter(requests.adapters.BaseAdapter):
-    """Transport adapter that records every request and replays canned responses."""
-
-    def __init__(
-        self, responses: list[tuple[int, dict[str, Any], dict[str, str]]]
-    ) -> None:
-        super().__init__()
-        self._responses = list(responses)
-        self.requests: list[requests.PreparedRequest] = []
-        self.send_kwargs: list[dict[str, Any]] = []
-
-    def send(
-        self, request: requests.PreparedRequest, **kwargs: Any
-    ) -> requests.Response:  # noqa: ANN401
-        self.requests.append(request)
-        self.send_kwargs.append(kwargs)
-        status, body, headers = self._responses.pop(0)
-        response = requests.Response()
-        response.status_code = status
-        response.headers.update({"Content-Type": "application/json", **headers})
-        response._content = json.dumps(body).encode()  # noqa: SLF001
-        response.url = request.url or ""
-        response.request = request
-        return response
-
-    def close(self) -> None:
-        pass
+CONFIG_API_ROOT = "https://api.airbyte.test/api/v1"
+PUBLIC_API_ROOT = "https://api.airbyte.test/api/public/v1"
 
 
 def _actor_body(connector_type: str, *, deferred: bool | None) -> dict[str, Any]:
     body: dict[str, Any] = {
-        "configuration": {"count": 10},
-        "createdAt": 1,
-        "definitionId": DEFINITION_ID,
+        "connectionConfiguration": {"count": 10},
+        f"{connector_type}DefinitionId": DEFINITION_ID,
         "name": "My connector",
         f"{connector_type}Id": ACTOR_ID,
-        f"{connector_type}Type": "faker",
+        f"{connector_type}Name": "Faker",
         "workspaceId": WORKSPACE_ID,
     }
     if deferred is not None:
@@ -98,156 +72,112 @@ def _problem_body(reason: str = "secret_input_not_allowed") -> dict[str, Any]:
     }
 
 
-def _create(
-    connector_type: str,
-    session: requests.Session,
-    *,
-    defer_credentials: bool,
-) -> Any:  # noqa: ANN401
-    create = (
-        api_util.create_source
-        if connector_type == "source"
-        else api_util.create_destination
-    )
-    return create(
+def _create_deferred(connector_type: Literal["source", "destination"]) -> str:
+    return api_util.create_connector_deferred(
+        connector_type=connector_type,
         name="My connector",
-        api_root="https://api.airbyte.test/v1",
         workspace_id=WORKSPACE_ID,
-        config={"count": 10},
         definition_id=DEFINITION_ID,
+        config={"count": 10},
+        api_root=PUBLIC_API_ROOT,
         client_id=None,
         client_secret=None,
         bearer_token=TOKEN,
-        defer_credentials=defer_credentials,
-        http_session=session,
     )
 
 
-# --- Transport -----------------------------------------------------------------------------
+# --- Config API call -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("via", ["request", "send"])
-def test_deferred_session_applies_timeouts_and_refuses_redirects(via: str) -> None:
-    """The deferred session times out and never follows a redirect (which would replay the POST).
-
-    Both entry points are exercised because the generated SDK prepares requests itself and calls
-    `send` directly, bypassing `request`.
-    """
-    adapter = _RecordingAdapter([
-        (307, {}, {"Location": "https://elsewhere.test/v1/sources"})
-    ])
-    session = api_util.DeferredSetupSession()
-    session.mount("https://", adapter)
-
-    with pytest.raises(requests.TooManyRedirects):
-        if via == "request":
-            session.post("https://api.airbyte.test/v1/sources", json={})
-        else:
-            session.send(
-                session.prepare_request(
-                    requests.Request(
-                        "POST", "https://api.airbyte.test/v1/sources", json={}
-                    )
-                )
-            )
-
-    assert len(adapter.requests) == 1
-    assert adapter.send_kwargs[0]["timeout"] == (
-        api_util.DEFERRED_CONNECT_TIMEOUT_SECS,
-        api_util.DEFERRED_READ_TIMEOUT_SECS,
-    )
-
-
-@pytest.mark.parametrize(
-    ("operation_id", "expected_body"),
-    [
-        ("createSource", {"name": "x", "deferCredentials": True}),
-        ("createDestination", {"name": "x", "deferCredentials": True}),
-        ("listSources", {"name": "x"}),
-    ],
-)
-def test_defer_credentials_hook_targets_create_operations(
-    operation_id: str,
-    expected_body: dict[str, Any],
-) -> None:
-    """The wire flag is added only to the create operations."""
-    request = requests.Request(
-        "POST", "https://api.airbyte.test/v1/sources", json={"name": "x"}
-    ).prepare()
-    hook_ctx = BeforeRequestContext(
-        HookContext(operation_id=operation_id, oauth2_scopes=None, security_source=None)
-    )
-
-    result = api_util._DeferCredentialsHook().before_request(hook_ctx, request)  # noqa: SLF001
-
-    assert isinstance(result, requests.PreparedRequest)
-    assert json.loads(cast(bytes, result.body)) == expected_body
-
-
-# --- SDK integration -------------------------------------------------------------------------
-
-
+@responses.activate
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-def test_deferred_create_sends_flag_and_returns_acknowledged_actor(
-    connector_type: str,
+def test_deferred_create_posts_flag_to_config_api_and_returns_actor_id(
+    connector_type: Literal["source", "destination"],
 ) -> None:
-    """A deferred create sends `deferCredentials` and returns the actor when Cloud acknowledges."""
-    adapter = _RecordingAdapter([(200, _actor_body(connector_type, deferred=True), {})])
-    session = api_util.DeferredSetupSession()
-    session.mount("https://", adapter)
+    """A deferred create posts `deferCredentials` to the Config API create operation."""
+    responses.post(
+        f"{CONFIG_API_ROOT}/{connector_type}s/create",
+        json=_actor_body(connector_type, deferred=True),
+    )
 
-    actor = _create(connector_type, session, defer_credentials=True)
+    actor_id = _create_deferred(connector_type)
 
-    (request,) = adapter.requests
-    assert request.method == "POST"
-    body = json.loads(cast(bytes, request.body))
-    assert body["deferCredentials"] is True
-    assert body["definitionId"] == DEFINITION_ID
-    assert body["workspaceId"] == WORKSPACE_ID
-    assert getattr(actor, f"{connector_type}_id") == ACTOR_ID
-
-
-@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-def test_ordinary_create_does_not_send_flag(connector_type: str) -> None:
-    """Without `defer_credentials`, the request body is unchanged."""
-    adapter = _RecordingAdapter([(200, _actor_body(connector_type, deferred=None), {})])
-    session = requests.Session()
-    session.mount("https://", adapter)
-
-    _create(connector_type, session, defer_credentials=False)
-
-    (request,) = adapter.requests
-    assert "deferCredentials" not in json.loads(cast(bytes, request.body))
+    assert actor_id == ACTOR_ID
+    (call,) = responses.calls
+    assert call.request.headers["Authorization"] == f"Bearer {TOKEN}"
+    assert json.loads(cast(bytes, call.request.body)) == {
+        "name": "My connector",
+        "workspaceId": WORKSPACE_ID,
+        f"{connector_type}DefinitionId": DEFINITION_ID,
+        "connectionConfiguration": {"count": 10},
+        "deferCredentials": True,
+    }
+    assert call.request.url is not None
+    assert "/api/public/" not in call.request.url
 
 
+@responses.activate
+def test_deferred_create_uses_bounded_timeouts_and_never_follows_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A redirect is an error rather than a replayed POST, and the request always times out."""
+    responses.post(
+        f"{CONFIG_API_ROOT}/sources/create",
+        status=307,
+        headers={"Location": "https://elsewhere.test/api/v1/sources/create"},
+    )
+    post_kwargs: list[dict[str, Any]] = []
+    real_post = requests.post
+
+    def _recording_post(url: str, **kwargs: Any) -> requests.Response:  # noqa: ANN401
+        post_kwargs.append(kwargs)
+        return real_post(url, **kwargs)
+
+    monkeypatch.setattr(api_util.requests, "post", _recording_post)
+
+    with pytest.raises(exc.AirbyteError) as raised:
+        _create_deferred("source")
+
+    assert raised.value.context is not None
+    assert raised.value.context["status_code"] == 307
+    assert len(responses.calls) == 1
+    (kwargs,) = post_kwargs
+    assert kwargs["allow_redirects"] is False
+    assert kwargs["timeout"] == api_util.DEFERRED_CREATE_TIMEOUT_SECS
+
+
+@responses.activate
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
 def test_deferred_create_without_acknowledgment_raises_with_actor_id(
-    connector_type: str,
+    connector_type: Literal["source", "destination"],
 ) -> None:
     """An unacknowledged create (older platform) is reported, with the created actor's ID."""
-    adapter = _RecordingAdapter([(200, _actor_body(connector_type, deferred=None), {})])
-    session = api_util.DeferredSetupSession()
-    session.mount("https://", adapter)
+    responses.post(
+        f"{CONFIG_API_ROOT}/{connector_type}s/create",
+        json=_actor_body(connector_type, deferred=None),
+    )
 
     with pytest.raises(exc.AirbyteDeferredSetupError) as raised:
-        _create(connector_type, session, defer_credentials=True)
+        _create_deferred(connector_type)
 
     assert raised.value.actor_id == ACTOR_ID
     assert raised.value.problem is None
-    assert len(adapter.requests) == 1
 
 
+@responses.activate
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
 def test_deferred_create_refusal_exposes_only_sanitized_problem(
-    connector_type: str,
+    connector_type: Literal["source", "destination"],
 ) -> None:
     """A platform refusal becomes a typed error carrying fixed codes and paths only."""
-    adapter = _RecordingAdapter([(422, _problem_body(), {})])
-    session = api_util.DeferredSetupSession()
-    session.mount("https://", adapter)
+    responses.post(
+        f"{CONFIG_API_ROOT}/{connector_type}s/create",
+        status=422,
+        json=_problem_body(),
+    )
 
     with pytest.raises(exc.AirbyteDeferredSetupError) as raised:
-        _create(connector_type, session, defer_credentials=True)
+        _create_deferred(connector_type)
 
     problem = raised.value.problem
     assert problem is not None
@@ -259,7 +189,19 @@ def test_deferred_create_refusal_exposes_only_sanitized_problem(
     message = str(raised.value)
     assert "/credentials/api_key: Remove this credential" in message
     assert "oauth2.0" in message
-    assert len(adapter.requests) == 1
+
+
+@responses.activate
+def test_deferred_create_other_errors_are_plain_airbyte_errors() -> None:
+    """A non-deferred failure (here 403) is not misreported as a deferred-setup refusal."""
+    responses.post(f"{CONFIG_API_ROOT}/sources/create", status=403, json={})
+
+    with pytest.raises(exc.AirbyteError) as raised:
+        _create_deferred("source")
+
+    assert not isinstance(raised.value, exc.AirbyteDeferredSetupError)
+    assert raised.value.context is not None
+    assert raised.value.context["status_code"] == 403
 
 
 @pytest.mark.parametrize(
@@ -331,7 +273,7 @@ def _workspace() -> CloudWorkspace:
     return CloudWorkspace(
         workspace_id=WORKSPACE_ID,
         bearer_token=TOKEN,
-        api_root="https://api.airbyte.test/v1",
+        api_root=PUBLIC_API_ROOT,
     )
 
 
@@ -339,13 +281,18 @@ def _stub_create(
     monkeypatch: pytest.MonkeyPatch,
     connector_type: str,
 ) -> _CreateCall:
+    """Record the deferred Config API create; fail loudly if the ordinary create is used."""
     call = _CreateCall()
 
-    def _create_stub(**kwargs: Any) -> Any:  # noqa: ANN401
+    def _create_deferred_stub(**kwargs: Any) -> str:  # noqa: ANN401
         call.kwargs = kwargs
-        return type("Actor", (), {f"{connector_type}_id": ACTOR_ID})()
+        return ACTOR_ID
 
-    monkeypatch.setattr(api_util, f"create_{connector_type}", _create_stub)
+    def _unexpected_create(**kwargs: Any) -> Any:  # noqa: ANN401
+        raise AssertionError("ordinary create must not be used for deferred deploys")
+
+    monkeypatch.setattr(api_util, "create_connector_deferred", _create_deferred_stub)
+    monkeypatch.setattr(api_util, f"create_{connector_type}", _unexpected_create)
     monkeypatch.setattr(api_util, f"list_{connector_type}s", lambda **kwargs: [])
     return call
 
@@ -363,11 +310,11 @@ def _deploy(
 
 
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-def test_deploy_deferred_uses_bounded_session_and_flag(
+def test_deploy_deferred_uses_config_api_create(
     monkeypatch: pytest.MonkeyPatch,
     connector_type: str,
 ) -> None:
-    """Deferred deploys pass the flag and the definition through to the API layer."""
+    """Deferred deploys go through the Config API create with the definition and config."""
     call = _stub_create(monkeypatch, connector_type)
 
     deployed = _deploy(
@@ -379,9 +326,12 @@ def test_deploy_deferred_uses_bounded_session_and_flag(
     )
 
     assert deployed.connector_id == ACTOR_ID
-    assert call.kwargs["defer_credentials"] is True
+    assert call.kwargs["connector_type"] == connector_type
+    assert call.kwargs["name"] == "My connector"
+    assert call.kwargs["workspace_id"] == WORKSPACE_ID
     assert call.kwargs["definition_id"] == DEFINITION_ID
     assert call.kwargs["config"] == {"count": 10}
+    assert call.kwargs["api_root"] == PUBLIC_API_ROOT
 
 
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
