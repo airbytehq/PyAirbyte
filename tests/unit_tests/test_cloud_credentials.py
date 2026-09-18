@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import NoReturn
+from typing import NoReturn, cast
 
 import pytest
 import requests
@@ -17,6 +17,7 @@ from airbyte.cloud.models import CloudWorkspaceInfo, WorkspacePrivilegeScope
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
     AirbyteError,
     AirbyteMissingResourceError,
     PyAirbyteInputError,
@@ -1670,6 +1671,13 @@ def test_mcp_list_cloud_workspaces_discovery(
             )
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+    monkeypatch.setattr(
+        mcp_cloud,
+        "_list_agent_enabled_workspace_ids",
+        lambda _client, organization_ids: {
+            organization_id: {"workspace-id"} for organization_id in organization_ids
+        },
+    )
 
     result = mcp_cloud.list_cloud_workspaces(
         None,
@@ -1678,6 +1686,7 @@ def test_mcp_list_cloud_workspaces_discovery(
         name_contains=None,
         limit=None,
         privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+        agents_enabled_only=False,
     )
 
     assert captured_organization_id is None
@@ -1686,7 +1695,9 @@ def test_mcp_list_cloud_workspaces_discovery(
         assert "permission" in (result.message or "")
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
+        assert result.workspaces[0].agents_enabled is True
         assert result.workspaces[1].organization_id is None
+        assert result.workspaces[1].agents_enabled is None
         assert result.workspaces[0].organization_name == organization_name
         assert result.workspaces[1].organization_name is None
         assert result.message == (
@@ -1694,6 +1705,98 @@ def test_mcp_list_cloud_workspaces_discovery(
             if organization_name is not None
             else "Resolved organization organization-id for these credentials."
         )
+
+
+def test_mcp_list_cloud_workspaces_agents_enabled_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_limit: int | None = -1
+
+    class DiscoveryClient:
+        def list_workspaces(
+            self, *, limit: int | None = None, **_: object
+        ) -> list[CloudWorkspaceInfo]:
+            nonlocal captured_limit
+            captured_limit = limit
+            return [
+                CloudWorkspaceInfo(
+                    workspaceId=f"workspace-{index}",
+                    name=f"Workspace {index}",
+                    organizationId="organization-id",
+                )
+                for index in range(4)
+            ]
+
+        def get_organization(self, *, organization_id: str) -> CloudOrganization:
+            return CloudOrganization(
+                organization_id=organization_id, organization_name="Org"
+            )
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+    monkeypatch.setattr(
+        mcp_cloud,
+        "_list_agent_enabled_workspace_ids",
+        lambda _client, _organization_ids: {
+            "organization-id": {"workspace-1", "workspace-2", "workspace-3"}
+        },
+    )
+
+    result = mcp_cloud.list_cloud_workspaces(
+        None,
+        organization_id="organization-id",
+        organization_name=None,
+        name_contains=None,
+        limit=2,
+        privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
+        agents_enabled_only=True,
+    )
+
+    assert captured_limit is None
+    assert [ws.workspace_id for ws in result.workspaces] == [
+        "workspace-1",
+        "workspace-2",
+    ]
+    assert all(ws.agents_enabled is True for ws in result.workspaces)
+    assert result.message is None
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(AirbyteError(context={"status_code": 403}), set(), id="forbidden"),
+        pytest.param(
+            AirbyteError(context={"status_code": 401}), None, id="unauthorized"
+        ),
+        pytest.param(
+            AirbyteAgentsUnavailableError(message="unavailable"), None, id="unavailable"
+        ),
+    ],
+)
+def test_mcp_list_agent_enabled_workspace_ids_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    error: AirbyteError,
+    expected: set[str] | None,
+) -> None:
+    class FakeAgentOrganization:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def list_workspaces(self) -> list[object]:
+            raise error
+
+    monkeypatch.setattr(mcp_cloud, "AgentOrganization", FakeAgentOrganization)
+
+    class Client:
+        client_id = None
+        client_secret = None
+        bearer_token = None
+        public_api_root = "https://api.airbyte.com/v1"
+        config_api_root = None
+
+    result = mcp_cloud._list_agent_enabled_workspace_ids(
+        cast(CloudClient, Client()), {"organization-id"}
+    )
+    assert result == {"organization-id": expected}
 
 
 def test_mcp_list_cloud_organizations_forwards_filter_and_limit(

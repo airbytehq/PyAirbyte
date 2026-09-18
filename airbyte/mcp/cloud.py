@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
+from airbyte.agents.organizations import AgentOrganization
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -48,6 +49,7 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
@@ -247,6 +249,12 @@ class CloudWorkspaceResult(BaseModel):
     """ID of the organization, if known and available."""
     organization_name: str | None = None
     """Name of the organization (requires ORGANIZATION_READER permission)."""
+    agents_enabled: bool | None = None
+    """Whether the workspace is enabled for Airbyte Agents (the Cloud "Context layer").
+
+    `None` when enablement could not be determined, for example because the workspace has
+    no known organization or the Agents API was unreachable.
+    """
 
 
 class CloudOrganizationBillingStatusResult(BaseModel):
@@ -1564,11 +1572,23 @@ def list_cloud_workspaces(
             default=WorkspacePrivilegeScope.MEMBER_OF,
         ),
     ],
+    agents_enabled_only: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, return only workspaces enabled for Airbyte Agents (the Cloud "
+                "'Context layer'), i.e. those reachable through the Agents API."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> CloudWorkspaceListResult:
     """List all workspaces visible to the authenticated credentials.
 
     The default returns direct workspace memberships. Use `organization_id` or a broader
-    `privilege_scope` to discover more workspaces.
+    `privilege_scope` to discover more workspaces. Each workspace reports `agents_enabled`,
+    which tells whether it is enabled for Airbyte Agents; pass `agents_enabled_only` to
+    return only those workspaces.
     """
     client = _get_cloud_client(ctx)
 
@@ -1577,7 +1597,7 @@ def list_cloud_workspaces(
             organization_id=organization_id,
             organization_name=organization_name,
             name_contains=name_contains,
-            limit=limit,
+            limit=None if agents_enabled_only else limit,
             privilege_scope=privilege_scope,
         )
     except AirbyteError as error:
@@ -1600,11 +1620,26 @@ def list_cloud_workspaces(
     organization_ids = {
         result.organization_id for result in results if result.organization_id is not None
     }
+    agent_workspace_ids = _list_agent_enabled_workspace_ids(client, organization_ids)
+    for result in results:
+        if result.organization_id is None:
+            continue
+        enabled_ids = agent_workspace_ids.get(result.organization_id)
+        if enabled_ids is not None:
+            result.agents_enabled = result.workspace_id in enabled_ids
+    if agents_enabled_only:
+        results = [result for result in results if result.agents_enabled]
+        if limit is not None:
+            results = results[:limit]
     message = (
         "No workspaces were returned for these credentials. By default only direct "
         "workspace memberships are listed; pass `organization_id` or a broader "
         "`privilege_scope` to discover organization-wide workspaces, or call "
         "`get_default_cloud_context` to inspect your memberships."
+        if not results and not agents_enabled_only
+        else "No workspaces enabled for Airbyte Agents were found. Enable the Context layer "
+        "for a workspace in Airbyte Cloud, or omit `agents_enabled_only` to list every "
+        "workspace along with its `agents_enabled` status."
         if not results
         else None
     )
@@ -1629,6 +1664,37 @@ def list_cloud_workspaces(
         workspaces=results,
         message=message,
     )
+
+
+def _list_agent_enabled_workspace_ids(
+    client: CloudClient,
+    organization_ids: set[str],
+) -> dict[str, set[str] | None]:
+    """Map each organization to the IDs of its workspaces enabled for Airbyte Agents.
+
+    An organization maps to an empty set when the Agents API denies it access (no Agents
+    subscription), and to `None` when enablement could not be determined.
+    """
+    enabled_ids: dict[str, set[str] | None] = {}
+    for organization_id in organization_ids:
+        try:
+            organization = AgentOrganization(
+                organization_id=organization_id,
+                client_id=client.client_id,
+                client_secret=client.client_secret,
+                bearer_token=client.bearer_token,
+                public_api_root=client.public_api_root,
+                config_api_root=client.config_api_root,
+            )
+            enabled_ids[organization_id] = {
+                workspace.workspace_id for workspace in organization.list_workspaces()
+            }
+        except AirbyteAgentsUnavailableError:
+            enabled_ids[organization_id] = None
+        except AirbyteError as error:
+            status_code = (error.context or {}).get("status_code")
+            enabled_ids[organization_id] = set() if status_code == HTTPStatus.FORBIDDEN else None
+    return enabled_ids
 
 
 @mcp_tool(
