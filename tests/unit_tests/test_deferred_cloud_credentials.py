@@ -267,6 +267,18 @@ def test_deferred_create_refusal_exposes_only_sanitized_problem(
     [
         (422, _problem_body(), "secret_input_not_allowed"),
         (422, _problem_body("configuration_invalid"), "configuration_invalid"),
+        (
+            422,
+            {
+                "type": DEFERRED_SETUP_PROBLEM_TYPE,
+                "data": {
+                    "reason": "configuration_invalid",
+                    "issues": [{"path": "/credentials", "code": "required"}],
+                    "authOptions": None,
+                },
+            },
+            "configuration_invalid",
+        ),
         (400, _problem_body(), None),
         (422, {**_problem_body(), "type": "https://example.test/other"}, None),
         (422, {**_problem_body(), "data": {"reason": "unknown", "issues": []}}, None),

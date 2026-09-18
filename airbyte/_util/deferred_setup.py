@@ -12,7 +12,7 @@ import json
 from http import HTTPStatus
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 DEFERRED_SETUP_PROBLEM_TYPE = (
@@ -92,7 +92,15 @@ class DeferredSetupProblem(_Allowlisted):
 
     reason: DeferredSetupReason
     issues: list[DeferredSetupIssue] = Field(max_length=20)
-    auth_options: list[DeferredAuthOption] = Field(default_factory=list, alias="authOptions")
+    auth_options: list[DeferredAuthOption] = Field(
+        default_factory=list, alias="authOptions", max_length=20
+    )
+
+    @field_validator("auth_options", mode="before")
+    @classmethod
+    def _null_auth_options_as_empty(cls, value: object) -> object:
+        """The platform serializes an absent `authOptions` list as JSON `null`."""
+        return [] if value is None else value
 
 
 class _ProblemEnvelope(_Allowlisted):
