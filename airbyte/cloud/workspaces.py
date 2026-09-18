@@ -49,12 +49,11 @@ from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
-    CheckResult,
     CloudDestination,
     CloudSource,
     CustomCloudSourceDefinition,
 )
-from airbyte.cloud.models import CloudWorkspaceInfo
+from airbyte.cloud.models import CheckResult, CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.destinations.base import Destination
