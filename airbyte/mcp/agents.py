@@ -37,6 +37,7 @@ from airbyte.agents._destination_docs import (
     build_destination_connector_details,
     build_destination_skill_docs,
     connector_id_from_skill_id,
+    destination_skill_id,
 )
 from airbyte.agents._docs_markdown import render_docs_content_markdown
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
@@ -628,8 +629,20 @@ def _inspect_destination_fallback(
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         details = build_destination_connector_details(destination)
-        skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
-        docs_result = _connector_docs_result(skill_docs)
+        warnings: list[str] = []
+        try:
+            skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
+        except (AirbyteError, requests.RequestException) as error:
+            detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
+            warnings.append(f"Connector docs are unavailable: {detail}")
+            docs_result = AgentConnectorDocsResult(
+                skill_id=destination_skill_id(destination.connector_id),
+                content="",
+                warnings=[],
+                message=f"Connector docs are unavailable: {detail}",
+            )
+        else:
+            docs_result = _connector_docs_result(skill_docs)
         return AgentConnectorDetailsResult(
             connector_id=details.connector_id,
             connector_name=details.name,
@@ -637,7 +650,7 @@ def _inspect_destination_fallback(
             integration_name=details.integration_name,
             context_store_entities=[],
             docs=docs_result,
-            warnings=[],
+            warnings=warnings,
         )
     if destination is not None:
         message = (

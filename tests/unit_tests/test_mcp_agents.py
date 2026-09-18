@@ -1473,6 +1473,7 @@ class _FakeDestinationForDocs:
         definition_id: str,
         connections: list[Any] | None = None,
         sources: list[Any] | None = None,
+        connections_error: Exception | None = None,
     ) -> None:
         self.connector_id = connector_id
         self.name = name
@@ -1480,6 +1481,7 @@ class _FakeDestinationForDocs:
         self.connections_looked_up = False
         self._connections = connections or []
         self._sources = sources or []
+        self._connections_error = connections_error
         self.workspace = type(
             "_FakeWorkspace",
             (),
@@ -1492,6 +1494,8 @@ class _FakeDestinationForDocs:
 
     def list_connections(self) -> list[Any]:
         self.connections_looked_up = True
+        if self._connections_error is not None:
+            raise self._connections_error
         return list(self._connections)
 
 
@@ -1634,6 +1638,28 @@ def test_inspect_destination_fallback_reports_docs_skill(
     assert "sql-passthrough" in result.docs.guidance
     assert "No connections sync into this destination" in result.docs.content
     assert result.message is None
+
+
+def test_inspect_destination_fallback_docs_failure_yields_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docs build failure degrades to a `docs` message plus a warning, never an error."""
+    destination = _FakeDestinationForDocs(
+        connector_id="dest-snowflake",
+        name="Snowflake dev",
+        definition_id=SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        connections_error=AirbyteError(message="boom"),
+    )
+    _patch_destination_404(monkeypatch, [destination])
+
+    result = _inspect("dest-snowflake")
+
+    assert result.connector_id == "dest-snowflake"
+    assert result.integration_name == "Snowflake"
+    assert result.docs is not None
+    assert result.docs.content == ""
+    assert result.warnings == ["Connector docs are unavailable: boom"]
+    assert result.docs.message == "Connector docs are unavailable: boom"
 
 
 def test_inspect_destination_fallback_reports_unsupported(
