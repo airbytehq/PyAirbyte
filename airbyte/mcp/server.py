@@ -52,6 +52,7 @@ import logging
 import os
 import pkgutil
 import sys
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Protocol
 
 from fastmcp_extensions import (
@@ -65,6 +66,9 @@ from starlette.responses import JSONResponse
 
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from fastmcp import FastMCP
     from fastmcp.server.auth import AuthProvider
     from key_value.aio.protocols.key_value import AsyncKeyValue
     from starlette.requests import Request
@@ -100,6 +104,8 @@ from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
+from airbyte.secrets import SecretSourceEnum
+from airbyte.secrets.config import disable_secret_source
 
 
 # =============================================================================
@@ -335,12 +341,24 @@ def _segment_write_key() -> str | None:
     return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
 
 
-set_mcp_mode()
 load_secrets_to_env_vars()
 
 segment_write_key = _segment_write_key()
 if segment_write_key is None:
     logger.info("Segment telemetry is disabled; MCP tool-call telemetry remains log-only.")
+
+
+@asynccontextmanager
+async def _mcp_mode_lifespan(  # noqa: RUF029
+    server: FastMCP,  # noqa: ARG001
+) -> AsyncIterator[dict[str, object]]:
+    """Mark the process as running in MCP mode for the lifetime of the server."""
+    set_mcp_mode()
+    # Secrets were loaded at import, before MCP mode was known; prompts would read
+    # from stdin, which belongs to the transport now.
+    disable_secret_source(SecretSourceEnum.PROMPT)
+    yield {}
+
 
 app = mcp_server(
     name="airbyte-mcp",
@@ -366,6 +384,7 @@ app = mcp_server(
         airbyte_module_filter,
     ],
     auth=_create_auth(),
+    lifespan=_mcp_mode_lifespan,
     telemetry=TelemetryConfig(
         package_name="airbyte",
         segment_write_key=segment_write_key,
