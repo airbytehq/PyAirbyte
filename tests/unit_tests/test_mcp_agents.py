@@ -1632,6 +1632,7 @@ def test_inspect_destination_fallback_reports_docs_skill(
     assert result.integration_name == expected_integration_name
     assert result.docs.guidance is not None
     assert "sql-passthrough" in result.docs.guidance
+    assert "No connections sync into this destination" in result.docs.content
     assert result.message is None
 
 
@@ -1762,14 +1763,34 @@ def test_context_layer_guidance_omits_url_without_organization_id() -> None:
     assert "Organization settings -> Context layer" in without_org
 
 
-def test_read_docs_destination_fallback_outline_skips_connections_lookup(
+def test_read_docs_destination_fallback_index_includes_connections_and_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The outline response must not hit the Cloud connections listing."""
+    """The no-section response embeds connections and their enabled streams inline."""
+    matching = _FakeConnectionForDocs(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-snowflake",
+        stream_names=["issues"],
+        table_prefix="raw_",
+    )
+    other = _FakeConnectionForDocs(
+        connection_id="conn-2",
+        name="Slack elsewhere",
+        destination_id="dest-elsewhere",
+    )
     destination = _FakeDestinationForDocs(
         connector_id="dest-snowflake",
         name="Snowflake dev",
         definition_id="424892c4-daac-4491-b35d-c6688ba547ba",
+        connections=[matching, other],
+        sources=[
+            type(
+                "_FakeSource",
+                (),
+                {"connector_id": "source-1", "name": "GitHub"},
+            )()
+        ],
     )
     _patch_destination_404(monkeypatch, [destination])
 
@@ -1780,8 +1801,12 @@ def test_read_docs_destination_fallback_outline_skips_connections_lookup(
         "connections",
         "streams",
     ]
-    assert result.content
-    assert not destination.connections_looked_up
+    assert destination.connections_looked_up
+    assert "## Connections syncing into this destination" in result.content
+    assert "## Streams enabled per connection" in result.content
+    assert "GitHub to Snowflake" in result.content
+    assert "issues" in result.content
+    assert "Slack elsewhere" not in result.content
 
 
 @pytest.mark.parametrize(
@@ -1875,6 +1900,9 @@ def test_read_docs_destination_fallback_empty_connections(
     result = _read_docs("connector-destination:dest-snowflake", section="connections")
 
     assert "No connections" in result.content
+
+    index_result = _read_docs("connector-destination:dest-snowflake")
+    assert "No connections sync into this destination" in index_result.content
 
 
 def test_read_docs_destination_fallback_source_prefix_resolves(

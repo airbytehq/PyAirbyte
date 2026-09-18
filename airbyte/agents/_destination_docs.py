@@ -113,6 +113,7 @@ def build_destination_skill_docs(
     ]
 
     if section is None:
+        connections = _destination_connections(destination)
         content: list[dict[str, Any]] = [
             {
                 "type": "paragraph",
@@ -120,18 +121,22 @@ def build_destination_skill_docs(
                     f"`{destination.name}` is an Airbyte Cloud destination, reachable via "
                     '`execute_agent_connector_ro` with `action="sql_select"` and '
                     f'`"sql_dialect": "{dialect}"` in `api_args`. Read the `sql-passthrough` '
-                    "section first; `connections` and `streams` describe what data lands here."
+                    "section for query syntax. The connections and enabled streams below "
+                    "describe what data lands here; re-read the `connections` or `streams` "
+                    "section to refresh them."
                 ),
             }
         ]
+        content += _connections_section(destination, connections)
+        content += _streams_section(connections)
         return AgentSkillDocs(metadata=metadata, outline=outline, section_id=None, content=content)
 
     if section == SECTION_SQL_PASSTHROUGH:
         content = _sql_passthrough_section(destination, dialect)
     elif section == SECTION_CONNECTIONS:
-        content = _connections_section(destination)
+        content = _connections_section(destination, _destination_connections(destination))
     elif section == SECTION_STREAMS:
-        content = _streams_section(destination)
+        content = _streams_section(_destination_connections(destination))
     else:
         raise PyAirbyteInputError(
             message=f"Unknown section {section!r} for skill {skill_id!r}.",
@@ -188,8 +193,10 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
     ]
 
 
-def _connections_section(destination: CloudDestination) -> list[dict[str, Any]]:
-    connections = _destination_connections(destination)
+def _connections_section(
+    destination: CloudDestination,
+    connections: list[Any],
+) -> list[dict[str, Any]]:
     if not connections:
         return [
             {
@@ -216,8 +223,7 @@ def _connections_section(destination: CloudDestination) -> list[dict[str, Any]]:
     ]
 
 
-def _streams_section(destination: CloudDestination) -> list[dict[str, Any]]:
-    connections = _destination_connections(destination)
+def _streams_section(connections: list[Any]) -> list[dict[str, Any]]:
     if not connections:
         return [
             {
