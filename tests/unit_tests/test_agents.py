@@ -1334,10 +1334,12 @@ class _FakeDestination:
         connections: list[Any] | None = None,
         sources: list[Any] | None = None,
         fail_on_connections: bool = False,
+        configuration: dict[str, Any] | None = None,
     ) -> None:
         self.connector_id = connector_id
         self.name = name
         self.definition_id = definition_id
+        self.configuration = configuration
         self._connections = connections or []
         self._sources = sources or []
         self._fail_on_connections = fail_on_connections
@@ -1369,6 +1371,8 @@ class _FakeConnection:
         source_id: str = "source-1",
         stream_names: list[str] | None = None,
         table_prefix: str = "",
+        namespace_definition: str | None = None,
+        namespace_format: str | None = None,
     ) -> None:
         self.connection_id = connection_id
         self.name = name
@@ -1377,6 +1381,8 @@ class _FakeConnection:
         self.source_name = source_name
         self.stream_names = stream_names or []
         self.table_prefix = table_prefix
+        self.namespace_definition = namespace_definition
+        self.namespace_format = namespace_format
 
     @property
     def source(self) -> Any:
@@ -1419,8 +1425,23 @@ def test_build_destination_connector_details() -> None:
     assert details.warnings == []
 
 
-def test_build_destination_skill_docs_outline_without_connections_lookup() -> None:
-    destination = _snowflake_destination(fail_on_connections=True)
+def test_build_destination_skill_docs_index_includes_connections_and_streams() -> None:
+    """The no-section response embeds connections and their enabled streams inline."""
+    matching = _FakeConnection(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-1",
+        stream_names=["issues"],
+    )
+    other = _FakeConnection(
+        connection_id="conn-2",
+        name="Slack elsewhere",
+        destination_id="dest-elsewhere",
+    )
+    destination = _snowflake_destination(
+        connections=[matching, other],
+        configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
+    )
 
     docs = destination_docs.build_destination_skill_docs(cast(Any, destination))
 
@@ -1433,7 +1454,116 @@ def test_build_destination_skill_docs_outline_without_connections_lookup() -> No
         destination_docs.SECTION_STREAMS,
     ]
     assert all(section.available for section in docs.outline)
-    assert docs.content
+    rendered = str(docs.content)
+    assert "Connections syncing into this destination" in rendered
+    assert "Streams enabled per connection" in rendered
+    assert "GitHub to Snowflake" in rendered
+    assert "issues" in rendered
+    assert "Slack elsewhere" not in rendered
+    assert "Tables land in database `ANALYTICS_DB`, schema `RAW_SCHEMA`" in rendered
+
+
+@pytest.mark.parametrize(
+    ("definition_id", "configuration", "expected"),
+    [
+        pytest.param(
+            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            {"database": "DB", "schema": "S"},
+            [("database", "DB"), ("schema", "S")],
+            id="snowflake",
+        ),
+        pytest.param(
+            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            {"project_id": "P", "dataset_id": "D"},
+            [("project", "P"), ("dataset", "D")],
+            id="bigquery",
+        ),
+        pytest.param(
+            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            None,
+            [],
+            id="missing_config",
+        ),
+    ],
+)
+def test_destination_location(
+    definition_id: str,
+    configuration: dict[str, Any] | None,
+    expected: list[tuple[str, str]],
+) -> None:
+    destination = _FakeDestination(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=definition_id,
+        configuration=configuration,
+    )
+
+    assert destination_docs._destination_location(cast(Any, destination)) == expected
+
+
+@pytest.mark.parametrize(
+    (
+        "namespace_definition",
+        "namespace_format",
+        "table_prefix",
+        "location",
+        "expected",
+    ),
+    [
+        pytest.param(
+            "destination",
+            None,
+            "",
+            [("database", "DB"), ("schema", "S")],
+            "Streams land in the destination's default namespace, schema `S`, "
+            "with no table prefix.",
+            id="destination_default",
+        ),
+        pytest.param(
+            "source",
+            None,
+            "",
+            [],
+            "Streams land in a namespace mirroring the source's own namespace "
+            "(e.g. its schema), with no table prefix.",
+            id="source",
+        ),
+        pytest.param(
+            "custom_format",
+            "{namespace}_raw",
+            "",
+            [],
+            "Streams land in namespace format `{namespace}_raw`, with no table prefix.",
+            id="custom_format",
+        ),
+        pytest.param(
+            None,
+            None,
+            "raw_",
+            [("database", "DB"), ("dataset", "D")],
+            "Streams land in the destination's default namespace, dataset `D`, "
+            "with table prefix 'raw_'.",
+            id="with_prefix",
+        ),
+    ],
+)
+def test_connection_namespace_note(
+    namespace_definition: str | None,
+    namespace_format: str | None,
+    table_prefix: str,
+    location: list[tuple[str, str]],
+    expected: str,
+) -> None:
+    connection = _FakeConnection(
+        connection_id="conn-1",
+        name="conn",
+        destination_id="dest-1",
+        table_prefix=table_prefix,
+        namespace_definition=namespace_definition,
+        namespace_format=namespace_format,
+    )
+
+    assert destination_docs._connection_namespace_note(connection, location) == expected
 
 
 @pytest.mark.parametrize(

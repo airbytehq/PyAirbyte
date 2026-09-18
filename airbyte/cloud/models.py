@@ -26,6 +26,8 @@ class _ConnectionResponseLike(Protocol):
     name: str
     configurations: Any
     prefix: str | None
+    namespace_definition: object | None
+    namespace_format: str | None
     status: object
 
 
@@ -47,6 +49,7 @@ class _DestinationResponseLike(Protocol):
     destination_id: str
     name: str
     definition_id: str
+    configuration: Any
 
 
 class _DeclarativeSourceDefinitionResponseLike(Protocol):
@@ -260,6 +263,12 @@ class CloudConnectionInfo(BaseModel):
     prefix: str | None = None
     """The destination table prefix."""
 
+    namespace_definition: str | None = None
+    """How destination namespaces are chosen: `source`, `destination`, or `custom_format`."""
+
+    namespace_format: str | None = None
+    """The namespace format template, when `namespace_definition` is `custom_format`."""
+
     status: str
     """The connection status."""
 
@@ -274,6 +283,12 @@ class CloudConnectionInfo(BaseModel):
             name=connection.name,
             configurations=connection.configurations,
             prefix=connection.prefix,
+            namespace_definition=(
+                _enum_value(connection.namespace_definition)
+                if connection.namespace_definition is not None
+                else None
+            ),
+            namespace_format=connection.namespace_format,
             status=_enum_value(connection.status),
         )
 
@@ -342,6 +357,10 @@ class CloudDestinationInfo(BaseModel):
     definition_id: str
     """The connector definition ID (for example, the ID for `destination-snowflake`)."""
 
+    configuration: dict[str, Any] | None = None
+    """The destination configuration as returned by the API; secret values are redacted by
+    the API."""
+
     @classmethod
     def from_api_response(
         cls,
@@ -352,6 +371,7 @@ class CloudDestinationInfo(BaseModel):
             destination_id=destination.destination_id,
             name=destination.name,
             definition_id=destination.definition_id,
+            configuration=_configuration_dict(destination.configuration),
         )
 
 
@@ -382,6 +402,17 @@ class CloudCustomSourceDefinitionInfo(BaseModel):
             manifest=definition.manifest,
             version=str(definition.version),
         )
+
+
+def _configuration_dict(configuration: object) -> dict[str, Any] | None:
+    """Convert an API destination configuration object into a dictionary."""
+    if configuration is None:
+        return None
+    if is_dataclass(configuration) and not isinstance(configuration, type):
+        return {str(key): value for key, value in asdict(configuration).items()}
+    if isinstance(configuration, Mapping):
+        return {str(key): value for key, value in configuration.items()}
+    return None
 
 
 def _notifications_to_dict(notifications: object) -> dict[str, object | None]:
