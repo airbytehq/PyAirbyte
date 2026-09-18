@@ -312,8 +312,9 @@ jobs:
       with:
         version: "latest"
         python-version: '3.10'
-    - name: Install coverage CLI
-      run: uv tool install 'coverage>=7.5.1,<8.0'
+    - name: Install dev dependencies
+      # We only need helper libraries
+      run: uv sync --group dev
 
     - name: Download coverage data
       uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
@@ -322,15 +323,15 @@ jobs:
         path: coverage-data/
 
     - name: Combine coverage data
-      run: coverage combine --keep coverage-data/*/.coverage
+      run: uv run coverage combine --keep coverage-data/*/.coverage
 
     - name: Print Coverage Report
-      run: coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       run: |
-        coverage html -d htmlcov
-        coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
