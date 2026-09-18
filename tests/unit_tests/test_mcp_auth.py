@@ -332,6 +332,30 @@ def test_create_auth_activates_oidc_when_credentials_present(
     assert oidc.client_storage is None
 
 
+def test_create_auth_oidc_defers_consent_to_the_idp(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The interactive path skips `OIDCProxy`'s consent screen for the IdP's own.
+
+    `OIDCProxy`'s built-in page is generic FastMCP chrome, so leaving it on
+    shows an unbranded prompt ahead of the branded Keycloak login. `"external"`
+    (rather than `False`) skips it without logging a "consent disabled" warning
+    on every startup, and `prompt=consent` stops the IdP from silently reusing
+    an existing browser session and skipping its page too.
+    """
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    assert oidc.require_authorization_consent == "external"
+    assert oidc.extra_authorize_params == {"prompt": "consent"}
+
+
 def test_create_auth_oidc_without_config_url_raises(monkeypatch: MonkeyPatch) -> None:
     """OIDC credentials without a discovery URL fail clearly, naming the env var."""
     _clear_all_auth_env(monkeypatch)
