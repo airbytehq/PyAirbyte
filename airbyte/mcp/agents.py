@@ -365,8 +365,8 @@ class AgentConnectorDetailsResult(BaseModel):
     workspace_id: str | None = None
     """The workspace that owns the connector."""
 
-    source_definition_name: str | None = None
-    """The name of the underlying source definition, for example `GitHub`."""
+    integration_name: str | None = None
+    """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
     context_store_entities: list[str]
     """Entities this connector can cache in the Context Store.
@@ -634,6 +634,7 @@ def _inspect_destination_fallback(
             connector_id=details.connector_id,
             connector_name=details.name,
             workspace_id=details.workspace_id,
+            integration_name=details.integration_name,
             context_store_entities=[],
             docs=docs_result,
             warnings=[],
@@ -1058,7 +1059,7 @@ def inspect_agent_connector(
         connector_id=details.connector_id,
         connector_name=details.name,
         workspace_id=details.workspace_id,
-        source_definition_name=details.source_definition_name,
+        integration_name=details.integration_name,
         context_store_entities=details.context_store_entities,
         docs=docs_result,
         warnings=warnings,

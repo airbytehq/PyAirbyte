@@ -20,6 +20,10 @@ from airbyte.agents.models import (
     AgentSkillInfo,
     AgentSkillSection,
 )
+from airbyte.agents._destination_docs import (
+    BIGQUERY_DESTINATION_DEFINITION_ID,
+    SNOWFLAKE_DESTINATION_DEFINITION_ID,
+)
 from airbyte.agents.connectors import AgentConnector, AgentReadAction, AgentWriteAction
 from airbyte.cloud.client import CloudClient
 from airbyte.constants import (
@@ -421,7 +425,7 @@ def test_inspect_tool_reports_context_store_entities(
                 connector_id="connector-id",
                 name="GitHub",
                 workspace_id="workspace-id",
-                source_definition_name="GitHub",
+                integration_name="GitHub",
                 docs_skill_id="connector:github",
                 context_store_readiness=AgentContextStoreReadiness(
                     supported_context_store_entities=[
@@ -451,6 +455,7 @@ def test_inspect_tool_reports_context_store_entities(
         organization_id=None,
     )
 
+    assert result.integration_name == "GitHub"
     assert result.context_store_entities == ["issues"]
     assert result.docs.skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
@@ -1598,18 +1603,33 @@ def _read_docs(
     )
 
 
+@pytest.mark.parametrize(
+    ("definition_id", "expected_integration_name"),
+    [
+        (SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
+        (BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
+    ],
+)
 def test_inspect_destination_fallback_reports_docs_skill(
     monkeypatch: pytest.MonkeyPatch,
+    definition_id: str,
+    expected_integration_name: str,
 ) -> None:
     """A SQL passthrough destination gets built-in details instead of a 404."""
-    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+    destination = _FakeDestinationForDocs(
+        connector_id="dest-warehouse",
+        name="Warehouse dev",
+        definition_id=definition_id,
+    )
+    _patch_destination_404(monkeypatch, [destination])
 
-    result = _inspect("dest-snowflake")
+    result = _inspect("dest-warehouse")
 
-    assert result.connector_id == "dest-snowflake"
-    assert result.connector_name == "Snowflake dev"
+    assert result.connector_id == "dest-warehouse"
+    assert result.connector_name == "Warehouse dev"
     assert result.docs is not None
-    assert result.docs.skill_id == "connector-destination:dest-snowflake"
+    assert result.docs.skill_id == "connector-destination:dest-warehouse"
+    assert result.integration_name == expected_integration_name
     assert result.docs.guidance is not None
     assert "sql-passthrough" in result.docs.guidance
     assert result.message is None
