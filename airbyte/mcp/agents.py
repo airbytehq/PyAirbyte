@@ -109,6 +109,9 @@ LIST_WORKSPACES_ORGANIZATION_ID_TIP_TEXT = (
 AGENTS_ACCESS_DENIED_STATUS = "access_denied"
 """The `status` reported when the Agents API refused the request."""
 
+AGENTS_EXECUTION_FAILED_STATUS = "error"
+"""The `status` reported when the Agents API rejected an action request."""
+
 AGENTS_UNAUTHORIZED_MESSAGE = (
     "The Airbyte Agents API rejected these credentials. Verify the Airbyte Cloud "
     "credentials, or ask the user for valid ones."
@@ -411,7 +414,7 @@ class AgentExecuteToolResult(BaseModel):
     """A warning reported alongside an otherwise successful result."""
 
     message: str | None = None
-    """Why the action did not run, when the Agents API denied the request."""
+    """Why the action did not run, when the Agents API denied or rejected the request."""
 
 
 def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
@@ -483,6 +486,51 @@ def _agents_error_detail(response_text: object) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _sql_error_guidance(detail: str) -> str | None:
+    """Return actionable guidance for a known SQL execution error."""
+    normalized_detail = detail.casefold()
+    if "000904" in normalized_detail or "invalid identifier" in normalized_detail:
+        return (
+            "Snowflake identifiers are upper-cased by Airbyte and double-quoted identifiers "
+            "are case-sensitive; write column names unquoted (or upper-cased), or run "
+            '`SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real columns.'
+        )
+    if "002003" in normalized_detail or "does not exist or not authorized" in normalized_detail:
+        return (
+            "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
+            "in another schema as `<database>.<schema>.<table>`."
+        )
+    if "unrecognized name" in normalized_detail:
+        return (
+            'Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real '
+            "columns; BigQuery column names are case-sensitive."
+        )
+    if "not found: table" in normalized_detail or "not found: dataset" in normalized_detail:
+        return (
+            "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
+            "in another dataset as `<project>.<dataset>.<table>` (backticked)."
+        )
+    return None
+
+
+def _agents_execution_failure_message(
+    error: AirbyteError,
+    action: AgentAction,
+) -> str | None:
+    """Return a concise explanation for a rejected Agents API action request."""
+    context = error.context or {}
+    if context.get("status_code") not in {
+        HTTPStatus.BAD_REQUEST,
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+    }:
+        return None
+    detail = _agents_error_detail(context.get("response_text"))
+    if detail is None:
+        return None
+    guidance = _sql_error_guidance(detail) if action == AgentReadAction.SQL_SELECT else None
+    return f"{detail} {guidance}" if guidance is not None else detail
 
 
 def _is_not_found(error: AirbyteError) -> bool:
@@ -834,12 +882,18 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
         )
     except AirbyteError as error:
         message = _agents_access_message(error)
-        if message is None:
-            raise
-        return AgentExecuteToolResult(
-            status=AGENTS_ACCESS_DENIED_STATUS,
-            message=message,
-        )
+        if message is not None:
+            return AgentExecuteToolResult(
+                status=AGENTS_ACCESS_DENIED_STATUS,
+                message=message,
+            )
+        message = _agents_execution_failure_message(error, action)
+        if message is not None:
+            return AgentExecuteToolResult(
+                status=AGENTS_EXECUTION_FAILED_STATUS,
+                message=message,
+            )
+        raise
 
     return AgentExecuteToolResult(
         status=result.status,
