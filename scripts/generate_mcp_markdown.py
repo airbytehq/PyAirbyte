@@ -96,6 +96,7 @@ from fastmcp_extensions.tool_filters import ANNOTATION_REQUIRES_CLIENT_FILESYSTE
 from starlette.requests import Request
 
 from airbyte.constants import (
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
@@ -131,7 +132,12 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
         "--emit-inspect-json",
         str(report_path),
     ]
-    env = {**os.environ, MCP_TRUSTED_EXECUTION_ENV_VAR: "1", MCP_INSIDERS_ENV_VAR: "1"}
+    env = {
+        **os.environ,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: "1",
+        MCP_TRUSTED_EXECUTION_ENV_VAR: "1",
+        MCP_INSIDERS_ENV_VAR: "1",
+    }
     try:
         subprocess.run(
             command,
