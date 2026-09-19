@@ -79,9 +79,17 @@ _DIALECT_NOTES: Mapping[str, list[str]] = {
     "snowflake": [
         (
             "Unquoted identifiers are upper-cased and case-insensitive. With the default "
-            "destination settings Airbyte writes upper-cased table names, so stream `users` "
-            "is table `USERS`; connections using the legacy case-preserving raw-table mode "
-            "keep the original case. Confirm names with `SHOW TABLES`."
+            "destination settings Airbyte writes upper-cased table AND column names, so stream "
+            "`users` is table `USERS` and field `primaryUserId` is column `PRIMARYUSERID`; "
+            "connections using the legacy case-preserving raw-table mode keep the original "
+            "case. Confirm names with `SHOW TABLES`."
+        ),
+        (
+            "Prefer unquoted identifiers: double-quoting makes them case-sensitive, so "
+            '`SELECT "id"` fails with `invalid identifier` against column `ID`. Quote a name '
+            "exactly as returned by `SHOW TABLES` or the dry run only when it is mixed or lower "
+            "case (legacy raw-table mode), contains spaces or special characters, or is a "
+            "reserved word."
         ),
         "Qualify tables in another schema as `<database>.<schema>.<table>`.",
         (
@@ -256,7 +264,8 @@ def _overview(
                 (
                     "Discover columns without reading rows: send `SELECT * FROM <table> "
                     'LIMIT 1` with `"dry_run": true` in `api_args`; only the column list is '
-                    "returned."
+                    "returned. Do not guess column names: run the dry-run step first and "
+                    "select only columns it returns."
                 ),
                 (
                     "Results are capped by the server; when a response includes `end_cursor`, "
@@ -299,7 +308,13 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
                 "to that same namespace."
             ),
         },
-        {"type": "paragraph", "text": "Discover columns without reading rows (`dry_run`):"},
+        {
+            "type": "paragraph",
+            "text": (
+                "Discover columns without reading rows (`dry_run`). Do not guess column names: "
+                "run the dry-run step first and select only columns it returns:"
+            ),
+        },
         {
             "type": "code",
             "language": "python",

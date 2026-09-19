@@ -1609,6 +1609,8 @@ def test_build_destination_skill_docs_sql_passthrough_section(
     assert "_airbyte_extracted_at" in rendered
     for note in destination_docs._DIALECT_NOTES[dialect]:
         assert note in rendered
+    if dialect == "snowflake":
+        assert "double-quot" in rendered
 
 
 def test_build_destination_skill_docs_connections_section_filters_destination() -> None:
