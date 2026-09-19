@@ -1113,7 +1113,8 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "destination listed by `list_agent_connectors`; `SHOW TABLES` lists its tables "
                 'and `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` '
                 "returns its columns without reading rows; never guess columns. On Snowflake, "
-                "write identifiers unquoted. The `download` action "
+                "write identifiers unquoted unless discovery returned mixed case. The `download` "
+                "action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -1203,7 +1204,8 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
 
     Use the destination's `connector_id` and `sql_dialect` as reported by
     `list_agent_connectors`. On Snowflake, identifiers are upper-cased; write them unquoted
-    (double-quoting makes them case-sensitive).
+    (double-quoting makes them case-sensitive). Quote a name only when discovery returns it in
+    mixed or lower case, exactly as returned.
     """
     return _execute(
         ctx,

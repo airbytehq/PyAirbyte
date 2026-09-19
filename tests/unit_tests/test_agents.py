@@ -1610,7 +1610,7 @@ def test_build_destination_skill_docs_sql_passthrough_section(
     for note in destination_docs._DIALECT_NOTES[dialect]:
         assert note in rendered
     if dialect == "snowflake":
-        assert "double-quote" in rendered
+        assert "double-quot" in rendered
 
 
 def test_build_destination_skill_docs_connections_section_filters_destination() -> None:

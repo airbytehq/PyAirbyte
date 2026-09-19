@@ -85,9 +85,10 @@ _DIALECT_NOTES: Mapping[str, list[str]] = {
             "case. Confirm names with `SHOW TABLES`."
         ),
         (
-            "Never double-quote identifiers: quoting makes them case-sensitive, so `SELECT "
-            '"id"` fails with `invalid identifier` against column `ID`. Write `SELECT id, '
-            "title` (unquoted) instead."
+            "Write identifiers unquoted: double-quoting makes them case-sensitive, so "
+            '`SELECT "id"` fails with `invalid identifier` against column `ID`. Only quote a '
+            "name when `SHOW TABLES` or the dry run returns it in mixed or lower case (legacy "
+            "raw-table mode), and then quote it exactly as returned."
         ),
         "Qualify tables in another schema as `<database>.<schema>.<table>`.",
         (
