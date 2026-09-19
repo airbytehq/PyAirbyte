@@ -510,7 +510,7 @@ def _sql_error_guidance(detail: str) -> str | None:
     if "not found: table" in normalized_detail or "not found: dataset" in normalized_detail:
         return (
             "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
-            "in another dataset as `` `<project>.<dataset>.<table>` ``."
+            "in another dataset as `<project>.<dataset>.<table>` (backticked)."
         )
     return None
 
