@@ -843,7 +843,7 @@ def test_forbidden_message_surfaces_api_detail(
         ),
         pytest.param(
             "Unrecognized name: userId",
-            "BigQuery column names are case-sensitive",
+            "then use one of the listed column names in the query",
             id="bigquery_invalid_identifier",
         ),
         pytest.param(

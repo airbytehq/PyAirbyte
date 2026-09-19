@@ -505,7 +505,7 @@ def _sql_error_guidance(detail: str) -> str | None:
     if "unrecognized name" in normalized_detail:
         return (
             'Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real '
-            "columns; BigQuery column names are case-sensitive."
+            "columns, then use one of the listed column names in the query."
         )
     if "not found: table" in normalized_detail or "not found: dataset" in normalized_detail:
         return (
