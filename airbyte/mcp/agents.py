@@ -1112,7 +1112,8 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "`api_args` and any value for `entity_type`; the `connector_id` is a "
                 "destination listed by `list_agent_connectors`; `SHOW TABLES` lists its tables "
                 'and `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` '
-                "returns its columns without reading rows. The `download` action "
+                "returns its columns without reading rows; never guess columns. On Snowflake, "
+                "write identifiers unquoted. The `download` action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -1194,10 +1195,15 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     are connector-specific, so call `inspect_agent_connector` first. The connector must
     belong to the given workspace.
 
-    To query a destination, use `action="sql_select"` with the destination's `connector_id`
-    and `sql_dialect` as reported by `list_agent_connectors`. Start with `SHOW TABLES` to
-    discover tables, then `SELECT * FROM <table> LIMIT 1` with "dry_run": true in
-    `api_args` to discover columns before selecting data.
+    To query a destination:
+    1. Run `SHOW TABLES` to discover tables.
+    2. Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` to get the
+       real column names; never guess them.
+    3. Select data using the discovered names.
+
+    Use the destination's `connector_id` and `sql_dialect` as reported by
+    `list_agent_connectors`. On Snowflake, identifiers are upper-cased; write them unquoted
+    (double-quoting makes them case-sensitive).
     """
     return _execute(
         ctx,
