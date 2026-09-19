@@ -828,6 +828,119 @@ def test_forbidden_message_surfaces_api_detail(
     assert message == expected_message
 
 
+@pytest.mark.parametrize(
+    ("detail", "expected_guidance"),
+    [
+        pytest.param(
+            "Snowflake reported an error (000904): invalid identifier",
+            "Snowflake identifiers are upper-cased by Airbyte",
+            id="snowflake_invalid_identifier",
+        ),
+        pytest.param(
+            "002003: Object does not exist or not authorized",
+            "Run `SHOW TABLES` to list the tables this destination exposes",
+            id="snowflake_missing_table",
+        ),
+        pytest.param(
+            "Unrecognized name: userId",
+            "BigQuery column names are case-sensitive",
+            id="bigquery_invalid_identifier",
+        ),
+        pytest.param(
+            "Not found: Table project.dataset.calls",
+            "qualify tables in another dataset",
+            id="bigquery_missing_table",
+        ),
+        pytest.param(
+            "Some unrelated SQL error",
+            None,
+            id="unknown",
+        ),
+    ],
+)
+def test_sql_error_guidance(detail: str, expected_guidance: str | None) -> None:
+    """Verify known SQL errors get targeted guidance."""
+    guidance = agents_mcp._sql_error_guidance(detail)  # noqa: SLF001
+
+    if expected_guidance is None:
+        assert guidance is None
+    else:
+        assert guidance is not None
+        assert expected_guidance in guidance
+
+
+def test_execute_sql_error_returns_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a SQL execution error is returned with Snowflake identifier guidance."""
+    response_text = (
+        '{"message":"Snowflake reported an error (000904): SQL compilation error: '
+        'error line 1 at position 7\\ninvalid identifier \'\\"id\\"\'",'
+        '"errors":[{"field":"base","message":"...","error_code":"error"}]}'
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, response_text)
+        ),
+    )
+
+    result = _execute_ro(action="sql_select")
+
+    assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
+    assert result.message is not None
+    assert result.message.startswith("Snowflake reported an error (000904):")
+    assert "dry_run" in result.message
+
+
+def test_execute_non_json_execution_error_is_reraised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an unreadable execution error keeps the original exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, "<html>bad request</html>")
+        ),
+    )
+
+    with pytest.raises(AirbyteError):
+        _execute_ro(action="sql_select")
+
+
+def test_execute_server_error_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify server errors keep the original exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(_agents_error(500)),  # noqa: ARG005
+    )
+
+    with pytest.raises(AirbyteError):
+        _execute_ro(action="sql_select")
+
+
+def test_execute_non_sql_error_returns_bare_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-SQL execution errors return the API detail without SQL guidance."""
+    detail = "The list action could not be executed."
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, f'{{"message":"{detail}"}}')
+        ),
+    )
+
+    result = _execute_ro(action="list")
+
+    assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
+    assert result.message == detail
+
+
 def test_sql_select_forbidden_reports_actor_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
