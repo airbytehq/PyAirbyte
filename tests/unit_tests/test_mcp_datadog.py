@@ -12,7 +12,6 @@ Private ddtrace reads below are test-only contracts for the supported 4.x SDK.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 import subprocess
@@ -40,8 +39,6 @@ socket.socket.connect = forbid_network
 socket.socket.connect_ex = forbid_network
 socket.create_connection = forbid_network
 
-import pytest
-pytest.importorskip("ddtrace")
 import ddtrace.auto
 import ddtrace
 from ddtrace.trace import tracer
@@ -82,15 +79,18 @@ record_exports()
 """
 
 
-def _run(script: str, *, env: dict[str, str] | None = None) -> Any:  # noqa: ANN401
-    """Run a scenario with fresh instrumentation and no inherited service secrets."""
-    if importlib.util.find_spec("ddtrace") is None:
-        pytest.skip("ddtrace optional extra is not installed")
-    child_env = {
+def _clean_env() -> dict[str, str]:
+    """Drop inherited Datadog, Airbyte, MCP and OTel settings for child interpreters."""
+    return {
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("DD_", "AIRBYTE_", "MCP_", "OTEL_"))
     }
+
+
+def _run(script: str, *, env: dict[str, str] | None = None) -> Any:  # noqa: ANN401
+    """Run a scenario with fresh instrumentation and no inherited service secrets."""
+    child_env = _clean_env()
     child_env.update({
         "DD_API_KEY": "test-only-not-a-real-api-key",
         "DD_SERVICE": "mcp-unit-test",
@@ -674,8 +674,47 @@ def test_install_is_idempotent_and_respects_explicit_environ() -> None:
     """)
 
 
+def _import_http_main_modules(env: dict[str, str]) -> set[str]:
+    """Import the hosted entrypoint in a fresh interpreter and return sys.modules."""
+    child_env = _clean_env()
+    child_env.update({
+        "DD_TRACE_ENABLED": "false",
+        "DD_TRACE_AGENT_URL": "http://127.0.0.1:1",
+        "DD_REMOTE_CONFIGURATION_ENABLED": "false",
+        "DD_CRASHTRACKING_ENABLED": "false",
+        "DD_INSTRUMENTATION_TELEMETRY_ENABLED": "false",
+        "DO_NOT_TRACK": "1",
+        **env,
+    })
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import airbyte.mcp.http_main, sys; print(*sys.modules, sep='\\n')",
+        ],
+        env=child_env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return set(result.stdout.splitlines())
+
+
+def test_http_main_import_skips_ddtrace_without_api_key() -> None:
+    """Without DD_API_KEY the entrypoint imports nothing from ddtrace."""
+    assert "ddtrace" not in _import_http_main_modules({})
+
+
+def test_http_main_import_bootstraps_ddtrace_with_api_key() -> None:
+    """With DD_API_KEY the entrypoint self-instruments through ddtrace.auto."""
+    modules = _import_http_main_modules({"DD_API_KEY": "0" * 32})
+    assert {"ddtrace", "ddtrace.auto"} <= modules
+
+
 def test_install_never_raises_without_ddtrace() -> None:
-    """An absent optional dependency keeps hosted cached clients working."""
+    """A missing ddtrace keeps hosted cached clients working."""
     _run(
         """
         import sys

@@ -72,8 +72,11 @@ Opt-in static client credentials:
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
 
-Optional Datadog observability (`airbyte[datadog]`, launched with
-`ddtrace-run airbyte-mcp-http`):
+Optional Datadog observability. `ddtrace` is installed with PyAirbyte and no
+`ddtrace-run` launcher is needed: when `DD_API_KEY` is set, this module imports
+`ddtrace.auto` before anything else so `airbyte-mcp-http` starts fully
+instrumented; without it, nothing from `ddtrace` is imported. Nothing is
+exported unless the deployment also sets the variables below:
 
 - `DD_LLMOBS_ENABLED=1`: install mandatory LLM Observability redaction and APM
   sanitization, then annotate tool spans. No Datadog export is enabled by this
@@ -130,6 +133,17 @@ produce no LLM Observability event, preventing arbitrary name text from export.
 """
 
 from __future__ import annotations
+
+import os as _os
+
+
+# Instrumentation is only meaningful with a Datadog API key. Without one nothing from
+# ddtrace is imported, so tests, local runs and the inert container image are unaffected;
+# with one, `airbyte-mcp-http` starts fully instrumented and the container CMD stays
+# `airbyte-mcp-http`. This import is Datadog's own alternative to `ddtrace-run`; it must
+# run before any other import so the libraries below are patched before they are loaded.
+if _os.environ.get("DD_API_KEY"):
+    import ddtrace.auto  # noqa: F401  # patches libraries before they are imported; must be first
 
 import logging
 import re

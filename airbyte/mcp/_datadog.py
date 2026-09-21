@@ -1,9 +1,10 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Hosted MCP observability controls; ddtrace-run owns instrumentation and enablement.
+"""Hosted MCP observability controls; `ddtrace.auto` owns instrumentation and enablement.
 
-The LLM Observability processor and APM sanitizer must both register before the
-optional annotations are installed. Every ddtrace import is lazy so the hosted
-server also runs without the optional `datadog` extra.
+`airbyte.mcp.http_main` imports `ddtrace.auto` when `DD_API_KEY` is set. The LLM
+Observability processor and APM sanitizer must both register before the optional
+annotations are installed. Every ddtrace import here is lazy so `import airbyte`
+never loads ddtrace and the hosted server runs without a Datadog configuration.
 """
 
 # Lazy imports keep ddtrace optional and defer registration dependencies to hosted startup.

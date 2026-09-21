@@ -280,11 +280,11 @@ Observability event, so arbitrary name text is not exported.
 Datadog's default retention is 15 days; a custom retention policy is outside
 this feature. Export is best effort and does not determine whether a tool call
 succeeds. `DO_NOT_TRACK` continues to govern Segment only; operators control
-Datadog with `DD_*` variables. Local stdio is unchanged. HTTP operators must
-opt in with `airbyte[datadog]`, the `ddtrace-run` launcher and the complete
-configuration documented in `airbyte.mcp.http_main`; installing the extra alone
-does not enable export. Hosted clients with cached `telemetry` schemas remain
-compatible after observability is disabled.
+Datadog with `DD_*` variables. Local stdio is unchanged. `ddtrace` is installed
+with PyAirbyte; the hosted entrypoint instruments itself when `DD_API_KEY` is
+set, and nothing is exported unless the deployment sets the complete Datadog
+configuration documented in `airbyte.mcp.http_main`. Hosted clients with cached
+`telemetry` schemas remain compatible after observability is disabled.
 
 ## Troubleshooting
 
