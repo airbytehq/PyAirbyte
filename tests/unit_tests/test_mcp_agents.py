@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from typing import Any, cast
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -30,8 +31,14 @@ from airbyte.constants import (
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_READONLY_MODE_ENV_VAR,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteError,
+    PyAirbyteInputError,
+    ExternalAccessDisabledError,
+)
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
 
@@ -137,6 +144,17 @@ def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
         lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
     )
     return stub
+
+
+@pytest.fixture(autouse=True)
+def external_access_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep existing Agents behavior tests focused on their API behavior."""
+    monkeypatch.delenv(MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, raising=False)
+    monkeypatch.delenv(MCP_READONLY_MODE_ENV_VAR, raising=False)
+    monkeypatch.delenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", raising=False)
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.get_mcp_config", lambda *args, **kwargs: None
+    )
 
 
 def _execute_ro(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: ANN401
@@ -975,6 +993,129 @@ def _patch_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
             MCP_CONFIG_ORGANIZATION_ID: "org-from-config",
         }.get(key),
     )
+
+
+@pytest.mark.parametrize(
+    ("env_var", "env_value", "assert_no_config"),
+    [
+        pytest.param(
+            MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+            "0",
+            True,
+            id="external_access_disabled",
+        ),
+        pytest.param(MCP_READONLY_MODE_ENV_VAR, "1", False, id="legacy_readonly_mode"),
+    ],
+)
+@pytest.mark.parametrize(
+    "call_tool",
+    [
+        pytest.param(
+            lambda: agents_mcp.list_agent_workspaces(
+                ctx=cast(Context, object()),
+                organization_id="organization-id",
+            ),
+            id="list_workspaces",
+        ),
+        pytest.param(
+            lambda: agents_mcp.list_agent_connectors(
+                ctx=cast(Context, object()),
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="list_connectors",
+        ),
+        pytest.param(
+            lambda: agents_mcp.inspect_agent_connector(
+                ctx=cast(Context, object()),
+                connector_id="connector-id",
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="inspect_connector",
+        ),
+        pytest.param(
+            lambda: agents_mcp.execute_agent_connector_ro(
+                ctx=cast(Context, object()),
+                connector_id="connector-id",
+                entity_type="issues",
+                action="list",
+                api_args=None,
+                select_fields=None,
+                exclude_fields=None,
+                page_size=None,
+                cursor=None,
+                intent=None,
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="execute_connector_ro",
+        ),
+        pytest.param(
+            lambda: agents_mcp.execute_agent_connector(
+                ctx=cast(Context, object()),
+                connector_id="connector-id",
+                entity_type="issues",
+                action="create",
+                api_args=None,
+                select_fields=None,
+                exclude_fields=None,
+                page_size=None,
+                cursor=None,
+                intent=None,
+                read_only=None,
+                workspace_id="workspace-id",
+                organization_id="organization-id",
+            ),
+            id="execute_connector",
+        ),
+        pytest.param(
+            lambda: agents_mcp.list_agent_skills(
+                ctx=cast(Context, object()),
+                workspace_id="workspace-id",
+            ),
+            id="list_skills",
+        ),
+        pytest.param(
+            lambda: agents_mcp.read_agent_skill_docs(
+                ctx=cast(Context, object()),
+                skill_id="connector:github",
+                section=None,
+                workspace_id="workspace-id",
+            ),
+            id="read_skill_docs",
+        ),
+    ],
+)
+def test_agents_entry_points_are_blocked_by_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    env_value: str,
+    assert_no_config: bool,
+    call_tool: Callable[[], Any],
+) -> None:
+    """Disabled external access rejects every Agents entry point before config or API access."""
+    monkeypatch.setenv(env_var, env_value)
+    get_mcp_config = Mock(
+        side_effect=AssertionError("config access") if assert_no_config else None,
+        return_value="" if not assert_no_config else None,
+    )
+    agent_organization = Mock(name="AgentOrganization")
+    agent_workspace = Mock(name="AgentWorkspace")
+    cloud_client = Mock(name="_get_cloud_client")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_mcp_config", get_mcp_config)
+    monkeypatch.setattr(agents_mcp, "AgentOrganization", agent_organization)
+    monkeypatch.setattr(agents_mcp, "AgentWorkspace", agent_workspace)
+    monkeypatch.setattr(agents_mcp, "_get_cloud_client", cloud_client)
+
+    with pytest.raises(ExternalAccessDisabledError):
+        call_tool()
+
+    if assert_no_config:
+        get_mcp_config.assert_not_called()
+    agent_organization.assert_not_called()
+    agent_workspace.assert_not_called()
+    cloud_client.assert_not_called()
 
 
 _ACCESS_FAILURE_CASES = [

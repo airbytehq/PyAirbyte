@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""MCP tool utility functions for safe mode and config args.
+"""MCP tool utility functions for policy and config args.
 
 This module provides:
 - Safe mode functionality for MCP tools, allowing tracking of resources created
@@ -37,14 +37,23 @@ from fastmcp_extensions.tool_filters import (
 
 from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
 from airbyte.constants import (
+    ANNOTATION_EXTERNAL_ACCESS,
+    ANNOTATION_PIPELINE_CHANGE,
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_ALLOW_PIPELINE_CHANGES_HEADER,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -67,7 +76,7 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import ExternalAccessDisabledError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -77,6 +86,10 @@ if TYPE_CHECKING:
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
+
+INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
+"""Annotation indicating the tool requires MCP Apps UI support."""
+
 _AGENTS_MCP_MODULE = "agents"
 """Module whose tools are only advertised when an Agents API is available."""
 
@@ -89,19 +102,25 @@ def is_agents_api_available(config_source: FastMCP | Context) -> bool:
     )
 
 
-INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
-"""Annotation indicating the tool requires MCP Apps UI support."""
-
 # =============================================================================
 # Safe Mode Configuration
 # =============================================================================
 
-AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
-"""Whether safe mode is enabled for cloud operations.
 
-When enabled (default), destructive operations are only allowed on resources
-created during the current session.
-"""
+def _resolve_safe_mode() -> bool:
+    """Resolve Cloud safe mode, enabled unless explicitly disabled."""
+    value = os.environ.get(CLOUD_MCP_SAFE_MODE_ENV_VAR)
+    return _str_to_bool(value) is not False
+
+
+def _safe_mode_explicitly_enabled() -> bool:
+    """Return True only when safe mode is explicitly enabled via its environment variable."""
+    return _str_to_bool(os.environ.get(CLOUD_MCP_SAFE_MODE_ENV_VAR)) is True
+
+
+AIRBYTE_CLOUD_MCP_SAFE_MODE = _resolve_safe_mode()
+"""Whether safe mode is enabled for Cloud operations."""
+
 
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 """Whether the AIRBYTE_CLOUD_WORKSPACE_ID environment variable is set.
@@ -142,7 +161,7 @@ def check_guid_created_in_session(guid: str) -> None:
         raise SafeModeError(
             f"Cannot perform destructive operation on '{guid}': "
             f"Object was not created in this session. "
-            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+            f"{CLOUD_MCP_SAFE_MODE_ENV_VAR} is set to '1'."
         )
 
 
@@ -190,6 +209,24 @@ INSIDERS_CONFIG_ARG = MCPServerConfigArg(
 The default is empty rather than `0`, because `0` is an explicit denial that also refuses
 the include-list opt-in.
 """
+
+ALLOW_PIPELINE_CHANGES_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
+    http_header_key=MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+    env_var=MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for the pipeline-change permission."""
+
+ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    http_header_key=MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    env_var=MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for the Agents external access permission."""
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
@@ -362,9 +399,11 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def mcp_tool(
+def mcp_tool(  # noqa: PLR0913
     *,
     read_only: bool = False,
+    pipeline_change: bool | None = None,
+    external_access: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
     open_world: bool = False,
@@ -389,6 +428,10 @@ def mcp_tool(
             raise RuntimeError("Unexpected MCP tool registration state.")
         registered_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(decorated)
         registered_annotations.update(annotations or {})
+        registered_annotations[ANNOTATION_PIPELINE_CHANGE] = (
+            pipeline_change if pipeline_change is not None else not read_only
+        )
+        registered_annotations[ANNOTATION_EXTERNAL_ACCESS] = external_access
         if meta:
             registered_annotations[_TOOL_META_KEY] = dict(meta)
         if app is not None:
@@ -465,14 +508,72 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module
 
 
-def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var.
+def _resolve_policy(
+    app_or_ctx: FastMCP | Context,
+    config_name: str,
+    env_var: str,
+) -> bool | None:
+    """Resolve a tri-state policy whose request value can only narrow its env value."""
+    environment_value = _str_to_bool(os.environ.get(env_var))
+    if environment_value is False:
+        return False
+    request_value = _str_to_bool(get_mcp_config(app_or_ctx, config_name))
 
-    When set to "1", only show tools with readOnlyHint=True.
+    if environment_value is True:
+        return request_value is not False
+    return request_value
+
+
+def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Return the effective permission for pipeline-changing tools."""
+    if _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True:
+        return False
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    )
+
+
+def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Return the effective permission for Agents external access.
+
+    When no explicit permission is configured, explicitly enabled safe mode and disabled
+    pipeline changes both disable external access; otherwise the result follows the insiders
+    default.
     """
-    config_value = (get_mcp_config(app, MCP_CONFIG_READONLY_MODE) or "").lower()
-    if config_value in {"1", "true"}:
-        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
+    explicit_value = _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    )
+    if explicit_value is not None:
+        return explicit_value
+    return (
+        False
+        if (pipeline_changes_allowed(app_or_ctx) is False or _safe_mode_explicitly_enabled())
+        else None
+    )
+
+
+def check_external_access_allowed(ctx: Context) -> None:
+    """Raise `ExternalAccessDisabledError` when Agents external access is disabled."""
+    if external_access_allowed(ctx) is False:
+        raise ExternalAccessDisabledError
+
+
+def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
+    """Advertise only read-only tools when pipeline changes are disabled."""
+    if pipeline_changes_allowed(app) is False:
+        read_only = bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
+        return (
+            get_annotation(
+                tool,
+                ANNOTATION_PIPELINE_CHANGE,
+                default=not read_only,
+            )
+            is not True
+        )
     return True
 
 
@@ -494,7 +595,7 @@ def _insiders_mode(app: FastMCP) -> bool | None:
     return caller_mode
 
 
-def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
+def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:  # noqa: PLR0911
     """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
     When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
@@ -503,31 +604,44 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
-    Agents tools are hidden whenever the Cloud API roots are overridden, unless
-    `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
+    Agents tools are hidden when external access is disabled. Explicit external access
+    permission bypasses the normal insiders requirement, but does not override the
+    insiders environment hard deny or module/API availability checks.
     """
+    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
+
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
         *_parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or ""),
         *_parse_csv_config(get_mcp_config(app, CONFIG_INCLUDE_MODULES) or ""),
     ]
 
-    # Get the tool's mcp_module from annotations
-    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
-
-    # Hide tools from excluded modules
+    # Hide tools from excluded modules.
     if exclude_modules and tool_module and tool_module in exclude_modules:
+        return False
+
+    if (
+        get_annotation(tool, ANNOTATION_EXTERNAL_ACCESS, default=False) is True
+        and external_access_allowed(app) is False
+    ):
         return False
 
     if tool_module == _AGENTS_MCP_MODULE and not is_agents_api_available(app):
         return False
 
     if tool_module in MCP_INSIDERS_MODULES:
-        insiders_mode = _insiders_mode(app)
-        if insiders_mode is False:
-            return False
-        if insiders_mode is None:
-            return tool_module in include_modules
+        external_access_mode = (
+            external_access_allowed(app) if tool_module == _AGENTS_MCP_MODULE else None
+        )
+        if external_access_mode is True:
+            if _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR)) is False:
+                return False
+        else:
+            insiders_mode = _insiders_mode(app)
+            if insiders_mode is False or (
+                insiders_mode is None and tool_module not in include_modules
+            ):
+                return False
 
     if include_modules:
         # Only show tools from included modules

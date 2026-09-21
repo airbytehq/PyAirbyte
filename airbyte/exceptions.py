@@ -312,6 +312,28 @@ class AirbyteMCPError(PyAirbyteError):
 
 
 @dataclass
+class PipelineChangesDisabledError(AirbyteMCPError):
+    """Pipeline-changing tools are disabled by the MCP server policy."""
+
+    guidance = (
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1`, unset legacy "
+        "`AIRBYTE_CLOUD_MCP_READONLY_MODE`, and ensure the "
+        "`X-MCP-Allow-Pipeline-Changes` request header is not `0`."
+    )
+
+
+@dataclass
+class ExternalAccessDisabledError(AirbyteMCPError):
+    """Agents external access is disabled by the MCP server policy."""
+
+    guidance = (
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` to allow Agents external access. "
+        "Read-only mode and an explicit `AIRBYTE_CLOUD_MCP_SAFE_MODE=1` also disable "
+        "external access when this setting is unset."
+    )
+
+
+@dataclass
 class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     """A trusted-execution-only capability was invoked while trusted execution is disabled.
 

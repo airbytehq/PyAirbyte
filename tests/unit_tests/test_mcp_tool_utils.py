@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 import pytest
 from fastmcp_extensions import MCPServerConfigArg
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS
 
+from airbyte.constants import ANNOTATION_EXTERNAL_ACCESS, ANNOTATION_PIPELINE_CHANGE
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
     CLIENT_ID_CONFIG_ARG,
@@ -17,8 +19,10 @@ from airbyte.mcp._tool_utils import (
     TRUSTED_EXECUTION_CONFIG_ARG,
     SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
+    _resolve_safe_mode,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
+    mcp_tool,
     register_guid_created_in_session,
 )
 
@@ -129,6 +133,29 @@ def test_check_guid_created_in_session_passes_when_safe_mode_disabled() -> None:
         check_guid_created_in_session("any-guid-at-all")
 
 
+@pytest.mark.parametrize(
+    ("canonical", "expected"),
+    [
+        pytest.param(None, True, id="unset_enabled"),
+        pytest.param("auto", True, id="auto_enabled"),
+        pytest.param("1", True, id="one_enabled"),
+        pytest.param("0", False, id="zero_disabled"),
+        pytest.param("false", False, id="false_disabled"),
+        pytest.param("unexpected", True, id="unrecognized_enabled"),
+    ],
+)
+def test_resolve_safe_mode(
+    monkeypatch: pytest.MonkeyPatch, canonical: str | None, expected: bool
+) -> None:
+    """Safe mode is enabled unless explicitly set to a false value."""
+    if canonical is None:
+        monkeypatch.delenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", raising=False)
+    else:
+        monkeypatch.setenv("AIRBYTE_CLOUD_MCP_SAFE_MODE", canonical)
+
+    assert _resolve_safe_mode() is expected
+
+
 def test_multiple_guids_can_be_registered() -> None:
     """Test that multiple GUIDs can be registered in the same session."""
     guids = ["guid-1", "guid-2", "guid-3"]
@@ -144,6 +171,27 @@ def test_duplicate_guid_registration_is_idempotent() -> None:
     register_guid_created_in_session("duplicate-guid")
     register_guid_created_in_session("duplicate-guid")
     assert "duplicate-guid" in _GUIDS_CREATED_IN_SESSION
+
+
+def test_mcp_tool_sets_policy_annotations() -> None:
+    """Policy annotations default from the MCP tool's read-only setting."""
+
+    @mcp_tool(read_only=True)
+    def read_tool() -> None:
+        pass
+
+    _, read_annotations = _REGISTERED_TOOLS[-1]
+
+    @mcp_tool()
+    def write_tool() -> None:
+        pass
+
+    _, write_annotations = _REGISTERED_TOOLS[-1]
+
+    assert read_annotations[ANNOTATION_PIPELINE_CHANGE] is False
+    assert read_annotations[ANNOTATION_EXTERNAL_ACCESS] is False
+    assert write_annotations[ANNOTATION_PIPELINE_CHANGE] is True
+    assert write_annotations[ANNOTATION_EXTERNAL_ACCESS] is False
 
 
 @pytest.mark.parametrize(

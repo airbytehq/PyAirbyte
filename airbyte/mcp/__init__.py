@@ -131,6 +131,28 @@ and are only allowed for objects created in the current session.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
 
+When explicitly enabled with `AIRBYTE_CLOUD_MCP_SAFE_MODE=1`, safe mode also disables
+external-access tools, including the Airbyte Agents tools, unless
+`AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` explicitly allows them. The default unset safe mode
+does not affect external access.
+
+### Airbyte Cloud Pipeline and External Access Permissions
+
+Pipeline-changing tools are controlled by `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES` and the
+`X-MCP-Allow-Pipeline-Changes` header. Agents external access is controlled by
+`AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS` and the `X-MCP-Allow-External-Access` header.
+Both settings accept `1`/`true`, `0`/`false`, or `auto`; `auto` and unset values mean no
+explicit permission. A request header can narrow an environment setting, but cannot widen it.
+
+Pipeline-change gating uses each tool's `pipeline_change` annotation, defaulting to non-read-only
+tools; running or cancelling a sync is not a pipeline change.
+When pipeline changes are disabled, tools classified as pipeline changes are not advertised or
+executable. If external access is unset while pipeline changes are disabled, Agents tools are also
+disabled. When external access is unset, explicitly enabled safe mode
+(`AIRBYTE_CLOUD_MCP_SAFE_MODE=1`) also disables Agents tools; the default unset safe mode does not.
+Explicit external access permission can expose Agents without insiders mode, subject to API
+availability, module excludes, and the `AIRBYTE_MCP_INSIDERS=0` hard deny.
+
 ### Airbyte Cloud Read-Only Mode
 
 Read-only mode is not enabled by default and is controlled by the
