@@ -288,6 +288,16 @@ class CloudDestination(CloudConnector):
     connector_type: ClassVar[Literal["source", "destination"]] = "destination"
     """The type of the connector."""
 
+    def __init__(
+        self,
+        workspace: CloudWorkspace,
+        connector_id: str,
+    ) -> None:
+        """Initialize a cloud destination object."""
+        super().__init__(workspace=workspace, connector_id=connector_id)
+        self._configuration: dict[str, Any] | None = None
+        """The destination configuration. (Cached.)"""
+
     @property
     def destination_id(self) -> str:
         """Get the ID of the destination.
@@ -295,6 +305,21 @@ class CloudDestination(CloudConnector):
         This is an alias for `connector_id`.
         """
         return self.connector_id
+
+    @property
+    def configuration(self) -> dict[str, Any] | None:
+        """The destination configuration as returned by the API.
+
+        Secret values are redacted by the API. `list_destinations` responses do not
+        carry a reliably typed configuration, so this is always fetched via
+        `get_destination` on first access.
+        """
+        if self._configuration is None:
+            info = self._fetch_connector_info()
+            self._configuration = info.configuration
+            self._connector_info = info
+
+        return self._configuration
 
     def _fetch_connector_info(self) -> CloudDestinationInfo:
         """Populate the destination with data from the API."""

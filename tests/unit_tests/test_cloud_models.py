@@ -105,3 +105,39 @@ def test_cloud_connector_definition_id_uses_cached_info(
     )
 
     assert connector.definition_id == expected_definition_id
+
+
+def test_destination_configuration_fetches_via_get_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """List-seeded info does not supply configuration; it is fetched on first access."""
+    destination = CloudDestination(
+        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
+        connector_id="destination-id",
+    )
+    destination._connector_info = CloudDestinationInfo(  # noqa: SLF001
+        destination_id="destination-id",
+        name="Test destination",
+        definition_id="destination-snowflake-definition",
+        configuration={"database": "x"},
+    )
+    fetched_info = CloudDestinationInfo(
+        destination_id="destination-id",
+        name="Test destination",
+        definition_id="destination-snowflake-definition",
+        configuration={"database": "x", "schema": "y"},
+    )
+    fetch_calls: list[None] = []
+
+    def _fetch() -> CloudDestinationInfo:
+        fetch_calls.append(None)
+        return fetched_info
+
+    monkeypatch.setattr(destination, "_fetch_connector_info", _fetch)
+
+    assert destination.configuration is not None
+    assert destination.configuration is not None
+    assert destination.configuration["schema"] == "y"
+    assert len(fetch_calls) == 1
+    assert destination.name == "Test destination"
+    assert len(fetch_calls) == 1
