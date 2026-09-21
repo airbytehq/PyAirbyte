@@ -126,37 +126,36 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
     global _INSTALLED, _ENVIRON
     if _INSTALLED:
         return
-    _INSTALLED, _ENVIRON = True, environ
-    app.add_middleware(IntentCaptureMiddleware(app, environ=environ))
-    environment = _env(environ)
     if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
-        _INSTALLED = False
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004  # Conflicting process state, not an invalid argument type.
     if RequestsInstrumentor().is_instrumented_by_opentelemetry:  # type: ignore[missing-attribute]  # Instrumentor singleton is non-null.
-        _INSTALLED = False
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
-    if not (
-        environment.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
-        or environment.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    ):
-        return
+    environment = _env(environ)
     provider = None
-    try:
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    if environment.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or environment.get(
+        "OTEL_EXPORTER_OTLP_ENDPOINT"
+    ):
+        try:
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
-        _build_tool_maps()
-        provider = _build_provider(OTLPSpanExporter())
-        trace.set_tracer_provider(provider)
-    except Exception:
-        if provider is not None:
-            provider.shutdown()
-        logger.error("OpenTelemetry controls could not be installed; export disabled")  # noqa: TRY400  # Never log exporter credentials.
+            _build_tool_maps()
+            provider = _build_provider(OTLPSpanExporter())
+            trace.set_tracer_provider(provider)
+        except Exception:
+            if provider is not None:
+                provider.shutdown()
+            provider = None
+            logger.error("OpenTelemetry controls could not be installed; export disabled")  # noqa: TRY400  # Never log exporter credentials.
+        else:
+            # The SDK silently ignores a second setter call; never instrument an unsafe provider.
+            if trace.get_tracer_provider() is not provider:
+                provider.shutdown()
+                raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
+    # Set the guard only once ownership is established, so a refused startup stays refused.
+    _INSTALLED, _ENVIRON = True, environ
+    app.add_middleware(IntentCaptureMiddleware(app, environ=environ))
+    if provider is None:
         return
-    # The SDK silently ignores a second setter call; never instrument an unsafe provider.
-    if trace.get_tracer_provider() is not provider:
-        _INSTALLED = False
-        provider.shutdown()
-        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
     try:
         RequestsInstrumentor().instrument(excluded_urls="api.segment.io")  # type: ignore[missing-attribute]  # Instrumentor singleton is non-null.
         if _flag(
