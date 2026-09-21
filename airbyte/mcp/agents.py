@@ -37,7 +37,9 @@ from airbyte.agents._destination_docs import (
     build_destination_connector_details,
     build_destination_skill_docs,
     connector_id_from_skill_id,
+    destination_skill_id,
 )
+from airbyte.agents._docs_markdown import render_docs_content_markdown
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
 from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
@@ -107,6 +109,9 @@ LIST_WORKSPACES_ORGANIZATION_ID_TIP_TEXT = (
 AGENTS_ACCESS_DENIED_STATUS = "access_denied"
 """The `status` reported when the Agents API refused the request."""
 
+AGENTS_EXECUTION_FAILED_STATUS = "error"
+"""The `status` reported when the Agents API rejected an action request."""
+
 AGENTS_UNAUTHORIZED_MESSAGE = (
     "The Airbyte Agents API rejected these credentials. Verify the Airbyte Cloud "
     "credentials, or ask the user for valid ones."
@@ -118,14 +123,15 @@ AGENTS_FORBIDDEN_MESSAGE = (
 )
 """Fallback explanation for a 403 whose response body carries no `message`/`detail`."""
 
-DOCS_GUIDANCE_TEMPLATE = (
-    "`docs` is a summary: execution guidance plus one outline entry per action. Before calling "
+INSPECT_DOCS_GUIDANCE_TEMPLATE = (
+    "`docs` is a summary of the connector's usage docs. Before calling "
     "`execute_agent_connector`, read the target action's section for its exact parameter names: "
-    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<a section_id from docs.outline>)`, "
-    "e.g. `section={example!r}`."
+    "`read_agent_skill_docs(skill_id={skill_id!r}, section=<section_id>)`, e.g. "
+    "`section={example!r}`. Call `read_agent_skill_docs(skill_id={skill_id!r})` with no "
+    "`section` for the full section outline."
 )
-DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE = (
-    "`docs` is a summary. No sections are currently available in `docs.outline`; "
+INSPECT_DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE = (
+    "`docs` is a summary. No sections are currently available; "
     "`read_agent_skill_docs(skill_id={skill_id!r})` returns the same summary."
 )
 
@@ -140,7 +146,8 @@ AGENTS_ENABLE_ACTOR_GUIDANCE = (
 )
 AGENTS_DESTINATION_ACCESS_NOTE = (
     'Query with `execute_agent_connector_ro` and `action="sql_select"` only; `inspect` returns '
-    "built-in docs and `SHOW TABLES` / `DESCRIBE TABLE` discover tables and columns. If "
+    "built-in docs; `SHOW TABLES` lists tables and "
+    '`SELECT * FROM <table> LIMIT 1` with `"dry_run": true` returns columns. If '
     "`sql_select` returns `access_denied`, an organization admin must enable the destination "
     "in Airbyte Cloud under Settings -> Context layer (workspace -> Destinations toggle)."
 )
@@ -312,17 +319,45 @@ class AgentSkillDocsResult(BaseModel):
     outline: list[AgentSkillSectionResult]
     """The sections available for this skill."""
 
-    content: list[dict[str, Any]]
-    """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
+    content: str
+    """The docs content rendered as a single Markdown document."""
 
     guidance: str | None = None
     """How to read more of this skill's docs with `read_agent_skill_docs`, when applicable."""
 
-    warnings: list[str]
+    warnings: list[str] | None = None
     """Non-fatal issues reported while building or reading the docs."""
 
-    message: str | None = None
-    """Why the docs are empty, when the Agents API denied the request."""
+    errors: list[str] | None = None
+    """Why the result is empty, when the request failed (for example access denied
+    or connector not found)."""
+
+
+class AgentConnectorDocsResult(BaseModel):
+    """Docs summary embedded in `inspect_agent_connector` results.
+
+    The section outline is intentionally omitted here; `read_agent_skill_docs`
+    returns it as `outline`.
+    """
+
+    skill_id: str
+    """The skill ID of the connector's usage docs."""
+
+    title: str | None = None
+    """The human-readable docs title."""
+
+    content: str
+    """The docs content rendered as a single Markdown document."""
+
+    guidance: str | None = None
+    """How to read more of this connector's docs with `read_agent_skill_docs`."""
+
+    warnings: list[str] | None = None
+    """Non-fatal issues reported while building or reading the docs."""
+
+    errors: list[str] | None = None
+    """Why the result is empty, when the request failed (for example access denied
+    or connector not found)."""
 
 
 class AgentConnectorDetailsResult(BaseModel):
@@ -337,28 +372,22 @@ class AgentConnectorDetailsResult(BaseModel):
     workspace_id: str | None = None
     """The workspace that owns the connector."""
 
-    source_definition_name: str | None = None
-    """The name of the underlying source definition, for example `GitHub`."""
+    integration_name: str | None = None
+    """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
-    context_store_entities: list[str]
-    """Entities this connector can cache in the Context Store.
-
-    This is not an exhaustive list of executable entities: an entity may be executable via
-    `execute_agent_connector` without appearing here.
-    """
-
-    docs: AgentSkillDocsResult | None = None
+    docs: AgentConnectorDocsResult | None = None
     """Summary of the connector's usage docs, when available.
 
-    Pass `docs.skill_id` and a `docs.outline[].section_id` to `read_agent_skill_docs` for a
+    Pass `docs.skill_id` to `read_agent_skill_docs` for the section outline and a
     section's full detail.
     """
 
-    warnings: list[str]
+    warnings: list[str] | None = None
     """Warnings the Agents API reported about this connector."""
 
-    message: str | None = None
-    """Why the details are empty, when the Agents API denied the request."""
+    errors: list[str] | None = None
+    """Why the result is empty, when the request failed (for example access denied
+    or connector not found)."""
 
 
 class AgentExecuteToolResult(BaseModel):
@@ -385,7 +414,7 @@ class AgentExecuteToolResult(BaseModel):
     """A warning reported alongside an otherwise successful result."""
 
     message: str | None = None
-    """Why the action did not run, when the Agents API denied the request."""
+    """Why the action did not run, when the Agents API denied or rejected the request."""
 
 
 def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
@@ -457,6 +486,51 @@ def _agents_error_detail(response_text: object) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _sql_error_guidance(detail: str) -> str | None:
+    """Return actionable guidance for a known SQL execution error."""
+    normalized_detail = detail.casefold()
+    if "000904" in normalized_detail or "invalid identifier" in normalized_detail:
+        return (
+            "Snowflake identifiers are upper-cased by Airbyte and double-quoted identifiers "
+            "are case-sensitive; write column names unquoted (or upper-cased), or run "
+            '`SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real columns.'
+        )
+    if "002003" in normalized_detail or "does not exist or not authorized" in normalized_detail:
+        return (
+            "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
+            "in another schema as `<database>.<schema>.<table>`."
+        )
+    if "unrecognized name" in normalized_detail:
+        return (
+            'Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real '
+            "columns, then use one of the listed column names in the query."
+        )
+    if "not found: table" in normalized_detail or "not found: dataset" in normalized_detail:
+        return (
+            "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
+            "in another dataset as `<project>.<dataset>.<table>` (backticked)."
+        )
+    return None
+
+
+def _agents_execution_failure_message(
+    error: AirbyteError,
+    action: AgentAction,
+) -> str | None:
+    """Return a concise explanation for a rejected Agents API action request."""
+    context = error.context or {}
+    if context.get("status_code") not in {
+        HTTPStatus.BAD_REQUEST,
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+    }:
+        return None
+    detail = _agents_error_detail(context.get("response_text"))
+    if detail is None:
+        return None
+    guidance = _sql_error_guidance(detail) if action == AgentReadAction.SQL_SELECT else None
+    return f"{detail} {guidance}" if guidance is not None else detail
 
 
 def _is_not_found(error: AirbyteError) -> bool:
@@ -539,6 +613,11 @@ def _connector_unavailable_error(
     )
 
 
+def _or_none(items: list[str]) -> list[str] | None:
+    """Return `None` for empty lists so optional list fields stay unset."""
+    return items or None
+
+
 def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
     """Shape an `AgentSkillDocs` into an `AgentSkillDocsResult`."""
     return AgentSkillDocsResult(
@@ -554,17 +633,31 @@ def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
             )
             for docs_section in docs.outline
         ],
-        content=docs.content,
-        warnings=[str(warning) for warning in docs.metadata.warnings],
+        content=render_docs_content_markdown(docs.content),
+        warnings=_or_none([str(warning) for warning in docs.metadata.warnings]),
     )
 
 
-def _docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
-    """Build the `guidance` hint for a skill's section outline."""
+def _inspect_docs_guidance(skill_id: str, outline: list[AgentSkillSectionResult]) -> str:
+    """Build the `guidance` hint for a docs summary embedded in an inspect result."""
     example_section = next((section for section in outline if section.available), None)
     if example_section is None:
-        return DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
-    return DOCS_GUIDANCE_TEMPLATE.format(skill_id=skill_id, example=example_section.section_id)
+        return INSPECT_DOCS_GUIDANCE_NO_SECTIONS_TEMPLATE.format(skill_id=skill_id)
+    return INSPECT_DOCS_GUIDANCE_TEMPLATE.format(
+        skill_id=skill_id, example=example_section.section_id
+    )
+
+
+def _connector_docs_result(docs: AgentSkillDocsResult) -> AgentConnectorDocsResult:
+    """Shape a skill docs result into the docs summary embedded in inspect results."""
+    return AgentConnectorDocsResult(
+        skill_id=docs.skill_id,
+        title=docs.title,
+        content=docs.content,
+        guidance=_inspect_docs_guidance(docs.skill_id, docs.outline),
+        warnings=docs.warnings,
+        errors=docs.errors,
+    )
 
 
 def _inspect_destination_fallback(
@@ -575,8 +668,8 @@ def _inspect_destination_fallback(
 ) -> AgentConnectorDetailsResult:
     """Build an inspect result for a connector ID the Agents API returned 404 for.
 
-    SQL passthrough destinations get built-in details; anything else gets a message
-    instead of an error.
+    SQL passthrough destinations get built-in details; anything else gets an `errors`
+    entry instead of raising.
     """
     agent_workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
     resolved_workspace_id = agent_workspace.workspace_id
@@ -586,16 +679,27 @@ def _inspect_destination_fallback(
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         details = build_destination_connector_details(destination)
-        docs_result = _skill_docs_result(build_destination_skill_docs(destination))
-        if details.docs_skill_id:
-            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
+        warnings: list[str] = []
+        try:
+            skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
+        except (AirbyteError, requests.RequestException) as error:
+            detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
+            docs_unavailable = f"Connector docs are unavailable: {detail}"
+            warnings.append(docs_unavailable)
+            docs_result = AgentConnectorDocsResult(
+                skill_id=destination_skill_id(destination.connector_id),
+                content="",
+                warnings=[docs_unavailable],
+            )
+        else:
+            docs_result = _connector_docs_result(skill_docs)
         return AgentConnectorDetailsResult(
             connector_id=details.connector_id,
             connector_name=details.name,
             workspace_id=details.workspace_id,
-            context_store_entities=[],
+            integration_name=details.integration_name,
             docs=docs_result,
-            warnings=[],
+            warnings=_or_none(warnings),
         )
     if destination is not None:
         message = (
@@ -616,9 +720,7 @@ def _inspect_destination_fallback(
         )
     return AgentConnectorDetailsResult(
         connector_id=connector_id,
-        context_store_entities=[],
-        warnings=[],
-        message=message,
+        errors=[message],
     )
 
 
@@ -653,9 +755,8 @@ def _destination_skill_docs_fallback(
         skill_id=skill_id,
         section_id=section,
         outline=[],
-        content=[],
-        warnings=[],
-        message=message,
+        content="",
+        errors=[message],
     )
 
 
@@ -781,12 +882,18 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
         )
     except AirbyteError as error:
         message = _agents_access_message(error)
-        if message is None:
-            raise
-        return AgentExecuteToolResult(
-            status=AGENTS_ACCESS_DENIED_STATUS,
-            message=message,
-        )
+        if message is not None:
+            return AgentExecuteToolResult(
+                status=AGENTS_ACCESS_DENIED_STATUS,
+                message=message,
+            )
+        message = _agents_execution_failure_message(error, action)
+        if message is not None:
+            return AgentExecuteToolResult(
+                status=AGENTS_EXECUTION_FAILED_STATUS,
+                message=message,
+            )
+        raise
 
     return AgentExecuteToolResult(
         status=result.status,
@@ -991,38 +1098,33 @@ def inspect_agent_connector(
             raise
         return AgentConnectorDetailsResult(
             connector_id=connector_id,
-            context_store_entities=[],
-            warnings=[],
-            message=message,
+            errors=[message],
         )
 
     warnings = [str(warning) for warning in details.warnings]
-    docs_result: AgentSkillDocsResult | None = None
+    docs_result: AgentConnectorDocsResult | None = None
     if details.docs_skill_id:
         try:
             connector_docs = workspace.read_skill_docs(details.docs_skill_id)
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
-            warnings.append(f"Connector docs are unavailable: {detail}")
-            docs_result = AgentSkillDocsResult(
+            docs_unavailable = f"Connector docs are unavailable: {detail}"
+            warnings.append(docs_unavailable)
+            docs_result = AgentConnectorDocsResult(
                 skill_id=details.docs_skill_id,
-                outline=[],
-                content=[],
-                warnings=[],
-                message=f"Connector docs are unavailable: {detail}",
+                content="",
+                warnings=[docs_unavailable],
             )
         else:
-            docs_result = _skill_docs_result(connector_docs)
-            docs_result.guidance = _docs_guidance(details.docs_skill_id, docs_result.outline)
+            docs_result = _connector_docs_result(_skill_docs_result(connector_docs))
 
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,
         connector_name=details.name,
         workspace_id=details.workspace_id,
-        source_definition_name=details.source_definition_name,
-        context_store_entities=details.context_store_entities,
+        integration_name=details.integration_name,
         docs=docs_result,
-        warnings=warnings,
+        warnings=_or_none(warnings),
     )
 
 
@@ -1062,8 +1164,11 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake or bigquery) in "
                 "`api_args` and any value for `entity_type`; the `connector_id` is a "
-                "destination listed by `list_agent_connectors`, and `SHOW TABLES` / `DESCRIBE "
-                "TABLE <name>` discover its tables and columns. The `download` action "
+                "destination listed by `list_agent_connectors`; `SHOW TABLES` lists its tables "
+                'and `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` '
+                "returns its columns without reading rows; never guess columns. On Snowflake, "
+                "write identifiers unquoted unless discovery returned mixed case. The `download` "
+                "action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -1145,9 +1250,16 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     are connector-specific, so call `inspect_agent_connector` first. The connector must
     belong to the given workspace.
 
-    To query a destination, use `action="sql_select"` with the destination's `connector_id`
-    and `sql_dialect` as reported by `list_agent_connectors`. Start with `SHOW TABLES` and
-    `DESCRIBE TABLE <name>` to discover tables and columns before selecting data.
+    To query a destination:
+    1. Run `SHOW TABLES` to discover tables.
+    2. Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` to get the
+       real column names; never guess them.
+    3. Select data using the discovered names.
+
+    Use the destination's `connector_id` and `sql_dialect` as reported by
+    `list_agent_connectors`. On Snowflake, identifiers are upper-cased; write them unquoted
+    (double-quoting makes them case-sensitive). Quote a name only when discovery returns it in
+    mixed or lower case, exactly as returned.
     """
     return _execute(
         ctx,
@@ -1362,9 +1474,10 @@ def read_agent_skill_docs(
         Field(
             description=(
                 "Skill ID, e.g. the `docs.skill_id` reported by `inspect_agent_connector`, "
-                "or a `skill_id` from `list_agent_skills`. `inspect_agent_connector` already "
-                "returns the docs summary and section outline inline, so this tool is only "
-                "needed to read a single section's full detail. SQL passthrough destinations "
+                "or a `skill_id` from `list_agent_skills`. `inspect_agent_connector` returns "
+                "only a docs summary (`docs.content` plus `docs.guidance`); call "
+                "this tool with no `section` for the full section outline, or with "
+                "`section` for one section's full detail. SQL passthrough destinations "
                 "use `connector-destination:<destination_id>`."
             ),
         ),
@@ -1406,9 +1519,8 @@ def read_agent_skill_docs(
             skill_id=skill_id,
             section_id=section,
             outline=[],
-            content=[],
-            warnings=[],
-            message=message,
+            content="",
+            errors=[message],
         )
 
     return _skill_docs_result(docs)

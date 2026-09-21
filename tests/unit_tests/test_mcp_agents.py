@@ -12,13 +12,15 @@ import requests
 from airbyte.agents.models import (
     AgentConnectorDetails,
     AgentConnectorMetadata,
-    AgentContextStoreEntity,
-    AgentContextStoreReadiness,
     AgentExecuteResult,
     AgentExecutionMetadata,
     AgentSkillDocs,
     AgentSkillInfo,
     AgentSkillSection,
+)
+from airbyte.agents._destination_docs import (
+    BIGQUERY_DESTINATION_DEFINITION_ID,
+    SNOWFLAKE_DESTINATION_DEFINITION_ID,
 )
 from airbyte.agents.connectors import AgentConnector, AgentReadAction, AgentWriteAction
 from airbyte.cloud.client import CloudClient
@@ -410,10 +412,10 @@ def test_read_only_tool_action_type_excludes_writes() -> None:
     assert "download" not in {member.value for member in AgentWriteAction}
 
 
-def test_inspect_tool_reports_context_store_entities(
+def test_inspect_tool_reports_connector_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `inspect_agent_connector` surfaces entities, docs, and warnings."""
+    """Verify `inspect_agent_connector` surfaces connector metadata, docs, and warnings."""
 
     class _InspectableConnector:
         def inspect(self) -> AgentConnectorDetails:
@@ -421,13 +423,8 @@ def test_inspect_tool_reports_context_store_entities(
                 connector_id="connector-id",
                 name="GitHub",
                 workspace_id="workspace-id",
-                source_definition_name="GitHub",
+                integration_name="GitHub",
                 docs_skill_id="connector:github",
-                context_store_readiness=AgentContextStoreReadiness(
-                    supported_context_store_entities=[
-                        AgentContextStoreEntity(entity="issues")
-                    ],
-                ),
                 warnings=["Context Store is still syncing."],
             )
 
@@ -451,7 +448,7 @@ def test_inspect_tool_reports_context_store_entities(
         organization_id=None,
     )
 
-    assert result.context_store_entities == ["issues"]
+    assert result.integration_name == "GitHub"
     assert result.docs.skill_id == "connector:github"
     assert result.warnings == ["Context Store is still syncing."]
 
@@ -525,25 +522,27 @@ def test_inspect_tool_includes_docs_summary(
     assert calls == [(("connector:github",), {})]
     assert result.docs is not None
     assert result.docs.title == "GitHub"
-    assert result.docs.outline[0].section_id == "actions.issues.get"
-    assert result.docs.content[0]["text"] == "Execution guidance"
+    assert "outline" not in result.docs.model_dump()
+    assert "section_id" not in result.docs.model_dump()
+    assert "## Execution guidance" in result.docs.content
     assert "connector:github" in result.docs.guidance
     assert "actions.issues.get" in result.docs.guidance
+    assert "read_agent_skill_docs" in result.docs.guidance
     assert result.warnings == ["Context Store is still syncing."]
 
 
 def test_inspect_tool_warns_when_docs_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A docs read failure degrades to a `docs` message plus a warning, never an error."""
+    """A docs read failure degrades to a docs warning plus a warning, never an error."""
     _inspect_workspace_with_docs(monkeypatch, docs=None)
 
     result = _inspect_connector_result()
 
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
-    assert result.docs.outline == []
-    assert result.docs.message == "Connector docs are unavailable: Skill docs failed"
+    assert "outline" not in result.docs.model_dump()
+    assert result.docs.warnings == ["Connector docs are unavailable: Skill docs failed"]
     assert result.warnings == [
         "Context Store is still syncing.",
         "Connector docs are unavailable: Skill docs failed",
@@ -579,7 +578,7 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
     result = _inspect_connector_result()
 
     assert result.docs is None
-    assert result.warnings == []
+    assert result.warnings is None
 
 
 def test_inspect_tool_docs_guidance_uses_first_available_section(
@@ -656,8 +655,8 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     assert result.connector_name == "GitHub"
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
-    assert result.docs.outline == []
-    assert result.docs.message == "Connector docs are unavailable: docs timed out"
+    assert "outline" not in result.docs.model_dump()
+    assert result.docs.warnings == ["Connector docs are unavailable: docs timed out"]
     assert result.warnings == ["Connector docs are unavailable: docs timed out"]
 
 
@@ -829,6 +828,119 @@ def test_forbidden_message_surfaces_api_detail(
     assert message == expected_message
 
 
+@pytest.mark.parametrize(
+    ("detail", "expected_guidance"),
+    [
+        pytest.param(
+            "Snowflake reported an error (000904): invalid identifier",
+            "Snowflake identifiers are upper-cased by Airbyte",
+            id="snowflake_invalid_identifier",
+        ),
+        pytest.param(
+            "002003: Object does not exist or not authorized",
+            "Run `SHOW TABLES` to list the tables this destination exposes",
+            id="snowflake_missing_table",
+        ),
+        pytest.param(
+            "Unrecognized name: userId",
+            "then use one of the listed column names in the query",
+            id="bigquery_invalid_identifier",
+        ),
+        pytest.param(
+            "Not found: Table project.dataset.calls",
+            "qualify tables in another dataset",
+            id="bigquery_missing_table",
+        ),
+        pytest.param(
+            "Some unrelated SQL error",
+            None,
+            id="unknown",
+        ),
+    ],
+)
+def test_sql_error_guidance(detail: str, expected_guidance: str | None) -> None:
+    """Verify known SQL errors get targeted guidance."""
+    guidance = agents_mcp._sql_error_guidance(detail)  # noqa: SLF001
+
+    if expected_guidance is None:
+        assert guidance is None
+    else:
+        assert guidance is not None
+        assert expected_guidance in guidance
+
+
+def test_execute_sql_error_returns_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a SQL execution error is returned with Snowflake identifier guidance."""
+    response_text = (
+        '{"message":"Snowflake reported an error (000904): SQL compilation error: '
+        'error line 1 at position 7\\ninvalid identifier \'\\"id\\"\'",'
+        '"errors":[{"field":"base","message":"...","error_code":"error"}]}'
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, response_text)
+        ),
+    )
+
+    result = _execute_ro(action="sql_select")
+
+    assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
+    assert result.message is not None
+    assert result.message.startswith("Snowflake reported an error (000904):")
+    assert "dry_run" in result.message
+
+
+def test_execute_non_json_execution_error_is_reraised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an unreadable execution error keeps the original exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, "<html>bad request</html>")
+        ),
+    )
+
+    with pytest.raises(AirbyteError):
+        _execute_ro(action="sql_select")
+
+
+def test_execute_server_error_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify server errors keep the original exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(_agents_error(500)),  # noqa: ARG005
+    )
+
+    with pytest.raises(AirbyteError):
+        _execute_ro(action="sql_select")
+
+
+def test_execute_non_sql_error_returns_bare_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-SQL execution errors return the API detail without SQL guidance."""
+    detail = "The list action could not be executed."
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, f'{{"message":"{detail}"}}')
+        ),
+    )
+
+    result = _execute_ro(action="list")
+
+    assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
+    assert result.message == detail
+
+
 def test_sql_select_forbidden_reports_actor_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -913,7 +1025,7 @@ _ACCESS_FAILURE_CASES = [
             section=None,
             workspace_id="workspace-1",
         ),
-        {"skill_id": "connector:github", "outline": [], "content": []},
+        {"skill_id": "connector:github", "outline": [], "content": ""},
         id="read_skill_docs",
     ),
     pytest.param(
@@ -925,7 +1037,7 @@ _ACCESS_FAILURE_CASES = [
             workspace_id="workspace-1",
             organization_id=None,
         ),
-        {"context_store_entities": [], "connector_id": "connector-id"},
+        {"connector_id": "connector-id"},
         id="inspect",
     ),
 ]
@@ -961,7 +1073,10 @@ def test_agents_tools_report_access_failures(
 
     result = call_tool()
 
-    assert result.message == expected_message
+    if getattr(result, "errors", None) is not None:
+        assert result.errors == [expected_message]
+    else:
+        assert result.message == expected_message
     for field, expected_value in expected_result_fields.items():
         assert getattr(result, field) == expected_value
 
@@ -1279,7 +1394,7 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
     assert docs.section_id == "setup"
     assert [section.section_id for section in docs.outline] == ["setup", "faq"]
     assert docs.outline[1].available is False
-    assert docs.content == [{"type": "paragraph", "text": "Hello"}]
+    assert docs.content == "Hello"
     assert docs.warnings == ["Partial runtime metadata."]
 
 
@@ -1466,13 +1581,17 @@ class _FakeDestinationForDocs:
         definition_id: str,
         connections: list[Any] | None = None,
         sources: list[Any] | None = None,
+        connections_error: Exception | None = None,
+        configuration: dict[str, Any] | None = None,
     ) -> None:
         self.connector_id = connector_id
         self.name = name
         self.definition_id = definition_id
+        self.configuration = configuration
         self.connections_looked_up = False
         self._connections = connections or []
         self._sources = sources or []
+        self._connections_error = connections_error
         self.workspace = type(
             "_FakeWorkspace",
             (),
@@ -1485,6 +1604,8 @@ class _FakeDestinationForDocs:
 
     def list_connections(self) -> list[Any]:
         self.connections_looked_up = True
+        if self._connections_error is not None:
+            raise self._connections_error
         return list(self._connections)
 
 
@@ -1498,6 +1619,8 @@ class _FakeConnectionForDocs:
         destination_id: str,
         stream_names: list[str] | None = None,
         table_prefix: str = "",
+        namespace_definition: str | None = None,
+        namespace_format: str | None = None,
     ) -> None:
         self.connection_id = connection_id
         self.name = name
@@ -1505,6 +1628,8 @@ class _FakeConnectionForDocs:
         self.source_id = "source-1"
         self.stream_names = stream_names or []
         self.table_prefix = table_prefix
+        self.namespace_definition = namespace_definition
+        self.namespace_format = namespace_format
 
     @property
     def source(self) -> Any:
@@ -1596,21 +1721,59 @@ def _read_docs(
     )
 
 
+@pytest.mark.parametrize(
+    ("definition_id", "expected_integration_name"),
+    [
+        (SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
+        (BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
+    ],
+)
 def test_inspect_destination_fallback_reports_docs_skill(
     monkeypatch: pytest.MonkeyPatch,
+    definition_id: str,
+    expected_integration_name: str,
 ) -> None:
     """A SQL passthrough destination gets built-in details instead of a 404."""
-    _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+    destination = _FakeDestinationForDocs(
+        connector_id="dest-warehouse",
+        name="Warehouse dev",
+        definition_id=definition_id,
+    )
+    _patch_destination_404(monkeypatch, [destination])
+
+    result = _inspect("dest-warehouse")
+
+    assert result.connector_id == "dest-warehouse"
+    assert result.connector_name == "Warehouse dev"
+    assert result.docs is not None
+    assert result.docs.skill_id == "connector-destination:dest-warehouse"
+    assert result.integration_name == expected_integration_name
+    assert result.docs.guidance is not None
+    assert "sql-passthrough" in result.docs.guidance
+    assert "No connections sync into this destination" in result.docs.content
+    assert result.errors is None
+
+
+def test_inspect_destination_fallback_docs_failure_yields_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docs build failure degrades to a docs warning plus a warning, never an error."""
+    destination = _FakeDestinationForDocs(
+        connector_id="dest-snowflake",
+        name="Snowflake dev",
+        definition_id=SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        connections_error=AirbyteError(message="boom"),
+    )
+    _patch_destination_404(monkeypatch, [destination])
 
     result = _inspect("dest-snowflake")
 
     assert result.connector_id == "dest-snowflake"
-    assert result.connector_name == "Snowflake dev"
+    assert result.integration_name == "Snowflake"
     assert result.docs is not None
-    assert result.docs.skill_id == "connector-destination:dest-snowflake"
-    assert result.docs.guidance is not None
-    assert "sql-passthrough" in result.docs.guidance
-    assert result.message is None
+    assert result.docs.content == ""
+    assert result.warnings == ["Connector docs are unavailable: boom"]
+    assert result.docs.warnings == ["Connector docs are unavailable: boom"]
 
 
 def test_inspect_destination_fallback_reports_unsupported(
@@ -1621,8 +1784,8 @@ def test_inspect_destination_fallback_reports_unsupported(
 
     result = _inspect("dest-null")
 
-    assert result.message is not None
-    assert "not a SQL passthrough destination" in result.message
+    assert result.errors is not None
+    assert "not a SQL passthrough destination" in result.errors[0]
     assert result.docs is None
 
 
@@ -1634,9 +1797,9 @@ def test_inspect_destination_fallback_reports_unknown_id(
 
     result = _inspect("dest-unknown")
 
-    assert result.message is not None
-    assert "not found" in result.message
-    assert "list_agent_connectors" in result.message
+    assert result.errors is not None
+    assert "not found" in result.errors[0]
+    assert "list_agent_connectors" in result.errors[0]
 
 
 def test_inspect_reports_cloud_source_not_enabled_for_agents(
@@ -1651,11 +1814,11 @@ def test_inspect_reports_cloud_source_not_enabled_for_agents(
 
     result = _inspect("src-disabled")
 
-    assert result.message is not None
-    assert "'GitHub prod' (src-disabled)" in result.message
-    assert "not enabled for Agents access" in result.message
-    assert "Context layer" in result.message
-    assert "not found" not in result.message
+    assert result.errors is not None
+    assert "'GitHub prod' (src-disabled)" in result.errors[0]
+    assert "not enabled for Agents access" in result.errors[0]
+    assert "Context layer" in result.errors[0]
+    assert "not found" not in result.errors[0]
 
 
 def test_list_agent_connectors_empty_explains_how_to_enable(
@@ -1740,14 +1903,34 @@ def test_context_layer_guidance_omits_url_without_organization_id() -> None:
     assert "Organization settings -> Context layer" in without_org
 
 
-def test_read_docs_destination_fallback_outline_skips_connections_lookup(
+def test_read_docs_destination_fallback_index_includes_connections_and_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The outline response must not hit the Cloud connections listing."""
+    """The no-section response embeds connections and their enabled streams inline."""
+    matching = _FakeConnectionForDocs(
+        connection_id="conn-1",
+        name="GitHub to Snowflake",
+        destination_id="dest-snowflake",
+        stream_names=["issues"],
+        table_prefix="raw_",
+    )
+    other = _FakeConnectionForDocs(
+        connection_id="conn-2",
+        name="Slack elsewhere",
+        destination_id="dest-elsewhere",
+    )
     destination = _FakeDestinationForDocs(
         connector_id="dest-snowflake",
         name="Snowflake dev",
         definition_id="424892c4-daac-4491-b35d-c6688ba547ba",
+        connections=[matching, other],
+        sources=[
+            type(
+                "_FakeSource",
+                (),
+                {"connector_id": "source-1", "name": "GitHub"},
+            )()
+        ],
     )
     _patch_destination_404(monkeypatch, [destination])
 
@@ -1758,8 +1941,12 @@ def test_read_docs_destination_fallback_outline_skips_connections_lookup(
         "connections",
         "streams",
     ]
-    assert result.content
-    assert not destination.connections_looked_up
+    assert destination.connections_looked_up
+    assert "## Connections syncing into this destination" in result.content
+    assert "## Streams enabled per connection" in result.content
+    assert "GitHub to Snowflake" in result.content
+    assert "issues" in result.content
+    assert "Slack elsewhere" not in result.content
 
 
 @pytest.mark.parametrize(
@@ -1789,7 +1976,7 @@ def test_read_docs_destination_fallback_sql_passthrough_section(
 
     result = _read_docs("connector-destination:dest-1", section="sql-passthrough")
 
-    rendered = str(result.content)
+    rendered = result.content
     assert "SHOW TABLES" in rendered
     assert f'"sql_dialect": "{dialect}"' in rendered
 
@@ -1831,7 +2018,7 @@ def test_read_docs_destination_fallback_connections_and_streams(
     connections_result = _read_docs(
         "connector-destination:dest-snowflake", section="connections"
     )
-    rendered = str(connections_result.content)
+    rendered = connections_result.content
     assert "GitHub to Snowflake" in rendered
     assert "conn-1" in rendered
     assert "GitHub" in rendered
@@ -1840,7 +2027,7 @@ def test_read_docs_destination_fallback_connections_and_streams(
     streams_result = _read_docs(
         "connector-destination:dest-snowflake", section="streams"
     )
-    rendered = str(streams_result.content)
+    rendered = streams_result.content
     assert "GitHub to Snowflake" in rendered
     assert "issues" in rendered
 
@@ -1852,7 +2039,10 @@ def test_read_docs_destination_fallback_empty_connections(
 
     result = _read_docs("connector-destination:dest-snowflake", section="connections")
 
-    assert "No connections" in str(result.content)
+    assert "No connections" in result.content
+
+    index_result = _read_docs("connector-destination:dest-snowflake")
+    assert "No connections sync into this destination" in index_result.content
 
 
 def test_read_docs_destination_fallback_source_prefix_resolves(
@@ -1863,7 +2053,7 @@ def test_read_docs_destination_fallback_source_prefix_resolves(
 
     result = _read_docs("connector-source:dest-snowflake")
 
-    assert result.message is None
+    assert result.errors is None
     assert result.content
 
 
@@ -1882,12 +2072,12 @@ def test_read_docs_destination_fallback_reports_unsupported_and_unknown(
     _patch_destination_404(monkeypatch, [_UNSUPPORTED_DESTINATION])
 
     unsupported = _read_docs("connector-destination:dest-null")
-    assert unsupported.message is not None
-    assert "not a SQL passthrough destination" in unsupported.message
+    assert unsupported.errors is not None
+    assert "not a SQL passthrough destination" in unsupported.errors[0]
 
     unknown = _read_docs("connector-destination:dest-unknown")
-    assert unknown.message is not None
-    assert "not found" in unknown.message
+    assert unknown.errors is not None
+    assert "not found" in unknown.errors[0]
 
 
 def test_inspect_destination_fallback_handles_get_connector_miss(
@@ -1913,8 +2103,8 @@ def test_inspect_destination_fallback_handles_get_connector_miss(
 
     result = _inspect("dest-unknown")
 
-    assert result.message is not None
-    assert "not found" in result.message
+    assert result.errors is not None
+    assert "not found" in result.errors[0]
 
 
 def test_inspect_destination_fallback_lists_destinations_once(
