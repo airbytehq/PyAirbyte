@@ -50,15 +50,12 @@ dependencies = [
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "uv>=0.5.0,<0.9.0",
     "prefab-ui>=0.20.1,<0.21",
+    "ddtrace>=4.15,<5",
 ]
-
-[project.optional-dependencies]
-datadog = ["ddtrace>=4.15,<5"]
 
 [dependency-groups]
 dev = [
     "coverage>=7.5.1,<8.0",
-    "ddtrace>=4.15,<5",
     "deptry>=0.21.1,<1.0",
     "docker>=7.1.0,<8.0",
     "faker>=21.0.0,<22.0",

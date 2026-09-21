@@ -131,6 +131,7 @@ dependencies = [
     { name = "airbyte-protocol-models-pdv2" },
     { name = "cryptography" },
     { name = "cyclopts" },
+    { name = "ddtrace" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
     { name = "fastmcp" },
@@ -165,15 +166,9 @@ dependencies = [
     { name = "uv" },
 ]
 
-[package.optional-dependencies]
-datadog = [
-    { name = "ddtrace" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "coverage" },
-    { name = "ddtrace" },
     { name = "deptry" },
     { name = "docker" },
     { name = "faker" },
@@ -204,7 +199,7 @@ requires-dist = [
     { name = "airbyte-protocol-models-pdv2", specifier = ">=0.13.0,<1.0" },
     { name = "cryptography", specifier = ">=44.0.0,!=45.0.0,!=45.0.1,<47.0.0" },
     { name = "cyclopts", specifier = ">=4.0,<5.0" },
-    { name = "ddtrace", marker = "extra == 'datadog'", specifier = ">=4.15,<5" },
+    { name = "ddtrace", specifier = ">=4.15,<5" },
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
@@ -238,12 +233,10 @@ requires-dist = [
     { name = "uuid7", specifier = ">=0.1.0,<1.0" },
     { name = "uv", specifier = ">=0.5.0,<0.9.0" },
 ]
-provides-extras = ["datadog"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", specifier = ">=7.5.1,<8.0" },
-    { name = "ddtrace", specifier = ">=4.15,<5" },
     { name = "deptry", specifier = ">=0.21.1,<1.0" },
     { name = "docker", specifier = ">=7.1.0,<8.0" },
     { name = "faker", specifier = ">=21.0.0,<22.0" },
