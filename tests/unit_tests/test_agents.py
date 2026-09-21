@@ -715,13 +715,6 @@ def test_connectors_preserve_workspace_id(
             id="stops_at_limit",
         ),
         pytest.param(
-            [("one", True, "cursor-1"), ("two", True, "cursor-1")],
-            None,
-            ["one", "two"],
-            2,
-            id="stops_when_cursor_does_not_advance",
-        ),
-        pytest.param(
             [("one", True, None)],
             None,
             ["one"],
@@ -762,6 +755,32 @@ def test_iter_entities(
         None,
         *[page[2] for page in pages[: expected_request_count - 1]],
     ]
+
+
+def test_iter_entities_raises_when_cursor_not_advanced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`iter_entities()` raises when a connector repeats its pagination cursor."""
+    calls: list[dict[str, Any]] = []
+
+    def _fake_request(**kwargs: Any) -> _FakeResponse:
+        calls.append(kwargs)
+        return _FakeResponse({
+            "status": "success",
+            "result": [{"title": f"page-{len(calls)}"}],
+            "connector_metadata": {"has_next_page": True, "end_cursor": "cursor-1"},
+        })
+
+    monkeypatch.setattr(requests, "request", _fake_request)
+
+    with pytest.raises(
+        PyAirbyteInputError,
+        match="The connector did not advance its pagination cursor",
+    ) as exc_info:
+        list(_connector().iter_entities("issues"))
+
+    assert exc_info.value.context == {"entity_type": "issues", "cursor": "cursor-1"}
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize(
