@@ -54,6 +54,7 @@ def test_importing_airbyte_does_not_load_mcp_dependencies() -> None:
     )
     loaded_modules = set(result.stdout.splitlines())
     forbidden_modules = {
+        "ddtrace",
         "fastmcp",
         "fastmcp_extensions",
         "uvicorn",
