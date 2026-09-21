@@ -72,78 +72,51 @@ Opt-in static client credentials:
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
 
-Optional Datadog observability. `ddtrace` is installed with PyAirbyte and no
-`ddtrace-run` launcher is needed: when `DD_API_KEY` is set, this module imports
-`ddtrace.auto` before anything else so `airbyte-mcp-http` starts fully
-instrumented; without it, nothing from `ddtrace` is imported. Nothing is
-exported unless the deployment also sets the variables below:
+Optional OpenTelemetry observability. Nothing is exported unless a traces endpoint
+is configured. The hosted entrypoint installs tracing after hosted mode is set;
+no launcher or agent is needed. The exporter uses OTLP/HTTP protobuf.
+Hosted startup refuses a preinstalled global tracer provider or requests
+instrumentation even without an endpoint, because its exporters could bypass the
+hosted redaction boundary and continue exporting after rollback.
 
-- `DD_LLMOBS_ENABLED=1`: install mandatory LLM Observability redaction and APM
-  sanitization, then annotate tool spans. No Datadog export is enabled by this
-  entrypoint itself. A failed mandatory registration disables both exporters.
-- `DD_MCP_CAPTURE_INTENT=1`: advertise optional `telemetry.intent` and append
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: full traces URL; for example,
+  `https://otlp.datadoghq.com/v1/traces` for Datadog direct intake (confirm the
+  hostname for your Datadog site).
+  `OTEL_EXPORTER_OTLP_ENDPOINT` is the standard fallback base URL.
+- `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: exporter credentials and routing; for
+  Datadog, `dd-api-key=<key>,dd-otlp-source=llmobs`. Supply through the deployment's
+  secret mechanism. `OTEL_EXPORTER_OTLP_HEADERS` is the standard fallback.
+- `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=5`: bound each export attempt in seconds.
+- `OTEL_SERVICE_NAME`: deployment-supplied service name.
+- `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource attributes such as
+  `deployment.environment.name=preview`. An explicit `service.version` takes
+  precedence over the installed PyAirbyte version.
+- `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
+- `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
+  intent available as Datadog metadata. Leave unset for other OTLP backends.
+- `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional `telemetry.intent` and append
   guidance to omit credentials, identifiers and data values. Removing this flag
-  stops advertising; cached clients' intent is still recorded while LLM
-  Observability is enabled.
-- `DD_TRACE_ENABLED=true`, `DD_AGENTLESS_ENABLED=1`: carry sanitized tool events
-  on APM traces sent directly to Datadog. Agentless startup requires a nonempty
-  `DD_API_KEY`; supply it through the deployment's secret mechanism.
-- `DD_SITE`, `DD_SERVICE`, `DD_ENV`: deployment-supplied Datadog site, service
-  name and environment. `DD_VERSION` is optional; when unset, the installed
-  PyAirbyte version is used.
-- `DD_REMOTE_CONFIGURATION_ENABLED=false`, `DD_CRASHTRACKING_ENABLED=false`,
-  `DD_INSTRUMENTATION_TELEMETRY_ENABLED=false`: required before process startup
-  to prevent exporters outside the sanitized trace pipeline. Keep these off
-  even when tracing is disabled.
-- `DD_TRACE_PROPAGATION_STYLE_EXTRACT=none`,
-  `DD_MCP_DISTRIBUTED_TRACING=false`: reject inbound HTTP and MCP trace context
-  and baggage. Outbound trace propagation remains enabled.
-- `DD_TRACE_HTTPX_ENABLED=false`: prevent tracing OIDC discovery at import time
-  and token exchange. `DD_TRACE_URLLIB3_ENABLED=false` removes duplicate HTTP
-  children; Cloud API calls are traced through `requests`.
-- `DD_TRACE_SPAN_ATTRIBUTE_SCHEMA=v0`,
-  `DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED=true`: keep stable span
-  names and common service/version tags.
-- `DD_TRACE_HTTP_CLIENT_TAG_QUERY_STRING=false`,
-  `DD_HTTP_SERVER_TAG_QUERY_STRING=false`: omit outbound and inbound URL queries.
-- `DD_TRACE_SAMPLING_RULES=[{"resource":"GET /health","sample_rate":0,"discard":true}]`:
-  discard health probes. The APM sanitizer separately drops Segment root traces.
-- `DD_LOGS_INJECTION=true`: correlate existing logs; logs are not exported.
+  stops advertising; intent supplied by cached clients is still recorded when
+  export is enabled.
 
-Outbound URL/resource details are retained only for recognized public Airbyte
-API routes with validated UUID/numeric IDs and the synchronous Segment tracking
-route. Unknown routes, registry URLs and custom API origins are redacted; their
-spans retain timing, status and error class. The sanitizer also strips headers
-that ddtrace captures independently of `DD_TRACE_HEADER_TAGS`.
-Inbound spans retain server route templates and normalized methods; raw inbound
-URLs and unmatched paths are removed from export.
+Each tool call is a fresh trace, with outbound `requests` calls nested beneath
+it. Client-supplied MCP trace context is stripped. Export removes exception
+messages and stacks, status descriptions, URL queries, user agents and caller
+identity. Outbound URLs retain recognized public Airbyte API routes with valid
+UUID/numeric IDs; unknown routes and custom origins are redacted. Tool arguments,
+results and HTTP headers are not recorded. Unregistered
+tool names are dropped. Segment requests are excluded from instrumentation.
+Session tokens are hashed before FastMCP sees them, while their extension
+declarations are preserved. Intent is free text capped at 4096 characters.
 
-Leave `DD_TRACE_HEADER_TAGS`, `DD_TRACE_BAGGAGE_TAG_KEYS`, `DD_TRACE_DEBUG`,
-`DD_LOGS_ENABLED`, `DD_AGENT_HOST`, `DD_TRACE_AGENT_URL`, `DD_LLMOBS_ML_APP`,
-`DD_LLMOBS_AGENTLESS_ENABLED` and `DD_REQUESTS_DISTRIBUTED_TRACING` unset.
-Do not enable AppSec, IAST, dynamic instrumentation, live debugging, exception
-replay, handled-error collection, profiling or runtime metrics.
-For a privacy rollback, remove `DD_MCP_CAPTURE_INTENT`, `DD_LLMOBS_ENABLED` and
-`DD_AGENTLESS_ENABLED` together and set `DD_TRACE_ENABLED=false`; the trace flag
-alone does not disable LLM Observability. Cached clients remain compatible:
-the hosted entrypoint always strips synthetic `telemetry` arguments and hashes
-session tokens while preserving extension declarations. Stdio is unchanged.
-Calls to unregistered tool names keep their sanitized APM failure spans but
-produce no LLM Observability event, preventing arbitrary name text from export.
+Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
+to disable export. The hosted entrypoint still strips
+synthetic `telemetry` arguments for cached clients and hashes session tokens.
+Export is best effort; backend retention and access control apply. Local stdio
+is unchanged.
 """
 
 from __future__ import annotations
-
-import os as _os
-
-
-# Instrumentation is only meaningful with a Datadog API key. Without one nothing from
-# ddtrace is imported, so tests, local runs and the inert container image are unaffected;
-# with one, `airbyte-mcp-http` starts fully instrumented and the container CMD stays
-# `airbyte-mcp-http`. This import is Datadog's own alternative to `ddtrace-run`; it must
-# run before any other import so the libraries below are patched before they are loaded.
-if _os.environ.get("DD_API_KEY"):
-    import ddtrace.auto  # noqa: F401  # patches libraries before they are imported; must be first
 
 import logging
 import re
@@ -283,7 +256,7 @@ def _log_auth_status() -> None:
 
 def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
-    from airbyte.mcp._datadog import SessionIdHeaderDigest, install  # noqa: PLC0415
+    from airbyte.mcp._otel import SessionIdHeaderDigest, install  # noqa: PLC0415
 
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()

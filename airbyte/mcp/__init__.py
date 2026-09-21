@@ -255,36 +255,32 @@ assembles the verifier(s) and reads no environment variables itself.
 ## Optional Hosted Tool Intent Observability
 
 A hosted HTTP deployment may advertise an optional `telemetry.intent` argument
-when its operator enables Datadog LLM Observability. If provided, use one
+when its operator sets `AIRBYTE_MCP_INTENT_CAPTURE=1`. If provided, use one
 sentence explaining why the tool is being called; never include credentials,
 identifiers or data values. Calls without intent continue to work. The Agents
 tools' existing `intent` parameter is separate and remains unchanged.
 
-With the documented Datadog configuration, the server exports the supplied
-intent, tool name, outcome class, validated workspace/organization UUIDs, tool
-annotations and Cloud API routes/statuses. Tool arguments and results are
-replaced with a fixed placeholder; error messages/stacks, HTTP header values,
-request/response bodies, JWTs and caller identity are not exported. Session
-grouping uses a SHA-256 digest of the unsigned, client-echoed `Mcp-Session-Id`,
-not the raw token or a verified identity. Intent itself is free text and may
-contain customer information, so keep it free of sensitive data.
+Export is enabled only when an OTLP traces endpoint is configured. The server
+exports the supplied intent (capped at 4096 characters), tool name, outcome class,
+validated workspace/organization UUIDs, tool annotations and outbound HTTP
+methods, recognized public Airbyte API routes with validated UUID/numeric IDs,
+and statuses. URL queries, unknown routes and custom origins are redacted.
+Tool arguments and results,
+error messages/stacks, HTTP header values, request/response bodies, JWTs and
+caller identity are not exported. Calls to unregistered tool names are dropped.
+Session grouping uses a SHA-256 digest of the unsigned, client-echoed
+`Mcp-Session-Id`, not the raw token or a verified identity. Intent itself is free
+text and may contain customer information, so keep it free of sensitive data.
 
-Recognized API routes retain validated resource UUIDs and numeric job IDs.
-Unknown routes, registry URLs and custom API origins are redacted in exported
-URL/resource fields; timing, status and error class remain available. This does
-not change the requests the tools make. Inbound spans retain server route
-templates and normalized methods, with raw URLs and unmatched paths removed.
-Calls to unregistered tool names retain sanitized APM failure spans but no LLM
-Observability event, so arbitrary name text is not exported.
-
-Datadog's default retention is 15 days; a custom retention policy is outside
-this feature. Export is best effort and does not determine whether a tool call
-succeeds. `DO_NOT_TRACK` continues to govern Segment only; operators control
-Datadog with `DD_*` variables. Local stdio is unchanged. `ddtrace` is installed
-with PyAirbyte; the hosted entrypoint instruments itself when `DD_API_KEY` is
-set, and nothing is exported unless the deployment sets the complete Datadog
-configuration documented in `airbyte.mcp.http_main`. Hosted clients with cached
-`telemetry` schemas remain compatible after observability is disabled.
+Any OTLP backend can receive these spans. With `AIRBYTE_MCP_OTEL_VENDOR=datadog`,
+intent is also supplied as Datadog metadata. Export is best effort and does not
+determine whether a tool call succeeds; the backend controls retention and
+access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
+export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.
+Segment requests are excluded from traces. Local stdio is unchanged. Hosted
+clients with cached `telemetry` schemas remain compatible after export is
+disabled by unsetting both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 ## Troubleshooting
 
