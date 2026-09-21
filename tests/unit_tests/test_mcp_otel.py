@@ -7,6 +7,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -534,6 +535,8 @@ def test_install_leaves_provider_unset_when_build_fails(
         observability, "_build_provider", Mock(side_effect=ValueError("build failed"))
     )
     setter = uninitialized_provider
+    # PyAirbyte's file logger stops `airbyte.*` propagation once any test creates it.
+    monkeypatch.setattr(logging.getLogger("airbyte"), "propagate", True)
     server = FastMCP("failed")
     observability.install(
         server,
