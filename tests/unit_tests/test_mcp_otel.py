@@ -49,6 +49,27 @@ def otel_provider() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
     provider.shutdown()
 
 
+def _loopback_only(original, address_index):
+    """Reject every socket target except loopback and AF_UNIX paths.
+
+    Windows' ProactorEventLoop connects a loopback socketpair for its self-pipe
+    whenever a loop is created, so a guard that rejects every connect breaks
+    ``asyncio.run`` there before any exporter could run.
+    """
+
+    def guarded(*args, **kwargs):
+        address = kwargs.get("address", args[address_index])
+        host = address[0] if isinstance(address, tuple) else address
+        if not isinstance(address, tuple) or (
+            isinstance(host, str)
+            and (host in ("::1", "localhost") or host.startswith("127."))
+        ):
+            return original(*args, **kwargs)
+        raise AssertionError("unexpected network connection")
+
+    return guarded
+
+
 @pytest.fixture(autouse=True)
 def isolated_otel(
     monkeypatch: pytest.MonkeyPatch,
@@ -63,10 +84,12 @@ def isolated_otel(
         if key.startswith(("OTEL_", "AIRBYTE_MCP_")):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DO_NOT_TRACK", "1")
-    reject_network = Mock(side_effect=AssertionError("unexpected network connection"))
-    monkeypatch.setattr(socket.socket, "connect", reject_network)
-    monkeypatch.setattr(socket.socket, "connect_ex", reject_network)
-    monkeypatch.setattr(socket, "create_connection", reject_network)
+    for owner, name, index in (
+        (socket.socket, "connect", 1),
+        (socket.socket, "connect_ex", 1),
+        (socket, "create_connection", 0),
+    ):
+        monkeypatch.setattr(owner, name, _loopback_only(getattr(owner, name), index))
     yield
     if RequestsInstrumentor().is_instrumented_by_opentelemetry:
         RequestsInstrumentor().uninstrument()
@@ -923,10 +946,22 @@ def test_hosted_startup_refuses_preexisting_exporting_provider(
             import os
             import socket
             from unittest.mock import Mock, patch
-            reject = Mock(side_effect=AssertionError("unexpected network connection"))
-            socket.socket.connect = reject
-            socket.socket.connect_ex = reject
-            socket.create_connection = reject
+            # Same loopback-only guard as the ``isolated_otel`` fixture; duplicated
+            # because importing the test module would import airbyte.mcp first.
+            def loopback_only(original, address_index):
+                def guarded(*args, **kwargs):
+                    address = kwargs.get("address", args[address_index])
+                    host = address[0] if isinstance(address, tuple) else address
+                    if not isinstance(address, tuple) or (
+                        isinstance(host, str)
+                        and (host in ("::1", "localhost") or host.startswith("127."))
+                    ):
+                        return original(*args, **kwargs)
+                    raise AssertionError("unexpected network connection")
+                return guarded
+            socket.socket.connect = loopback_only(socket.socket.connect, 1)
+            socket.socket.connect_ex = loopback_only(socket.socket.connect_ex, 1)
+            socket.create_connection = loopback_only(socket.create_connection, 0)
 
             from opentelemetry import trace
             from opentelemetry.sdk.trace import TracerProvider
