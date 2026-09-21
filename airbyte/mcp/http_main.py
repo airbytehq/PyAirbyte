@@ -71,6 +71,62 @@ Opt-in static client credentials:
   claims and requests with no credentials are not checked.
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
+
+Optional Datadog observability (`airbyte[datadog]`, launched with
+`ddtrace-run airbyte-mcp-http`):
+
+- `DD_LLMOBS_ENABLED=1`: install mandatory LLM Observability redaction and APM
+  sanitization, then annotate tool spans. No Datadog export is enabled by this
+  entrypoint itself. A failed mandatory registration disables both exporters.
+- `DD_MCP_CAPTURE_INTENT=1`: advertise optional `telemetry.intent` and append
+  guidance to omit credentials, identifiers and data values. Removing this flag
+  stops advertising; cached clients' intent is still recorded while LLM
+  Observability is enabled.
+- `DD_TRACE_ENABLED=true`, `DD_AGENTLESS_ENABLED=1`: carry sanitized tool events
+  on APM traces sent directly to Datadog. Agentless startup requires a nonempty
+  `DD_API_KEY`; supply it through the deployment's secret mechanism.
+- `DD_SITE`, `DD_SERVICE`, `DD_ENV`: deployment-supplied Datadog site, service
+  name and environment. `DD_VERSION` is optional; when unset, the installed
+  PyAirbyte version is used.
+- `DD_REMOTE_CONFIGURATION_ENABLED=false`, `DD_CRASHTRACKING_ENABLED=false`,
+  `DD_INSTRUMENTATION_TELEMETRY_ENABLED=false`: required before process startup
+  to prevent exporters outside the sanitized trace pipeline. Keep these off
+  even when tracing is disabled.
+- `DD_TRACE_PROPAGATION_STYLE_EXTRACT=none`,
+  `DD_MCP_DISTRIBUTED_TRACING=false`: reject inbound HTTP and MCP trace context
+  and baggage. Outbound trace propagation remains enabled.
+- `DD_TRACE_HTTPX_ENABLED=false`: prevent tracing OIDC discovery at import time
+  and token exchange. `DD_TRACE_URLLIB3_ENABLED=false` removes duplicate HTTP
+  children; Cloud API calls are traced through `requests`.
+- `DD_TRACE_SPAN_ATTRIBUTE_SCHEMA=v0`,
+  `DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED=true`: keep stable span
+  names and common service/version tags.
+- `DD_TRACE_HTTP_CLIENT_TAG_QUERY_STRING=false`,
+  `DD_HTTP_SERVER_TAG_QUERY_STRING=false`: omit outbound and inbound URL queries.
+- `DD_TRACE_SAMPLING_RULES=[{"resource":"GET /health","sample_rate":0,"discard":true}]`:
+  discard health probes. The APM sanitizer separately drops Segment root traces.
+- `DD_LOGS_INJECTION=true`: correlate existing logs; logs are not exported.
+
+Outbound URL/resource details are retained only for recognized public Airbyte
+API routes with validated UUID/numeric IDs and the synchronous Segment tracking
+route. Unknown routes, registry URLs and custom API origins are redacted; their
+spans retain timing, status and error class. The sanitizer also strips headers
+that ddtrace captures independently of `DD_TRACE_HEADER_TAGS`.
+Inbound spans retain server route templates and normalized methods; raw inbound
+URLs and unmatched paths are removed from export.
+
+Leave `DD_TRACE_HEADER_TAGS`, `DD_TRACE_BAGGAGE_TAG_KEYS`, `DD_TRACE_DEBUG`,
+`DD_LOGS_ENABLED`, `DD_AGENT_HOST`, `DD_TRACE_AGENT_URL`, `DD_LLMOBS_ML_APP`,
+`DD_LLMOBS_AGENTLESS_ENABLED` and `DD_REQUESTS_DISTRIBUTED_TRACING` unset.
+Do not enable AppSec, IAST, dynamic instrumentation, live debugging, exception
+replay, handled-error collection, profiling or runtime metrics.
+For a privacy rollback, remove `DD_MCP_CAPTURE_INTENT`, `DD_LLMOBS_ENABLED` and
+`DD_AGENTLESS_ENABLED` together and set `DD_TRACE_ENABLED=false`; the trace flag
+alone does not disable LLM Observability. Cached clients remain compatible:
+the hosted entrypoint always strips synthetic `telemetry` arguments and hashes
+session tokens while preserving extension declarations. Stdio is unchanged.
+Calls to unregistered tool names keep their sanitized APM failure spans but
+produce no LLM Observability event, preventing arbitrary name text from export.
 """
 
 from __future__ import annotations
@@ -213,8 +269,11 @@ def _log_auth_status() -> None:
 
 def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
+    from airbyte.mcp._datadog import SessionIdHeaderDigest, install  # noqa: PLC0415
+
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
+    install(app)
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the
@@ -265,7 +324,7 @@ def main() -> None:
 
     def wrap_http_app(http_app: ASGIApp) -> ASGIApp:
         return HostOriginGuardMiddleware(
-            wrap_if_enabled(http_app),
+            wrap_if_enabled(SessionIdHeaderDigest(http_app)),
             allowed_hosts,
         )
 

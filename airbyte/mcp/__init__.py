@@ -252,6 +252,40 @@ objects consumed by
 [`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
 assembles the verifier(s) and reads no environment variables itself.
 
+## Optional Hosted Tool Intent Observability
+
+A hosted HTTP deployment may advertise an optional `telemetry.intent` argument
+when its operator enables Datadog LLM Observability. If provided, use one
+sentence explaining why the tool is being called; never include credentials,
+identifiers or data values. Calls without intent continue to work. The Agents
+tools' existing `intent` parameter is separate and remains unchanged.
+
+With the documented Datadog configuration, the server exports the supplied
+intent, tool name, outcome class, validated workspace/organization UUIDs, tool
+annotations and Cloud API routes/statuses. Tool arguments and results are
+replaced with a fixed placeholder; error messages/stacks, HTTP header values,
+request/response bodies, JWTs and caller identity are not exported. Session
+grouping uses a SHA-256 digest of the unsigned, client-echoed `Mcp-Session-Id`,
+not the raw token or a verified identity. Intent itself is free text and may
+contain customer information, so keep it free of sensitive data.
+
+Recognized API routes retain validated resource UUIDs and numeric job IDs.
+Unknown routes, registry URLs and custom API origins are redacted in exported
+URL/resource fields; timing, status and error class remain available. This does
+not change the requests the tools make. Inbound spans retain server route
+templates and normalized methods, with raw URLs and unmatched paths removed.
+Calls to unregistered tool names retain sanitized APM failure spans but no LLM
+Observability event, so arbitrary name text is not exported.
+
+Datadog's default retention is 15 days; a custom retention policy is outside
+this feature. Export is best effort and does not determine whether a tool call
+succeeds. `DO_NOT_TRACK` continues to govern Segment only; operators control
+Datadog with `DD_*` variables. Local stdio is unchanged. HTTP operators must
+opt in with `airbyte[datadog]`, the `ddtrace-run` launcher and the complete
+configuration documented in `airbyte.mcp.http_main`; installing the extra alone
+does not enable export. Hosted clients with cached `telemetry` schemas remain
+compatible after observability is disabled.
+
 ## Troubleshooting
 
 ### Troubleshooting Local Connector Installation Issues
