@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from typing_extensions import deprecated
@@ -31,7 +32,11 @@ from airbyte.cloud.models import (
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteConnectionSyncError,
+    AirbyteWorkspaceMismatchError,
+    PyAirbyteInputError,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -321,14 +326,34 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response = api_util.run_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            workspace_id=self.workspace.workspace_id,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-        )
+        try:
+            connection_response = api_util.run_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                workspace_id=self.workspace.workspace_id,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteConnectionSyncError as ex:
+            if (
+                ex.context
+                and ex.context.get("status_code") == HTTPStatus.CONFLICT
+                and not self.enabled
+            ):
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
+                        "so a sync cannot be started."
+                    ),
+                    guidance=(
+                        "Re-enable the connection first (e.g. "
+                        "`connection.set_enabled(enabled=True)`, or the "
+                        "`update_cloud_connection` MCP tool with `enabled=True`), then retry."
+                    ),
+                    context={"connection_id": self.connection_id},
+                ) from ex
+            raise
         sync_result = SyncResult(
             workspace=self.workspace,
             connection=self,
