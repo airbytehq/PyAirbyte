@@ -274,3 +274,80 @@ def test_cancel_sync_rejects_explicit_completed_job(
 
     assert captured_lookup_job_ids == [123]
     assert captured_job_ids == []
+
+
+@pytest.mark.parametrize(
+    "cron_expression",
+    [
+        pytest.param("0 0 0 * * ?", id="daily_6_fields"),
+        pytest.param("0 0 */6 * * ?", id="every_6_hours"),
+        pytest.param("0 0 0 ? * SUN", id="weekly_day_of_week"),
+        pytest.param("0 0 0 * * ? 2026", id="7_fields_with_year"),
+        pytest.param("0 0 9 ? * MON-FRI US/Pacific", id="with_timezone"),
+    ],
+)
+def test_set_schedule_accepts_quartz_cron(
+    monkeypatch: pytest.MonkeyPatch,
+    cron_expression: str,
+) -> None:
+    """Verify Quartz cron expressions are passed through to the API."""
+    connection = _connection()
+    captured: list[models.AirbyteAPIConnectionSchedule] = []
+
+    def patch_connection(
+        *,
+        connection_id: str,
+        api_root: str,
+        client_id: object,
+        client_secret: object,
+        bearer_token: object,
+        schedule: models.AirbyteAPIConnectionSchedule,
+    ) -> models.ConnectionResponse:
+        _ = (connection_id, api_root, client_id, client_secret, bearer_token)
+        captured.append(schedule)
+        return models.ConnectionResponse(
+            connection_id="connection-id",
+            created_at=0,
+            destination_id="destination-id",
+            name="name",
+            source_id="source-id",
+            status=models.ConnectionStatusEnum.ACTIVE,
+            workspace_id="workspace-id",
+            configurations=models.StreamConfigurations(streams=[]),
+            schedule=schedule,
+            tags=[],
+        )
+
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+
+    connection.set_schedule(cron_expression=cron_expression)
+
+    assert len(captured) == 1
+    assert captured[0].cron_expression == cron_expression
+    assert captured[0].schedule_type == models.ScheduleTypeEnum.CRON
+
+
+@pytest.mark.parametrize(
+    "cron_expression",
+    [
+        pytest.param("0 0 * * *", id="unix_5_fields"),
+        pytest.param("0 */6 * * *", id="unix_every_6_hours"),
+        pytest.param("* * * * *", id="unix_every_minute"),
+        pytest.param("0 0 0 * * ? 2026 UTC extra", id="too_many_fields"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_set_schedule_rejects_non_quartz_cron(
+    monkeypatch: pytest.MonkeyPatch,
+    cron_expression: str,
+) -> None:
+    """Verify non-Quartz cron expressions fail client-side without calling the API."""
+    connection = _connection()
+
+    def patch_connection(**kwargs: object) -> models.ConnectionResponse:
+        raise AssertionError(f"API should not be called: {kwargs}")
+
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+
+    with pytest.raises(PyAirbyteInputError, match="Quartz"):
+        connection.set_schedule(cron_expression=cron_expression)

@@ -2953,10 +2953,16 @@ def update_cloud_connection(
         str | None,
         Field(
             description=(
-                "A cron expression defining when syncs should run. "
-                "Examples: '0 0 * * *' (daily at midnight UTC), "
-                "'0 */6 * * *' (every 6 hours), "
-                "'0 0 * * 0' (weekly on Sunday at midnight UTC). "
+                "A Quartz cron expression defining when syncs should run. "
+                "Must have 6 or 7 space-separated fields "
+                "(seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are rejected by the API, and schedules may run at most "
+                "once per hour (seconds and minutes cannot be '*'). "
+                "Examples: '0 0 0 * * ?' (daily at midnight UTC), "
+                "'0 0 */6 * * ?' (every 6 hours), "
+                "'0 0 0 ? * SUN' (weekly on Sunday at midnight UTC), "
+                "'0 0 9 ? * MON-FRI US/Pacific' (weekdays at 9am Pacific). "
                 "Leave unset to keep the current schedule. "
                 "Cannot be used together with 'manual_schedule'."
             ),
