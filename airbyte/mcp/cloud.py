@@ -150,8 +150,9 @@ class CloudConnectionResult(BaseModel):
     """ID of the destination used by this connection."""
     sync_status_fetched: bool = False
     """Whether sync job status was looked up for this connection.
-    False when the tool was called without with_connection_status=True; in that case all
-    job fields below are null regardless of the connection's actual sync history."""
+    True when the tool was called with with_connection_status=True or
+    failing_connections_only=True. When False, all job fields below are null regardless
+    of the connection's actual sync history."""
     last_job_status: str | None = None
     """Status of the most recent completed sync job (e.g., 'succeeded', 'failed', 'cancelled').
     Null if sync_status_fetched is False, or if the connection has no completed jobs."""
@@ -159,7 +160,7 @@ class CloudConnectionResult(BaseModel):
     """Job ID of the most recent completed sync.
     Null if sync_status_fetched is False, or if the connection has no completed jobs."""
     last_job_time: str | None = None
-    """ISO 8601 timestamp of the most recent completed sync.
+    """ISO 8601 start timestamp of the most recent completed sync.
     Null if sync_status_fetched is False, or if the connection has no completed jobs."""
     currently_running_job_id: int | None = None
     """Job ID of a currently running sync, if any.
