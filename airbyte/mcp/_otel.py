@@ -97,6 +97,20 @@ _SAFE_HTTP_URL = re.compile(
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
 _MAX_INTENT_LENGTH = 4096
 _MAX_LATE_ATTRIBUTES = 4096
+_AGENT_ENTITY_TYPES = {
+    "issues": "issues",
+    "comments": "comments",
+    "projects": "projects",
+    "repositories": "repositories",
+    "pull_requests": "pull_requests",
+    "teams": "teams",
+    "users": "users",
+    "workflow_states": "workflow_states",
+}
+_ENTITY_TYPE_ACTIONS = {
+    "execute_agent_connector_ro": ("list", "get", "search"),
+    "execute_agent_connector": ("list", "get", "search", "create", "update", "delete"),
+}
 _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
@@ -283,6 +297,17 @@ class IntentCaptureMiddleware(Middleware):
         }
         if intent:
             attrs["airbyte.mcp.intent"] = intent
+        arguments = context.message.arguments or {}
+        action = arguments.get("action")
+        if isinstance(action, str) and action in _ENTITY_TYPE_ACTIONS.get(name, ()):
+            raw_entity_type = arguments.get("entity_type")
+            entity_type = (
+                _AGENT_ENTITY_TYPES.get(raw_entity_type)
+                if isinstance(raw_entity_type, str)
+                else None
+            )
+            if entity_type is not None:
+                attrs["airbyte.mcp.agent.entity_type"] = entity_type
         if name in _TOOL_MODULES:
             hints = _TOOL_ANNOTATIONS.get(name, {})
             attrs.update(
@@ -402,6 +427,20 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        raw_entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
+        entity_type = (
+            _AGENT_ENTITY_TYPES.get(raw_entity_type) if isinstance(raw_entity_type, str) else None
+        )
+        tool_name = span.name.removeprefix("tools/call ")
+        is_execution_root = (
+            span.kind == SpanKind.SERVER
+            and span.parent is None
+            and span.name == f"tools/call {tool_name}"
+            and tool_name in _TOOL_MODULES
+            and tool_name in _ENTITY_TYPE_ACTIONS
+        )
+        if entity_type is not None and is_execution_root:
+            attrs["airbyte.mcp.agent.entity_type"] = entity_type
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
@@ -413,6 +452,7 @@ class RedactingExporter(SpanExporter):
                     "workspace_id",
                     "organization_id",
                     "error_type",
+                    "agent.entity_type",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }
