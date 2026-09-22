@@ -166,16 +166,16 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
         patches[0],
         patches[1],
         patches[2],
-        patches[3],
+        patches[3] as get_workspace_organization_info,
         patches[4],
         patches[5],
-        patches[6] as get_organization_info,
+        patches[6],
         patch(
             "airbyte._util.api_util.get_workspace_config_api",
             side_effect=get_workspace,
         ),
     ):
-        get_organization_info.return_value = {
+        get_workspace_organization_info.return_value = {
             "organizationId": "org-1",
             "organizationName": "Org One",
         }
@@ -196,8 +196,8 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
     ]
     assert context.member_workspaces[0].organization_id == "org-1"
     assert context.member_workspaces[0].organization_name == "Org One"
-    get_organization_info.assert_called_once_with(
-        organization_id="org-1",
+    get_workspace_organization_info.assert_called_once_with(
+        workspace_id="live-workspace",
         api_root=client.public_api_root,
         config_api_root=client.config_api_root,
         client_id=client.client_id,
@@ -376,10 +376,10 @@ def test_validate_direct_workspaces_resolves_org_name_once_per_org() -> None:
         patches[0],
         patches[1],
         patches[2],
-        patches[3],
+        patches[3] as get_workspace_organization_info,
         patches[4],
         patches[5],
-        patches[6] as get_organization_info,
+        patches[6],
         patch(
             "airbyte._util.api_util.get_workspace_config_api",
             side_effect=lambda workspace_id, **kwargs: {
@@ -390,7 +390,7 @@ def test_validate_direct_workspaces_resolves_org_name_once_per_org() -> None:
             },
         ),
     ):
-        get_organization_info.return_value = {
+        get_workspace_organization_info.return_value = {
             "organizationId": "org-1",
             "organizationName": "Org One",
         }
@@ -403,7 +403,7 @@ def test_validate_direct_workspaces_resolves_org_name_once_per_org() -> None:
     for workspace in live_workspaces:
         assert workspace.organization_id == "org-1"
         assert workspace.organization_name == "Org One"
-    get_organization_info.assert_called_once()
+    get_workspace_organization_info.assert_called_once()
 
 
 def test_direct_workspace_404_and_tombstone_treated_as_stale() -> None:
@@ -495,10 +495,10 @@ def test_default_context_enriches_configured_workspace() -> None:
         patches[0],
         patches[1],
         patches[2],
-        patches[3],
+        patches[3] as get_workspace_organization_info,
         patches[4],
         patches[5],
-        patches[6] as get_organization_info,
+        patches[6],
         patch(
             "airbyte._util.api_util.get_workspace_config_api",
             return_value={
@@ -509,7 +509,7 @@ def test_default_context_enriches_configured_workspace() -> None:
             },
         ),
     ):
-        get_organization_info.return_value = {
+        get_workspace_organization_info.return_value = {
             "organizationId": "org-1",
             "organizationName": "Org One",
         }
@@ -525,8 +525,8 @@ def test_default_context_enriches_configured_workspace() -> None:
     assert context.default_organization_id == "org-1"
     assert context.default_organization_name == "Org One"
     assert [item.organization_id for item in context.member_organizations] == []
-    get_organization_info.assert_called_once_with(
-        organization_id="org-1",
+    get_workspace_organization_info.assert_called_once_with(
+        workspace_id="configured-workspace",
         api_root=client.public_api_root,
         config_api_root=client.config_api_root,
         client_id=client.client_id,

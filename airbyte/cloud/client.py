@@ -840,36 +840,18 @@ class CloudClient:
         self._workspace_organizations[workspace_id] = organization_info
         return organization_info
 
-    def _get_organization_info_cached(self, organization_id: str) -> CloudOrganizationInfo | None:
-        """Fetch and cache organization info by organization ID."""
-        if organization_id in self._organization_infos:
-            return self._organization_infos[organization_id]
-        try:
-            organization = api_util.get_organization_info(
-                organization_id=organization_id,
-                api_root=self.public_api_root,
-                config_api_root=self.config_api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self._get_config_api_bearer_token(),
+    def _get_organization_for_workspace(
+        self, workspace: CloudWorkspaceInfo
+    ) -> CloudOrganizationInfo | None:
+        """Fetch the parent organization for a workspace, cached per organization."""
+        organization_id = workspace.organization_id
+        if organization_id is None:
+            return self._get_workspace_organization(workspace.workspace_id)
+        if organization_id not in self._organization_infos:
+            self._organization_infos[organization_id] = self._get_workspace_organization(
+                workspace.workspace_id
             )
-        except (AirbyteError, NotImplementedError):
-            # The workspace is readable but its organization is not (e.g. the
-            # caller lacks org-level read, or no Config API root can be derived
-            # from a custom public API root). Keep the live workspace and leave
-            # the organization name unknown.
-            self._organization_infos[organization_id] = None
-            return None
-        organization_info = CloudOrganizationInfo(
-            organization_id=organization_id,
-            organization_name=(
-                organization.get("organizationName")
-                if isinstance(organization.get("organizationName"), str)
-                else None
-            ),
-        )
-        self._organization_infos[organization_id] = organization_info
-        return organization_info
+        return self._organization_infos[organization_id]
 
     def _validate_direct_workspaces(self) -> tuple[list[CloudWorkspaceInfo], int]:
         """Describe direct workspace grants once within the configured cap.
@@ -885,11 +867,7 @@ class CloudClient:
             workspace = self._get_direct_workspace_info(workspace_id)
             if workspace is None:
                 continue
-            organization: CloudOrganizationInfo | None
-            if workspace.organization_id is not None:
-                organization = self._get_organization_info_cached(workspace.organization_id)
-            else:
-                organization = self._get_workspace_organization(workspace_id)
+            organization = self._get_organization_for_workspace(workspace)
             if organization is not None:
                 workspace = workspace.model_copy(
                     update={
@@ -962,10 +940,8 @@ class CloudClient:
             except (AirbyteError, exc.PyAirbyteInputError):
                 default_workspace_info = None
             if default_workspace_info is not None:
-                default_workspace_organization = (
-                    self._get_organization_info_cached(default_workspace_info.organization_id)
-                    if default_workspace_info.organization_id is not None
-                    else self._get_workspace_organization(default_workspace_id)
+                default_workspace_organization = self._get_organization_for_workspace(
+                    default_workspace_info
                 )
         discovery_hints: list[str] = []
         if any(permission.get("permissionType") == "instance_admin" for permission in permissions):
