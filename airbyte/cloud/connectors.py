@@ -50,6 +50,14 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
+from airbyte.agents import _api_util as agents_api_util
+from airbyte.agents._actions import (
+    UNSUPPORTED_ACTIONS,
+    AgentReadAction,
+    AgentWriteAction,
+    _build_params,
+)
+from airbyte.agents.models import AgentExecuteResult
 from airbyte.cloud.models import (
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     SQL_PASSTHROUGH_DESTINATION_NAMES,
@@ -65,8 +73,7 @@ from airbyte.cloud.models import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte.agents.connectors import AgentAction
-    from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
+    from airbyte.agents._actions import AgentAction
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -145,9 +152,6 @@ class CloudConnector(abc.ABC):
 
         self._enabled_features: frozenset[ConnectorFeature] | None = None
         """Features enabled for this connector. (Cached; `None` until resolved.)"""
-
-        self._direct_details: AgentConnectorDetails | None = None
-        """Agents `inspect` details for direct execution. (Cached.)"""
 
     def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
         """Return the enabled features, resolving them through the workspace on first use."""
@@ -275,15 +279,6 @@ class CloudConnector(abc.ABC):
         workspace's API roots have no Context layer API, and when the Agents API reports
         the connector as forbidden or not found. Other errors propagate unchanged.
         """
-        from airbyte.agents import _api_util as agents_api_util  # noqa: PLC0415
-        from airbyte.agents.connectors import (  # noqa: PLC0415
-            UNSUPPORTED_ACTIONS,
-            AgentReadAction,
-            AgentWriteAction,
-            _build_params,
-        )
-        from airbyte.agents.models import AgentExecuteResult  # noqa: PLC0415
-
         connector_name = self._connector_info.name if self._connector_info else None
         if not self.workspace._has_context_layer_api():  # noqa: SLF001
             raise exc.AirbyteExternalAccessNotEnabledError(
@@ -440,40 +435,6 @@ class CloudSource(CloudConnector):
         )
         result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
-
-    def _inspect_direct_details(self, *, force_refresh: bool = False) -> AgentConnectorDetails:
-        """Return this source's Agents connector metadata from the `inspect` endpoint.
-
-        The result is cached; pass `force_refresh=True` to fetch it again. Raises
-        `AirbyteExternalAccessNotEnabledError` when the Agents API reports the connector
-        as forbidden or not found.
-        """
-        from airbyte.agents import _api_util as agents_api_util  # noqa: PLC0415
-        from airbyte.agents.models import AgentConnectorDetails  # noqa: PLC0415
-
-        if self._direct_details is not None and not force_refresh:
-            return self._direct_details
-
-        connector_name = self._connector_info.name if self._connector_info else None
-        try:
-            self._direct_details = AgentConnectorDetails.model_validate(
-                agents_api_util.inspect_agent_connector(
-                    connector_id=self.connector_id,
-                    credentials=self.workspace._credentials,  # noqa: SLF001
-                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
-                )
-            )
-        except exc.AirbyteError as error:
-            status_code = (error.context or {}).get("status_code")
-            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                raise exc.AirbyteExternalAccessNotEnabledError(
-                    connector_name=connector_name,
-                    connector_id=self.connector_id,
-                ) from error
-
-            raise
-
-        return self._direct_details
 
     def execute(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
@@ -748,8 +709,6 @@ class CloudDestination(CloudConnector):
         Direct actions require external access to be enabled for this destination in its
         organization's Context Layer settings.
         """
-        from airbyte.agents.connectors import AgentReadAction  # noqa: PLC0415
-
         if sql_dialect is None:
             sql_dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
         if sql_dialect is None:
