@@ -2198,127 +2198,114 @@ def test_inspect_destination_fallback_lists_destinations_once(
     assert cloud_workspace.list_destinations_calls == 1
 
 
-def test_read_docs_destination_merges_server_docs(
+_MERGED_OUTLINE = [
+    "overview",
+    "actions.record.sql_select",
+    "sources.src-1",
+    "sql-passthrough",
+    "connections",
+    "streams",
+]
+
+
+@pytest.mark.parametrize(
+    (
+        "destination",
+        "section",
+        "server_outline_ids",
+        "expected_calls",
+        "expected_outline",
+        "present",
+        "absent",
+    ),
+    [
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            None,
+            None,
+            [("connector-destination:dest-snowflake", None)],
+            _MERGED_OUTLINE,
+            ["Server overview text", "dry_run", "SHOW TABLES"],
+            [],
+            id="merges-server-docs",
+        ),
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            "sources.src-1",
+            None,
+            [("connector-destination:dest-snowflake", "sources.src-1")],
+            _MERGED_OUTLINE,
+            ["Server overview text"],
+            ["SHOW TABLES"],
+            id="server-section-passthrough",
+        ),
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            "sql-passthrough",
+            None,
+            [],
+            None,
+            ["SHOW TABLES", '"sql_dialect": "snowflake"'],
+            [],
+            id="local-section-skips-server",
+        ),
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            None,
+            ["overview", "sql-passthrough", "sources.src-1"],
+            [("connector-destination:dest-snowflake", None)],
+            ["overview", "sql-passthrough", "sources.src-1", "connections", "streams"],
+            ["SHOW TABLES"],
+            [],
+            id="dedupes-local-ids",
+        ),
+        pytest.param(
+            _UNSUPPORTED_DESTINATION,
+            None,
+            None,
+            [("connector-destination:dest-null", None)],
+            ["overview", "actions.record.sql_select", "sources.src-1"],
+            ["Server overview text"],
+            ["SHOW TABLES"],
+            id="unsupported-unmodified",
+        ),
+    ],
+)
+def test_read_docs_destination_with_server_docs(
     monkeypatch: pytest.MonkeyPatch,
+    destination: _FakeDestinationForDocs,
+    section: str | None,
+    server_outline_ids: list[str] | None,
+    expected_calls: list[tuple[str, str | None]],
+    expected_outline: list[str] | None,
+    present: list[str],
+    absent: list[str],
 ) -> None:
-    """Server destination docs get local SQL sections and the local overview prepended."""
+    """Server destination docs merge with local guidance; unsupported IDs pass through."""
     calls: list[tuple[str, str | None]] = []
     cloud_workspace = _patch_destination_server_docs(
         monkeypatch,
-        [_SNOWFLAKE_DESTINATION],
-        _server_destination_docs(),
-        calls=calls,
-    )
-
-    result = _read_docs("connector-destination:dest-snowflake")
-
-    assert [section.section_id for section in result.outline] == [
-        "overview",
-        "actions.record.sql_select",
-        "sources.src-1",
-        "sql-passthrough",
-        "connections",
-        "streams",
-    ]
-    assert result.title == "Server destination docs"
-    assert "Server overview text" in result.content
-    assert "dry_run" in result.content
-    assert result.content.index("SHOW TABLES") < result.content.index(
-        "Server overview text"
-    )
-    assert calls == [("connector-destination:dest-snowflake", None)]
-    assert cloud_workspace.list_destinations_calls == 1
-
-
-def test_read_docs_destination_server_section_passthrough(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A server-provided section reads server content only; the outline still merges."""
-    calls: list[tuple[str, str | None]] = []
-    _patch_destination_server_docs(
-        monkeypatch,
-        [_SNOWFLAKE_DESTINATION],
-        _server_destination_docs(),
-        calls=calls,
-    )
-
-    result = _read_docs("connector-destination:dest-snowflake", section="sources.src-1")
-
-    assert calls == [("connector-destination:dest-snowflake", "sources.src-1")]
-    assert "Server overview text" in result.content
-    assert "SHOW TABLES" not in result.content
-    assert [section.section_id for section in result.outline] == [
-        "overview",
-        "actions.record.sql_select",
-        "sources.src-1",
-        "sql-passthrough",
-        "connections",
-        "streams",
-    ]
-
-
-def test_read_docs_destination_local_section_skips_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Local sections are built without calling the Agents API at all."""
-    calls: list[tuple[str, str | None]] = []
-    _patch_destination_server_docs(
-        monkeypatch,
-        [_SNOWFLAKE_DESTINATION],
-        _server_destination_docs(),
+        [destination],
+        _server_destination_docs(outline_ids=server_outline_ids),
         calls=calls,
     )
 
     result = _read_docs(
-        "connector-destination:dest-snowflake", section="sql-passthrough"
+        f"connector-destination:{destination.connector_id}", section=section
     )
 
-    assert calls == []
-    assert "SHOW TABLES" in result.content
-    assert '"sql_dialect": "snowflake"' in result.content
-
-
-def test_read_docs_destination_server_outline_dedupes_local_ids(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A local section the server already outlines is not appended twice."""
-    calls: list[tuple[str, str | None]] = []
-    _patch_destination_server_docs(
-        monkeypatch,
-        [_SNOWFLAKE_DESTINATION],
-        _server_destination_docs(
-            outline_ids=["overview", "sql-passthrough", "sources.src-1"]
-        ),
-        calls=calls,
-    )
-
-    result = _read_docs("connector-destination:dest-snowflake")
-
-    outline_ids = [section.section_id for section in result.outline]
-    assert outline_ids.count("sql-passthrough") == 1
-
-
-def test_read_docs_destination_unsupported_ignores_server_docs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A non-SQL-passthrough destination's server docs are returned unmodified."""
-    calls: list[tuple[str, str | None]] = []
-    _patch_destination_server_docs(
-        monkeypatch,
-        [_UNSUPPORTED_DESTINATION],
-        _server_destination_docs(),
-        calls=calls,
-    )
-
-    result = _read_docs("connector-destination:dest-null")
-
-    assert [section.section_id for section in result.outline] == [
-        "overview",
-        "actions.record.sql_select",
-        "sources.src-1",
-    ]
-    assert "Server overview text" in result.content
-    assert "SHOW TABLES" not in result.content
+    assert calls == expected_calls
+    assert cloud_workspace.list_destinations_calls == 1
+    if expected_outline is not None:
+        assert [item.section_id for item in result.outline] == expected_outline
+    for text in present:
+        assert text in result.content
+    for text in absent:
+        assert text not in result.content
+    if "SHOW TABLES" in present and "Server overview text" in present:
+        assert result.content.index("SHOW TABLES") < result.content.index(
+            "Server overview text"
+        )
 
 
 def test_inspect_destination_merges_server_docs(
