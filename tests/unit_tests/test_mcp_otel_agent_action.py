@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import socket
+from collections.abc import Iterator
 from unittest.mock import Mock
 
+import fastmcp.telemetry
 import pytest
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -27,16 +31,13 @@ from tests.unit_tests.test_mcp_otel import (
     _call,
     _capture,
     _export_text,
+    _loopback_only,
     _spans,
     _tool_span,
 )
 
 
-pytestmark = pytest.mark.usefixtures("isolated_otel")
 agents_app = otel_tests.agents_app
-isolated_otel = otel_tests.isolated_otel
-otel_provider = otel_tests.otel_provider
-uninitialized_provider = otel_tests.uninitialized_provider
 ACTION = "airbyte.mcp.agent.action"
 GENERAL = "execute_agent_connector"
 READ_ONLY = "execute_agent_connector_ro"
@@ -45,6 +46,53 @@ VALID_ACTIONS = [
     (GENERAL, action)
     for action in ("list", "get", "search", "sql_select", "create", "update", "delete")
 ] + [(READ_ONLY, action) for action in ("list", "get", "search", "sql_select")]
+
+
+@pytest.fixture(scope="module")
+def otel_provider() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
+    exporter = InMemorySpanExporter()
+    provider = observability._build_provider(exporter)
+    with pytest.MonkeyPatch.context() as instrumentation:
+        instrumentation.setattr(
+            fastmcp.telemetry, "otel_get_tracer", provider.get_tracer
+        )
+        instrumentation.setattr(trace, "get_tracer", provider.get_tracer)
+        yield provider, exporter
+    provider.shutdown()
+
+
+@pytest.fixture(autouse=True)
+def isolated_otel(
+    monkeypatch: pytest.MonkeyPatch,
+    otel_provider: tuple[TracerProvider, InMemorySpanExporter],
+) -> Iterator[None]:
+    provider, exporter = otel_provider
+    provider.force_flush()
+    exporter.clear()
+    observability._reset_for_tests()
+    for key in os.environ:
+        if key.startswith(("OTEL_", "AIRBYTE_MCP_")):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    for owner, name, index in (
+        (socket.socket, "connect", 1),
+        (socket.socket, "connect_ex", 1),
+        (socket, "create_connection", 0),
+    ):
+        monkeypatch.setattr(owner, name, _loopback_only(getattr(owner, name), index))
+    yield
+    provider.force_flush()
+    exporter.clear()
+    observability._reset_for_tests()
+
+
+@pytest.fixture
+def uninitialized_provider(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    current = [trace.ProxyTracerProvider()]
+    setter = Mock(side_effect=lambda provider: current.__setitem__(0, provider))
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: current[0])
+    monkeypatch.setattr(trace, "set_tracer_provider", setter)
+    return setter
 
 
 @pytest.mark.parametrize(("name", "action"), VALID_ACTIONS)
