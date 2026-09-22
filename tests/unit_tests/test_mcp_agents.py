@@ -2340,3 +2340,24 @@ def test_inspect_destination_merges_server_docs(
     assert "SHOW TABLES" in result.docs.content
     assert result.docs.guidance is not None
     assert "overview" in result.docs.guidance
+
+
+def test_read_docs_destination_cloud_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Cloud failure resolving destinations is not swallowed by the docs fallback."""
+    _patch_destination_404(monkeypatch, [])
+    cloud_error = _agents_error(500)
+
+    class _FailingCloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            raise cloud_error
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _FailingCloudWorkspace(),  # noqa: ARG005
+    )
+
+    with pytest.raises(AirbyteError):
+        _read_docs("connector-destination:dest-snowflake")

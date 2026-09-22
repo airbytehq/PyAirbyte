@@ -1543,37 +1543,27 @@ def read_agent_skill_docs(
     destination_resolved = False
     if skill_id.startswith(DESTINATION_SKILL_PREFIX):
         destination_resolved = True
-        try:
-            destination = _resolve_cloud_destination(
-                ctx, connector_id_from_skill_id(skill_id), workspace_id
-            )
-            if (
-                destination is not None
-                and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-            ):
-                return _skill_docs_result(
-                    _read_destination_skill_docs(workspace, destination, section)
+        destination = _resolve_cloud_destination(
+            ctx, connector_id_from_skill_id(skill_id), workspace_id
+        )
+        if (
+            destination is not None
+            and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        ):
+            try:
+                docs = _read_destination_skill_docs(workspace, destination, section)
+            except AirbyteError as error:
+                message = _agents_access_message(error)
+                if message is None:
+                    raise
+                return AgentSkillDocsResult(
+                    skill_id=skill_id,
+                    section_id=section,
+                    outline=[],
+                    content="",
+                    errors=[message],
                 )
-        except AirbyteError as error:
-            if _is_not_found(error):
-                return _destination_skill_docs_fallback(
-                    ctx,
-                    skill_id,
-                    section,
-                    workspace_id,
-                    destination=destination,
-                    destination_resolved=True,
-                )
-            message = _agents_access_message(error)
-            if message is None:
-                raise
-            return AgentSkillDocsResult(
-                skill_id=skill_id,
-                section_id=section,
-                outline=[],
-                content="",
-                errors=[message],
-            )
+            return _skill_docs_result(docs)
     try:
         docs = workspace.read_skill_docs(skill_id, section=section)
     except AirbyteError as error:
