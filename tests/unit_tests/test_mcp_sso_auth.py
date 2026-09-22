@@ -37,6 +37,7 @@ from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from airbyte.mcp import _sso_auth as sso
+from airbyte.mcp import _sso_login_page as login_page
 from airbyte.mcp._transport_security import HostOriginGuardMiddleware
 
 
@@ -497,6 +498,54 @@ def test_multi_realm_verifier_fails_closed_when_discovery_is_down() -> None:
     token = _unsigned_jwt({"iss": _issuer("acme")})
     assert asyncio.run(verifier.verify_token(token)) is None
     assert realm_verifiers == {}
+
+
+# ---------------------------------------------------------------------------
+# Login page template
+# ---------------------------------------------------------------------------
+
+
+def test_login_template_files_ship_inside_the_package() -> None:
+    """The HTML and CSS are package data, loaded via importlib, not relative paths."""
+    from importlib import resources
+
+    templates = resources.files(login_page.TEMPLATE_PACKAGE) / login_page.TEMPLATE_DIR
+    assert (templates / login_page.LOGIN_TEMPLATE).is_file()
+    assert (templates / login_page.LOGIN_STYLESHEET).is_file()
+
+
+def test_login_page_inlines_stylesheet_and_escapes_values() -> None:
+    html = login_page.render_login_page(
+        txn_id='t"1',
+        csrf_token="c<1>",
+        client_name="<script>alert(1)</script>",
+        client_redirect_uri="http://localhost:1234/cb?x=<y>&z=1",
+        company_identifier='"><img src=x>',
+        error_message="<b>bad</b>",
+    )
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert 'value="t&#34;1"' in html
+    assert 'value="c&lt;1&gt;"' in html
+    assert 'value="&#34;&gt;&lt;img src=x&gt;"' in html
+    assert "&lt;b&gt;bad&lt;/b&gt;" in html
+    assert "<b>bad</b>" not in html
+    assert "--accent: #615eff" in html  # stylesheet inlined verbatim
+    # Autoescape turns the policy's single quotes into `&#39;`, which browsers decode.
+    assert f'content="{login_page.CSP_POLICY.replace(chr(39), "&#39;")}"' in html
+    assert 'name="choice" value="default"' in html
+    assert 'name="choice" value="sso"' in html
+
+
+def test_login_page_omits_error_block_when_there_is_no_error() -> None:
+    html = login_page.render_login_page(
+        txn_id="t",
+        csrf_token="c",
+        client_name="Client",
+        client_redirect_uri="http://l/cb",
+    )
+    assert 'role="alert"' not in html
+    assert 'value=""' in html  # empty identifier prefill
 
 
 # ---------------------------------------------------------------------------
