@@ -200,8 +200,8 @@ requires-dist = [
     { name = "cyclopts", specifier = ">=4.0,<5.0" },
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
-    { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.24.0,<1.0.0" },
+    { name = "fastmcp", specifier = ">=3.2.0,<4.0" },
+    { name = "fastmcp-extensions", specifier = ">=0.25.0,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1130,7 +1130,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.24.0"
+version = "0.25.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -1144,9 +1144,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/91/dd/21e28954c8b2e393d4350b7fa7a86fe6645a43b65bf4486f5aef29b1d476/fastmcp_extensions-0.24.0.tar.gz", hash = "sha256:4b6fcee83c5dfc76b7f5920db70d1b9b92e9d01eef56794a3de9a84b0ad2282d", size = 262243, upload-time = "2026-09-21T17:10:15.323Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/82/d748910cc372d97fd13cc0f87ad4ba1b958187f9e66b412222b486ad439d/fastmcp_extensions-0.25.0.tar.gz", hash = "sha256:9951d8a084d731c82241875e31da3fd3311fbce4d6599cbb5f65d36e887bc7d1", size = 263434, upload-time = "2026-09-22T18:53:00.943Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/89/71/e3b4e609bacb1736d25a1e3ad68e2284ba6e4d0e4a259526c876841b4e13/fastmcp_extensions-0.24.0-py3-none-any.whl", hash = "sha256:b299a589494a6be5049c8998db9497ad756279a41e005e42f3e1785749e01fb1", size = 100778, upload-time = "2026-09-21T17:10:13.487Z" },
+    { url = "https://files.pythonhosted.org/packages/86/f5/dc0cd2d9c4f3b961e42a453fcfc2f526ed963fd863887e660114639d4c5a/fastmcp_extensions-0.25.0-py3-none-any.whl", hash = "sha256:c483bb535c58ee4fec579c156a287e909404ca0beca954ad9d7217f1c8b61880", size = 101292, upload-time = "2026-09-22T18:52:59.547Z" },
 ]
 
 [[package]]
