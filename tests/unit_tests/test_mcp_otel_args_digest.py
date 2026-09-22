@@ -520,6 +520,35 @@ def test_exporter_rejects_bad_digest_values(harness, bad, vendor):
     assert SENTINEL not in json.dumps(dict(attrs))
 
 
+@pytest.mark.parametrize("vendor", ["", "other", "datadog"])
+@pytest.mark.parametrize("candidate", [None, SENTINEL, "a" * 32])
+def test_exporter_rebuilds_injected_metadata_from_validated_digest(
+    harness, vendor, candidate
+):
+    _, provider, exporter, _ = harness(vendor=vendor)
+    with provider.get_tracer("fastmcp").start_as_current_span(
+        "tools/call echo", kind=SpanKind.SERVER
+    ) as span:
+        if candidate is not None:
+            span.set_attribute(ATTRIBUTE, candidate)
+        span.set_attribute(
+            "_dd.ml_obs.metadata",
+            json.dumps({"args_digest": "b" * 32, "raw_arguments": SENTINEL}),
+        )
+    exported = finished(provider, exporter)[0]
+    attrs = exported.attributes
+    if candidate == "a" * 32:
+        assert attrs[ATTRIBUTE] == candidate
+    else:
+        assert ATTRIBUTE not in attrs
+    if vendor == "datadog" and candidate == "a" * 32:
+        assert json.loads(attrs["_dd.ml_obs.metadata"]) == {"args_digest": candidate}
+    else:
+        assert "_dd.ml_obs.metadata" not in attrs
+    assert SENTINEL not in exported.to_json()
+    assert "b" * 32 not in exported.to_json()
+
+
 def test_exporter_rejects_digest_on_child_client_internal_and_unknown_spans(harness):
     _, provider, exporter, _ = harness(vendor="datadog")
     tracer = provider.get_tracer("test")
@@ -529,6 +558,9 @@ def test_exporter_rejects_digest_on_child_client_internal_and_unknown_spans(harn
             "tools/call echo", kind=SpanKind.SERVER
         ) as span:
             span.set_attribute(ATTRIBUTE, candidate)
+            span.set_attribute(
+                "_dd.ml_obs.metadata", json.dumps({"args_digest": SENTINEL})
+            )
     for name, kind in [
         ("tools/call echo", SpanKind.CLIENT),
         ("tools/call echo", SpanKind.INTERNAL),
@@ -537,6 +569,9 @@ def test_exporter_rejects_digest_on_child_client_internal_and_unknown_spans(harn
     ]:
         with tracer.start_as_current_span(name, kind=kind) as span:
             span.set_attribute(ATTRIBUTE, candidate)
+            span.set_attribute(
+                "_dd.ml_obs.metadata", json.dumps({"args_digest": SENTINEL})
+            )
     spans = finished(provider, exporter)
     assert spans
     assert all(ATTRIBUTE not in span.attributes for span in spans)
@@ -545,6 +580,7 @@ def test_exporter_rejects_digest_on_child_client_internal_and_unknown_spans(harn
         not in json.loads(span.attributes.get("_dd.ml_obs.metadata", "{}"))
         for span in spans
     )
+    assert all(SENTINEL not in span.to_json() for span in spans)
 
 
 def test_concurrency_nesting_cancellation_and_context_reset(harness):

@@ -443,6 +443,7 @@ class RedactingExporter(SpanExporter):
         if root_tool_span and type(digest) is str and _ARGS_DIGEST_RE.fullmatch(digest):
             attrs["airbyte.mcp.args_digest"] = digest
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
+        attrs.pop("_dd.ml_obs.metadata", None)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
                 key: attrs[f"airbyte.mcp.{key}"]
