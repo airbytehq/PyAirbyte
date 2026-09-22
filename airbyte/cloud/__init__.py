@@ -87,6 +87,7 @@ from typing import TYPE_CHECKING
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connectors import CloudApiQueryAction, CloudApiWriteAction
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudWorkspaceInfo,
@@ -132,6 +133,8 @@ __all__ = [
     "CloudWorkspaceInfo",
     "SyncResult",
     # Enums
+    "CloudApiQueryAction",
+    "CloudApiWriteAction",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

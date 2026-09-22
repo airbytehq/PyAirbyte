@@ -11,7 +11,12 @@ import pytest
 from airbyte.agents import _api_util as agents_api_util
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
-from airbyte.cloud.connectors import CloudConnector, CloudDestination, CloudSource
+from airbyte.cloud.connectors import (
+    CloudApiQueryAction,
+    CloudConnector,
+    CloudDestination,
+    CloudSource,
+)
 from airbyte.cloud.models import (
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     CloudDestinationInfo,
@@ -156,6 +161,19 @@ def test_execute_api_query_supports_get_and_search(
     assert calls[0]["request_body"]["action"] == "get"
     assert calls[0]["request_body"]["params"] == {"issue_id": "42"}
     assert calls[1]["request_body"]["action"] == "search"
+
+
+def test_execute_api_query_accepts_enum_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    source.execute_api_query("issues", CloudApiQueryAction.SEARCH, {"query": "bug"})
+
+    assert calls[0]["request_body"]["action"] == "search"
 
 
 def test_execute_api_action_forwards_to_agents_api(

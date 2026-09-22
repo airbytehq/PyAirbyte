@@ -101,11 +101,20 @@ class CheckResult:
         )
 
 
-_API_QUERY_ACTIONS = {"list", "get", "search"}
-"""Read actions accepted by `CloudConnector.execute_api_query`."""
+class CloudApiQueryAction(str, Enum):
+    """Read actions accepted by `CloudConnector.execute_api_query`."""
 
-_API_WRITE_ACTIONS = {"create", "update", "delete"}
-"""Write actions accepted by `CloudConnector.execute_api_action`."""
+    LIST = "list"
+    GET = "get"
+    SEARCH = "search"
+
+
+class CloudApiWriteAction(str, Enum):
+    """Write actions accepted by `CloudConnector.execute_api_action`."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
 
 
 class ConnectorType(str, Enum):
@@ -276,7 +285,7 @@ class CloudConnector(abc.ABC):
     def execute_api_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
         entity_type: str,
-        action: Literal["list", "get", "search"] = "list",
+        action: CloudApiQueryAction | Literal["list", "get", "search"] = CloudApiQueryAction.LIST,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -292,16 +301,18 @@ class CloudConnector(abc.ABC):
         Context Layer settings. Connectors without an entity API fail with the Agents
         API's own error.
         """
-        if action not in _API_QUERY_ACTIONS:
+        try:
+            resolved_action = CloudApiQueryAction(action)
+        except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid read action.",
                 guidance="Use one of: list, get, search.",
                 context={"entity_type": entity_type, "action": action},
-            )
+            ) from None
 
         return self._execute_direct_action(
             entity_type=entity_type,
-            action=action,
+            action=resolved_action.value,
             api_args=api_args,
             select_fields=select_fields,
             exclude_fields=exclude_fields,
@@ -314,7 +325,7 @@ class CloudConnector(abc.ABC):
     def execute_api_action(
         self,
         entity_type: str,
-        action: Literal["create", "update", "delete"],
+        action: CloudApiWriteAction | Literal["create", "update", "delete"],
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -328,16 +339,18 @@ class CloudConnector(abc.ABC):
         Context Layer settings. Connectors without an entity API fail with the Agents
         API's own error.
         """
-        if action not in _API_WRITE_ACTIONS:
+        try:
+            resolved_action = CloudApiWriteAction(action)
+        except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid write action.",
                 guidance="Use one of: create, update, delete.",
                 context={"entity_type": entity_type, "action": action},
-            )
+            ) from None
 
         return self._execute_direct_action(
             entity_type=entity_type,
-            action=action,
+            action=resolved_action.value,
             api_args=api_args,
             select_fields=select_fields,
             exclude_fields=exclude_fields,
