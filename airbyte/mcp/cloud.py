@@ -2463,6 +2463,14 @@ def permanently_delete_cloud_source(
         str,
         Field(description="The expected name of the source (for verification)."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a deployed source connector from Airbyte Cloud.
 
@@ -2477,7 +2485,7 @@ def permanently_delete_cloud_source(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(source_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
     actual_name: str = cast(str, source.name)
 
@@ -2519,6 +2527,14 @@ def permanently_delete_cloud_destination(
         str,
         Field(description="The expected name of the destination (for verification)."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a deployed destination connector from Airbyte Cloud.
 
@@ -2533,7 +2549,7 @@ def permanently_delete_cloud_destination(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
     actual_name: str = cast(str, destination.name)
 
@@ -2594,6 +2610,13 @@ def permanently_delete_cloud_connection(
             default=False,
         ),
     ] = False,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a connection from Airbyte Cloud.
 
@@ -2608,7 +2631,7 @@ def permanently_delete_cloud_connection(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     actual_name: str = cast(str, connection.name)
 

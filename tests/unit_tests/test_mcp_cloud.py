@@ -758,3 +758,65 @@ def test_set_default_cloud_workspace_returns_update_result(
         "user@example.com. This applies to future MCP sessions and the Airbyte "
         "Cloud web app."
     )
+
+
+@pytest.mark.parametrize(
+    "tool,id_kwarg,getter,deleter",
+    [
+        pytest.param(
+            cloud_mcp.permanently_delete_cloud_source,
+            "source_id",
+            "get_source",
+            "permanently_delete_source",
+            id="source",
+        ),
+        pytest.param(
+            cloud_mcp.permanently_delete_cloud_destination,
+            "destination_id",
+            "get_destination",
+            "permanently_delete_destination",
+            id="destination",
+        ),
+        pytest.param(
+            cloud_mcp.permanently_delete_cloud_connection,
+            "connection_id",
+            "get_connection",
+            "permanently_delete_connection",
+            id="connection",
+        ),
+    ],
+)
+def test_permanently_delete_cloud_tools_pass_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tool: Callable[..., str],
+    id_kwarg: str,
+    getter: str,
+    deleter: str,
+) -> None:
+    """Verify Cloud MCP delete tools forward an explicit `workspace_id`."""
+    seen_workspace_ids: list[str | None] = []
+    resource = SimpleNamespace(name="delete-me-resource")
+    workspace = SimpleNamespace(**{
+        getter: lambda **_: resource,
+        deleter: lambda **_: None,
+    })
+
+    def fake_get_cloud_workspace(
+        ctx: object,
+        workspace_id: str | None = None,
+    ) -> SimpleNamespace:
+        seen_workspace_ids.append(workspace_id)
+        return workspace
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", fake_get_cloud_workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    result = tool(
+        cast(Context, object()),
+        **{id_kwarg: "resource-id"},
+        name="delete-me-resource",
+        workspace_id="explicit-workspace-id",
+    )
+
+    assert seen_workspace_ids == ["explicit-workspace-id"]
+    assert "resource-id" in result
