@@ -506,13 +506,8 @@ def test_multi_realm_verifier_fails_closed_when_discovery_is_down() -> None:
 
 def _patch_default_discovery(monkeypatch: MonkeyPatch) -> None:
     def fake(
-        cls: type[OIDCConfiguration],
-        config_url: object,
-        *,
-        strict: bool | None,
-        timeout_seconds: int | None,
+        _cls: type[OIDCConfiguration], _config_url: object, **_kwargs: object
     ) -> OIDCConfiguration:
-        del cls, config_url, strict, timeout_seconds
         return OIDCConfiguration.model_validate(_discovery_doc(DEFAULT_ISSUER))
 
     monkeypatch.setattr(OIDCConfiguration, "get_oidc_configuration", classmethod(fake))
@@ -1134,8 +1129,8 @@ def test_revocation_posts_to_the_issuing_realm(monkeypatch: MonkeyPatch) -> None
     posts: list[str] = []
 
     class _FakeAsyncClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
 
         async def __aenter__(self) -> _FakeAsyncClient:
             return self
@@ -1143,8 +1138,7 @@ def test_revocation_posts_to_the_issuing_realm(monkeypatch: MonkeyPatch) -> None
         async def __aexit__(self, *exc: object) -> None:
             return None
 
-        async def post(self, url: str, **kwargs: Any) -> httpx.Response:
-            del kwargs
+        async def post(self, url: str, **_kwargs: Any) -> httpx.Response:
             posts.append(url)
             return httpx.Response(200)
 
