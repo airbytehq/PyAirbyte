@@ -94,6 +94,16 @@ hosted redaction boundary and continue exporting after rollback.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
 - `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
   intent available as Datadog metadata. Leave unset for other OTLP backends.
+- `AIRBYTE_MCP_OTEL_DIGEST_KEY`: optional exact UTF-8 HMAC key for
+  `airbyte.mcp.args_digest` (first 32 lowercase hex characters of HMAC-SHA256).
+  Missing, blank or unencodable keys disable it; there is no unsalted fallback.
+  Bounded supplied arguments, exact tool name and canonicalization version
+  determine equality. Synthetic telemetry is excluded. Invalid/oversized input
+  omits the field. Datadog opt-in also mirrors it as `args_digest`.
+  This is pseudonymization, not anonymity: equality, frequency, chosen-input
+  correlation, contextual inference and key compromise remain risks. Matching
+  digests do not identify a user/session. Removing or rotating the key requires
+  restarting the server; it is read once when tracing is installed.
 - `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional `telemetry.intent` and append
   guidance to omit credentials, identifiers and data values. Removing this flag
   stops advertising; intent supplied by cached clients is still recorded when
