@@ -38,11 +38,10 @@ from airbyte.agents._destination_docs import (
     destination_skill_id,
 )
 from airbyte.agents._docs_markdown import render_docs_content_markdown
-from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
 from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
-from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.connectors import CloudConnector, CloudDestination, CloudSource
 from airbyte.cloud.models import (
     SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
@@ -64,7 +63,11 @@ from airbyte.constants import (
     MCP_ORGANIZATION_ID_HEADER,
     MCP_WORKSPACE_ID_HEADER,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteError,
+    AirbyteExternalAccessNotEnabledError,
+    PyAirbyteInputError,
+)
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import (
@@ -752,38 +755,37 @@ def _get_agent_workspace(
     )
 
 
-def _get_agent_connector(
+def _resolve_cloud_connector(
     ctx: Context,
     connector_id: str,
-    workspace_id: str | None = None,
-    organization_id: str | None = None,
-) -> AgentConnector:
-    """Get an `AgentConnector` from its workspace, using MCP config.
+    workspace_id: str | None,
+) -> CloudConnector:
+    """Resolve a connector ID to its deployed `CloudConnector` in the workspace.
 
-    The Agents API addresses a connector by ID alone, but the connector is fetched through
-    its workspace anyway, so a connector ID belonging to another workspace raises before
-    any action runs.
-
-    Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
-    does not know are verified against the Cloud workspace's destinations instead. An ID that
-    is a Cloud source the Agents API does not list is reported as not enabled for Agents
-    access, rather than as missing.
+    Sources and destinations are both scanned, since the execute tools do not presume the
+    connector's kind. An ID that matches neither listing raises a not-found error pointing
+    at `list_agent_connectors`.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
-    try:
-        return workspace.get_connector(connector_id)
-    except AirbyteError as error:
-        if error.get_message() != CONNECTOR_NOT_FOUND_MESSAGE:
-            raise
-        cloud_destination_ids = {
-            destination.connector_id
-            for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
-        }
-        if connector_id not in cloud_destination_ids:
-            raise _connector_unavailable_error(
-                ctx, connector_id, workspace.workspace_id, workspace.organization_id
-            ) from error
-        return workspace.get_connector(connector_id=connector_id)
+    workspace = _get_cloud_workspace(ctx, workspace_id)
+    for listing in (workspace.list_sources, workspace.list_destinations):
+        for connector in listing():
+            if connector.connector_id == connector_id:
+                return connector
+    raise AirbyteError(
+        message=CONNECTOR_NOT_FOUND_MESSAGE,
+        guidance=(
+            "Use `list_agent_connectors` to see the connectors enabled for Agents access in "
+            "this workspace."
+        ),
+        context={"connector_id": connector_id, "workspace_id": workspace.workspace_id},
+    )
+
+
+_WRITE_ACTIONS: frozenset[str] = frozenset({"create", "update", "delete"})
+"""Write actions the read-only tool and `read_only` flag reject."""
+
+_ReadAction = Literal["list", "get", "search", "sql_select"]
+_Action = Literal["list", "get", "search", "sql_select", "create", "update", "delete"]
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
@@ -793,7 +795,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     workspace_id: str | None,
     organization_id: str | None,
     entity_type: str,
-    action: AgentAction,
+    action: _Action,
     api_args: dict[str, Any] | str | None,
     select_fields: list[str] | str | None,
     exclude_fields: list[str] | str | None,
@@ -806,32 +808,54 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
 
     When `read_only` is `True`, write actions are rejected before any request is sent.
     """
-    if read_only and action not in set(AgentReadAction):
+    if read_only and action in _WRITE_ACTIONS:
         raise PyAirbyteInputError(
             message="This action writes data and cannot run in read-only mode.",
-            guidance=(
-                "Read-only actions are: "
-                f"{', '.join(member.value for member in AgentReadAction)}."
-            ),
+            guidance="Read-only actions are: list, get, search, sql_select.",
             context={"action": action},
         )
 
+    resolved_api_args = _resolve_api_args(api_args)
     try:
-        result = _get_agent_connector(
-            ctx=ctx,
-            connector_id=connector_id,
-            workspace_id=workspace_id,
-            organization_id=organization_id,
-        ).execute(
-            entity_type=entity_type,
-            action=action,
-            api_args=_resolve_api_args(api_args),
-            select_fields=resolve_list_of_strings(select_fields),
-            exclude_fields=resolve_list_of_strings(exclude_fields),
-            page_size=page_size,
-            cursor=cursor,
-            workspace_id=workspace_id,
-            intent=intent,
+        connector = _resolve_cloud_connector(ctx, connector_id, workspace_id)
+        if action == "sql_select":
+            sql = (resolved_api_args or {}).get("sql")
+            if not isinstance(sql, str):
+                raise PyAirbyteInputError(
+                    message="The `sql_select` action requires a `sql` argument.",
+                    guidance=("Pass `sql` (and optionally `sql_dialect`) in `api_args`."),
+                    context={"action": action},
+                )
+            result = connector.execute_sql_query(
+                sql=sql,
+                sql_dialect=(resolved_api_args or {}).get("sql_dialect"),
+                page_size=page_size,
+                cursor=cursor,
+            )
+        elif action in _WRITE_ACTIONS:
+            result = connector.execute_api_action(
+                entity_type,
+                action,  # type: ignore[arg-type]  # Narrowed by the `in _WRITE_ACTIONS` check.
+                resolved_api_args,
+                select_fields=resolve_list_of_strings(select_fields),
+                exclude_fields=resolve_list_of_strings(exclude_fields),
+                intent=intent,
+            )
+        else:
+            result = connector.execute_api_query(
+                entity_type,
+                action,  # type: ignore[arg-type]  # `Literal` membership is not narrowed.
+                resolved_api_args,
+                select_fields=resolve_list_of_strings(select_fields),
+                exclude_fields=resolve_list_of_strings(exclude_fields),
+                page_size=page_size,
+                cursor=cursor,
+                intent=intent,
+            )
+    except AirbyteExternalAccessNotEnabledError as error:
+        return AgentExecuteToolResult(
+            status=AGENTS_ACCESS_DENIED_STATUS,
+            message=(f"{error.get_message()} " f"{context_layer_enable_guidance(organization_id)}"),
         )
     except AirbyteError as error:
         message = _agents_access_message(error)
@@ -1103,7 +1127,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         ),
     ],
     action: Annotated[
-        AgentReadAction,
+        _ReadAction,
         Field(
             description=(
                 "The read action to run against the entity type. "
@@ -1235,7 +1259,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         ),
     ],
     action: Annotated[
-        AgentAction,
+        _Action,
         Field(
             description=(
                 "The action to run against the entity type. "
