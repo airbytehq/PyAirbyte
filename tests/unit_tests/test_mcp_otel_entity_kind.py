@@ -294,6 +294,15 @@ def test_kind_survives_missing_arguments_validation_and_tool_failure(
 
 @pytest.mark.parametrize("vendor", ["", "datadog"])
 @pytest.mark.parametrize(
+    "prefilled_metadata",
+    [
+        None,
+        '{"entity_kind": "forged-SENTINEL"}',
+        '{"entity_kind": "malformed-SENTINEL"',
+        ("metadata-SENTINEL",),
+    ],
+)
+@pytest.mark.parametrize(
     ("name", "kind", "value", "nested", "expected"),
     [
         (
@@ -348,7 +357,15 @@ def test_kind_survives_missing_arguments_validation_and_tool_failure(
     ],
 )
 def test_exporter_rejects_wrong_value_or_span(
-    entity_provider, monkeypatch, vendor, name, kind, value, nested, expected
+    entity_provider,
+    monkeypatch,
+    vendor,
+    prefilled_metadata,
+    name,
+    kind,
+    value,
+    nested,
+    expected,
 ) -> None:
     monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
     provider, _ = entity_provider
@@ -356,6 +373,8 @@ def test_exporter_rejects_wrong_value_or_span(
     parent = tracer.start_span("parent") if nested else None
     context = trace.set_span_in_context(parent) if parent else None
     with tracer.start_as_current_span(name, kind=kind, context=context) as span:
+        if prefilled_metadata is not None:
+            span.set_attribute("_dd.ml_obs.metadata", prefilled_metadata)
         if value is not None:
             span.set_attribute(ATTRIBUTE, value)
     if parent:

@@ -482,6 +482,7 @@ class RedactingExporter(SpanExporter):
             and entity_kind == _TOOL_ENTITY_KINDS.get(tool_name)
         ):
             attrs.pop("airbyte.mcp.entity_kind", None)
+        attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
