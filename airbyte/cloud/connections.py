@@ -41,6 +41,33 @@ from airbyte.exceptions import (
 
 logger = logging.getLogger(__name__)
 
+QUARTZ_CRON_MIN_FIELDS = 6
+QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
+
+
+def _validate_quartz_cron_expression(cron_expression: str) -> None:
+    """Raise `PyAirbyteInputError` if the expression is not a plausible Quartz cron.
+
+    This is a light client-side check so that 5-field Unix cron expressions fail
+    fast with actionable guidance instead of an opaque HTTP 400 from the API.
+    """
+    fields = cron_expression.split()
+    if not QUARTZ_CRON_MIN_FIELDS <= len(fields) <= QUARTZ_CRON_MAX_FIELDS:
+        raise PyAirbyteInputError(
+            message=(
+                "Cron schedules must use a Quartz expression with 6 or 7 space-separated "
+                "fields (seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are not accepted."
+            ),
+            guidance=(
+                "Prepend a seconds field and use '?' for the unused day field. For example, "
+                "use '0 0 0 * * ?' (daily at midnight UTC) instead of '0 0 * * *'. "
+                "Schedules may run at most once per hour."
+            ),
+            input_value=cron_expression,
+        )
+
 
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -989,13 +1016,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Set a cron schedule for the connection.
 
         Args:
-            cron_expression: A cron expression defining when syncs should run.
+            cron_expression: A Quartz cron expression defining when syncs should run.
+                Quartz expressions have 6 or 7 space-separated fields
+                (seconds, minutes, hours, day-of-month, month, day-of-week[, year]),
+                optionally followed by a timezone ID. The Airbyte API rejects standard
+                5-field Unix cron expressions and schedules that run more often than
+                once per hour.
 
         Examples:
-            - "0 0 * * *"  # Daily at midnight UTC
-            - "0 */6 * * *"  # Every 6 hours
-            - "0 0 * * 0"  # Weekly on Sunday at midnight UTC
+            - "0 0 0 * * ?"  # Daily at midnight UTC
+            - "0 0 */6 * * ?"  # Every 6 hours
+            - "0 0 0 ? * SUN"  # Weekly on Sunday at midnight UTC
+            - "0 0 9 ? * MON-FRI US/Pacific"  # Weekdays at 9am Pacific
         """
+        _validate_quartz_cron_expression(cron_expression)
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
