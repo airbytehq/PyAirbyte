@@ -157,7 +157,12 @@ async def _call(app: FastMCP, arguments: dict, *, name: str = "echo", **kwargs):
 
 
 async def _http_rpc(
-    app: FastMCP, method: str, params: dict, headers: dict | None = None
+    app: FastMCP,
+    method: str,
+    params: dict,
+    headers: dict | None = None,
+    *,
+    request_id: int | str = 42,
 ):
     raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
     wrapped = CapabilityTokenMiddleware(observability.SessionIdHeaderDigest(raw))
@@ -167,7 +172,12 @@ async def _http_rpc(
         ) as client:
             response = await client.post(
                 "/mcp",
-                json={"jsonrpc": "2.0", "id": 42, "method": method, "params": params},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "method": method,
+                    "params": params,
+                },
                 headers={
                     "accept": "application/json, text/event-stream",
                     **(headers or {}),
@@ -1050,3 +1060,99 @@ def test_install_refuses_silent_global_provider_rejection(monkeypatch):
         )
     provider.shutdown.assert_called_once_with()
     instrument.return_value.instrument.assert_not_called()
+
+
+def test_exporter_drops_captured_http_header_attributes(
+    app, monkeypatch, otel_provider
+):
+    """Header capture opt-ins must never export Authorization or cookie values.
+
+    The pinned requests instrumentor (0.60b1) has no client header capture; the
+    hook writes the attribute names ``opentelemetry-util-http`` would produce.
+    """
+    RequestsInstrumentor().instrument(
+        excluded_urls="api.segment.io",
+        request_hook=lambda span, request: span.set_attributes({
+            "http.request.header.authorization": request.headers["Authorization"],
+            "http.request.header.cookie": "cookie-SENTINEL",
+        }),
+        response_hook=lambda span, request, response: span.set_attribute(
+            "http.response.header.set_cookie", "set-cookie-SENTINEL"
+        ),
+    )
+    session = requests.Session()
+    session.mount("https://", _Adapter())
+
+    @app.tool()
+    def header_probe() -> str:
+        session.get(
+            "https://api.airbyte.com/v1/connections",
+            headers={"Authorization": "Bearer authorization-SENTINEL"},
+        )
+        return "ok"
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "header_probe", "cloud")
+    assert asyncio.run(_call(app, {}, name="header_probe")).data == "ok"
+    (child,) = [span for span in _spans(otel_provider) if span.kind == SpanKind.CLIENT]
+    assert child.attributes["http.url"] == "https://api.airbyte.com/v1/connections"
+    assert not any(
+        key.startswith("http.re") and "header" in key for key in child.attributes
+    )
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize(
+    "request_id,verbatim",
+    [
+        (42, True),
+        ("call_abc-1.2_XYZ", True),
+        ("user@example-SENTINEL.com", False),
+        ("x" * 65, False),
+    ],
+)
+def test_tool_call_id_is_validated_or_digested(
+    app, otel_provider, request_id, verbatim
+):
+    """Only ints and short opaque strings export verbatim; others become a digest."""
+    response = asyncio.run(
+        _http_rpc(
+            app,
+            "tools/call",
+            {"name": "echo", "arguments": {"value": "ok"}},
+            request_id=request_id,
+        )
+    )
+    assert not response.json()["result"].get("isError")
+    call_id = _tool_span(otel_provider).attributes["gen_ai.tool.call.id"]
+    if verbatim:
+        assert call_id == str(request_id)
+    else:
+        assert call_id == hashlib.sha256(request_id.encode()).hexdigest()
+        assert request_id not in _export_text(otel_provider)
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize(
+    "path,exported",
+    [
+        ("/jobs/get", "https://cloud.airbyte.com/api/v1/jobs/get"),
+        ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
+    ],
+)
+def test_config_api_jobs_get_route_is_exported_and_unknown_routes_are_not(
+    app, monkeypatch, otel_provider, path, exported
+):
+    RequestsInstrumentor().instrument(excluded_urls="api.segment.io")
+    session = requests.Session()
+    session.mount("https://", _Adapter())
+
+    @app.tool()
+    def config_probe() -> str:
+        session.post(observability.CLOUD_CONFIG_API_ROOT + path, json={"id": 7})
+        return "ok"
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "config_probe", "cloud")
+    assert asyncio.run(_call(app, {}, name="config_probe")).data == "ok"
+    (child,) = [span for span in _spans(otel_provider) if span.kind == SpanKind.CLIENT]
+    assert child.attributes["http.url"] == exported
+    assert "SENTINEL" not in _export_text(otel_provider)

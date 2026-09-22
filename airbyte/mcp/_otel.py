@@ -73,6 +73,8 @@ _INTENT_SCHEMA = {
 }
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _UUID_RE = re.compile(rf"\A{_UUID_PATTERN}\Z")
+# JSON-RPC ids are client-controlled; export only bounded, opaque-safe values verbatim.
+_SAFE_CALL_ID_RE = re.compile(r"\A[A-Za-z0-9_.\-]{1,64}\Z")
 # Only literal routes and validated IDs may survive export. Keep these aligned with
 # _util/api_util.py, agents/_api_util.py and their Public API SDK calls. Unknown
 # routes (including registry and custom API roots) retain status, but redact the URL.
@@ -88,7 +90,7 @@ _SAFE_HTTP_URL = re.compile(
     r"organizations/(?:list_by_user_id|get_organization_info)|"
     r"workspaces/(?:list_by_organization_id|get_organization_info|get)|"
     r"state/(?:get|create_or_update_safe)|web_backend/connections/(?:get|update)|"
-    r"users/(?:get_by_auth_id|update)|permissions/list_by_user)|"
+    r"users/(?:get_by_auth_id|update)|permissions/list_by_user|jobs/get)|"
     rf"{re.escape(_AGENTS_API_ROOT)}/(?:workspaces(?:/{_UUID_PATTERN})?|"
     rf"integrations/connectors(?:/{_UUID_PATTERN}/(?:inspect|execute))?|skills(?:/docs)?)"
 )
@@ -294,7 +296,7 @@ class IntentCaptureMiddleware(Middleware):
         if digest:
             attrs["gen_ai.conversation.id"] = digest
         if context.fastmcp_context is not None:
-            attrs["gen_ai.tool.call.id"] = str(context.fastmcp_context.request_id)
+            attrs["gen_ai.tool.call.id"] = _safe_call_id(context.fastmcp_context.request_id)
             for attribute, config in (
                 ("airbyte.mcp.workspace_id", MCP_CONFIG_WORKSPACE_ID),
                 ("airbyte.mcp.organization_id", MCP_CONFIG_ORGANIZATION_ID),
@@ -306,6 +308,14 @@ class IntentCaptureMiddleware(Middleware):
                 if _UUID_RE.fullmatch(value):
                     attrs[attribute] = value.lower()
         return attrs
+
+
+def _safe_call_id(request_id: object) -> str:
+    """Keep ints and short opaque strings; digest anything else so correlation survives."""
+    text = str(request_id)
+    if isinstance(request_id, int) or _SAFE_CALL_ID_RE.fullmatch(text):
+        return text
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 class IntentStampProcessor(SpanProcessor):
@@ -369,7 +379,8 @@ class RedactingExporter(SpanExporter):
         attrs = {
             key: value
             for key, value in (span.attributes or {}).items()
-            if not key.startswith("enduser.")
+            # Header capture opt-ins would export raw Authorization and cookie values.
+            if not key.startswith(("enduser.", "http.request.header.", "http.response.header."))
             and key
             not in {
                 "user_agent.original",
