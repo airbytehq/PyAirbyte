@@ -227,6 +227,57 @@ def test_unrelated_tools_do_not_infer_action(monkeypatch, otel_provider, name):
 
 @pytest.mark.parametrize("processor", [SimpleSpanProcessor, BatchSpanProcessor])
 @pytest.mark.parametrize("vendor", ["", "datadog"])
+@pytest.mark.parametrize(
+    ("name", "action", "expected"),
+    [
+        (GENERAL, "list", "list"),
+        (GENERAL, SENTINEL, None),
+        (READ_ONLY, "delete", None),
+        (GENERAL, None, None),
+    ],
+)
+def test_exporter_rebuilds_injected_vendor_metadata(
+    monkeypatch, processor, vendor, name, action, expected
+):
+    sink = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(
+        processor(
+            observability.RedactingExporter(
+                sink, environ={"AIRBYTE_MCP_OTEL_VENDOR": vendor}
+            )
+        )
+    )
+    monkeypatch.setitem(observability._TOOL_MODULES, name, "agents")
+    attributes = {
+        "_dd.ml_obs.metadata": json.dumps({
+            "agent.action": SENTINEL,
+            "unapproved": SENTINEL,
+        })
+    }
+    if action is not None:
+        attributes[ACTION] = action
+    try:
+        with provider.get_tracer("test-action-metadata").start_as_current_span(
+            f"tools/call {name}", kind=SpanKind.SERVER, attributes=attributes
+        ):
+            pass
+        assert provider.force_flush()
+        [span] = sink.get_finished_spans()
+        assert span.attributes.get(ACTION) == expected
+        if vendor == "datadog" and expected is not None:
+            assert json.loads(span.attributes["_dd.ml_obs.metadata"]) == {
+                "agent.action": expected
+            }
+        else:
+            assert "_dd.ml_obs.metadata" not in span.attributes
+        assert SENTINEL not in span.to_json()
+    finally:
+        provider.shutdown()
+
+
+@pytest.mark.parametrize("processor", [SimpleSpanProcessor, BatchSpanProcessor])
+@pytest.mark.parametrize("vendor", ["", "datadog"])
 def test_exporter_revalidates_action_and_root_span_scope(
     monkeypatch, processor, vendor
 ):
