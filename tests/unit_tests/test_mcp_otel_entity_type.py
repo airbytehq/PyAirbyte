@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+from collections.abc import Iterator
 from unittest.mock import Mock
 
 import pytest
@@ -21,10 +22,13 @@ from opentelemetry.trace import SpanKind
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import agents as agents_mcp
+from tests.unit_tests import test_mcp_otel as otel_tests
 
 
+agents_app = otel_tests.agents_app
+isolated_otel = otel_tests.isolated_otel
+uninitialized_provider = otel_tests.uninitialized_provider
 ATTRIBUTE = "airbyte.mcp.agent.entity_type"
-pytest_plugins = ("tests.unit_tests.test_mcp_otel",)
 TOOLS = ("execute_agent_connector_ro", "execute_agent_connector")
 ENTITIES = (
     "issues",
@@ -36,6 +40,15 @@ ENTITIES = (
     "users",
     "workflow_states",
 )
+
+
+@pytest.fixture(scope="module")
+def otel_provider() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
+    """Provide local reset/export state without installing a global provider."""
+    exporter = InMemorySpanExporter()
+    provider = observability._build_provider(exporter)
+    yield provider, exporter
+    provider.shutdown()
 
 
 @pytest.fixture(params=["", "datadog"])
