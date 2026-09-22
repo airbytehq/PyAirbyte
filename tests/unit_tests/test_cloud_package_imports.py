@@ -9,7 +9,6 @@ import sys
 import pytest
 
 import airbyte.cloud as cloud_pkg
-from airbyte.cloud import __all__ as cloud_all
 
 
 CLOUD_SUBMODULES = [
@@ -25,7 +24,7 @@ CLOUD_SUBMODULES = [
 ]
 
 
-@pytest.mark.parametrize("name", sorted(cloud_all))
+@pytest.mark.parametrize("name", sorted(cloud_pkg.__all__))
 def test_cloud_public_names_resolve(name: str) -> None:
     """Every name in `airbyte.cloud.__all__` is importable from the package."""
     assert getattr(cloud_pkg, name) is not None
