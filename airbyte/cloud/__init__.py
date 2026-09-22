@@ -82,21 +82,8 @@ for record in dataset:
 
 from __future__ import annotations
 
+import importlib
 from typing import TYPE_CHECKING
-
-from airbyte.cloud.client import CloudClient
-from airbyte.cloud.client_config import CloudClientConfig
-from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.models import (
-    CloudDefaultContextInfo,
-    CloudWorkspaceInfo,
-    JobStatusEnum,
-    JobTypeEnum,
-    WorkspacePrivilegeScope,
-)
-from airbyte.cloud.organizations import CloudOrganization
-from airbyte.cloud.sync_results import SyncResult
-from airbyte.cloud.workspaces import CloudWorkspace
 
 
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
@@ -111,6 +98,62 @@ if TYPE_CHECKING:
         sync_results,
         workspaces,
     )
+    from airbyte.cloud.client import CloudClient
+    from airbyte.cloud.client_config import CloudClientConfig
+    from airbyte.cloud.connections import CloudConnection
+    from airbyte.cloud.models import (
+        CloudDefaultContextInfo,
+        CloudWorkspaceInfo,
+        JobStatusEnum,
+        JobTypeEnum,
+        WorkspacePrivilegeScope,
+    )
+    from airbyte.cloud.organizations import CloudOrganization
+    from airbyte.cloud.sync_results import SyncResult
+    from airbyte.cloud.workspaces import CloudWorkspace
+
+
+_SUBMODULES = frozenset(
+    {
+        "client",
+        "client_config",
+        "connections",
+        "constants",
+        "organizations",
+        "sync_results",
+        "workspaces",
+    }
+)
+_LAZY_ATTRS: dict[str, str] = {
+    "CloudClient": "airbyte.cloud.client",
+    "CloudClientConfig": "airbyte.cloud.client_config",
+    "CloudConnection": "airbyte.cloud.connections",
+    "CloudDefaultContextInfo": "airbyte.cloud.models",
+    "CloudWorkspaceInfo": "airbyte.cloud.models",
+    "JobStatusEnum": "airbyte.cloud.models",
+    "JobTypeEnum": "airbyte.cloud.models",
+    "WorkspacePrivilegeScope": "airbyte.cloud.models",
+    "CloudOrganization": "airbyte.cloud.organizations",
+    "SyncResult": "airbyte.cloud.sync_results",
+    "CloudWorkspace": "airbyte.cloud.workspaces",
+}
+
+
+def __getattr__(name: str) -> object:
+    """Resolve public names on first access so submodules can import each other freely."""
+    if name in _SUBMODULES:
+        return importlib.import_module(f"airbyte.cloud.{name}")
+
+    if name in _LAZY_ATTRS:
+        value = getattr(importlib.import_module(_LAZY_ATTRS[name]), name)
+        globals()[name] = value
+        return value
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
 
 
 __all__ = [
