@@ -46,3 +46,20 @@ def test_cloud_submodules_import_in_fresh_interpreter(submodule: str) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("submodule", CLOUD_SUBMODULES)
+def test_cloud_submodules_resolve_as_package_attributes(submodule: str) -> None:
+    """`airbyte.cloud.<submodule>` resolves after importing only the package."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import airbyte.cloud; import types; "
+            f"assert isinstance(airbyte.cloud.{submodule}, types.ModuleType)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
