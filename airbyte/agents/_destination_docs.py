@@ -1,10 +1,11 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Built-in docs for SQL passthrough destinations.
 
-The Agents API only knows source connectors, so connector IDs that address Cloud
-destinations (the targets of `sql_select`) 404 on `inspect` and skill docs reads. This
-module builds the equivalent `AgentConnectorDetails`/`AgentSkillDocs` payloads locally
-from the Cloud workspace objects.
+The Agents API may not know destination skills, so connector IDs that address Cloud
+destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs reads.
+This module builds the equivalent `AgentConnectorDetails`/`AgentSkillDocs` payloads
+locally from the Cloud workspace objects, and merges them into server-served
+destination docs so PyAirbyte's SQL guidance is not lost once the API serves them.
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ _SECTION_TITLES: Mapping[str, str] = {
     SECTION_CONNECTIONS: "Connections syncing into this destination",
     SECTION_STREAMS: "Streams enabled per connection",
 }
+
+LOCAL_DESTINATION_SECTION_IDS = frozenset(_SECTION_TITLES)
+"""Section IDs PyAirbyte builds locally; these never hit the Agents API."""
 
 _ENGINE_NAMES: Mapping[str, str] = {
     "snowflake": "Snowflake",
@@ -173,10 +177,7 @@ def build_destination_skill_docs(
         ),
         tags=["destination", "sql_select"],
     )
-    outline = [
-        AgentSkillSection(id=section_id, title=title, available=True)
-        for section_id, title in _SECTION_TITLES.items()
-    ]
+    outline = _local_outline()
 
     if section is None:
         connections = _destination_connections(destination)
@@ -200,6 +201,36 @@ def build_destination_skill_docs(
             guidance=f"Valid sections: {', '.join(_SECTION_TITLES)}.",
         )
     return AgentSkillDocs(metadata=metadata, outline=outline, section_id=section, content=content)
+
+
+def _local_outline() -> list[AgentSkillSection]:
+    """Return the outline entries for the locally built destination sections."""
+    return [
+        AgentSkillSection(id=section_id, title=title, available=True)
+        for section_id, title in _SECTION_TITLES.items()
+    ]
+
+
+def merge_destination_skill_docs(
+    server_docs: AgentSkillDocs,
+    destination: CloudDestination,
+) -> AgentSkillDocs:
+    """Augment server-provided destination docs with PyAirbyte's SQL guidance.
+
+    Local sections are appended to the outline (skipping ids the server already
+    provides), and the local overview is prepended to the default (no-section) or
+    `overview` content.
+    """
+    dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
+    server_section_ids = {section.id for section in server_docs.outline}
+    outline = [
+        *server_docs.outline,
+        *(section for section in _local_outline() if section.id not in server_section_ids),
+    ]
+    content = server_docs.content
+    if server_docs.section_id in {None, "overview"}:
+        content = _overview(destination, dialect, _destination_location(destination)) + content
+    return server_docs.model_copy(update={"outline": outline, "content": content})
 
 
 def _sql_select_call(destination: CloudDestination, dialect: str, sql: str) -> dict[str, Any]:

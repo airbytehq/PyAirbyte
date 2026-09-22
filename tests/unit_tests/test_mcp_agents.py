@@ -1688,6 +1688,85 @@ def _patch_destination_404(
     return cloud_workspace
 
 
+def _patch_destination_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    destinations: list[_FakeDestinationForDocs],
+    server_docs: AgentSkillDocs,
+    *,
+    calls: list[tuple[str, str | None]],
+) -> Any:
+    """Serve `server_docs` for destination skills; inspect still 404s."""
+    not_found = _agents_error(404)
+
+    class _NotFoundConnector:
+        def inspect(self) -> Any:
+            raise not_found
+
+    class _DocsWorkspace:
+        workspace_id = "workspace-1"
+        organization_id = "org-1"
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _NotFoundConnector()
+
+        def read_skill_docs(
+            self,
+            skill_id: str,
+            section: str | None = None,
+        ) -> AgentSkillDocs:
+            calls.append((skill_id, section))
+            return server_docs.model_copy(update={"section_id": section})
+
+    class _CloudWorkspaceWithDestinations:
+        def __init__(self) -> None:
+            self.list_destinations_calls = 0
+
+        def list_destinations(self) -> list[Any]:
+            self.list_destinations_calls += 1
+            return list(destinations)
+
+        def list_sources(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _NotFoundConnector(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _DocsWorkspace(),  # noqa: ARG005
+    )
+    cloud_workspace = _CloudWorkspaceWithDestinations()
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: cloud_workspace,  # noqa: ARG005
+    )
+    return cloud_workspace
+
+
+def _server_destination_docs(
+    outline_ids: list[str] | None = None,
+) -> AgentSkillDocs:
+    return AgentSkillDocs(
+        metadata=AgentSkillInfo(
+            id="connector-destination:dest-snowflake",
+            kind="connector_destination",
+            title="Server destination docs",
+        ),
+        outline=[
+            AgentSkillSection(id=section_id, title=f"Server {section_id}")
+            for section_id in (
+                outline_ids
+                or ["overview", "actions.record.sql_select", "sources.src-1"]
+            )
+        ],
+        content=[{"type": "paragraph", "text": "Server overview text"}],
+    )
+
+
 _SNOWFLAKE_DESTINATION = _FakeDestinationForDocs(
     connector_id="dest-snowflake",
     name="Snowflake dev",
@@ -2117,3 +2196,147 @@ def test_inspect_destination_fallback_lists_destinations_once(
 
     assert result.docs.skill_id == "connector-destination:dest-snowflake"
     assert cloud_workspace.list_destinations_calls == 1
+
+
+def test_read_docs_destination_merges_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Server destination docs get local SQL sections and the local overview prepended."""
+    calls: list[tuple[str, str | None]] = []
+    cloud_workspace = _patch_destination_server_docs(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        _server_destination_docs(),
+        calls=calls,
+    )
+
+    result = _read_docs("connector-destination:dest-snowflake")
+
+    assert [section.section_id for section in result.outline] == [
+        "overview",
+        "actions.record.sql_select",
+        "sources.src-1",
+        "sql-passthrough",
+        "connections",
+        "streams",
+    ]
+    assert result.title == "Server destination docs"
+    assert "Server overview text" in result.content
+    assert "dry_run" in result.content
+    assert result.content.index("SHOW TABLES") < result.content.index(
+        "Server overview text"
+    )
+    assert calls == [("connector-destination:dest-snowflake", None)]
+    assert cloud_workspace.list_destinations_calls == 1
+
+
+def test_read_docs_destination_server_section_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A server-provided section reads server content only; the outline still merges."""
+    calls: list[tuple[str, str | None]] = []
+    _patch_destination_server_docs(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        _server_destination_docs(),
+        calls=calls,
+    )
+
+    result = _read_docs("connector-destination:dest-snowflake", section="sources.src-1")
+
+    assert calls == [("connector-destination:dest-snowflake", "sources.src-1")]
+    assert "Server overview text" in result.content
+    assert "SHOW TABLES" not in result.content
+    assert [section.section_id for section in result.outline] == [
+        "overview",
+        "actions.record.sql_select",
+        "sources.src-1",
+        "sql-passthrough",
+        "connections",
+        "streams",
+    ]
+
+
+def test_read_docs_destination_local_section_skips_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local sections are built without calling the Agents API at all."""
+    calls: list[tuple[str, str | None]] = []
+    _patch_destination_server_docs(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        _server_destination_docs(),
+        calls=calls,
+    )
+
+    result = _read_docs(
+        "connector-destination:dest-snowflake", section="sql-passthrough"
+    )
+
+    assert calls == []
+    assert "SHOW TABLES" in result.content
+    assert '"sql_dialect": "snowflake"' in result.content
+
+
+def test_read_docs_destination_server_outline_dedupes_local_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local section the server already outlines is not appended twice."""
+    calls: list[tuple[str, str | None]] = []
+    _patch_destination_server_docs(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        _server_destination_docs(
+            outline_ids=["overview", "sql-passthrough", "sources.src-1"]
+        ),
+        calls=calls,
+    )
+
+    result = _read_docs("connector-destination:dest-snowflake")
+
+    outline_ids = [section.section_id for section in result.outline]
+    assert outline_ids.count("sql-passthrough") == 1
+
+
+def test_read_docs_destination_unsupported_ignores_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-SQL-passthrough destination's server docs are returned unmodified."""
+    calls: list[tuple[str, str | None]] = []
+    _patch_destination_server_docs(
+        monkeypatch,
+        [_UNSUPPORTED_DESTINATION],
+        _server_destination_docs(),
+        calls=calls,
+    )
+
+    result = _read_docs("connector-destination:dest-null")
+
+    assert [section.section_id for section in result.outline] == [
+        "overview",
+        "actions.record.sql_select",
+        "sources.src-1",
+    ]
+    assert "Server overview text" in result.content
+    assert "SHOW TABLES" not in result.content
+
+
+def test_inspect_destination_merges_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inspect embeds merged docs when the server serves destination skill docs."""
+    calls: list[tuple[str, str | None]] = []
+    _patch_destination_server_docs(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        _server_destination_docs(),
+        calls=calls,
+    )
+
+    result = _inspect("dest-snowflake")
+
+    assert result.docs is not None
+    assert "Server overview text" in result.docs.content
+    assert "SHOW TABLES" in result.docs.content
+    assert result.docs.guidance is not None
+    assert "overview" in result.docs.guidance
