@@ -427,10 +427,8 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
-        raw_entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
-        entity_type = (
-            _AGENT_ENTITY_TYPES.get(raw_entity_type) if isinstance(raw_entity_type, str) else None
-        )
+        entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
+        entity_type = _AGENT_ENTITY_TYPES.get(entity_type) if isinstance(entity_type, str) else None
         tool_name = span.name.removeprefix("tools/call ")
         is_execution_root = (
             span.kind == SpanKind.SERVER
