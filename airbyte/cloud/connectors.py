@@ -52,9 +52,7 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte.agents import _api_util as agents_api_util
 from airbyte.agents._actions import (
-    UNSUPPORTED_ACTIONS,
     AgentReadAction,
-    AgentWriteAction,
     _build_params,
 )
 from airbyte.agents.models import AgentExecuteResult
@@ -71,9 +69,6 @@ from airbyte.cloud.models import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-    from airbyte.agents._actions import AgentAction
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -104,6 +99,13 @@ class CheckResult:
             f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
+
+
+_API_QUERY_ACTIONS = {"list", "get", "search"}
+"""Read actions accepted by `CloudConnector.execute_api_query`."""
+
+_API_WRITE_ACTIONS = {"create", "update", "delete"}
+"""Write actions accepted by `CloudConnector.execute_api_action`."""
 
 
 class ConnectorType(str, Enum):
@@ -260,11 +262,140 @@ class CloudConnector(abc.ABC):
 
         return check_result
 
-    def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror `AgentConnector.execute`.
+    def _require_context_layer_api(self) -> None:
+        """Raise `AirbyteExternalAccessNotEnabledError` when there is no Context layer API.
+
+        Answered from configuration alone, without any network call.
+        """
+        if not self.workspace._has_context_layer_api():  # noqa: SLF001
+            raise exc.AirbyteExternalAccessNotEnabledError(
+                connector_name=(self._connector_info.name if self._connector_info else None),
+                connector_id=self.connector_id,
+            )
+
+    def execute_api_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
+        self,
+        entity_type: str,
+        action: Literal["list", "get", "search"] = "list",
+        api_args: dict[str, Any] | None = None,
+        *,
+        select_fields: list[str] | None = None,
+        exclude_fields: list[str] | None = None,
+        page_size: int | None = None,
+        cursor: str | None = None,
+        skip_truncation: bool = True,
+        intent: str | None = None,
+    ) -> AgentExecuteResult:
+        """Run a read action (`list`, `get`, or `search`) on one entity type.
+
+        Requires external access to be enabled for this connector in its organization's
+        Context Layer settings. Connectors without an entity API fail with the Agents
+        API's own error.
+        """
+        if action not in _API_QUERY_ACTIONS:
+            raise exc.PyAirbyteInputError(
+                message=f"The {action!r} action is not a valid read action.",
+                guidance="Use one of: list, get, search.",
+                context={"entity_type": entity_type, "action": action},
+            )
+
+        return self._execute_direct_action(
+            entity_type=entity_type,
+            action=action,
+            api_args=api_args,
+            select_fields=select_fields,
+            exclude_fields=exclude_fields,
+            page_size=page_size,
+            cursor=cursor,
+            skip_truncation=skip_truncation,
+            intent=intent,
+        )
+
+    def execute_api_action(
+        self,
+        entity_type: str,
+        action: Literal["create", "update", "delete"],
+        api_args: dict[str, Any] | None = None,
+        *,
+        select_fields: list[str] | None = None,
+        exclude_fields: list[str] | None = None,
+        skip_truncation: bool = True,
+        intent: str | None = None,
+    ) -> AgentExecuteResult:
+        """Run a write action (`create`, `update`, or `delete`) on one entity type.
+
+        Requires external access to be enabled for this connector in its organization's
+        Context Layer settings. Connectors without an entity API fail with the Agents
+        API's own error.
+        """
+        if action not in _API_WRITE_ACTIONS:
+            raise exc.PyAirbyteInputError(
+                message=f"The {action!r} action is not a valid write action.",
+                guidance="Use one of: create, update, delete.",
+                context={"entity_type": entity_type, "action": action},
+            )
+
+        return self._execute_direct_action(
+            entity_type=entity_type,
+            action=action,
+            api_args=api_args,
+            select_fields=select_fields,
+            exclude_fields=exclude_fields,
+            skip_truncation=skip_truncation,
+            intent=intent,
+        )
+
+    def execute_sql_query(
+        self,
+        sql: str,
+        *,
+        sql_dialect: str | None = None,
+        page_size: int | None = None,
+        cursor: str | None = None,
+    ) -> AgentExecuteResult:
+        """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
+
+        `sql_dialect` defaults to the dialect registered for this connector's definition.
+        Requires external access to be enabled for this connector in its organization's
+        Context Layer settings. Connectors without SQL passthrough fail with the Agents
+        API's own error.
+        """
+        self._require_context_layer_api()
+        if sql_dialect is None:
+            sql_dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
+        if sql_dialect is None:
+            supported = ", ".join(
+                f"{name} ({definition_id})"
+                for definition_id, name in SQL_PASSTHROUGH_DESTINATION_NAMES.items()
+            )
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"Connector {self.name!r} has no registered SQL passthrough dialect, "
+                    "so `sql_dialect` is required."
+                ),
+                guidance=(
+                    "Pass `sql_dialect` explicitly, or use a destination that supports SQL "
+                    f"passthrough: {supported}."
+                ),
+                context={
+                    "connector_id": self.connector_id,
+                    "definition_id": self.definition_id,
+                },
+            )
+
+        return self._execute_direct_action(
+            entity_type="sql",
+            action=AgentReadAction.SQL_SELECT,
+            api_args={"sql": sql, "sql_dialect": sql_dialect},
+            page_size=page_size,
+            cursor=cursor,
+        )
+
+    def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
         *,
         entity_type: str,
-        action: AgentAction | str,
+        action: str,
         api_args: dict[str, Any] | None = None,
         select_fields: list[str] | None = None,
         exclude_fields: list[str] | None = None,
@@ -276,40 +407,16 @@ class CloudConnector(abc.ABC):
         """Execute a single entity/action operation through the Agents API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API, and when the Agents API reports
-        the connector as forbidden or not found. Other errors propagate unchanged.
+        workspace's API roots have no Context layer API. When the Agents API reports the
+        connector as forbidden or not found, the error is re-raised as
+        `AirbyteExternalAccessNotEnabledError` only when external access is actually
+        disabled for the connector; the original `AirbyteError` propagates otherwise.
         """
-        connector_name = self._connector_info.name if self._connector_info else None
-        if not self.workspace._has_context_layer_api():  # noqa: SLF001
-            raise exc.AirbyteExternalAccessNotEnabledError(
-                connector_name=connector_name,
-                connector_id=self.connector_id,
-            )
+        self._require_context_layer_api()
 
-        if action in UNSUPPORTED_ACTIONS:
-            raise exc.PyAirbyteInputError(
-                message=f"The {action!r} action is not supported by PyAirbyte.",
-                guidance=(
-                    "This action returns a binary stream instead of JSON, and PyAirbyte does "
-                    "not yet support streaming responses."
-                ),
-                context={"entity_type": entity_type, "action": action},
-            )
-
-        if action not in {*AgentReadAction, *AgentWriteAction}:
-            action_names = ", ".join(
-                member.value for member in (*AgentReadAction, *AgentWriteAction)
-            )
-            raise exc.PyAirbyteInputError(
-                message=f"The {action!r} action is not a valid action name for `execute`.",
-                guidance=f"Use one of: {action_names}.",
-                context={"entity_type": entity_type, "action": action},
-            )
-
-        action_value = action.value if isinstance(action, Enum) else action
         params = _build_params(api_args=api_args, page_size=page_size, cursor=cursor)
         if (
-            action_value == AgentReadAction.SQL_SELECT.value
+            action == AgentReadAction.SQL_SELECT.value
             and self.workspace.workspace_id is not None
             and params.get("workspace_id") is None
             and params.get("workspace_name") is None
@@ -318,7 +425,7 @@ class CloudConnector(abc.ABC):
             params["workspace_id"] = self.workspace.workspace_id
         request_body: dict[str, Any] = {
             "entity": entity_type,
-            "action": action_value,
+            "action": action,
             "params": params,
             "skip_truncation": skip_truncation,
         }
@@ -339,10 +446,17 @@ class CloudConnector(abc.ABC):
         except exc.AirbyteError as error:
             status_code = (error.context or {}).get("status_code")
             if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                raise exc.AirbyteExternalAccessNotEnabledError(
-                    connector_name=connector_name,
-                    connector_id=self.connector_id,
-                ) from error
+                try:
+                    enabled = self.external_access_enabled
+                except exc.AirbyteError:
+                    enabled = False
+                if not enabled:
+                    raise exc.AirbyteExternalAccessNotEnabledError(
+                        connector_name=(
+                            self._connector_info.name if self._connector_info else None
+                        ),
+                        connector_id=self.connector_id,
+                    ) from error
 
             raise
 
@@ -435,148 +549,6 @@ class CloudSource(CloudConnector):
         )
         result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
-
-    def execute(  # noqa: PLR0913  # Explicit args are the point of this public API.
-        self,
-        entity_type: str,
-        action: AgentAction | str,
-        api_args: dict[str, Any] | None = None,
-        *,
-        select_fields: list[str] | None = None,
-        exclude_fields: list[str] | None = None,
-        page_size: int | None = None,
-        cursor: str | None = None,
-        skip_truncation: bool = True,
-        intent: str | None = None,
-    ) -> AgentExecuteResult:
-        """Execute a single action against one entity type on this source.
-
-        `entity_type` and `action` are connector-specific, for example `issues` and `list`.
-        Direct actions require external access to be enabled for this source in its
-        organization's Context Layer settings.
-
-        `api_args` holds connector-specific arguments passed through to the connector, for
-        example `{"repository": "airbytehq/PyAirbyte"}`. All other arguments are interpreted
-        by PyAirbyte or by the Agents API itself:
-
-        - `select_fields` and `exclude_fields` prune fields from returned entities.
-        - `page_size` and `cursor` are merged into `api_args` as pagination arguments.
-        - `skip_truncation` disables the Agents API's default truncation of large payloads.
-        - `intent` is a free-text description of why the action is being run, which some
-          connectors use to refine results.
-
-        The `download` action is rejected, because it returns a binary stream and PyAirbyte
-        does not yet support streaming responses.
-        """
-        return self._execute_direct_action(
-            entity_type=entity_type,
-            action=action,
-            api_args=api_args,
-            select_fields=select_fields,
-            exclude_fields=exclude_fields,
-            page_size=page_size,
-            cursor=cursor,
-            skip_truncation=skip_truncation,
-            intent=intent,
-        )
-
-    def list_entities(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
-        """Run the `list` action, which returns a page of entities of `entity_type`."""
-        return self.execute(entity_type, "list", api_args, **kwargs)
-
-    def iter_entities(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        *,
-        limit: int | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `list_entities()`.
-    ) -> Iterator[dict[str, Any]]:
-        """Yield entities of `entity_type`, following the connector's pagination cursor.
-
-        This is the pagination-free way to read entities: each page is fetched lazily as
-        the caller iterates, so no cursor bookkeeping is needed.
-
-        ```python
-        for issue in source.iter_entities("issues", {"repository": "airbytehq/PyAirbyte"}):
-            print(issue["title"])
-        ```
-
-        `limit` caps how many entities are yielded in total, which matters for entity types
-        with no natural end. Pass `page_size` to control how many are fetched per request.
-
-        Iteration stops early if the connector reports another page without advancing its
-        cursor, rather than requesting the same page forever.
-
-        Use `list_entities()` instead when a single page is enough, or when the result's
-        `status`, `warning`, or `execution_metadata` are needed.
-        """
-        cursor: str | None = kwargs.pop("cursor", None)
-        seen_cursors: set[str] = set()
-        yielded = 0
-
-        while True:
-            result = self.list_entities(entity_type, api_args, cursor=cursor, **kwargs)
-            for agent_entity in result.entities:
-                yield agent_entity
-                yielded += 1
-                if limit is not None and yielded >= limit:
-                    return
-
-            cursor = result.end_cursor
-            if not result.has_next_page or cursor is None or cursor in seen_cursors:
-                return
-            seen_cursors.add(cursor)
-
-    def search_entities(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
-        """Run the `search` action, which returns matching entities of `entity_type`."""
-        return self.execute(entity_type, "search", api_args, **kwargs)
-
-    def get_entity(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
-        """Run the `get` action, which returns a single entity of `entity_type`."""
-        return self.execute(entity_type, "get", api_args, **kwargs)
-
-    def create_entity(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
-        """Run the `create` action, which creates an entity of `entity_type`."""
-        return self.execute(entity_type, "create", api_args, **kwargs)
-
-    def update_entity(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
-        """Run the `update` action, which updates an entity of `entity_type`."""
-        return self.execute(entity_type, "update", api_args, **kwargs)
-
-    def delete_entity(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
-        """Run the `delete` action, which deletes an entity of `entity_type`."""
-        return self.execute(entity_type, "delete", api_args, **kwargs)
 
 
 class CloudDestination(CloudConnector):
@@ -690,54 +662,6 @@ class CloudDestination(CloudConnector):
         )
         result._connector_info = destination_info  # noqa: SLF001  # Accessing Non-Public API
         return result
-
-    def sql_select(
-        self,
-        sql: str,
-        *,
-        sql_dialect: str | None = None,
-        page_size: int | None = None,
-        cursor: str | None = None,
-    ) -> AgentExecuteResult:
-        """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
-
-        The statement runs on the query engine behind this destination, via the Agents
-        API `sql_select` action. `sql_dialect` defaults to the dialect registered for this
-        destination's connector definition; it is required for destination definitions
-        that do not support SQL passthrough.
-
-        Direct actions require external access to be enabled for this destination in its
-        organization's Context Layer settings.
-        """
-        if sql_dialect is None:
-            sql_dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
-        if sql_dialect is None:
-            supported = ", ".join(
-                f"{name} ({definition_id})"
-                for definition_id, name in SQL_PASSTHROUGH_DESTINATION_NAMES.items()
-            )
-            raise exc.PyAirbyteInputError(
-                message=(
-                    f"Destination {self.name!r} does not support SQL passthrough, so "
-                    "`sql_dialect` is required."
-                ),
-                guidance=(
-                    "Pass `sql_dialect` explicitly, or use a destination that supports SQL "
-                    f"passthrough: {supported}."
-                ),
-                context={
-                    "connector_id": self.connector_id,
-                    "definition_id": self.definition_id,
-                },
-            )
-
-        return self._execute_direct_action(
-            entity_type="sql",
-            action=AgentReadAction.SQL_SELECT,
-            api_args={"sql": sql, "sql_dialect": sql_dialect},
-            page_size=page_size,
-            cursor=cursor,
-        )
 
 
 class CustomCloudSourceDefinition:
