@@ -1123,9 +1123,8 @@ def test_refresh_token_exchange_uses_the_issuing_realm(
     assert calls[0]["url"] == f"{_issuer('acme')}/protocol/openid-connect/token"
 
 
-def test_revocation_posts_to_the_issuing_realm(monkeypatch: MonkeyPatch) -> None:
-    proxy = _make_proxy(monkeypatch)
-    _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+def _capture_upstream_posts(monkeypatch: MonkeyPatch) -> list[str]:
+    """Replace `httpx.AsyncClient` inside FastMCP's proxy with a stub that records POST URLs."""
     posts: list[str] = []
 
     class _FakeAsyncClient:
@@ -1143,10 +1142,57 @@ def test_revocation_posts_to_the_issuing_realm(monkeypatch: MonkeyPatch) -> None
             return httpx.Response(200)
 
     monkeypatch.setattr(fastmcp_proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
+    return posts
+
+
+def test_revocation_of_upstream_access_token_posts_to_the_issuing_realm(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    proxy = _make_proxy(monkeypatch)
+    _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    posts = _capture_upstream_posts(monkeypatch)
     upstream_access = AccessToken(
         token=_unsigned_jwt({"iss": _issuer("acme")}),
         client_id=MCP_CLIENT_ID,
         scopes=SCOPES,
     )
     asyncio.run(proxy.revoke_token(upstream_access))
+    assert posts == [f"{_issuer('acme')}/protocol/openid-connect/revoke"]
+
+
+def test_revocation_of_proxy_refresh_token_posts_to_the_issuing_realm(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A FastMCP refresh token names no realm itself; it resolves through the JTI mapping."""
+    proxy = _make_proxy(monkeypatch)
+    proxy.get_routes("/mcp")  # initializes the JWT issuer
+    _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    posts = _capture_upstream_posts(monkeypatch)
+
+    async def scenario() -> None:
+        await proxy._upstream_token_store.put(  # noqa: SLF001
+            key="upstream-1", value=_upstream_token_set(_issuer("acme")), ttl=3600
+        )
+        await proxy._jti_mapping_store.put(  # noqa: SLF001
+            key="refresh-jti",
+            value=JTIMapping(
+                jti="refresh-jti",
+                upstream_token_id="upstream-1",
+                created_at=time.time(),
+            ),
+            ttl=3600,
+        )
+        proxy_refresh = proxy.jwt_issuer.issue_refresh_token(
+            client_id=MCP_CLIENT_ID, scopes=SCOPES, jti="refresh-jti", expires_in=3600
+        )
+        await proxy.revoke_token(
+            RefreshToken(
+                token=proxy_refresh,
+                client_id=MCP_CLIENT_ID,
+                scopes=SCOPES,
+                expires_at=None,
+            )
+        )
+
+    asyncio.run(scenario())
     assert posts == [f"{_issuer('acme')}/protocol/openid-connect/revoke"]

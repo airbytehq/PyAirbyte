@@ -43,6 +43,7 @@ realm's discovery URL must follow the configured template.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import functools
@@ -59,7 +60,6 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-import anyio
 import httpx
 from fastmcp.server.auth import TokenVerifier
 from fastmcp.server.auth.oauth_proxy.models import OAuthTransaction
@@ -67,8 +67,6 @@ from fastmcp.server.auth.oauth_proxy.ui import create_error_html
 from fastmcp.server.auth.oidc_proxy import OIDCConfiguration, OIDCProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.utilities.ui import create_secure_html_response
-from key_value.aio.adapters.pydantic import PydanticAdapter
-from mcp.server.auth.provider import RefreshToken
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from starlette.routing import Route
@@ -81,8 +79,9 @@ if TYPE_CHECKING:
 
     from fastmcp.server.auth import AccessToken
     from fastmcp.server.auth.oauth_proxy.models import UpstreamTokenSet
+    from key_value.aio.protocols.key_value import AsyncKeyValue
     from mcp.server.auth.provider import AccessToken as SdkAccessToken
-    from mcp.server.auth.provider import AuthorizationParams
+    from mcp.server.auth.provider import AuthorizationParams, RefreshToken
     from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
     from starlette.requests import Request
     from starlette.responses import HTMLResponse, Response
@@ -307,7 +306,7 @@ class SsoRealmRegistry:
         self._fetch: DiscoveryFetch = fetch or self._default_fetch
         self._clock = clock
         self._cache: OrderedDict[str, _CacheEntry] = OrderedDict()
-        self._lock: anyio.Lock | None = None
+        self._lock: asyncio.Lock | None = None
 
     @property
     def config(self) -> SsoRealmConfig:
@@ -352,7 +351,7 @@ class SsoRealmRegistry:
         if cached is not None:
             return cached.endpoints
         if self._lock is None:
-            self._lock = anyio.Lock()
+            self._lock = asyncio.Lock()
         async with self._lock:
             cached = self._cached(realm)
             if cached is not None:
@@ -536,6 +535,29 @@ class SsoRealmChoice(BaseModel):
     chosen_at: float
 
 
+class _SsoChoiceStore:
+    """`SsoRealmChoice` rows in the proxy's `client_storage`, keyed by transaction id.
+
+    Talks to the `AsyncKeyValue` protocol directly rather than through `key_value`'s
+    `PydanticAdapter`, so this module has no runtime import from that transitive
+    package. In production the storage is the encrypted, shared backend the
+    deployment injects, so choices live alongside the rest of the OAuth state.
+    """
+
+    def __init__(self, storage: AsyncKeyValue) -> None:
+        self._storage = storage
+
+    async def get(self, *, key: str) -> SsoRealmChoice | None:
+        raw = await self._storage.get(key, collection=SSO_CHOICE_COLLECTION)
+        return SsoRealmChoice.model_validate(raw) if raw is not None else None
+
+    async def put(self, *, key: str, value: SsoRealmChoice, ttl: float) -> None:
+        await self._storage.put(key, value.model_dump(), collection=SSO_CHOICE_COLLECTION, ttl=ttl)
+
+    async def delete(self, *, key: str) -> None:
+        await self._storage.delete(key, collection=SSO_CHOICE_COLLECTION)
+
+
 _active_realm: ContextVar[RealmEndpoints | None] = ContextVar(
     "airbyte_mcp_active_sso_realm", default=None
 )
@@ -670,12 +692,7 @@ class AirbyteSsoOidcProxy(OIDCProxy):
                 "must be updated for this fastmcp version."
             )
             raise RuntimeError(msg)
-        self._sso_choice_store: PydanticAdapter[SsoRealmChoice] = PydanticAdapter[SsoRealmChoice](
-            key_value=self._client_storage,
-            pydantic_model=SsoRealmChoice,
-            default_collection=SSO_CHOICE_COLLECTION,
-            raise_on_validation_error=True,
-        )
+        self._sso_choice_store = _SsoChoiceStore(self._client_storage)
 
     # -- Realm-aware views of the upstream configuration ---------------------------------
     # `OAuthProxy.__init__` assigns these four as plain instance attributes. Shadowing
@@ -1092,11 +1109,15 @@ class AirbyteSsoOidcProxy(OIDCProxy):
             return await super().exchange_refresh_token(client, refresh_token, scopes)
 
     async def revoke_token(self, token: SdkAccessToken | RefreshToken) -> None:
-        """Revoke against the realm that issued the upstream token."""
-        if isinstance(token, RefreshToken):
+        """Revoke against the realm that issued the upstream token.
+
+        An access token here is the upstream JWT, so its `iss` names the realm. A
+        refresh token is FastMCP's own reference JWT, resolved through its JTI
+        mapping instead; the first lookup simply finds no realm for it.
+        """
+        endpoints = await self._endpoints_for_issuer(_peek_issuer(token.token))
+        if endpoints is None:
             endpoints = await self._endpoints_for_proxy_token(token.token, token_use="refresh")
-        else:
-            endpoints = await self._endpoints_for_issuer(_peek_issuer(token.token))
         with realm_context(endpoints):
             await super().revoke_token(token)
 
