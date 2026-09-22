@@ -4,14 +4,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 import pytest
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import JobStatusEnum, JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteConnectionSyncError, PyAirbyteInputError
 from airbyte_api import models
+from airbyte_api.errors import SDKError
 
 
 def _job_response(
@@ -274,3 +276,117 @@ def test_cancel_sync_rejects_explicit_completed_job(
 
     assert captured_lookup_job_ids == [123]
     assert captured_job_ids == []
+
+
+def _sync_error(status_code: int) -> AirbyteConnectionSyncError:
+    """Create an AirbyteConnectionSyncError with the given status code."""
+    return AirbyteConnectionSyncError(
+        connection_id="connection-id",
+        message=f"API error occurred: Status {status_code}",
+        context={"workspace_id": "workspace-id", "status_code": status_code},
+    )
+
+
+def _connection_info_with_status(status: str) -> MagicMock:
+    """Create a minimal connection info double with the given status."""
+    info = MagicMock()
+    info.status = status
+    return info
+
+
+def test_run_sync_conflict_on_disabled_connection_raises_input_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a 409 on an inactive connection surfaces a disabled-connection hint."""
+    connection = _connection()
+
+    def run_connection(**kwargs: object) -> None:
+        """Raise the wrapped 409 sync error."""
+        _ = kwargs
+        raise _sync_error(409)
+
+    monkeypatch.setattr(api_util, "run_connection", run_connection)
+    fetch_mock = MagicMock(return_value=_connection_info_with_status("inactive"))
+    monkeypatch.setattr(connection, "_fetch_connection_info", fetch_mock)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        connection.run_sync()
+
+    assert "disabled" in exc_info.value.message
+    assert "enabled=True" in exc_info.value.guidance
+    fetch_mock.assert_called_once_with(force_refresh=True)
+
+
+def test_run_sync_conflict_on_active_connection_reraises_sync_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a 409 on an active connection re-raises the original sync error."""
+    connection = _connection()
+    error = _sync_error(409)
+
+    def run_connection(**kwargs: object) -> None:
+        """Raise the wrapped 409 sync error."""
+        _ = kwargs
+        raise error
+
+    monkeypatch.setattr(api_util, "run_connection", run_connection)
+    fetch_mock = MagicMock(return_value=_connection_info_with_status("active"))
+    monkeypatch.setattr(connection, "_fetch_connection_info", fetch_mock)
+
+    with pytest.raises(AirbyteConnectionSyncError) as exc_info:
+        connection.run_sync()
+
+    assert exc_info.value is error
+
+
+def test_run_sync_non_conflict_error_reraises_without_checking_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a non-409 sync error is re-raised without consulting `enabled`."""
+    connection = _connection()
+    error = _sync_error(500)
+
+    def run_connection(**kwargs: object) -> None:
+        """Raise a non-409 sync error."""
+        _ = kwargs
+        raise error
+
+    monkeypatch.setattr(api_util, "run_connection", run_connection)
+    fetch_mock = MagicMock()
+    monkeypatch.setattr(connection, "_fetch_connection_info", fetch_mock)
+
+    with pytest.raises(AirbyteConnectionSyncError) as exc_info:
+        connection.run_sync()
+
+    assert exc_info.value is error
+    fetch_mock.assert_not_called()
+
+
+def test_run_connection_wraps_sdk_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `run_connection` wraps a create_job SDKError in AirbyteConnectionSyncError."""
+    airbyte_instance = MagicMock()
+    airbyte_instance.jobs.create_job.side_effect = SDKError(
+        message="Status 409",
+        status_code=409,
+        body="...",
+        raw_response=MagicMock(),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        MagicMock(return_value=airbyte_instance),
+    )
+
+    with pytest.raises(AirbyteConnectionSyncError) as exc_info:
+        api_util.run_connection(
+            workspace_id="workspace-id",
+            connection_id="connection-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token="token",
+        )
+
+    assert exc_info.value.context["status_code"] == 409
