@@ -268,9 +268,12 @@ def test_execute_forbidden_reraises_when_access_flag_fails(
             new_callable=PropertyMock,
             side_effect=AirbyteError(context={"status_code": 500}),
         ),
-        pytest.raises(AirbyteExternalAccessNotEnabledError),
+        pytest.raises(AirbyteError) as exc_info,
     ):
         source.execute_api_query("issues")
+
+    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+    assert exc_info.value.context["status_code"] == 403
 
 
 def test_execute_propagates_other_errors(

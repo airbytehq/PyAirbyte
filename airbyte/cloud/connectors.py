@@ -410,7 +410,8 @@ class CloudConnector(abc.ABC):
         workspace's API roots have no Context layer API. When the Agents API reports the
         connector as forbidden or not found, the error is re-raised as
         `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise.
+        disabled for the connector; the original `AirbyteError` propagates otherwise,
+        including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
 
@@ -449,7 +450,7 @@ class CloudConnector(abc.ABC):
                 try:
                     enabled = self.external_access_enabled
                 except exc.AirbyteError:
-                    enabled = False
+                    raise error from None
                 if not enabled:
                     raise exc.AirbyteExternalAccessNotEnabledError(
                         connector_name=(
