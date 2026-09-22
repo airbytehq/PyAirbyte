@@ -23,7 +23,6 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
-from airbyte._util.deferred_setup import parse_deferred_setup_problem
 from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
@@ -1963,12 +1962,11 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
 ) -> str:
-    """Create a connector on the Config API with `deferCredentials: true` and return its ID.
+    """Create a draft connector on the Config API and return its ID.
 
-    The platform stores placeholders for the required credentials that are absent from `config`
-    so a person can complete them in Airbyte Cloud. A platform refusal (a
-    `deferred-credential-setup` 422 problem) or a create that Cloud did not acknowledge as
-    deferred raises `AirbyteDeferredSetupError`.
+    Missing configuration stays absent until a person completes it in Airbyte Cloud.
+    The response must acknowledge `isDraft: true`; a successful connection check
+    promotes the saved draft so it can be used in connections.
 
     Redirects are not followed, since `requests` would replay the POST and could create the
     connector twice, and both the create and any token request use bounded timeouts.
@@ -1990,21 +1988,12 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
             "workspaceId": workspace_id,
             f"{connector_type}DefinitionId": definition_id,
             "connectionConfiguration": config,
-            "deferCredentials": True,
+            "createAsDraft": True,
         },
         timeout=DEFERRED_CREATE_TIMEOUT_SECS,
         allow_redirects=False,
     )
     if not status_ok(response.status_code):
-        problem = parse_deferred_setup_problem(
-            status_code=response.status_code,
-            body=response.content,
-        )
-        if problem is not None:
-            raise AirbyteDeferredSetupError(
-                message="Cloud refused the deferred-credential configuration.",
-                problem=problem,
-            )
         raise AirbyteError(
             message=f"API request failed with status {response.status_code}",
             context={
@@ -2014,16 +2003,22 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
             },
         )
 
-    body = response.json()
-    actor_id = body.get(f"{connector_type}Id")
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError:
+        raise AirbyteError(message="Cloud returned an invalid draft-create response.") from None
+    actor_id = body.get(f"{connector_type}Id") if isinstance(body, dict) else None
     if not isinstance(actor_id, str) or not actor_id:
         raise AirbyteError(
             message="Cloud did not return the created connector ID.",
             context={"full_url": full_url, "path": path},
         )
-    if body.get("credentialsDeferred") is not True:
+    if body.get("isDraft") is not True:
         raise AirbyteDeferredSetupError(
-            message="Cloud did not acknowledge the deferred-credential create.",
+            message="Cloud created the connector without acknowledging draft mode.",
+            guidance=(
+                "Inspect the created connector before retrying. The platform must support drafts."
+            ),
             actor_id=actor_id,
         )
     return actor_id

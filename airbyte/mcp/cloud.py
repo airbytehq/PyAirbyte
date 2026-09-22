@@ -91,16 +91,18 @@ WORKSPACE_ID_TIP_TEXT = (
 )
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
-    "Create the connector without its credentials so a person can complete OAuth or enter "
+    "Create a draft connector so a person can complete OAuth or enter "
     "secrets in Airbyte Cloud. Pass only non-secret configuration in `config` (no credentials, "
     "secret references or `config_secret_name`). When the connector offers several "
     "authentication methods, include the method's selector field in `config`. The result "
-    "includes a settings link for the person; after they report saving the connector, call "
+    "includes a settings link for the person to complete any missing fields and test the draft. "
+    "After they report a successful test and save, call "
     "`check_cloud_connector_setup`."
 )
 DEFERRED_SETUP_GUIDANCE = (
-    "Share `settings_url` with the user. They must open it, complete authentication, test and "
-    "save the connector. Then call `check_cloud_connector_setup` with `connector_id`, "
+    "Share `settings_url` with the user. They must open it, complete authentication and any "
+    "missing settings, then test and save the draft. A successful test makes it ready to use. "
+    "Then call `check_cloud_connector_setup` with `connector_id`, "
     "`connector_type` and `workspace_id`."
 )
 

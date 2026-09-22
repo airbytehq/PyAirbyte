@@ -12,10 +12,6 @@ import requests
 import responses
 from airbyte import exceptions as exc
 from airbyte._util import api_util
-from airbyte._util.deferred_setup import (
-    DEFERRED_SETUP_PROBLEM_TYPE,
-    parse_deferred_setup_problem,
-)
 from airbyte.cloud.connectors import CheckResult
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
@@ -38,7 +34,7 @@ CONFIG_API_ROOT = "https://api.airbyte.test/api/v1"
 PUBLIC_API_ROOT = "https://api.airbyte.test/api/public/v1"
 
 
-def _actor_body(connector_type: str, *, deferred: bool | None) -> dict[str, Any]:
+def _actor_body(connector_type: str, *, draft: bool | None) -> dict[str, Any]:
     body: dict[str, Any] = {
         "connectionConfiguration": {"count": 10},
         f"{connector_type}DefinitionId": DEFINITION_ID,
@@ -47,29 +43,9 @@ def _actor_body(connector_type: str, *, deferred: bool | None) -> dict[str, Any]
         f"{connector_type}Name": "Faker",
         "workspaceId": WORKSPACE_ID,
     }
-    if deferred is not None:
-        body["credentialsDeferred"] = deferred
+    if draft is not None:
+        body["isDraft"] = draft
     return body
-
-
-def _problem_body(reason: str = "secret_input_not_allowed") -> dict[str, Any]:
-    return {
-        "type": DEFERRED_SETUP_PROBLEM_TYPE,
-        "title": "deferred-credential-setup",
-        "status": 422,
-        "detail": "Connector setup could not be prepared safely.",
-        "data": {
-            "reason": reason,
-            "issues": [{"path": "/credentials/api_key", "code": "omit_secret"}],
-            "authOptions": [
-                {
-                    "selectors": [
-                        {"path": "/credentials/auth_type", "value": "oauth2.0"}
-                    ]
-                },
-            ],
-        },
-    }
 
 
 def _create_deferred(connector_type: Literal["source", "destination"]) -> str:
@@ -94,10 +70,10 @@ def _create_deferred(connector_type: Literal["source", "destination"]) -> str:
 def test_deferred_create_posts_flag_to_config_api_and_returns_actor_id(
     connector_type: Literal["source", "destination"],
 ) -> None:
-    """A deferred create posts `deferCredentials` to the Config API create operation."""
+    """A deferred create saves a draft without running a credential check."""
     responses.post(
         f"{CONFIG_API_ROOT}/{connector_type}s/create",
-        json=_actor_body(connector_type, deferred=True),
+        json=_actor_body(connector_type, draft=True),
     )
 
     actor_id = _create_deferred(connector_type)
@@ -110,7 +86,7 @@ def test_deferred_create_posts_flag_to_config_api_and_returns_actor_id(
         "workspaceId": WORKSPACE_ID,
         f"{connector_type}DefinitionId": DEFINITION_ID,
         "connectionConfiguration": {"count": 10},
-        "deferCredentials": True,
+        "createAsDraft": True,
     }
     assert call.request.url is not None
     assert "/api/public/" not in call.request.url
@@ -156,7 +132,7 @@ def test_deferred_create_bounds_token_request_for_client_credentials(
     )
     responses.post(
         f"{CONFIG_API_ROOT}/sources/create",
-        json=_actor_body("source", deferred=True),
+        json=_actor_body("source", draft=True),
     )
     post_kwargs: list[dict[str, Any]] = []
     real_post = requests.post
@@ -189,117 +165,69 @@ def test_deferred_create_bounds_token_request_for_client_credentials(
 
 @responses.activate
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+@pytest.mark.parametrize("draft", [None, False, "true", 1])
 def test_deferred_create_without_acknowledgment_raises_with_actor_id(
     connector_type: Literal["source", "destination"],
+    draft: object,
 ) -> None:
-    """An unacknowledged create (older platform) is reported, with the created actor's ID."""
+    """Only a boolean draft acknowledgement is accepted; legacy acknowledgement is insufficient."""
+    body = _actor_body(connector_type, draft=None)
+    body["credentialsDeferred"] = True
+    if draft is not None:
+        body["isDraft"] = draft
     responses.post(
         f"{CONFIG_API_ROOT}/{connector_type}s/create",
-        json=_actor_body(connector_type, deferred=None),
+        json=body,
     )
 
     with pytest.raises(exc.AirbyteDeferredSetupError) as raised:
         _create_deferred(connector_type)
 
     assert raised.value.actor_id == ACTOR_ID
-    assert raised.value.problem is None
 
 
 @responses.activate
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-def test_deferred_create_refusal_exposes_only_sanitized_problem(
+@pytest.mark.parametrize("status_code", [400, 403, 422, 500])
+def test_deferred_create_errors_do_not_expose_response_body(
     connector_type: Literal["source", "destination"],
+    status_code: int,
 ) -> None:
-    """A platform refusal becomes a typed error carrying fixed codes and paths only."""
+    """Validation and HTTP failures expose their status without configuration or provider text."""
     responses.post(
         f"{CONFIG_API_ROOT}/{connector_type}s/create",
-        status=422,
-        json=_problem_body(),
+        status=status_code,
+        json={"message": "Invalid credential abc123", "config": {"token": "abc123"}},
     )
 
-    with pytest.raises(exc.AirbyteDeferredSetupError) as raised:
-        _create_deferred(connector_type)
-
-    problem = raised.value.problem
-    assert problem is not None
-    assert problem.reason == "secret_input_not_allowed"
-    assert [(i.path, i.code) for i in problem.issues] == [
-        ("/credentials/api_key", "omit_secret")
-    ]
-    assert problem.auth_options[0].selectors[0].value == "oauth2.0"
-    message = str(raised.value)
-    assert "/credentials/api_key: Remove this credential" in message
-    assert "oauth2.0" in message
-
-
-@responses.activate
-def test_deferred_create_other_errors_are_plain_airbyte_errors() -> None:
-    """A non-deferred failure (here 403) is not misreported as a deferred-setup refusal."""
-    responses.post(f"{CONFIG_API_ROOT}/sources/create", status=403, json={})
-
     with pytest.raises(exc.AirbyteError) as raised:
-        _create_deferred("source")
+        _create_deferred(connector_type)
 
     assert not isinstance(raised.value, exc.AirbyteDeferredSetupError)
     assert raised.value.context is not None
-    assert raised.value.context["status_code"] == 403
+    assert raised.value.context["status_code"] == status_code
+    assert "abc123" not in str(raised.value)
 
 
+@responses.activate
 @pytest.mark.parametrize(
-    ("status_code", "body", "expected_reason"),
+    "body",
     [
-        (422, _problem_body(), "secret_input_not_allowed"),
-        (422, _problem_body("configuration_invalid"), "configuration_invalid"),
-        (
-            422,
-            {
-                "type": DEFERRED_SETUP_PROBLEM_TYPE,
-                "data": {
-                    "reason": "configuration_invalid",
-                    "issues": [{"path": "/credentials", "code": "required"}],
-                    "authOptions": None,
-                },
-            },
-            "configuration_invalid",
-        ),
-        (400, _problem_body(), None),
-        (422, {**_problem_body(), "type": "https://example.test/other"}, None),
-        (422, {**_problem_body(), "data": {"reason": "unknown", "issues": []}}, None),
-        (
-            422,
-            {
-                "type": DEFERRED_SETUP_PROBLEM_TYPE,
-                "data": {
-                    "reason": "configuration_invalid",
-                    "issues": [{"path": "/a", "code": "raw text"}],
-                },
-            },
-            None,
-        ),
-        (
-            422,
-            {
-                "type": DEFERRED_SETUP_PROBLEM_TYPE,
-                "data": {
-                    "reason": "configuration_invalid",
-                    "issues": [{"path": "not a pointer", "code": "required"}],
-                },
-            },
-            None,
-        ),
-        (422, "not json", None),
-        (422, None, None),
+        "not json abc123",
+        "null",
+        '["abc123"]',
+        '{"isDraft": true, "config": "abc123"}',
+        '{"isDraft": true, "sourceId": ""}',
+        '{"isDraft": true, "sourceId": 123}',
     ],
 )
-def test_parse_deferred_setup_problem(
-    status_code: int,
-    body: Any,  # noqa: ANN401
-    expected_reason: str | None,
-) -> None:
-    """Only a well-formed deferred-setup problem is parsed; anything else is ignored."""
-    raw = body if isinstance(body, (str, type(None))) else json.dumps(body)
-    problem = parse_deferred_setup_problem(status_code=status_code, body=raw)
-    assert (problem.reason if problem else None) == expected_reason
+def test_deferred_create_rejects_invalid_response_without_replaying(body: str) -> None:
+    """A malformed successful response must not cause duplicate creates or leak its body."""
+    responses.post(f"{CONFIG_API_ROOT}/sources/create", body=body)
+    with pytest.raises(exc.AirbyteError) as raised:
+        _create_deferred("source")
+    assert "abc123" not in str(raised.value)
+    assert len(responses.calls) == 1
 
 
 # --- Workspace -------------------------------------------------------------------------------
@@ -308,6 +236,11 @@ def test_parse_deferred_setup_problem(
 @dataclass
 class _CreateCall:
     kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class _ActorOwner:
+    workspace_id: str = WORKSPACE_ID
 
 
 def _workspace() -> CloudWorkspace:
@@ -466,6 +399,70 @@ def test_check_connector_setup_verifies_workspace_before_checking(
 # --- MCP tools -------------------------------------------------------------------------------
 
 
+@responses.activate
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+@pytest.mark.parametrize(
+    ("status_code", "body", "complete"),
+    [
+        (200, {"status": "succeeded"}, True),
+        (200, {"status": "failed", "message": "Invalid credential abc123"}, False),
+        (422, {"message": "Missing required settings abc123"}, False),
+    ],
+)
+def test_mcp_setup_check_uses_saved_actor_and_sanitizes_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: Literal["source", "destination"],
+    status_code: int,
+    body: dict[str, str],
+    complete: bool,
+) -> None:
+    """A saved draft is checked by ID, with incomplete configuration reported as not ready."""
+    monkeypatch.setattr(
+        api_util, f"get_{connector_type}", lambda **kwargs: _ActorOwner()
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: _workspace()
+    )
+    responses.post(
+        f"{CONFIG_API_ROOT}/{connector_type}s/check_connection",
+        status=status_code,
+        json=body,
+    )
+
+    result = cloud_mcp.check_cloud_connector_setup(
+        ctx=cast(Context, object()),
+        connector_type=connector_type,
+        connector_id=ACTOR_ID,
+        workspace_id=WORKSPACE_ID,
+    )
+
+    assert result.setup_complete is complete
+    assert "abc123" not in result.model_dump_json()
+    (call,) = responses.calls
+    assert json.loads(cast(bytes, call.request.body)) == {
+        f"{connector_type}Id": ACTOR_ID,
+    }
+
+
+@responses.activate
+@pytest.mark.parametrize("status_code", [401, 403, 404, 500])
+def test_setup_check_propagates_sanitized_operational_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    """Authentication and server failures must not be misreported as incomplete setup."""
+    monkeypatch.setattr(api_util, "get_source", lambda **kwargs: _ActorOwner())
+    responses.post(
+        f"{CONFIG_API_ROOT}/sources/check_connection",
+        status=status_code,
+        json={"message": "Unexpected failure abc123"},
+    )
+    with pytest.raises(exc.AirbyteError) as raised:
+        _workspace().check_connector_setup("source", ACTOR_ID)
+    assert raised.value.context == {"status_code": status_code}
+    assert "abc123" not in str(raised.value)
+
+
 @dataclass
 class _DeployedLike:
     connector_id: str
@@ -584,7 +581,7 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
 
     def _unacknowledged(**kwargs: Any) -> _DeployedLike:  # noqa: ANN401
         raise exc.AirbyteDeferredSetupError(
-            message="Cloud did not acknowledge the deferred-credential create.",
+            message="Cloud created the connector without acknowledging draft mode.",
             actor_id=ACTOR_ID,
         )
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cached_property
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -74,9 +75,8 @@ def _deferred_credentials_config(
 ) -> tuple[dict[str, Any], str]:
     """Validate the inputs for a deferred-credential deploy.
 
-    Returns the non-secret configuration and the definition ID. Secrets never leave the caller
-    in this mode, so secret values and `secret_reference::` strings are rejected up front
-    instead of being sent to Cloud.
+    Returns the configuration and definition ID. `SecretString` values and
+    `secret_reference::` strings are rejected; callers must omit plain-text credentials too.
     """
     if not isinstance(config, dict):
         raise exc.PyAirbyteInputError(
@@ -443,7 +443,16 @@ class CloudWorkspace:
                 resource_name_or_id=connector_id,
                 context={"workspace_id": self.workspace_id},
             )
-        return connector.check(raise_on_error=False)
+        try:
+            return connector.check(raise_on_error=False)
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code == HTTPStatus.UNPROCESSABLE_ENTITY:
+                return CheckResult(success=False)
+            raise AirbyteError(
+                message="Cloud could not check the connector setup.",
+                context={"status_code": status_code},
+            ) from None
 
     # Deploy sources and destinations
 
@@ -469,10 +478,10 @@ class CloudWorkspace:
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
             definition_id: The source definition ID. Required with `defer_credentials=True`.
-            defer_credentials: Create the source without its credentials. Cloud stores
-                placeholders for the required credentials, which a person completes at the
-                returned source's `connector_url`. Raises `AirbyteDeferredSetupError` when Cloud
-                refuses the configuration.
+            defer_credentials: Save a draft with partial configuration. A person completes
+                credentials and other missing settings at the returned source's `connector_url`.
+                A successful connection check promotes the draft. Raises
+                `AirbyteDeferredSetupError` if Cloud does not acknowledge draft mode.
         """
         if defer_credentials:
             return CloudSource(
