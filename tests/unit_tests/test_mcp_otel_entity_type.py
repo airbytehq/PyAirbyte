@@ -295,6 +295,35 @@ def test_exporter_validates_injected_type_value_and_root_scope(entity_export, ve
     )
 
 
+@pytest.mark.parametrize("tool", TOOLS)
+@pytest.mark.parametrize("entity", [None, "issues", "native-SENTINEL"])
+def test_exporter_rebuilds_prepopulated_metadata(entity_export, vendor, tool, entity):
+    provider, _ = entity_export
+    observability._build_tool_maps()
+    attributes = {
+        "_dd.ml_obs.metadata": json.dumps({"agent.entity_type": "metadata-SENTINEL"})
+    }
+    if entity is not None:
+        attributes[ATTRIBUTE] = entity
+    with provider.get_tracer("test-injection").start_as_current_span(
+        f"tools/call {tool}", kind=SpanKind.SERVER, attributes=attributes
+    ):
+        pass
+
+    spans = _finished(entity_export)
+    assert len(spans) == 1
+    span = spans[0]
+    expected = "issues" if entity == "issues" else None
+    _assert_entity(span, expected, vendor)
+    if vendor == "datadog" and expected is not None:
+        assert json.loads(span.attributes["_dd.ml_obs.metadata"]) == {
+            "agent.entity_type": expected
+        }
+    else:
+        assert "_dd.ml_obs.metadata" not in span.attributes
+    assert "SENTINEL" not in span.to_json()
+
+
 def test_concurrent_and_nested_calls_keep_request_context(
     flexible_app, entity_export, vendor
 ):

@@ -440,6 +440,7 @@ class RedactingExporter(SpanExporter):
         if entity_type is not None and is_execution_root:
             attrs["airbyte.mcp.agent.entity_type"] = entity_type
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
+        attrs.pop("_dd.ml_obs.metadata", None)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
                 key: attrs[f"airbyte.mcp.{key}"]
