@@ -59,11 +59,11 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
-    CloudApiExecuteResult,
     CloudConnectorDetails,
     CloudConnectorDocs,
     CloudContextLayerConnectorDetails,
     CloudSkillDocs,
+    ExternalApiExecuteResult,
 )
 from airbyte._util import api_util, text_util
 from airbyte._util.compat import StrEnum
@@ -410,7 +410,7 @@ class CloudConnector:
         cursor: str | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
-    ) -> CloudApiExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run a read action (`list`, `get`, or `search`) on one entity type.
 
         Requires external access to be enabled for this connector in its organization's
@@ -449,7 +449,7 @@ class CloudConnector:
         exclude_fields: list[str] | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
-    ) -> CloudApiExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run a write action (`create`, `update`, or `delete`) on one entity type.
 
         Requires external access to be enabled for this connector in its organization's
@@ -483,7 +483,7 @@ class CloudConnector:
         sql_dialect: str | None = None,
         page_size: int | None = None,
         cursor: str | None = None,
-    ) -> CloudApiExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
 
         `sql_dialect` defaults to the dialect registered for this connector's definition.
@@ -536,7 +536,7 @@ class CloudConnector:
         skip_truncation: bool = True,
         intent: str | None = None,
         read_only: bool,
-    ) -> CloudApiExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Execute a single entity/action operation through the Agents API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
@@ -601,7 +601,7 @@ class CloudConnector:
 
             raise
 
-        return CloudApiExecuteResult.model_validate(response)
+        return ExternalApiExecuteResult.model_validate(response)
 
     def _context_layer_inspect(
         self,

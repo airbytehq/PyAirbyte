@@ -12,9 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte._direct_connectors.models import (
     CloudAgentConnectorInfo,
-    CloudApiConnectorMetadata,
-    CloudApiExecuteResult,
-    CloudApiExecutionMetadata,
     CloudConnectorConnectionInfo,
     CloudConnectorDetails,
     CloudConnectorDocs,
@@ -25,6 +22,9 @@ from airbyte._direct_connectors.models import (
     CloudSkillInfo,
     CloudSkillList,
     CloudSkillSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    ExternalApiExecutionMetadata,
 )
 from airbyte._util.compat import StrEnum
 from airbyte.registry import ConnectorType
@@ -499,9 +499,6 @@ def _enum_value(value: object) -> str:
 
 __all__ = [
     "CloudAgentConnectorInfo",
-    "CloudApiConnectorMetadata",
-    "CloudApiExecuteResult",
-    "CloudApiExecutionMetadata",
     "CloudConnectionInfo",
     "CloudConnectorConnectionInfo",
     "CloudConnectorDetails",
@@ -524,6 +521,9 @@ __all__ = [
     "CloudWorkspaceInfo",
     "ConnectorFeature",
     "ConnectorType",
+    "ExternalApiConnectorMetadata",
+    "ExternalApiExecuteResult",
+    "ExternalApiExecutionMetadata",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

@@ -25,7 +25,7 @@ from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAi
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from airbyte._direct_connectors.models import CloudApiExecuteResult
+    from airbyte._direct_connectors.models import ExternalApiExecuteResult
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
@@ -423,7 +423,7 @@ def _resolve_connector_lookup(
 
 
 def iter_paged_entities(
-    fetch_page: Callable[[str | None], CloudApiExecuteResult],
+    fetch_page: Callable[[str | None], ExternalApiExecuteResult],
     *,
     limit: int | None = None,
     cursor: str | None = None,

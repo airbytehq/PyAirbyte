@@ -202,7 +202,7 @@ class CloudContextLayerConnectorDetails(BaseModel):
         ]
 
 
-class CloudApiExecutionMetadata(BaseModel):
+class ExternalApiExecutionMetadata(BaseModel):
     """Metadata describing how an Agents connector action was executed."""
 
     model_config = ConfigDict(extra="allow")
@@ -214,7 +214,7 @@ class CloudApiExecutionMetadata(BaseModel):
     """The server-side execution time, in milliseconds."""
 
 
-class CloudApiConnectorMetadata(BaseModel):
+class ExternalApiConnectorMetadata(BaseModel):
     """Connector-reported metadata about a single action's result, including pagination."""
 
     model_config = ConfigDict(extra="allow")
@@ -228,7 +228,7 @@ class CloudApiConnectorMetadata(BaseModel):
     actions."""
 
 
-class CloudApiExecuteResult(BaseModel):
+class ExternalApiExecuteResult(BaseModel):
     """The result of executing a single action against an Airbyte Agents connector."""
 
     model_config = ConfigDict(extra="allow")
@@ -239,10 +239,14 @@ class CloudApiExecuteResult(BaseModel):
     result: Any = None
     """The action's payload. Entity-returning actions put a list of entities here."""
 
-    connector_metadata: CloudApiConnectorMetadata = Field(default_factory=CloudApiConnectorMetadata)
+    connector_metadata: ExternalApiConnectorMetadata = Field(
+        default_factory=ExternalApiConnectorMetadata
+    )
     """Connector-reported metadata about the result, including pagination cursors."""
 
-    execution_metadata: CloudApiExecutionMetadata = Field(default_factory=CloudApiExecutionMetadata)
+    execution_metadata: ExternalApiExecutionMetadata = Field(
+        default_factory=ExternalApiExecutionMetadata
+    )
     """Metadata describing how the action was executed."""
 
     warning: dict[str, Any] | None = None
@@ -427,9 +431,9 @@ AgentSkillInfo = CloudSkillInfo
 AgentSkillList = CloudSkillList
 AgentSkillSection = CloudSkillSection
 AgentSkillDocs = CloudSkillDocs
-AgentExecutionMetadata = CloudApiExecutionMetadata
-AgentConnectorMetadata = CloudApiConnectorMetadata
-AgentExecuteResult = CloudApiExecuteResult
+AgentExecutionMetadata = ExternalApiExecutionMetadata
+AgentConnectorMetadata = ExternalApiConnectorMetadata
+AgentExecuteResult = ExternalApiExecuteResult
 AgentConnectorInfo = CloudAgentConnectorInfo
 AgentConnectorDetails = CloudContextLayerConnectorDetails
 

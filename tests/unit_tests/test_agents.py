@@ -1750,9 +1750,9 @@ def test_agent_model_aliases_match_cloud_models() -> None:
         "AgentSkillList": "CloudSkillList",
         "AgentSkillSection": "CloudSkillSection",
         "AgentSkillDocs": "CloudSkillDocs",
-        "AgentExecutionMetadata": "CloudApiExecutionMetadata",
-        "AgentConnectorMetadata": "CloudApiConnectorMetadata",
-        "AgentExecuteResult": "CloudApiExecuteResult",
+        "AgentExecutionMetadata": "ExternalApiExecutionMetadata",
+        "AgentConnectorMetadata": "ExternalApiConnectorMetadata",
+        "AgentExecuteResult": "ExternalApiExecuteResult",
         "AgentConnectorInfo": "CloudAgentConnectorInfo",
         "AgentConnectorDetails": "CloudContextLayerConnectorDetails",
     }
