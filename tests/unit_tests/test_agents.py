@@ -16,7 +16,9 @@ from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
+    AgentSkillDocs,
     AgentSkillInfo,
+    AgentSkillSection,
 )
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.skills import AgentSkill
@@ -1456,6 +1458,10 @@ def test_build_destination_skill_docs_index_includes_connections_and_streams() -
     ]
     assert all(section.available for section in docs.outline)
     rendered = str(docs.content)
+    assert '"sql": "SHOW TABLES"' in rendered
+    assert '"dry_run": true' in rendered
+    assert "end_cursor" in rendered
+    assert "_airbyte_extracted_at" in rendered
     assert "Connections syncing into this destination" in rendered
     assert "Streams enabled per connection" in rendered
     assert "GitHub to Snowflake" in rendered
@@ -1602,12 +1608,17 @@ def test_build_destination_skill_docs_sql_passthrough_section(
         section=destination_docs.SECTION_SQL_PASSTHROUGH,
     )
 
-    rendered = " ".join(
-        str(block.get("text") or block.get("code")) for block in docs.content
-    )
+    rendered = str(docs.content)
     assert "SHOW TABLES" in rendered
     assert f'"sql_dialect": "{dialect}"' in rendered
     assert "sql_select" in rendered
+    assert '"dry_run": True' in rendered
+    assert "end_cursor" in rendered
+    assert "_airbyte_extracted_at" in rendered
+    for note in destination_docs._DIALECT_NOTES[dialect]:
+        assert note in rendered
+    if dialect == "snowflake":
+        assert "double-quot" in rendered
 
 
 def test_build_destination_skill_docs_connections_section_filters_destination() -> None:
@@ -1657,26 +1668,53 @@ def test_build_destination_skill_docs_connections_section_empty() -> None:
     assert "No connections" in str(docs.content)
 
 
-def test_build_destination_skill_docs_streams_section() -> None:
+@pytest.mark.parametrize(
+    ("definition_id", "expected_tables"),
+    [
+        pytest.param(
+            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            ["`RAW_ISSUES`", "`RAW_PULL_REQUESTS`"],
+            id="snowflake-upper-cases",
+        ),
+        pytest.param(
+            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            ["`raw_issues`", "`raw_pull_requests`"],
+            id="bigquery-preserves-case",
+        ),
+    ],
+)
+def test_build_destination_skill_docs_streams_section(
+    definition_id: str,
+    expected_tables: list[str],
+) -> None:
     connection = _FakeConnection(
         connection_id="conn-1",
-        name="GitHub to Snowflake",
+        name="GitHub to warehouse",
         destination_id="dest-1",
         stream_names=["issues", "pull_requests"],
         table_prefix="raw_",
     )
-    destination = _snowflake_destination(connections=[connection])
+    destination = _FakeDestination(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=definition_id,
+        connections=[connection],
+    )
 
     docs = destination_docs.build_destination_skill_docs(
         cast(Any, destination),
         section=destination_docs.SECTION_STREAMS,
     )
 
+    table = next(block for block in docs.content if block["type"] == "table")
+    assert table["headers"] == ["Stream", "Table"]
+    assert table["rows"] == [
+        ["issues", expected_tables[0]],
+        ["pull_requests", expected_tables[1]],
+    ]
     rendered = str(docs.content)
-    assert "GitHub to Snowflake" in rendered
-    assert "issues" in rendered
-    assert "pull_requests" in rendered
-    assert "raw_" in rendered
+    assert "GitHub to warehouse" in rendered
+    assert "'raw_'" in rendered
 
 
 def test_build_destination_skill_docs_streams_section_empty() -> None:
@@ -1698,8 +1736,6 @@ def test_build_destination_skill_docs_rejects_unknown_section() -> None:
             cast(Any, destination),
             section="bogus",
         )
-
-
 def test_agent_model_aliases_match_cloud_models() -> None:
     """The `Agent*` model names alias the renamed `Cloud*` models."""
     from airbyte._direct_connectors import models as dc_models
@@ -1724,3 +1760,49 @@ def test_agent_model_aliases_match_cloud_models() -> None:
         assert getattr(agent_models, agent_name) is cloud_model
         assert getattr(dc_models, agent_name) is cloud_model
         assert getattr(cloud_models_module, cloud_name) is cloud_model
+
+
+def test_merge_destination_skill_docs() -> None:
+    """Server docs keep their metadata; local sections dedupe and overview prepends."""
+    destination = _snowflake_destination(
+        fail_on_connections=True,
+        configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
+    )
+    server_docs = AgentSkillDocs(
+        metadata=AgentSkillInfo(
+            id="connector-destination:dest-1",
+            kind="connector_destination",
+            title="Server title",
+        ),
+        outline=[
+            AgentSkillSection(id="overview", title="Server overview"),
+            AgentSkillSection(
+                id=destination_docs.SECTION_SQL_PASSTHROUGH,
+                title="Server sql-passthrough",
+            ),
+        ],
+        content=[{"type": "paragraph", "text": "Server overview text"}],
+    )
+
+    merged = destination_docs.merge_destination_skill_docs(
+        server_docs, cast(Any, destination)
+    )
+
+    assert merged.metadata.title == "Server title"
+    outline_ids = [section.id for section in merged.outline]
+    assert outline_ids.count(destination_docs.SECTION_SQL_PASSTHROUGH) == 1
+    assert outline_ids == [
+        "overview",
+        destination_docs.SECTION_SQL_PASSTHROUGH,
+        destination_docs.SECTION_CONNECTIONS,
+        destination_docs.SECTION_STREAMS,
+    ]
+    assert merged.content[-1] == {"type": "paragraph", "text": "Server overview text"}
+    assert '"sql_dialect": "snowflake"' in str(merged.content[0])
+    assert "SHOW TABLES" in str(merged.content[:-1])
+
+    server_section_docs = server_docs.model_copy(update={"section_id": "sources.src-1"})
+    merged_section = destination_docs.merge_destination_skill_docs(
+        server_section_docs, cast(Any, destination)
+    )
+    assert merged_section.content == server_docs.content

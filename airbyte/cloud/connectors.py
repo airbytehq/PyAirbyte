@@ -785,8 +785,25 @@ class CloudConnector:
             )
 
         if self.definition_id in SQL_PASSTHROUGH_DESTINATION_DIALECTS:
+            destination = self.as_cloud_destination()
+            if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS:
+                return connector_docs.build_destination_skill_docs(
+                    destination,
+                    section=section,
+                )
+            if self.workspace._has_context_layer_api():  # noqa: SLF001
+                skill_id = connector_docs.destination_skill_id(self.connector_id)
+                try:
+                    server_docs = self.workspace.read_skill_docs(skill_id, section=section)
+                except exc.AirbyteError as error:
+                    if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
+                        raise
+                else:
+                    return connector_docs.merge_destination_skill_docs(
+                        server_docs, destination
+                    )
             return connector_docs.build_destination_skill_docs(
-                self.as_cloud_destination(),
+                destination,
                 section=section,
             )
 

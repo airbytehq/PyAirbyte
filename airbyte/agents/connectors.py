@@ -21,10 +21,6 @@ from airbyte._direct_connectors.actions import (
     AgentWriteAction,
     _build_params,
 )
-from airbyte._direct_connectors.api_util import (
-    _ConnectorLookup,  # noqa: F401  # Re-exported for `airbyte.agents` compatibility.
-    _resolve_connector_lookup,  # noqa: F401  # Re-exported for `airbyte.agents` compatibility.
-)
 from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
 from airbyte.exceptions import PyAirbyteInputError
 

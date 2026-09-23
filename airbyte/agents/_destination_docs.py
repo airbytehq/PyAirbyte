@@ -1,9 +1,13 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Compatibility re-exports for the moved destination docs builders."""
+"""Compatibility re-exports for the moved destination-docs helpers.
+
+The implementation lives in `airbyte._direct_connectors.connector_docs`.
+"""
 
 from airbyte._direct_connectors.connector_docs import (
     BIGQUERY_DESTINATION_DEFINITION_ID,
     DESTINATION_SKILL_PREFIX,
+    LOCAL_DESTINATION_SECTION_IDS,
     SECTION_CONNECTIONS,
     SECTION_SQL_PASSTHROUGH,
     SECTION_STREAMS,
@@ -15,12 +19,14 @@ from airbyte._direct_connectors.connector_docs import (
     build_destination_skill_docs,
     connector_id_from_skill_id,
     destination_skill_id,
+    merge_destination_skill_docs,
 )
 
 
 __all__ = [
     "BIGQUERY_DESTINATION_DEFINITION_ID",
     "DESTINATION_SKILL_PREFIX",
+    "LOCAL_DESTINATION_SECTION_IDS",
     "SECTION_CONNECTIONS",
     "SECTION_SQL_PASSTHROUGH",
     "SECTION_STREAMS",
@@ -32,4 +38,5 @@ __all__ = [
     "build_destination_skill_docs",
     "connector_id_from_skill_id",
     "destination_skill_id",
+    "merge_destination_skill_docs",
 ]
