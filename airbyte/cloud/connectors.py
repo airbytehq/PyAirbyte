@@ -118,20 +118,6 @@ class CheckResult:
         )
 
 
-def _is_not_enabled_error(error: exc.AirbyteError) -> bool:
-    """Return whether `error` reports the connector is not enabled for agent access.
-
-    Only 403 and 404 responses mean that: a 404 says no docs skill exists for the
-    connector, and a 403 says the workspace or connector lacks Context layer access.
-    Auth, server, and malformed-response failures carry other statuses and must not be
-    read as "not enabled".
-    """
-    return (error.context or {}).get("status_code") in {
-        HTTPStatus.FORBIDDEN,
-        HTTPStatus.NOT_FOUND,
-    }
-
-
 class CloudConnector:
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
@@ -560,7 +546,7 @@ class CloudConnector:
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
         except exc.AirbyteError as error:
-            if _is_not_enabled_error(error):
+            if agents_api_util.is_not_enabled_error(error):
                 try:
                     enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
                 except (exc.AirbyteError, requests.RequestException, ValueError):
@@ -607,7 +593,7 @@ class CloudConnector:
                 )
             )
         except exc.AirbyteError as error:
-            if not _is_not_enabled_error(error):
+            if not agents_api_util.is_not_enabled_error(error):
                 raise
             warnings.append(f"Connector direct-access docs lookup failed: {error}")
             return None

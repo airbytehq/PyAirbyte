@@ -85,6 +85,20 @@ def _error_guidance(*, response: requests.Response) -> str | None:
     return None
 
 
+def is_not_enabled_error(error: AirbyteError) -> bool:
+    """Return whether `error` reports the connector is not enabled for agent access.
+
+    Only 403 and 404 responses mean that: a 404 says no docs skill exists for the
+    connector, and a 403 says the workspace or connector lacks Context layer access.
+    Auth, server, and malformed-response failures carry other statuses and must not be
+    read as "not enabled".
+    """
+    return (error.context or {}).get("status_code") in {
+        HTTPStatus.FORBIDDEN,
+        HTTPStatus.NOT_FOUND,
+    }
+
+
 def make_cloud_agent_request(
     *,
     method: Literal["GET", "POST"],
