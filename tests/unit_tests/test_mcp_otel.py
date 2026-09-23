@@ -33,7 +33,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 from airbyte._direct_connectors import api_util as agents_api
 from airbyte.cloud.connectors import CloudConnector
 from airbyte.mcp import _otel as observability
-from airbyte.mcp import agents as agents_mcp
+from airbyte.mcp import cloud
 from airbyte.version import get_version
 
 
@@ -193,12 +193,10 @@ async def _http_rpc(
 
 @pytest.fixture
 def agents_app(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
-    """Include the production Agents tools without contacting an Agents API."""
-    from airbyte.mcp import _tool_utils, server
+    """Include the production Cloud tools without contacting the Config API."""
+    from airbyte.mcp import server
 
     monkeypatch.setenv("AIRBYTE_MCP_INSIDERS", "1")
-    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", "https://agents.example.com/api/v1")
-    monkeypatch.setattr(_tool_utils, "is_agents_api_available", lambda context: True)
     monkeypatch.setattr(server.app, "middleware", list(server.app.middleware))
     monkeypatch.setattr(server.app, "instructions", server.app.instructions)
     _capture(server.app)
@@ -212,7 +210,7 @@ def test_list_tools_advertises_optional_intent_without_mutating_tool_parameters(
     """Repeated listings preserve both plain and Agents server-owned schemas."""
 
     async def check():
-        names = ("list_cloud_workspaces", "execute_agent_connector_ro")
+        names = ("list_cloud_workspaces", "execute_external_api_query")
         original = {
             name: copy.deepcopy((await agents_app.get_tool(name)).parameters)
             for name in names
@@ -366,7 +364,9 @@ def test_agents_intent_reaches_api_unchanged_with_bounded_trace_copy(
 ):
     connector = CloudConnector(workspace=Mock(), connector_id="connector-SENTINEL")
     monkeypatch.setattr(
-        agents_mcp, "_resolve_cloud_connector", lambda *args, **kwargs: connector
+        cloud,
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: Mock(get_connector=Mock(return_value=connector)),
     )
     execute = Mock(return_value={"status": "success", "result": ["result-SENTINEL"]})
     monkeypatch.setattr(agents_api, "execute_agent_connector_action", execute)
@@ -390,7 +390,7 @@ def test_agents_intent_reaches_api_unchanged_with_bounded_trace_copy(
                 "action": "list",
                 **({"intent": intent} if intent is not None else {}),
             },
-            name="execute_agent_connector_ro",
+            name="execute_external_api_query",
         )
     )
     assert not result.is_error
@@ -431,7 +431,7 @@ def test_invalid_declared_intent_still_fails_validation(
                 "action": "list",
                 "intent": intent,
             },
-            name="execute_agent_connector_ro",
+            name="execute_external_api_query",
             raise_on_error=False,
         )
     )
