@@ -121,6 +121,11 @@ def destination_skill_id(connector_id: str) -> str:
     return f"{DESTINATION_SKILL_PREFIX}{connector_id}"
 
 
+def source_skill_id(connector_id: str) -> str:
+    """Return the docs skill ID for a source connector."""
+    return f"{SOURCE_SKILL_PREFIX}{connector_id}"
+
+
 def build_destination_connector_details(
     destination: _DestinationLike,
 ) -> _DirectConnectorInspectResult:
@@ -321,7 +326,7 @@ def _overview(
     dialect: str,
     load_context: _DestinationLoadContext,
 ) -> list[dict[str, Any]]:
-    """Self-contained summary shown by `inspect_agent_connector`, without any Cloud lookups."""
+    """Self-contained summary for a connector inspect result, without any Cloud lookups."""
     engine = _ENGINE_NAMES[dialect]
     if load_context.database_name is not None or load_context.schema_name is not None:
         location_text = ", ".join(

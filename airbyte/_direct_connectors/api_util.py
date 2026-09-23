@@ -1,12 +1,11 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Internal HTTP plumbing for the Airbyte Agents API.
+"""HTTP helpers for the direct-access and agent-context features hosted by Airbyte Cloud.
 
-The Agents API is a distinct API surface from both the Public API and the Config API, and
-it is not covered by the `airbyte-api` SDK, so this module holds its raw HTTP calls.
-
-Airbyte Cloud credentials authenticate against the Agents API, so the public classes in
-this package reuse the same credentials (and the same `AIRBYTE_CLOUD_*` environment
-variables) used elsewhere in `airbyte.cloud`.
+These helpers call the Context layer endpoints exposed by the Cloud Config API —
+connector `execute` routes and workspace skill-docs routes — using Airbyte Cloud
+credentials. Cloud derives the caller's organization from the workspace on each request,
+so no organization scoping is needed client-side. Callers should check
+`deployment.is_agents_api_available()` before using non-default API roots.
 """
 
 from __future__ import annotations
@@ -16,71 +15,33 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
 
-from airbyte._direct_connectors.models import (
-    DirectAccessGuidanceIndexEntry,
-    _DirectAccessGuidanceIndexPage,
-)
 from airbyte._util import deployment
-from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte.constants import CLOUD_API_ROOT
-from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
+from airbyte._util.api_util import (
+    AIRBYTE_ANALYTIC_SOURCE_HEADER,
+    CLOUD_API_ROOT,
+    get_bearer_token,
+    get_cloud_api_analytic_source,
+    get_config_api_root,
+    status_ok,
+)
+from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
+    AirbyteError,
+    PyAirbyteInputError,
+)
+from airbyte.registry import ConnectorType
 
 
 if TYPE_CHECKING:
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
-_AGENTS_API_ROOT = "https://api.airbyte.ai/api/v1"
-"""The default hosted Airbyte Agents API root URL.
-
-The `AIRBYTE_AGENTS_API_URL` environment variable can override this root.
-"""
-
 _REQUEST_TIMEOUT_SECONDS = 300
-"""Timeout for a single Agents API request.
+"""Timeout for a single Cloud Config API request.
 
-Generous, because a connector action runs a live third-party API call behind the Agents
-API, but finite, so a stalled request cannot hang the caller forever.
+Generous, because a connector action runs a live third-party API call behind the
+Context layer, but finite, so a stalled request cannot hang the caller forever.
 """
-
-_MULTIPLE_ORGANIZATIONS_HINT = "specify target organization"
-"""Fragment of the Agents API error returned when credentials span several organizations."""
-
-
-def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
-    """Raise `AirbyteAgentsUnavailableError` unless an Agents API is available.
-
-    The Agents API has a single hosted root, so an Agents object carries no API root of its
-    own. Converting from a Cloud object that points somewhere other than public Airbyte
-    Cloud would therefore silently discard those roots, so the conversion is refused unless
-    `AIRBYTE_AGENTS_API_URL` explicitly configures the Agents API root.
-    """
-    if not deployment.is_agents_api_available(
-        public_api_root=credentials.public_api_root,
-        config_api_root=credentials.config_api_root,
-    ):
-        raise AirbyteAgentsUnavailableError(
-            message="The Airbyte Agents API is only available on Airbyte Cloud.",
-            context={
-                "api_root": credentials.public_api_root,
-                "config_api_root": credentials.config_api_root,
-            },
-        )
-
-
-def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
-    """Resolve the Agents API root for `credentials`.
-
-    Resolution order:
-    1. `AIRBYTE_AGENTS_API_URL`, if set.
-    2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
-    3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
-    """
-    override = deployment.get_agents_api_root_override()
-    if override:
-        return override
-    check_public_cloud_api_roots(credentials)
-    return _AGENTS_API_ROOT
 
 
 def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
@@ -102,29 +63,69 @@ def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
     )
 
 
-def make_agents_api_request(
+def _error_message(*, response: requests.Response, full_url: str) -> str:
+    """Build an error message for a failed Cloud API request."""
+    message = f"Airbyte Cloud API request failed with status {response.status_code}"
+    if response.status_code == HTTPStatus.UNAUTHORIZED:
+        return f"{message} (Unauthorized) when accessing: {full_url}."
+    if response.status_code == HTTPStatus.FORBIDDEN:
+        return f"{message} (Forbidden) when accessing: {full_url}."
+    return f"{message} when accessing: {full_url}."
+
+
+def _error_guidance(*, response: requests.Response) -> str | None:
+    """Return actionable guidance for a failed Cloud API request, if any applies."""
+    if response.status_code == HTTPStatus.UNAUTHORIZED:
+        return "Check that the Airbyte Cloud credentials are valid."
+    if response.status_code == HTTPStatus.FORBIDDEN:
+        return (
+            "Authentication succeeded but access was denied; the workspace or connector "
+            "may not be enabled for agent access in Airbyte Cloud."
+        )
+    return None
+
+
+def make_cloud_agent_request(
     *,
     method: Literal["GET", "POST"],
     path: str,
     credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
     params: dict[str, Any] | None = None,
     json: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Send a request to the Airbyte Agents API and return the parsed JSON response.
+    """Make a request to the Cloud Config API and return the parsed response.
 
-    The `organization_id` is sent as the `X-Organization-Id` header, which the Agents API
-    requires when the caller's credentials map to more than one organization.
+    The request URL is the deployment's Config API root plus `path`. Authentication is a
+    `Bearer` token resolved from the credentials; Cloud derives the organization from the
+    workspace, so no organization header is sent.
+
+    Raises `AirbyteAgentsUnavailableError` when the credentials' API roots have no
+    Context layer API, and `AirbyteError` with the status code and response text on
+    non-2xx responses, or when the response is not a JSON object.
     """
-    full_url = get_agents_api_root(credentials) + path
+    if not deployment.is_agents_api_available(
+        public_api_root=credentials.public_api_root,
+        config_api_root=credentials.config_api_root,
+    ):
+        raise AirbyteAgentsUnavailableError(
+            context={
+                "api_root": credentials.public_api_root,
+                "config_api_root": credentials.config_api_root,
+            }
+        )
+
+    api_root = get_config_api_root(
+        credentials.public_api_root or CLOUD_API_ROOT,
+        config_api_root=credentials.config_api_root,
+    )
+    full_url = f"{api_root}{path}"
     headers: dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Authorization": f"Bearer {_resolve_bearer_token(credentials)}",
         "User-Agent": "PyAirbyte Client",
+        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
     }
-    if organization_id:
-        headers["X-Organization-Id"] = organization_id
 
     response = requests.request(
         method=method,
@@ -149,7 +150,7 @@ def make_agents_api_request(
     content_type = response.headers.get("Content-Type", "")
     if "json" not in content_type:
         raise AirbyteError(
-            message="The Airbyte Agents API returned a non-JSON response.",
+            message="The Airbyte Cloud API returned a non-JSON response.",
             guidance=(
                 "PyAirbyte does not yet support streaming responses, which some actions "
                 "return for binary payloads."
@@ -161,219 +162,63 @@ def make_agents_api_request(
         parsed: Any = response.json()
     except requests.exceptions.JSONDecodeError as ex:
         raise AirbyteError(
-            message="The Airbyte Agents API returned malformed JSON.",
+            message="The Airbyte Cloud API returned malformed JSON.",
             context={"full_url": full_url},
         ) from ex
 
     if not isinstance(parsed, dict):
         raise AirbyteError(
-            message="Unexpected response payload from the Airbyte Agents API.",
+            message="Unexpected response payload from the Airbyte Cloud API.",
             context={"full_url": full_url, "payload_type": type(parsed).__name__},
         )
     return parsed
 
 
-def _error_message(*, response: requests.Response, full_url: str) -> str:
-    """Build an error message for a failed Agents API request."""
-    message = f"Airbyte Agents API request failed with status {response.status_code}"
-    if response.status_code == HTTPStatus.UNAUTHORIZED:
-        return f"{message} (Unauthorized) when accessing: {full_url}."
-    if response.status_code == HTTPStatus.FORBIDDEN:
-        return f"{message} (Forbidden) when accessing: {full_url}."
-    return f"{message} when accessing: {full_url}."
-
-
-def _error_guidance(*, response: requests.Response) -> str | None:
-    """Return actionable guidance for a failed Agents API request, if any applies."""
-    if response.status_code == HTTPStatus.UNAUTHORIZED:
-        return "Check that the Airbyte Cloud credentials are valid."
-    if response.status_code == HTTPStatus.FORBIDDEN:
-        return (
-            "Authentication succeeded but access was denied. The organization may not have "
-            "an Airbyte Agents subscription."
-        )
-    if (
-        response.status_code == HTTPStatus.BAD_REQUEST
-        and _MULTIPLE_ORGANIZATIONS_HINT in response.text
-    ):
-        return (
-            "These credentials belong to more than one organization, so the Agents API "
-            "cannot infer which one to use. Pass `organization_id`, or set the "
-            "`AIRBYTE_CLOUD_ORGANIZATION_ID` environment variable."
-        )
-    return None
-
-
-def list_agent_workspaces(
-    *,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """List the workspaces visible to the caller in the Airbyte Agents API."""
-    response = make_agents_api_request(
-        method="GET",
-        path="/workspaces",
-        credentials=credentials,
-        organization_id=organization_id,
-    )
-    return _records_from_response(response=response, path="/workspaces")
-
-
-def get_agent_workspace(
-    *,
-    workspace_id: str,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-) -> dict[str, Any]:
-    """Fetch a single workspace from the Airbyte Agents API.
-
-    A successful response is authoritative proof that the workspace is reachable through
-    the Agents API with these credentials.
-    """
-    return make_agents_api_request(
-        method="GET",
-        path=f"/workspaces/{workspace_id}",
-        credentials=credentials,
-        organization_id=organization_id,
-    )
-
-
-def list_agent_connectors(
-    *,
-    workspace_id: str,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """List the connectors configured in an Airbyte Agents workspace."""
-    response = make_agents_api_request(
-        method="GET",
-        path="/integrations/connectors",
-        params={"workspace_id": workspace_id},
-        credentials=credentials,
-        organization_id=organization_id,
-    )
-    return _records_from_response(response=response, path="/integrations/connectors")
-
-
-def inspect_agent_connector(
+def execute_cloud_connector_action(
     *,
     connector_id: str,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-) -> dict[str, Any]:
-    """Return metadata for an Airbyte Agents connector."""
-    return make_agents_api_request(
-        method="GET",
-        path=f"/integrations/connectors/{connector_id}/inspect",
-        credentials=credentials,
-        organization_id=organization_id,
-    )
-
-
-def execute_agent_connector_action(
-    *,
-    connector_id: str,
+    connector_type: ConnectorType,
     request_body: dict[str, Any],
     credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a single connector action and return the raw response payload."""
-    return make_agents_api_request(
+    """Execute an action on a deployed Cloud connector via the Cloud Config API.
+
+    The connector kind selects the route: `/sources/{id}/execute` for sources and
+    `/destinations/{id}/execute` for destinations. The request body is forwarded as-is.
+    """
+    path = (
+        f"/sources/{connector_id}/execute"
+        if connector_type == ConnectorType.SOURCE
+        else f"/destinations/{connector_id}/execute"
+    )
+    return make_cloud_agent_request(
         method="POST",
-        path=f"/integrations/connectors/{connector_id}/execute",
+        path=path,
+        credentials=credentials,
         json=request_body,
-        credentials=credentials,
-        organization_id=organization_id,
     )
 
 
-def list_agent_skills(
+def read_cloud_skill_docs(
     *,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-    workspace_id: str | None = None,
-    limit: int | None = None,
-    cursor: str | None = None,
-) -> dict[str, Any]:
-    """List the skills available to an organization or workspace.
-
-    The raw response is returned so the caller keeps `next_cursor`, which
-    `_records_from_response` would drop.
-    """
-    params = {
-        key: value
-        for key, value in {
-            "limit": limit,
-            "cursor": cursor,
-            "organization_id": organization_id,
-            "workspace_id": workspace_id,
-        }.items()
-        if value is not None
-    }
-    return make_agents_api_request(
-        method="GET",
-        path="/skills",
-        params=params or None,
-        credentials=credentials,
-        organization_id=organization_id,
-    )
-
-
-def list_all_agent_skills(
-    *,
-    credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-    workspace_id: str | None = None,
-) -> list[DirectAccessGuidanceIndexEntry]:
-    """List every skill available to an organization or workspace.
-
-    Follows the API's `next_cursor` so the full index is returned regardless of the
-    server's page size.
-    """
-    entries: list[DirectAccessGuidanceIndexEntry] = []
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    while True:
-        page = _DirectAccessGuidanceIndexPage.model_validate(
-            list_agent_skills(
-                credentials=credentials,
-                organization_id=organization_id,
-                workspace_id=workspace_id,
-                cursor=cursor,
-            )
-        )
-        entries.extend(page.data)
-        cursor = page.next_cursor
-        if cursor is None or not cursor.strip() or cursor in seen_cursors:
-            return entries
-        seen_cursors.add(cursor)
-
-
-def read_agent_skill_docs(
-    *,
+    workspace_id: str,
     skill_id: str,
     credentials: _AirbyteCredentials,
-    organization_id: str | None = None,
-    workspace_id: str | None = None,
     section: str | None = None,
 ) -> dict[str, Any]:
-    """Read a skill's docs, optionally scoped to a single section."""
-    params = {
-        key: value
-        for key, value in {
-            "id": skill_id,
-            "section": section,
-            "organization_id": organization_id,
-            "workspace_id": workspace_id,
-        }.items()
-        if value is not None
-    }
-    return make_agents_api_request(
+    """Read skill docs for a workspace via the Cloud Config API.
+
+    The `skill_id` is sent as the `id` query parameter, with `section` added only when
+    provided.
+    """
+    params: dict[str, Any] = {"id": skill_id}
+    if section is not None:
+        params["section"] = section
+    return make_cloud_agent_request(
         method="GET",
-        path="/skills/docs",
-        params=params,
+        path=f"/workspaces/{workspace_id}/skills/docs",
         credentials=credentials,
-        organization_id=organization_id,
+        params=params,
     )
 
 
@@ -451,14 +296,3 @@ def _resolve_connector_lookup(
         )
 
     return _ConnectorLookup(connector_id=next(iter(provided.values()), None), name=name)
-
-
-def _records_from_response(*, response: dict[str, Any], path: str) -> list[dict[str, Any]]:
-    """Return the `data` array from a list response, validating its shape."""
-    records: Any = response.get("data")
-    if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
-        raise AirbyteError(
-            message="Unexpected list payload from the Airbyte Agents API.",
-            context={"path": path},
-        )
-    return records

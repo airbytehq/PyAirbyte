@@ -74,7 +74,7 @@ def _patch_execute(
     *,
     error: Exception | None = None,
 ) -> list[dict[str, Any]]:
-    """Stub `execute_agent_connector_action` and record each call's kwargs."""
+    """Stub `execute_cloud_connector_action` and record each call's kwargs."""
     calls: list[dict[str, Any]] = []
 
     def fake_execute(**kwargs: Any) -> dict[str, Any]:
@@ -83,7 +83,7 @@ def _patch_execute(
             raise error
         return response
 
-    monkeypatch.setattr(agents_api_util, "execute_agent_connector_action", fake_execute)
+    monkeypatch.setattr(agents_api_util, "execute_cloud_connector_action", fake_execute)
     return calls
 
 
@@ -157,8 +157,8 @@ def test_execute_api_query_forwards_action(
     assert len(calls) == 1
     call = calls[0]
     assert call["connector_id"] == "source-1"
+    assert call["connector_type"] is ConnectorType.SOURCE
     assert call["credentials"] is workspace._credentials  # noqa: SLF001
-    assert call["organization_id"] == "organization-id"
     assert call["request_body"] == {
         "entity": "issues",
         "action": expected_action,
@@ -174,7 +174,7 @@ def test_execute_api_query_forwards_action(
     }
 
 
-def test_execute_api_action_forwards_to_agents_api(
+def test_execute_api_action_forwards_to_cloud_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
@@ -323,8 +323,8 @@ def test_direct_methods_raise_without_context_layer(
     calls = _patch_execute(monkeypatch, {"status": "success"})
     monkeypatch.setattr(
         agents_api_util,
-        "inspect_agent_connector",
-        lambda **_: pytest.fail("unexpected inspect call"),
+        "read_cloud_skill_docs",
+        lambda **_: pytest.fail("unexpected skill docs call"),
     )
     # `_connector_info` stays unset so any `definition_id`/`name` lookup would hit the
     # public API; the Context layer gate must fire first.
@@ -639,27 +639,19 @@ def test_as_cloud_subclass_casts(
         getattr(connector, mismatch_name)()
 
 
-def test_untyped_connector_executes_without_kind_probe(
+def test_untyped_connector_execute_resolves_kind_for_routing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy-path execute must not touch `connector_type`/`definition_id`/the flag."""
+    """Execute resolves `connector_type` once, because the Cloud route depends on it."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
-    monkeypatch.setattr(
-        api_util,
-        "get_source",
-        lambda **_: pytest.fail("execute must not probe the connector kind"),
-    )
-    monkeypatch.setattr(
-        api_util,
-        "get_destination",
-        lambda **_: pytest.fail("execute must not probe the connector kind"),
-    )
+    probes = _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
     connector = workspace.get_connector(connector_id="connector-1")
 
     result = connector.execute_api_query("issues", "list")  # type: ignore[arg-type]
 
     assert result.status == "success"
     assert len(calls) == 1
-    assert connector._connector_type is None  # noqa: SLF001
+    assert calls[0]["connector_type"] is ConnectorType.SOURCE
+    assert probes == ["source"]

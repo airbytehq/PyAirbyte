@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
@@ -37,16 +38,16 @@ from airbyte.exceptions import (
 
 SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
 
-INSPECT_RESPONSE: dict[str, Any] = {
-    "connector_id": "source-1",
-    "name": "GitHub",
-    "workspace_id": "workspace-id",
-    "source_definition_name": "GitHub",
-    "docs_skill_id": "connector:github",
-    "context_store_readiness": {
-        "supported_context_store_entities": [{"entity": "issues", "suggested": True}]
+SKILL_DOCS_RESPONSE: dict[str, Any] = {
+    "metadata": {
+        "id": "connector-source:source-1",
+        "kind": "connector_source",
+        "title": "GitHub",
+        "warnings": ["Partial runtime metadata."],
     },
-    "warnings": ["Partial runtime metadata."],
+    "outline": [],
+    "section_id": None,
+    "content": [],
 }
 
 
@@ -180,17 +181,28 @@ def test_integration_name_raises_on_lookup_failure(
 def test_direct_access_guidance_id_source_with_context_layer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sources use the `docs_skill_id` reported by Context Layer `inspect`."""
+    """A successful docs probe reports the source's deterministic skill ID."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fake_read_docs(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return SKILL_DOCS_RESPONSE
+
     monkeypatch.setattr(
         agents_api_util,
-        "inspect_agent_connector",
-        lambda **_: INSPECT_RESPONSE,
+        "read_cloud_skill_docs",
+        fake_read_docs,
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    assert source._direct_access_guidance_id() == "connector:github"  # noqa: SLF001
+    assert (
+        source._direct_access_guidance_id()  # noqa: SLF001
+        == "connector-source:source-1"
+    )
+    assert calls[0]["skill_id"] == "connector-source:source-1"
+    assert calls[0]["workspace_id"] == "workspace-id"
 
 
 def test_direct_access_guidance_id_source_without_context_layer(
@@ -206,22 +218,56 @@ def test_direct_access_guidance_id_source_without_context_layer(
         source.get_direct_access_guidance()
 
 
-def test_direct_access_guidance_id_source_inspect_failure(
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
+        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
+    ],
+)
+def test_direct_access_guidance_id_source_probe_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
+    probe_error: AirbyteError,
 ) -> None:
-    """A failing `inspect` call leaves no guidance ID; reads raise."""
+    """A 403/404 docs probe leaves no guidance ID; reads raise not-enabled."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
-        "inspect_agent_connector",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="inspect boom")),
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source._direct_access_guidance_id() is None  # noqa: SLF001
     with pytest.raises(AirbyteExternalAccessNotEnabledError):
         source.get_direct_access_guidance()
+
+
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(AirbyteError(context={"status_code": 500}), id="server_error"),
+        pytest.param(AirbyteError(message="malformed docs"), id="malformed"),
+        pytest.param(requests.ConnectionError("offline"), id="transport"),
+    ],
+)
+def test_direct_access_guidance_id_source_probe_failure_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: Exception,
+) -> None:
+    """Operational docs-probe failures propagate instead of reading as disabled."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    with pytest.raises(type(probe_error)):
+        source._direct_access_guidance_id()  # noqa: SLF001
 
 
 def test_direct_access_guidance_id_sql_passthrough_destination(
@@ -391,7 +437,9 @@ def test_enabled_features_context_layer_source(
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
-        agents_api_util, "list_agent_connectors", lambda **_: [{"id": "source-1"}]
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: SKILL_DOCS_RESPONSE,
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
@@ -407,9 +455,6 @@ def test_enabled_features_sql_passthrough_destination(
     """A SQL passthrough destination reports `direct_access` and `direct_sql_query`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(
-        agents_api_util, "get_agent_workspace", lambda **_: {"id": "workspace-id"}
-    )
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
 
     assert destination.enabled_features == frozenset({
@@ -421,10 +466,14 @@ def test_enabled_features_sql_passthrough_destination(
 def test_enabled_features_disabled_connector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A source outside the external-access set reports no features."""
+    """A source whose docs probe fails reports no features."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(agents_api_util, "list_agent_connectors", lambda **_: [])
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 404})),
+    )
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source.enabled_features == frozenset()

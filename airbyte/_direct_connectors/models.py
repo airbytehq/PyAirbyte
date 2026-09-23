@@ -110,18 +110,6 @@ class DirectAccessGuidanceIndexEntry(BaseModel):
     """Non-fatal issues reported while building or reading the guidance's docs."""
 
 
-class _DirectAccessGuidanceIndexPage(BaseModel):
-    """One page of the direct-access guidance index, as returned by the Agents API."""
-
-    model_config = ConfigDict(extra="allow")
-
-    data: list[DirectAccessGuidanceIndexEntry]
-    """The guidance index entries on this page."""
-
-    next_cursor: str | None = None
-    """The cursor to pass as `cursor` to fetch the next page, when one is available."""
-
-
 class DirectAccessGuidanceSection(BaseModel):
     """A section of direct-access guidance, as listed in the guidance outline."""
 
@@ -159,7 +147,7 @@ class DirectAccessGuidance(BaseModel):
 
 
 class _DirectConnectorInspectResult(BaseModel):
-    """Result of the Agents API `inspect` endpoint for a direct connector."""
+    """Context layer details for a direct connector, built from its docs skill."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -182,8 +170,8 @@ class _DirectConnectorInspectResult(BaseModel):
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
     docs_skill_id: str | None = None
-    """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
-    `read_agent_skill_docs`) for this connector's usage docs."""
+    """Skill ID to pass to `CloudWorkspace.get_agent_skill_docs(...)` for this
+    connector's usage docs."""
 
     context_store_readiness: CloudContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
