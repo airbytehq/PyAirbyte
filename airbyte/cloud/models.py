@@ -11,7 +11,6 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte._direct_connectors.models import (
-    CloudDirectConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
@@ -496,7 +495,6 @@ __all__ = [
     "CloudDefaultContextInfo",
     "CloudDefaultWorkspaceUpdateInfo",
     "CloudDestinationInfo",
-    "CloudDirectConnectorInfo",
     "CloudJobInfo",
     "CloudOrganizationBillingInfo",
     "CloudOrganizationInfo",

@@ -27,36 +27,6 @@ if TYPE_CHECKING:
     from airbyte_api.models import AirbyteAPIConnectionSchedule
 
 
-class AgentWorkspaceInfo(BaseModel):
-    """Summary information about a workspace, as returned by the Agents API."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    """The workspace ID."""
-
-    name: str | None = None
-    """The workspace name."""
-
-    organization_id: str | None = None
-    """The ID of the organization the workspace belongs to."""
-
-    status: str | None = None
-    """The workspace status, for example `active`."""
-
-
-class CloudDirectConnectorInfo(BaseModel):
-    """Summary information about a connector, as returned by the Agents API."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    """The connector ID."""
-
-    name: str | None = None
-    """The connector name, for example `GitHub - <workspace_id>`."""
-
-
 class CloudContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
 
