@@ -1,12 +1,10 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Built-in docs for SQL passthrough destinations.
 
-The Agents API may not know destination skills, so connector IDs that address Cloud
-destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs reads.
-This module builds the equivalent `_DirectConnectorInspectResult`/`DirectAccessGuidance`
+This module always builds `_DirectConnectorInspectResult`/`DirectAccessGuidance`
 payloads locally from the Cloud workspace objects, merges them into server-served
-destination docs so PyAirbyte's SQL guidance is not lost once the API serves them,
-and summarizes the connections touching a connector for the `describe_cloud_*` MCP tools.
+destination docs when the destination is enrolled for direct access, and summarizes
+the connections touching a connector for the `describe_cloud_*` MCP tools.
 """
 
 from __future__ import annotations
@@ -59,6 +57,20 @@ _SECTION_TITLES: Mapping[str, str] = {
 
 LOCAL_DESTINATION_SECTION_IDS = frozenset(_SECTION_TITLES)
 """Section IDs PyAirbyte builds locally; these never hit the Agents API."""
+
+SQL_PASSTHROUGH_NOT_ENABLED_NOTICE = (
+    "Airbyte SQL passthrough via `execute_external_sql_query` is not enabled for this "
+    "destination, so the tool calls below will be rejected. The table, schema, and "
+    "naming guidance still applies if you have your own SQL access to the warehouse."
+)
+"""Notice prepended to SQL guidance when the destination is not enrolled."""
+
+SQL_PASSTHROUGH_UNAVAILABLE_NOTICE = (
+    "Airbyte SQL passthrough via `execute_external_sql_query` is not available in this "
+    "deployment, so the tool calls below will be rejected. The table, schema, and "
+    "naming guidance still applies if you have your own SQL access to the warehouse."
+)
+"""Notice prepended to SQL guidance when the deployment has no Context layer API."""
 
 _ENGINE_NAMES: Mapping[str, str] = {
     "snowflake": "Snowflake",
@@ -197,8 +209,14 @@ def build_direct_access_sql_guidance(
     destination: _DestinationLike,
     *,
     section: str | None = None,
+    sql_passthrough_notice: str | None = None,
 ) -> DirectAccessGuidance:
-    """Build `DirectAccessGuidance` for a SQL passthrough destination."""
+    """Build `DirectAccessGuidance` for a SQL passthrough destination.
+
+    When `sql_passthrough_notice` is set, it is prepended to the overview and
+    `sql-passthrough` content and returned in `warnings`, so callers see that the
+    documented tool calls would be rejected.
+    """
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
     metadata = DirectAccessGuidanceIndexEntry(
@@ -212,6 +230,10 @@ def build_direct_access_sql_guidance(
         tags=["destination", "sql_select"],
     )
     outline = _local_outline()
+    notice: list[dict[str, Any]] = (
+        [{"type": "paragraph", "text": sql_passthrough_notice}] if sql_passthrough_notice else []
+    )
+    warnings = [sql_passthrough_notice] if sql_passthrough_notice else []
 
     if section is None:
         connections = _destination_connections(destination)
@@ -233,14 +255,18 @@ def build_direct_access_sql_guidance(
             metadata=metadata,
             outline=outline,
             section_id=None,
-            content=content,
+            content=[*notice, *content],
+            warnings=warnings,
         )
 
     if section == SECTION_SQL_PASSTHROUGH:
-        content = _sql_passthrough_section(
-            destination=destination,
-            dialect=dialect,
-        )
+        content = [
+            *notice,
+            *_sql_passthrough_section(
+                destination=destination,
+                dialect=dialect,
+            ),
+        ]
     elif section == SECTION_CONNECTIONS:
         content = _connections_section(
             destination=destination,
@@ -262,6 +288,7 @@ def build_direct_access_sql_guidance(
         outline=outline,
         section_id=section,
         content=content,
+        warnings=warnings,
     )
 
 

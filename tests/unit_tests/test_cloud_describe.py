@@ -310,6 +310,157 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
         destination.get_direct_access_guidance()
 
 
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
+        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
+    ],
+)
+def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: AirbyteError,
+) -> None:
+    """A 403/404 destination docs read still returns local guidance with a notice."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
+    )
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    guidance = destination.get_direct_access_guidance()
+    assert guidance.content[0] == {"type": "paragraph", "text": notice}
+    assert guidance.warnings == [notice]
+
+
+def test_get_direct_access_guidance_destination_local_section_skips_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-SQL local sections never probe the server, so no notice is added."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock()
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    guidance = destination.get_direct_access_guidance(section="connections")
+    read_docs.assert_not_called()
+    assert connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE not in [
+        block.get("text") for block in guidance.content
+    ]
+    assert guidance.warnings == []
+
+
+def test_get_direct_access_guidance_destination_sql_section_probes_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SQL passthrough section still probes once and notices when disabled."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=AirbyteError(context={"status_code": 404}),
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    guidance = destination.get_direct_access_guidance(section="sql-passthrough")
+    assert read_docs.call_count == 1
+    assert guidance.content[0] == {"type": "paragraph", "text": notice}
+    assert guidance.warnings == [notice]
+
+
+def test_get_direct_access_guidance_destination_merges_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful docs read is merged with the local SQL guidance, no notice."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(return_value=SKILL_DOCS_RESPONSE)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    guidance = destination.get_direct_access_guidance()
+    assert read_docs.call_count == 1
+    notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    assert notice not in [block.get("text") for block in guidance.content]
+    assert notice not in getattr(guidance, "warnings", [])  # noqa: B009
+    assert "sql-passthrough" in {section.id for section in guidance.outline}
+
+
+def test_get_direct_access_guidance_destination_server_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-403/404 docs read failure propagates the original `AirbyteError`."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
+    )
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        destination.get_direct_access_guidance()
+    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+
+
+def test_get_direct_access_guidance_destination_no_context_layer_notices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a Context layer API, local guidance carries the unavailable notice."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch, available=False)
+    read_docs = MagicMock()
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    notice = connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE
+    guidance = destination.get_direct_access_guidance()
+    read_docs.assert_not_called()
+    assert guidance.content[0] == {"type": "paragraph", "text": notice}
+    assert guidance.warnings == [notice]
+
+
 def _patch_list_connectors(
     monkeypatch: pytest.MonkeyPatch,
     workspace: CloudWorkspace,
@@ -460,7 +611,12 @@ def test_enabled_features_sql_passthrough_destination(
         "read_cloud_skill_docs",
         lambda **_: SKILL_DOCS_RESPONSE,
     )
-    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
 
     assert destination.enabled_features == frozenset({
         ConnectorFeature.DIRECT_ACCESS,

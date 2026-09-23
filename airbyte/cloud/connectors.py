@@ -40,7 +40,6 @@ else:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
@@ -661,8 +660,9 @@ class CloudConnector:
 
         Sources are documented by the Agents API skills endpoint, addressed by the
         `docs_skill_id` reported by Context Layer `inspect`. SQL passthrough destinations
-        (Snowflake, BigQuery) get built-in docs generated locally. Other destinations do
-        not support direct access.
+        (Snowflake, BigQuery) always get local SQL guidance; server docs are merged in
+        when the destination is enrolled, and a 403/404 adds an explicit notice that
+        SQL passthrough is not enabled. Other destinations do not support direct access.
         """
         if self.connector_type == ConnectorType.SOURCE:
             skill_id = self._direct_access_guidance_id()
@@ -682,31 +682,48 @@ class CloudConnector:
 
         if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             destination = self.as_cloud_destination()
-            if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS:
+            if not self.workspace._has_context_layer_api():  # noqa: SLF001
+                return connector_docs.build_direct_access_sql_guidance(
+                    destination,
+                    section=section,
+                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
+                )
+            if (
+                section in connector_docs.LOCAL_DESTINATION_SECTION_IDS
+                and section != connector_docs.SECTION_SQL_PASSTHROUGH
+            ):
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     section=section,
                 )
-            if self.workspace._has_context_layer_api():  # noqa: SLF001
-                skill_id = connector_docs.destination_skill_id(self.connector_id)
-                try:
-                    server_docs = DirectAccessGuidance.model_validate(
-                        agents_api_util.read_cloud_skill_docs(
-                            workspace_id=self.workspace.workspace_id,
-                            skill_id=skill_id,
-                            credentials=self.workspace._credentials,  # noqa: SLF001
-                            section=section,
-                        )
+            skill_id = connector_docs.destination_skill_id(self.connector_id)
+            try:
+                server_docs = DirectAccessGuidance.model_validate(
+                    agents_api_util.read_cloud_skill_docs(
+                        workspace_id=self.workspace.workspace_id,
+                        skill_id=skill_id,
+                        credentials=self.workspace._credentials,  # noqa: SLF001
+                        section=(
+                            None
+                            if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS
+                            else section
+                        ),
                     )
-                except exc.AirbyteError as error:
-                    if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
-                        raise
-                else:
-                    return connector_docs.merge_destination_skill_docs(server_docs, destination)
-            return connector_docs.build_direct_access_sql_guidance(
-                destination,
-                section=section,
-            )
+                )
+            except exc.AirbyteError as error:
+                if not agents_api_util.is_not_enabled_error(error):
+                    raise
+                return connector_docs.build_direct_access_sql_guidance(
+                    destination,
+                    section=section,
+                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+                )
+            if section == connector_docs.SECTION_SQL_PASSTHROUGH:
+                return connector_docs.build_direct_access_sql_guidance(
+                    destination,
+                    section=section,
+                )
+            return connector_docs.merge_destination_skill_docs(server_docs, destination)
 
         raise exc.PyAirbyteInputError(
             message="Destination does not support direct access docs.",
