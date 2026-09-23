@@ -51,9 +51,14 @@ def test_importing_airbyte_does_not_load_mcp_dependencies() -> None:
         capture_output=True,
         check=True,
         text=True,
+        # The dev-only logfire extra auto-loads an OTel SDK Pydantic plugin.
+        # Check PyAirbyte imports without this unrelated third-party hook.
+        env={**os.environ, "PYDANTIC_DISABLE_PLUGINS": "logfire-plugin"},
     )
     loaded_modules = set(result.stdout.splitlines())
     forbidden_modules = {
+        "opentelemetry.sdk",
+        "opentelemetry.exporter",
         "fastmcp",
         "fastmcp_extensions",
         "uvicorn",

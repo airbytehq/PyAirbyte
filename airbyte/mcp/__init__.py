@@ -270,6 +270,41 @@ objects consumed by
 [`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
 assembles the verifier(s) and reads no environment variables itself.
 
+## Optional Hosted Tool Intent Observability
+
+A hosted HTTP deployment may advertise an optional top-level `intent` argument
+when its operator sets `AIRBYTE_MCP_INTENT_CAPTURE=1`. If provided, use one
+sentence explaining why the tool is being called; never include credentials,
+identifiers or data values. Calls without intent continue to work. The Agents
+tools' existing `intent` parameter serves the same purpose and passes through
+unchanged to the Agents API; only the trace copy is trimmed and capped.
+Advertisement and model guidance do not require an export endpoint.
+
+Export is enabled only when an OTLP traces endpoint is configured. The server
+exports the supplied intent (capped at 4096 characters), tool name, outcome class,
+validated workspace/organization UUIDs, tool annotations and outbound HTTP
+methods, recognized public Airbyte API routes with validated UUID/numeric IDs,
+and statuses. URL queries, unknown routes and custom origins are redacted.
+Tool arguments and results,
+error messages/stacks, HTTP header values, request/response bodies, JWTs and
+caller identity are not exported. Calls to unregistered tool names are dropped.
+Session grouping uses a SHA-256 digest of the unsigned, client-echoed
+`Mcp-Session-Id`, not the raw token or a verified identity. Intent itself is free
+text and may contain customer information, so keep it free of sensitive data.
+
+Any OTLP backend can receive these spans. With `AIRBYTE_MCP_OTEL_VENDOR=datadog`,
+intent is also supplied as Datadog metadata. Export is best effort and does not
+determine whether a tool call succeeds; the backend controls retention and
+access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
+export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.
+Segment requests are excluded from traces. Local stdio is unchanged. Hosted
+clients with cached `intent` schemas remain compatible after export is
+disabled by unsetting both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Legacy synthetic `telemetry.intent` is accepted
+without advertising it, with top-level `intent` taking precedence when supplied.
+Real tool parameters named `intent` or `telemetry` retain their normal validation
+and dispatch behavior.
+
 ## Troubleshooting
 
 ### Troubleshooting Local Connector Installation Issues

@@ -22,6 +22,7 @@ from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
 
 from airbyte.mcp import _client_credentials as client_credentials
+from airbyte.mcp import _otel
 from airbyte.mcp import http_main
 from airbyte.mcp import server
 from airbyte.mcp._sso_auth import (
@@ -155,13 +156,19 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
     monkeypatch: MonkeyPatch,
 ) -> None:
     config: dict[str, object] = {}
+    middleware: list[object] = []
     fake_app = SimpleNamespace(
         auth=object(),
         http_app=lambda **kwargs: object(),
+        add_middleware=middleware.append,
     )
 
     monkeypatch.setattr(http_main, "app", fake_app)
     monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
+    # Hosted startup installs OpenTelemetry; keep it inert beyond the middleware.
+    monkeypatch.setattr(_otel, "_INSTALLED", False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.setattr(
         http_main, "register_landing_page", lambda *args, **kwargs: None
     )
@@ -188,6 +195,7 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
     assert config["host"] == http_main.DEFAULT_HTTP_HOST
     assert config["port"] == http_main.DEFAULT_HTTP_PORT
     assert isinstance(config["wrapper"](object()), HostOriginGuardMiddleware)
+    assert [type(item) for item in middleware] == [_otel.IntentCaptureMiddleware]
 
 
 @pytest.mark.parametrize(
