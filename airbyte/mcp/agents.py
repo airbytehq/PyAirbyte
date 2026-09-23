@@ -50,6 +50,7 @@ from airbyte._direct_connectors.models import (
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudConnector, CloudDestination, CloudSource
+from airbyte.cloud.models import ConnectorFeature
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
@@ -1141,7 +1142,9 @@ def inspect_agent_connector(
     try:
         cloud_workspace = _get_cloud_workspace(ctx, workspace_id, organization_id=organization_id)
         connector = cloud_workspace.get_connector(connector_id=connector_id)
-        if connector.connector_type.value == "source" and not connector.external_access_enabled:
+        if connector.connector_type.value == "source" and not connector.is_feature_enabled(
+            ConnectorFeature.DIRECT_ACCESS
+        ):
             source = _resolve_cloud_source(ctx, connector_id, cloud_workspace.workspace_id)
             if source is not None:
                 raise _ConnectorNotEnabledError(

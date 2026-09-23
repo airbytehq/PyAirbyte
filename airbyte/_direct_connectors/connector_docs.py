@@ -614,7 +614,7 @@ def _schedule_description(schedule: models.AirbyteAPIConnectionSchedule | None) 
     return schedule_type_value
 
 
-def build_connection_infos(connector: CloudConnector) -> list[CloudConnectorConnectionInfo]:
+def build_connection_details(connector: CloudConnector) -> list[CloudConnectorConnectionInfo]:
     """Summarize each connection that reads from or writes to `connector`.
 
     Counterpart connector names are resolved with one `list_sources()` and one

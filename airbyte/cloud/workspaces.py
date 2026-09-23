@@ -437,7 +437,9 @@ class CloudWorkspace:
                 connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
                 and self.external_access_enabled
             ):
-                return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
+                return frozenset(
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY}
+                )
             return frozenset()
 
         if external_access_source_ids is None:
@@ -445,7 +447,7 @@ class CloudWorkspace:
         if connector.connector_id not in external_access_source_ids:
             return frozenset()
 
-        return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
+        return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY})
 
     # Test connection and creds
 
@@ -1033,7 +1035,7 @@ class CloudWorkspace:
         """List sources and destinations in the workspace, with optional filters.
 
         Items are `CloudSource` and `CloudDestination` objects. Each has its enabled features
-        resolved, so `external_access_enabled` and `search_indexing_enabled` read from cache.
+        resolved, so `enabled_features` reads from cache.
 
         Args:
             connector_type: Return only sources or only destinations.

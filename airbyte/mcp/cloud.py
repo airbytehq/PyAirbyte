@@ -136,10 +136,9 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
 
 
 WITH_FEATURE_TIP_TEXT = (
-    "Optional feature filter: `external_access` returns only connectors that AI agents can use "
-    "through the Airbyte Context layer; `search_indexing` returns only connectors whose data "
-    "Airbyte indexes for fast search (distinct from any native search the connector itself "
-    "offers). Omit to list every connector along with its feature flags."
+    "Optional feature filter: `direct_access` returns only connectors AI agents can use "
+    "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
+    "query. Omit to list every connector along with its enabled features."
 )
 
 
@@ -152,11 +151,8 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
-    external_access_enabled: bool
-    """Whether AI agents can use the source through the Airbyte Context layer."""
-    search_indexing_enabled: bool
-    """Whether Airbyte indexes the source's data for fast search. Distinct from any native
-    search the connector itself offers."""
+    enabled_features: list[ConnectorFeature]
+    """Features enabled for this connector; see `ConnectorFeature`."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -168,10 +164,8 @@ class CloudDestinationResult(BaseModel):
     """Display name of the destination."""
     url: str
     """Web URL for managing this destination in Airbyte Cloud."""
-    external_access_enabled: bool
-    """Whether AI agents can query the destination with `sql_select`: the workspace is
-    enabled for the Airbyte Context layer and the destination is a SQL passthrough type
-    (Snowflake, BigQuery)."""
+    enabled_features: list[ConnectorFeature]
+    """Features enabled for this connector; see `ConnectorFeature`."""
 
 
 class CloudConnectionResult(BaseModel):
@@ -1024,8 +1018,8 @@ def list_deployed_cloud_source_connectors(
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
-    Each source reports `external_access_enabled` and `search_indexing_enabled`; pass
-    `with_feature` to return only sources with one of those features.
+    Each source reports `enabled_features`; pass `with_feature` to return only sources
+    with a given feature (for example `direct_api_query` or `direct_access`).
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     sources = workspace.list_connectors(
@@ -1040,8 +1034,7 @@ def list_deployed_cloud_source_connectors(
             id=source.connector_id,
             name=cast(str, source.name),
             url=source.connector_url,
-            external_access_enabled=source.external_access_enabled,
-            search_indexing_enabled=source.search_indexing_enabled,
+            enabled_features=sorted(source.enabled_features),
         )
         for source in sources
     ]
@@ -1081,9 +1074,10 @@ def list_deployed_cloud_destination_connectors(
         ConnectorFeature | None,
         Field(
             description=(
-                "Optional feature filter: `external_access` returns only destinations "
-                "that AI agents can query through `sql_select`. Omit to list every "
-                "destination along with its feature flag."
+                "Optional feature filter: `direct_sql_query` returns only destinations "
+                "that AI agents can query through `sql_select`; `direct_access` returns "
+                "those usable by AI agents. Omit to list every destination along with "
+                "its enabled features."
             ),
             default=None,
         ),
@@ -1091,9 +1085,9 @@ def list_deployed_cloud_destination_connectors(
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
-    Each destination reports `external_access_enabled` (queryable by AI agents via
-    `sql_select`); pass `with_feature` to return only destinations with that feature.
-    Destinations are not search-indexed.
+    Each destination reports `enabled_features`; pass `with_feature` to return only
+    destinations with a given feature (for example `direct_sql_query` or `direct_access`).
+    SQL passthrough destinations are queryable by AI agents via `sql_select`.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destinations = workspace.list_connectors(
@@ -1108,7 +1102,7 @@ def list_deployed_cloud_destination_connectors(
             id=destination.connector_id,
             name=cast(str, destination.name),
             url=destination.connector_url,
-            external_access_enabled=destination.external_access_enabled,
+            enabled_features=sorted(destination.enabled_features),
         )
         for destination in destinations
     ]
@@ -1164,13 +1158,8 @@ class CloudConnectorDetailsResult(BaseModel):
     integration_name: str | None = None
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
-    external_access_enabled: bool
-    """Whether AI agents can use this connector through the Airbyte Context layer."""
-
-    search_indexing_enabled: bool | None = None
-    """Whether Airbyte indexes this connector's data for fast search.
-
-    `None` for destinations, which are not indexed."""
+    enabled_features: list[ConnectorFeature] = Field(default_factory=list)
+    """Features enabled for this connector; see `ConnectorFeature`."""
 
     config: dict[str, Any] | None = None
     """The connector configuration, populated only by `with_config`.
@@ -1218,15 +1207,13 @@ def _describe_cloud_connector(
         connector_url=connector.connector_url,
         connector_definition_id=connector.definition_id,
         integration_name=integration_name,
-        external_access_enabled=connector.external_access_enabled,
-        search_indexing_enabled=(
-            connector.as_cloud_source().search_indexing_enabled
-            if connector_type == ConnectorType.SOURCE
-            else None
-        ),
+        enabled_features=sorted(connector.enabled_features),
     )
 
-    if connector.external_access_enabled and connector.workspace._has_context_layer_api():  # noqa: SLF001
+    if (
+        connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+        and connector.workspace._has_context_layer_api()  # noqa: SLF001
+    ):
         context_layer = connector._context_layer_inspect(  # noqa: SLF001
             warnings=warnings,
         )
@@ -1241,7 +1228,7 @@ def _describe_cloud_connector(
 
     if with_replication_details:
         try:
-            result.replication_details = connector_docs.build_connection_infos(connector)
+            result.replication_details = connector_docs.build_connection_details(connector)
         except AirbyteError as error:
             warnings.append(f"Connection listing failed: {error}")
 

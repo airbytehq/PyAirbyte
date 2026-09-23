@@ -64,8 +64,7 @@ class _CloudConnectorLike:
     connector_type: str
     name: str
     connector_url: str
-    external_access_enabled: bool = False
-    search_indexing_enabled: bool = False
+    enabled_features: frozenset[ConnectorFeature] = frozenset()
 
 
 @dataclass
@@ -840,8 +839,6 @@ def _describe_details() -> CloudConnectorDetailsResult:
         connector_name="GitHub",
         connector_url="",
         connector_definition_id="definition-id",
-        external_access_enabled=False,
-        search_indexing_enabled=False,
     )
 
 
@@ -959,8 +956,7 @@ class _DescribedConnector:
     name: str | None = "GitHub"
     connector_url: str = ""
     definition_id: str = "definition-id"
-    external_access_enabled: bool = False
-    search_indexing_enabled: bool = False
+    enabled_features: frozenset[ConnectorFeature] = frozenset()
 
     def __post_init__(self) -> None:
         self._integration_name: str | AirbyteError = "GitHub"
@@ -977,6 +973,9 @@ class _DescribedConnector:
         if isinstance(self._integration_name, AirbyteError):
             raise self._integration_name
         return self._integration_name
+
+    def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+        return feature in self.enabled_features
 
     def _context_layer_inspect(
         self, *, warnings: list[str], **_kwargs: object
@@ -1023,9 +1022,14 @@ def _describe(
     return cloud_mcp._describe_cloud_connector(connector, **kwargs)  # noqa: SLF001
 
 
-def test_describe_helper_reports_identity_and_source_search_indexing() -> None:
-    """Identity fields populate always; sources report `search_indexing_enabled`."""
-    connector = _DescribedConnector(search_indexing_enabled=False)
+def test_describe_helper_reports_identity_and_enabled_features() -> None:
+    """Identity fields populate always; `enabled_features` is sorted by value."""
+    connector = _DescribedConnector(
+        enabled_features=frozenset({
+            ConnectorFeature.DIRECT_API_QUERY,
+            ConnectorFeature.DIRECT_ACCESS,
+        })
+    )
 
     result = _describe(connector)
 
@@ -1033,18 +1037,21 @@ def test_describe_helper_reports_identity_and_source_search_indexing() -> None:
     assert result.connector_type == "source"
     assert result.connector_name == "GitHub"
     assert result.integration_name == "GitHub"
-    assert result.search_indexing_enabled is False
+    assert result.enabled_features == [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ]
     assert result.warnings == []
 
 
-def test_describe_helper_destination_search_indexing_is_none() -> None:
-    """Destinations are not search-indexed, so the flag reads `None`."""
+def test_describe_helper_destination_with_no_features() -> None:
+    """A connector with no enabled features reports an empty list."""
     connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
 
     result = _describe(connector)
 
     assert result.connector_type == "destination"
-    assert result.search_indexing_enabled is None
+    assert result.enabled_features == []
 
 
 def test_describe_helper_integration_name_failure_warns() -> None:
@@ -1060,7 +1067,9 @@ def test_describe_helper_integration_name_failure_warns() -> None:
 
 def test_describe_helper_collects_inspect_warnings() -> None:
     """Context Layer `inspect` failures and warnings land in `warnings`."""
-    connector = _DescribedConnector(external_access_enabled=True)
+    connector = _DescribedConnector(
+        enabled_features=frozenset({ConnectorFeature.DIRECT_ACCESS})
+    )
     connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
     connector.inspect_error = AirbyteError(message="inspect boom")
 
@@ -1071,7 +1080,9 @@ def test_describe_helper_collects_inspect_warnings() -> None:
 
 def test_describe_helper_extends_context_layer_warnings() -> None:
     """Warnings reported by a successful `inspect` are surfaced too."""
-    connector = _DescribedConnector(external_access_enabled=True)
+    connector = _DescribedConnector(
+        enabled_features=frozenset({ConnectorFeature.DIRECT_ACCESS})
+    )
     connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
     connector.inspect_result = SimpleNamespace(warnings=["Partial runtime metadata."])
 
@@ -1129,7 +1140,7 @@ def test_describe_helper_with_replication_details(
     )
     monkeypatch.setattr(
         cloud_mcp.connector_docs,
-        "build_connection_infos",
+        "build_connection_details",
         lambda _connector: [info],
     )
     connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
@@ -1147,7 +1158,7 @@ def test_describe_helper_replication_details_failure_warns(
     def fail(_connector: object) -> list[object]:
         raise AirbyteError(message="listing boom")
 
-    monkeypatch.setattr(cloud_mcp.connector_docs, "build_connection_infos", fail)
+    monkeypatch.setattr(cloud_mcp.connector_docs, "build_connection_details", fail)
     connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
 
     result = _describe(connector, with_replication_details=True)

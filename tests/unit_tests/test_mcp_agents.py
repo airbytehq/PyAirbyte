@@ -25,6 +25,7 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
 )
 from airbyte.cloud.client import CloudClient
+from airbyte.cloud.models import ConnectorFeature
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
@@ -475,7 +476,11 @@ def test_inspect_tool_reports_connector_details(
         connector_id = "connector-id"
         connector_type = SimpleNamespace(value="source")
         name = "GitHub"
-        external_access_enabled = True
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
         integration_name = "GitHub"
 
         def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
@@ -525,7 +530,10 @@ def _inspect_workspace_with_docs(
         connector_id = "connector-id"
         connector_type = SimpleNamespace(value="source")
         name = "GitHub"
-        external_access_enabled = True
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
 
         @property
         def integration_name(self) -> str:
@@ -631,7 +639,11 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
         connector_id = "connector-id"
         connector_type = SimpleNamespace(value="destination")
         name = "GitHub"
-        external_access_enabled = False
+        enabled_features = frozenset()
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
         integration_name = "GitHub"
 
         def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
@@ -719,7 +731,11 @@ def test_inspect_tool_warns_when_docs_read_times_out(
         connector_id = "connector-id"
         connector_type = SimpleNamespace(value="source")
         name = "GitHub"
-        external_access_enabled = True
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
         integration_name = "GitHub"
 
         def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
@@ -1806,10 +1822,13 @@ def _patch_destination_server_docs(
             self.connector_type = SimpleNamespace(value="destination")
             self.name = destination.name
             self.definition_id = destination.definition_id
-            self.external_access_enabled = False
+            self.enabled_features = frozenset()
             self.integration_name = _SQL_PASSTHROUGH_DESTINATION_NAMES.get(
                 destination.definition_id
             )
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
 
         def get_direct_access_guidance(self, **kwargs: Any) -> Any:  # noqa: ANN401
             return self._destination.get_direct_access_guidance(**kwargs)
@@ -2498,7 +2517,11 @@ def test_inspect_forwards_organization_id_to_cloud_workspace(
         connector_id = "connector-id"
         connector_type = SimpleNamespace(value="source")
         name = "GitHub"
-        external_access_enabled = True
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
         integration_name = "GitHub"
 
         def get_direct_access_guidance(self) -> Any:  # noqa: ANN401

@@ -1722,11 +1722,20 @@ def _patch_workspace_connectors(
             None,
             None,
             [
-                ("source-1", True, False),
-                ("source-2", True, False),
-                ("source-3", False, False),
-                ("snowflake", True, False),
-                ("postgres", False, False),
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                ("source-3", frozenset()),
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                ),
+                ("postgres", frozenset()),
             ],
             id="all",
         ),
@@ -1736,9 +1745,15 @@ def _patch_workspace_connectors(
             None,
             None,
             [
-                ("source-1", True, False),
-                ("source-2", True, False),
-                ("source-3", False, False),
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                ("source-3", frozenset()),
             ],
             id="sources",
         ),
@@ -1747,20 +1762,65 @@ def _patch_workspace_connectors(
             None,
             None,
             None,
-            [("snowflake", True, False), ("postgres", False, False)],
+            [
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                ),
+                ("postgres", frozenset()),
+            ],
             id="destinations",
         ),
         pytest.param(
             None,
-            ConnectorFeature.EXTERNAL_ACCESS,
+            ConnectorFeature.DIRECT_ACCESS,
             None,
             None,
             [
-                ("source-1", True, False),
-                ("source-2", True, False),
-                ("snowflake", True, False),
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                ),
             ],
-            id="external_access",
+            id="direct_access",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.DIRECT_API_QUERY,
+            None,
+            None,
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+            ],
+            id="direct_api_query",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.DIRECT_SQL_QUERY,
+            None,
+            None,
+            [
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                )
+            ],
+            id="direct_sql_query",
         ),
         pytest.param(
             None,
@@ -1772,10 +1832,19 @@ def _patch_workspace_connectors(
         ),
         pytest.param(
             None,
-            ConnectorFeature.EXTERNAL_ACCESS,
+            ConnectorFeature.DIRECT_ACCESS,
             None,
             2,
-            [("source-1", True, False), ("source-2", True, False)],
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+            ],
             id="limit_applies_after_feature_filter",
         ),
         pytest.param(
@@ -1783,7 +1852,12 @@ def _patch_workspace_connectors(
             None,
             "SALES",
             None,
-            [("source-2", True, False)],
+            [
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                )
+            ],
             id="name_contains_is_case_insensitive",
         ),
     ],
@@ -1794,7 +1868,7 @@ def test_cloud_workspace_list_connectors(
     with_feature: ConnectorFeature | None,
     name_contains: str | None,
     limit: int | None,
-    expected: list[tuple[str, bool, bool]],
+    expected: list[tuple[str, set[ConnectorFeature]]],
 ) -> None:
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
@@ -1810,10 +1884,7 @@ def test_cloud_workspace_list_connectors(
         limit=limit,
     )
 
-    assert [
-        (c.connector_id, c.external_access_enabled, c.search_indexing_enabled)
-        for c in connectors
-    ] == expected
+    assert [(c.connector_id, set(c.enabled_features)) for c in connectors] == expected
     assert all(
         isinstance(c, CloudSource if c.connector_type == "source" else CloudDestination)
         for c in connectors
@@ -1851,11 +1922,8 @@ def test_cloud_workspace_features_false_without_context_layer(
     assert workspace.external_access_enabled is False
     assert workspace.search_indexing_enabled is False
     assert len(connectors) == 5
-    assert not any(c.external_access_enabled for c in connectors)
-    assert not any(c.search_indexing_enabled for c in connectors)
-    assert (
-        workspace.list_connectors(with_feature=ConnectorFeature.EXTERNAL_ACCESS) == []
-    )
+    assert not any(c.enabled_features for c in connectors)
+    assert workspace.list_connectors(with_feature=ConnectorFeature.DIRECT_ACCESS) == []
     assert calls == {"list": 0, "workspace": 0}
 
 
@@ -1872,11 +1940,16 @@ def test_cloud_connector_features_resolve_lazily_and_cache(
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
 
     assert calls == {"list": 0, "workspace": 0}
-    assert source.external_access_enabled is True
-    assert source.search_indexing_enabled is False
+    assert source.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    })
+    assert not source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING)
     assert calls["list"] == 1
-    assert destination.external_access_enabled is True
-    assert destination.search_indexing_enabled is False
+    assert destination.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_SQL_QUERY,
+    })
     assert calls["workspace"] == 1
 
 
@@ -1890,7 +1963,7 @@ def test_cloud_destination_external_access_requires_enabled_workspace(
 
     assert workspace.external_access_enabled is False
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
-    assert destination.external_access_enabled is False
+    assert not destination.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
 
 
 @pytest.mark.parametrize(
@@ -1899,7 +1972,11 @@ def test_cloud_destination_external_access_requires_enabled_workspace(
         pytest.param(
             None,
             ["source-1", "source-2", "source-3"],
-            [(True, False), (True, False), (False, False)],
+            [
+                [ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY],
+                [ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY],
+                [],
+            ],
             id="no_filter",
         ),
         pytest.param(
@@ -1914,7 +1991,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
     monkeypatch: pytest.MonkeyPatch,
     with_feature: ConnectorFeature | None,
     expected_ids: list[str],
-    expected_flags: list[tuple[bool, bool]],
+    expected_flags: list[list[ConnectorFeature]],
 ) -> None:
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
@@ -1933,22 +2010,30 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
     )
 
     assert [result.id for result in results] == expected_ids
-    assert [
-        (result.external_access_enabled, result.search_indexing_enabled)
-        for result in results
-    ] == expected_flags
+    assert [result.enabled_features for result in results] == expected_flags
     assert all(result.url.endswith(f"/source/{result.id}") for result in results)
 
 
 @pytest.mark.parametrize(
     ("with_feature", "expected_ids", "expected_flags"),
     [
-        pytest.param(None, ["snowflake", "postgres"], [True, False], id="no_filter"),
         pytest.param(
-            ConnectorFeature.EXTERNAL_ACCESS,
+            None,
+            ["snowflake", "postgres"],
+            [[ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY], []],
+            id="no_filter",
+        ),
+        pytest.param(
+            ConnectorFeature.DIRECT_SQL_QUERY,
             ["snowflake"],
-            [True],
-            id="external_access",
+            [[ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY]],
+            id="direct_sql_query",
+        ),
+        pytest.param(
+            ConnectorFeature.DIRECT_ACCESS,
+            ["snowflake"],
+            [[ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY]],
+            id="direct_access",
         ),
         pytest.param(ConnectorFeature.SEARCH_INDEXING, [], [], id="search_indexing"),
     ],
@@ -1957,7 +2042,7 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
     monkeypatch: pytest.MonkeyPatch,
     with_feature: ConnectorFeature | None,
     expected_ids: list[str],
-    expected_flags: list[bool],
+    expected_flags: list[list[ConnectorFeature]],
 ) -> None:
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
@@ -1974,8 +2059,7 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
     )
 
     assert [result.id for result in results] == expected_ids
-    assert [result.external_access_enabled for result in results] == expected_flags
-    assert all(not hasattr(result, "search_indexing_enabled") for result in results)
+    assert [result.enabled_features for result in results] == expected_flags
 
 
 @pytest.mark.parametrize(
@@ -2346,8 +2430,8 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
     [
         pytest.param(None, "Verify the credentials", id="no_filter"),
         pytest.param(
-            ConnectorFeature.EXTERNAL_ACCESS,
-            "have `external_access` enabled",
+            ConnectorFeature.DIRECT_ACCESS,
+            "have `direct_access` enabled",
             id="feature_filter",
         ),
     ],
@@ -2431,11 +2515,11 @@ def test_cloud_organization_feature_flags(
     [
         pytest.param(None, None, ["disabled", "enabled"], id="no_filter"),
         pytest.param(
-            ConnectorFeature.EXTERNAL_ACCESS, None, ["enabled"], id="external_access"
+            ConnectorFeature.DIRECT_ACCESS, None, ["enabled"], id="external_access"
         ),
         pytest.param(ConnectorFeature.SEARCH_INDEXING, None, [], id="search_indexing"),
         pytest.param(
-            ConnectorFeature.EXTERNAL_ACCESS, 1, ["enabled"], id="limit_after_filter"
+            ConnectorFeature.DIRECT_ACCESS, 1, ["enabled"], id="limit_after_filter"
         ),
     ],
 )
@@ -2487,10 +2571,10 @@ def test_mcp_list_cloud_organizations_reports_feature_flags(
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
     result = mcp_cloud.list_cloud_organizations(
-        None, with_feature=ConnectorFeature.EXTERNAL_ACCESS
+        None, with_feature=ConnectorFeature.DIRECT_ACCESS
     )
 
-    assert captured["with_feature"] is ConnectorFeature.EXTERNAL_ACCESS
+    assert captured["with_feature"] is ConnectorFeature.DIRECT_ACCESS
     assert result.organizations[0].external_access_enabled is True
     assert result.organizations[0].search_indexing_enabled is False
 

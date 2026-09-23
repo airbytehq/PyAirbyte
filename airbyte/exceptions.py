@@ -593,7 +593,7 @@ class AirbyteExternalAccessNotEnabledError(PyAirbyteError):
     connector_id: str | None = None
     guidance: str | None = (
         "Direct actions require external access to be enabled for this connector in its "
-        "organization's Context Layer settings. Check `external_access_enabled` on the connector "
+        "organization's Context Layer settings. Check `enabled_features` on the connector "
         "and organization."
     )
 

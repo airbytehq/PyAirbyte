@@ -116,10 +116,10 @@ def _organization_has_feature(
     feature: ConnectorFeature,
 ) -> bool:
     """Return whether `feature` is enabled for `organization`."""
-    if feature == ConnectorFeature.EXTERNAL_ACCESS:
-        return organization.external_access_enabled
+    if feature == ConnectorFeature.SEARCH_INDEXING:
+        return organization.search_indexing_enabled
 
-    return organization.search_indexing_enabled
+    return organization.external_access_enabled
 
 
 @dataclass(init=False, kw_only=True)

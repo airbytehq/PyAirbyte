@@ -160,21 +160,32 @@ class CloudConnector:
         return self._enabled_features
 
     @property
-    def external_access_enabled(self) -> bool:
-        """Whether AI agents can use this connector through the Airbyte Context layer.
+    def enabled_features(self) -> frozenset[ConnectorFeature]:
+        """The features enabled for this connector. Resolved on first access and cached."""
+        return self._get_enabled_features()
 
-        Always `False` when the workspace's API root has no Context layer (for example,
-        self-managed deployments). Otherwise this may make API calls on first access.
+    def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+        """Whether `feature` is enabled for this connector.
+
+        Uses the cached feature set when available; otherwise makes only the lookup
+        needed to resolve `feature`.
         """
-        return ConnectorFeature.EXTERNAL_ACCESS in self._get_enabled_features()
-
-    @property
-    def search_indexing_enabled(self) -> bool:
-        """Whether Airbyte indexes this connector's data for fast search.
-
-        Search indexing has not launched yet, so this is always `False`.
-        """
-        return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
+        if self._enabled_features is not None:
+            return feature in self._enabled_features
+        if feature in {
+            ConnectorFeature.DIRECT_API_ACTION,
+            ConnectorFeature.SEARCH_INDEXING,
+        }:
+            return False
+        if (
+            feature == ConnectorFeature.DIRECT_SQL_QUERY
+            and self.connector_type == ConnectorType.SOURCE
+        ) or (
+            feature == ConnectorFeature.DIRECT_API_QUERY
+            and self.connector_type == ConnectorType.DESTINATION
+        ):
+            return False
+        return feature in self.enabled_features
 
     @property
     def name(self) -> str | None:
@@ -538,7 +549,7 @@ class CloudConnector:
             status_code = (error.context or {}).get("status_code")
             if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
                 try:
-                    enabled = self.external_access_enabled
+                    enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
                 except exc.AirbyteError:
                     raise error from None
                 if not enabled:
@@ -728,14 +739,6 @@ class CloudSource(CloudConnector):
         This is an alias for `connector_id`.
         """
         return self.connector_id
-
-    @property
-    def search_indexing_enabled(self) -> bool:
-        """Whether Airbyte indexes this connector's data for fast search.
-
-        Search indexing has not launched yet, so this is always `False`.
-        """
-        return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
 
     def _fetch_connector_info(self) -> CloudSourceInfo:
         """Populate the source with data from the API."""

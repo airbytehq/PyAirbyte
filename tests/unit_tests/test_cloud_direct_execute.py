@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import PropertyMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -105,12 +105,11 @@ def _seed_destination(
     return destination
 
 
-def _patch_external_access(*, enabled: bool) -> Any:
-    """Mock `CloudConnector.external_access_enabled` without hitting the API."""
+def _patch_direct_access(*, enabled: bool) -> Any:
+    """Mock `CloudConnector.is_feature_enabled` without hitting the API."""
     return patch.object(
         CloudConnector,
-        "external_access_enabled",
-        new_callable=PropertyMock,
+        "is_feature_enabled",
         return_value=enabled,
     )
 
@@ -240,7 +239,7 @@ def test_execute_direct_action_rejects_write_action_as_read_only(
 
 
 _FLAG_LOOKUP_ERROR: Any = object()
-"""Marker: the `external_access_enabled` lookup itself fails."""
+"""Marker: the feature lookup itself fails."""
 
 
 @pytest.mark.parametrize(
@@ -293,12 +292,11 @@ def test_execute_error_handling(
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     flag_patch = (
-        _patch_external_access(enabled=access_flag)
+        _patch_direct_access(enabled=access_flag)
         if isinstance(access_flag, bool)
         else patch.object(
             CloudConnector,
-            "external_access_enabled",
-            new_callable=PropertyMock,
+            "is_feature_enabled",
             side_effect=AirbyteError(context={"status_code": 500}),
         )
     )

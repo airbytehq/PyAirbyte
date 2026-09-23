@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,6 +23,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte.cloud.models import (
     CloudConnectionInfo,
+    ConnectorFeature,
     CloudDestinationInfo,
     CloudSourceInfo,
 )
@@ -375,3 +377,112 @@ def test_get_connector_keyword_id_makes_no_api_call(
 def test_schedule_description(schedule: Any, expected: str | None) -> None:
     """`_schedule_description` formats each schedule shape into a display string."""
     assert connector_docs._schedule_description(schedule) == expected  # noqa: SLF001
+
+
+def test_enabled_features_context_layer_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Context-Layer-enabled source reports `direct_access` and `direct_api_query`."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util, "list_agent_connectors", lambda **_: [{"id": "source-1"}]
+    )
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    assert source.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    })
+
+
+def test_enabled_features_sql_passthrough_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SQL passthrough destination reports `direct_access` and `direct_sql_query`."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util, "get_agent_workspace", lambda **_: {"id": "workspace-id"}
+    )
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+
+    assert destination.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_SQL_QUERY,
+    })
+
+
+def test_enabled_features_disabled_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A source outside the external-access set reports no features."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(agents_api_util, "list_agent_connectors", lambda **_: [])
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    assert source.enabled_features == frozenset()
+
+
+def test_is_feature_enabled_uses_cached_features(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A populated `_enabled_features` cache short-circuits workspace lookups."""
+    workspace = _make_workspace(monkeypatch)
+    get_features = MagicMock()
+    monkeypatch.setattr(CloudWorkspace, "_get_connector_features", get_features)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})  # noqa: SLF001
+
+    assert source.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+    assert not source.is_feature_enabled(ConnectorFeature.DIRECT_API_QUERY)
+    get_features.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "feature",
+    [ConnectorFeature.DIRECT_API_ACTION, ConnectorFeature.SEARCH_INDEXING],
+)
+def test_is_feature_enabled_never_enabled_features_short_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+    feature: ConnectorFeature,
+) -> None:
+    """Features no connector can report return `False` without a workspace call."""
+    workspace = _make_workspace(monkeypatch)
+    get_features = MagicMock()
+    monkeypatch.setattr(CloudWorkspace, "_get_connector_features", get_features)
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    assert source.is_feature_enabled(feature) is False
+    get_features.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("seed", "feature"),
+    [
+        pytest.param("source", ConnectorFeature.DIRECT_SQL_QUERY, id="sql_on_source"),
+        pytest.param(
+            "destination",
+            ConnectorFeature.DIRECT_API_QUERY,
+            id="api_query_on_destination",
+        ),
+    ],
+)
+def test_is_feature_enabled_wrong_connector_kind_short_circuits(
+    monkeypatch: pytest.MonkeyPatch,
+    seed: str,
+    feature: ConnectorFeature,
+) -> None:
+    """Kind-specific features return `False` on the wrong connector type, no call."""
+    workspace = _make_workspace(monkeypatch)
+    get_features = MagicMock()
+    monkeypatch.setattr(CloudWorkspace, "_get_connector_features", get_features)
+    connector = (
+        _seed_source(workspace, "source-1", "GitHub")
+        if seed == "source"
+        else _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    )
+
+    assert connector.is_feature_enabled(feature) is False
+    get_features.assert_not_called()

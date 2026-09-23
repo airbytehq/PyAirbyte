@@ -57,14 +57,28 @@ class _JobResponseLike(Protocol):
 class ConnectorFeature(StrEnum):
     """Optional capabilities a deployed Cloud connector may have enabled."""
 
-    EXTERNAL_ACCESS = "external_access"
-    """The connector can be used by AI agents through the Airbyte Context layer."""
+    DIRECT_ACCESS = "direct_access"
+    """AI agents can access this connector directly (a superset of the other features)."""
+
+    DIRECT_API_QUERY = "direct_api_query"
+    """Read-only queries against the connector's upstream API (`execute_api_query`)."""
+
+    DIRECT_API_ACTION = "direct_api_action"
+    """Write actions against the connector's upstream API (`execute_api_action`).
+
+    No connector reports this yet.
+    """
+
+    DIRECT_SQL_QUERY = "direct_sql_query"
+    """SQL queries against the destination (`execute_sql_query`).
+
+    SQL passthrough destinations only.
+    """
 
     SEARCH_INDEXING = "search_indexing"
-    """Airbyte indexes the connector's data for fast search.
+    """Airbyte indexes the connector's data for fast search. Sources only.
 
-    Distinct from any native search the connector itself may offer as a passthrough
-    operation.
+    Not launched yet. Distinct from any native search the connector itself offers.
     """
 
 
