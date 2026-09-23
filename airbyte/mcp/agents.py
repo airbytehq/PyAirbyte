@@ -31,17 +31,20 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
-from airbyte.agents._destination_docs import (
+from airbyte._direct_connectors.connector_docs import (
+    DESTINATION_SKILL_PREFIX,
+    LOCAL_DESTINATION_SECTION_IDS,
     SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     build_destination_connector_details,
     build_destination_skill_docs,
     connector_id_from_skill_id,
     destination_skill_id,
+    merge_destination_skill_docs,
 )
-from airbyte.agents._docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
-from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -681,7 +684,9 @@ def _inspect_destination_fallback(
         details = build_destination_connector_details(destination)
         warnings: list[str] = []
         try:
-            skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
+            skill_docs = _skill_docs_result(
+                _read_destination_skill_docs(agent_workspace, destination, None)
+            )
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
             docs_unavailable = f"Connector docs are unavailable: {detail}"
@@ -724,16 +729,42 @@ def _inspect_destination_fallback(
     )
 
 
+def _read_destination_skill_docs(
+    workspace: AgentWorkspace,
+    destination: CloudDestination,
+    section: str | None,
+) -> AgentSkillDocs:
+    """Read a SQL passthrough destination's docs, merging server docs with local guidance.
+
+    Local-only sections are built without calling the Agents API; otherwise server
+    docs are augmented with local guidance, and a 404 falls back to local docs.
+    """
+    if section in LOCAL_DESTINATION_SECTION_IDS:
+        return build_destination_skill_docs(destination, section=section)
+    skill_id = destination_skill_id(destination.connector_id)
+    try:
+        server_docs = workspace.read_skill_docs(skill_id, section=section)
+    except AirbyteError as error:
+        if _is_not_found(error):
+            return build_destination_skill_docs(destination, section=section)
+        raise
+    return merge_destination_skill_docs(server_docs, destination)
+
+
 def _destination_skill_docs_fallback(
     ctx: Context,
     skill_id: str,
     section: str | None,
     workspace_id: str | None = None,
+    *,
+    destination: CloudDestination | None = None,
+    destination_resolved: bool = False,
 ) -> AgentSkillDocsResult:
     """Build a skill docs result for a skill ID the Agents API returned 404 for."""
     connector_id = connector_id_from_skill_id(skill_id)
     resolved_workspace_id = _get_agent_workspace(ctx, workspace_id).workspace_id
-    destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
+    if not destination_resolved:
+        destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
     if (
         destination is not None
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
@@ -1478,7 +1509,8 @@ def read_agent_skill_docs(
                 "only a docs summary (`docs.content` plus `docs.guidance`); call "
                 "this tool with no `section` for the full section outline, or with "
                 "`section` for one section's full detail. SQL passthrough destinations "
-                "use `connector-destination:<destination_id>`."
+                "use `connector-destination:<destination_id>` and merge the server docs "
+                "with built-in `sql_select` guidance."
             ),
         ),
     ],
@@ -1507,11 +1539,43 @@ def read_agent_skill_docs(
     sections, which is the cheapest way to orient before reading a specific section.
     """
     workspace = _get_agent_workspace(ctx, workspace_id)
+    destination: CloudDestination | None = None
+    destination_resolved = False
+    if skill_id.startswith(DESTINATION_SKILL_PREFIX):
+        destination_resolved = True
+        destination = _resolve_cloud_destination(
+            ctx, connector_id_from_skill_id(skill_id), workspace_id
+        )
+        if (
+            destination is not None
+            and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        ):
+            try:
+                docs = _read_destination_skill_docs(workspace, destination, section)
+            except AirbyteError as error:
+                message = _agents_access_message(error)
+                if message is None:
+                    raise
+                return AgentSkillDocsResult(
+                    skill_id=skill_id,
+                    section_id=section,
+                    outline=[],
+                    content="",
+                    errors=[message],
+                )
+            return _skill_docs_result(docs)
     try:
         docs = workspace.read_skill_docs(skill_id, section=section)
     except AirbyteError as error:
         if _is_not_found(error):
-            return _destination_skill_docs_fallback(ctx, skill_id, section, workspace_id)
+            return _destination_skill_docs_fallback(
+                ctx,
+                skill_id,
+                section,
+                workspace_id,
+                destination=destination,
+                destination_resolved=destination_resolved,
+            )
         message = _agents_access_message(error)
         if message is None:
             raise

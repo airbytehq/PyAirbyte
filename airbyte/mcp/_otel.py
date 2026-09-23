@@ -26,7 +26,7 @@ from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerPr
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, Status
 
-from airbyte.agents._api_util import _AGENTS_API_ROOT
+from airbyte._direct_connectors.api_util import _AGENTS_API_ROOT
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
@@ -70,7 +70,7 @@ _INTENT_SCHEMA = {
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _UUID_RE = re.compile(rf"\A{_UUID_PATTERN}\Z")
 # Only literal routes and validated IDs may survive export. Keep these aligned with
-# _util/api_util.py, agents/_api_util.py and their Public API SDK calls. Unknown
+# _util/api_util.py, _direct_connectors/api_util.py and their Public API SDK calls. Unknown
 # routes (including registry and custom API roots) retain status, but redact the URL.
 _SAFE_HTTP_URL = re.compile(
     rf"{re.escape(CLOUD_API_ROOT)}/(?:"

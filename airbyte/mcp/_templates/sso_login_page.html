@@ -1,0 +1,61 @@
+{#- Identifier-entry page for SSO realm login. Rendered by airbyte.mcp._sso_login_page
+    with autoescaping on; every value below comes from the OAuth transaction or the
+    user's previous input. Both forms post back to the current URL, like FastMCP's
+    consent page, so a path-stripping load balancer cannot break the action. -#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="{{ csp_policy }}">
+  <title>{{ title }}</title>
+  <style>
+{{ styles | safe }}
+  </style>
+</head>
+<body>
+  <main class="container">
+    <span class="badge">Airbyte MCP</span>
+    <h1>{{ title }}</h1>
+    <p class="lead">
+      <strong>{{ client_name }}</strong> wants to use Airbyte Cloud through this MCP server.
+      Choose how you sign in.
+    </p>
+    <div class="client">
+      <strong>After signing in you will return to</strong>
+      {{ client_redirect_uri }}
+    </div>
+
+    {% if error_message %}
+    <div class="error" role="alert">{{ error_message }}</div>
+    {% endif %}
+
+    <form method="POST" action="" class="option">
+      <input type="hidden" name="txn_id" value="{{ txn_id }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="choice" value="{{ choice_default }}">
+      <h2>Airbyte Cloud account</h2>
+      <p>Email and password, Google, or GitHub.</p>
+      <button type="submit" class="btn-primary">Continue with Airbyte Cloud</button>
+    </form>
+
+    <div class="divider">or</div>
+
+    <form method="POST" action="" class="option">
+      <input type="hidden" name="txn_id" value="{{ txn_id }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="choice" value="{{ choice_sso }}">
+      <h2>Single sign-on</h2>
+      <p>Use the company identifier your organization set up for SSO.</p>
+      <label for="company_identifier">Company identifier</label>
+      <input type="text" id="company_identifier" name="company_identifier"
+             value="{{ company_identifier }}"
+             autocomplete="organization" autocapitalize="none" spellcheck="false"
+             maxlength="{{ identifier_max_length }}" required>
+      <button type="submit" class="btn-secondary">Sign in with SSO</button>
+    </form>
+
+    <p class="foot">Not you? Close this window and the connection will not be authorized.</p>
+  </main>
+</body>
+</html>

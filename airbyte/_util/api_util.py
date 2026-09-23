@@ -844,12 +844,20 @@ def run_connection(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.jobs.create_job(
-        models.JobCreateRequest(
+    try:
+        response = airbyte_instance.jobs.create_job(
+            models.JobCreateRequest(
+                connection_id=connection_id,
+                job_type=models.JobTypeEnum.SYNC,
+            ),
+        )
+    except SDKError as e:
+        raise AirbyteConnectionSyncError(
             connection_id=connection_id,
-            job_type=models.JobTypeEnum.SYNC,
-        ),
-    )
+            message=f"API error occurred: {e.message}",
+            context={"workspace_id": workspace_id, **_get_sdk_error_context(e)},
+        ) from e
+
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 

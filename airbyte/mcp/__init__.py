@@ -165,6 +165,17 @@ Set `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and
 a browser (Keycloak Authorization Code + PKCE) and the resulting token is
 verified by the server. No bearer token to manage by hand.
 
+**SSO customers.** Airbyte Cloud SSO customers sign in through their own Keycloak
+realm, named after their company identifier. When the deployment also sets
+`AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE`, every interactive login first shows a
+small page served by the MCP server at `/auth/login` with two choices: continue
+with a regular Airbyte Cloud account, or type the company identifier (the same
+one used on the Cloud webapp's `/sso` page) to sign in with SSO. The server then
+runs the same Authorization Code + PKCE flow against that realm, and the token it
+verifies and forwards to the Cloud API is an SSO-realm token. This requires the
+deployment's OIDC client to exist, with the same client id, secret, and callback
+URL, in every SSO realm; Airbyte Cloud provisions that automatically.
+
 ### Machines / agents → headless bearer token
 
 There is **no** transport mode that accepts a raw `client_id` + `client_secret`
@@ -224,6 +235,13 @@ set; the interactive path activates once the OIDC client credentials are set.
 - `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY` — optional `"package.module:callable"`
   naming a durable OAuth-state store factory for the interactive proxy (defaults
   to in-memory).
+- `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` — optional; enables SSO realm login.
+  The default realm's discovery URL with the realm name replaced by `{realm}`,
+  e.g. `https://cloud.airbyte.com/auth/realms/{realm}/.well-known/openid-configuration`.
+  Requires the interactive OIDC vars above.
+- `AIRBYTE_MCP_SSO_IDP_HINT` — optional identity-provider alias forwarded as
+  Keycloak's `kc_idp_hint` on SSO logins (`default` on Airbyte Cloud), so the
+  realm hands straight off to the customer IdP.
 - `AIRBYTE_MCP_AUTH_JWKS_URI` / `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or
   static public key for verifying headless tokens (one activates the verifier).
 - `AIRBYTE_MCP_AUTH_ISSUER` / `AIRBYTE_MCP_AUTH_AUDIENCE` /

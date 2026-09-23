@@ -8,14 +8,16 @@ from typing import Any, cast
 
 import pytest
 import requests
-from airbyte.agents import _api_util
-from airbyte.agents import _destination_docs as destination_docs
+from airbyte._direct_connectors import api_util as _api_util
+from airbyte._direct_connectors import connector_docs as destination_docs
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
+    AgentSkillDocs,
     AgentSkillInfo,
+    AgentSkillSection,
 )
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.skills import AgentSkill
@@ -1728,3 +1730,49 @@ def test_build_destination_skill_docs_rejects_unknown_section() -> None:
             cast(Any, destination),
             section="bogus",
         )
+
+
+def test_merge_destination_skill_docs() -> None:
+    """Server docs keep their metadata; local sections dedupe and overview prepends."""
+    destination = _snowflake_destination(
+        fail_on_connections=True,
+        configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
+    )
+    server_docs = AgentSkillDocs(
+        metadata=AgentSkillInfo(
+            id="connector-destination:dest-1",
+            kind="connector_destination",
+            title="Server title",
+        ),
+        outline=[
+            AgentSkillSection(id="overview", title="Server overview"),
+            AgentSkillSection(
+                id=destination_docs.SECTION_SQL_PASSTHROUGH,
+                title="Server sql-passthrough",
+            ),
+        ],
+        content=[{"type": "paragraph", "text": "Server overview text"}],
+    )
+
+    merged = destination_docs.merge_destination_skill_docs(
+        server_docs, cast(Any, destination)
+    )
+
+    assert merged.metadata.title == "Server title"
+    outline_ids = [section.id for section in merged.outline]
+    assert outline_ids.count(destination_docs.SECTION_SQL_PASSTHROUGH) == 1
+    assert outline_ids == [
+        "overview",
+        destination_docs.SECTION_SQL_PASSTHROUGH,
+        destination_docs.SECTION_CONNECTIONS,
+        destination_docs.SECTION_STREAMS,
+    ]
+    assert merged.content[-1] == {"type": "paragraph", "text": "Server overview text"}
+    assert '"sql_dialect": "snowflake"' in str(merged.content[0])
+    assert "SHOW TABLES" in str(merged.content[:-1])
+
+    server_section_docs = server_docs.model_copy(update={"section_id": "sources.src-1"})
+    merged_section = destination_docs.merge_destination_skill_docs(
+        server_section_docs, cast(Any, destination)
+    )
+    assert merged_section.content == server_docs.content

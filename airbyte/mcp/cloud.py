@@ -2463,6 +2463,14 @@ def permanently_delete_cloud_source(
         str,
         Field(description="The expected name of the source (for verification)."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a deployed source connector from Airbyte Cloud.
 
@@ -2477,7 +2485,7 @@ def permanently_delete_cloud_source(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(source_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
     actual_name: str = cast(str, source.name)
 
@@ -2519,6 +2527,14 @@ def permanently_delete_cloud_destination(
         str,
         Field(description="The expected name of the destination (for verification)."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a deployed destination connector from Airbyte Cloud.
 
@@ -2533,7 +2549,7 @@ def permanently_delete_cloud_destination(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
     actual_name: str = cast(str, destination.name)
 
@@ -2594,6 +2610,13 @@ def permanently_delete_cloud_connection(
             default=False,
         ),
     ] = False,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a connection from Airbyte Cloud.
 
@@ -2608,7 +2631,7 @@ def permanently_delete_cloud_connection(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     actual_name: str = cast(str, connection.name)
 
@@ -2953,10 +2976,16 @@ def update_cloud_connection(
         str | None,
         Field(
             description=(
-                "A cron expression defining when syncs should run. "
-                "Examples: '0 0 * * *' (daily at midnight UTC), "
-                "'0 */6 * * *' (every 6 hours), "
-                "'0 0 * * 0' (weekly on Sunday at midnight UTC). "
+                "A Quartz cron expression defining when syncs should run. "
+                "Must have 6 or 7 space-separated fields "
+                "(seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are rejected by the API, and schedules may run at most "
+                "once per hour (seconds and minutes cannot be '*'). "
+                "Examples: '0 0 0 * * ?' (daily at midnight UTC), "
+                "'0 0 */6 * * ?' (every 6 hours), "
+                "'0 0 0 ? * SUN' (weekly on Sunday at midnight UTC), "
+                "'0 0 9 ? * MON-FRI US/Pacific' (weekdays at 9am Pacific). "
                 "Leave unset to keep the current schedule. "
                 "Cannot be used together with 'manual_schedule'."
             ),

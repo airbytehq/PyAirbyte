@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
-from airbyte.agents import _api_util
-from airbyte.agents.models import AgentWorkspaceInfo
+from airbyte._direct_connectors import api_util as _api_util
+from airbyte._direct_connectors.models import AgentWorkspaceInfo
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.organizations import CloudOrganization

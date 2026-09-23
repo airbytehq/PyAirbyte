@@ -13,6 +13,7 @@ assembly lives in `fastmcp-extensions` and is tested there.
 
 from __future__ import annotations
 
+import functools
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,12 @@ from airbyte.mcp import _client_credentials as client_credentials
 from airbyte.mcp import _otel
 from airbyte.mcp import http_main
 from airbyte.mcp import server
+from airbyte.mcp._sso_auth import (
+    AirbyteSsoOidcProxy,
+    InvalidRealmIdentifierError,
+    SsoRealmConfig,
+    validate_realm_identifier,
+)
 from airbyte.mcp._transport_security import HostOriginGuardMiddleware
 
 
@@ -37,6 +44,8 @@ _ALL_AUTH_ENV = (
     server.OIDC_CLIENT_SECRET_ENV,
     server.OIDC_CONFIG_URL_ENV,
     server.OIDC_CLIENT_STORAGE_FACTORY_ENV,
+    server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV,
+    server.SSO_IDP_HINT_ENV,
     server.JWKS_URI_ENV,
     server.JWT_PUBLIC_KEY_ENV,
     server.JWT_ISSUER_ENV,
@@ -73,6 +82,11 @@ def test_auth_env_names_are_branded() -> None:
         server.OIDC_CLIENT_STORAGE_FACTORY_ENV
         == "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
     )
+    assert (
+        server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV
+        == "AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE"
+    )
+    assert server.SSO_IDP_HINT_ENV == "AIRBYTE_MCP_SSO_IDP_HINT"
     assert server.JWKS_URI_ENV == "AIRBYTE_MCP_AUTH_JWKS_URI"
     assert server.JWT_PUBLIC_KEY_ENV == "AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY"
     assert server.JWT_ISSUER_ENV == "AIRBYTE_MCP_AUTH_ISSUER"
@@ -457,3 +471,135 @@ def test_create_auth_injects_resolved_storage_on_oidc(monkeypatch: MonkeyPatch) 
     assert oidc.client_storage is _SENTINEL_STORE
     # The OIDC client secret is the encryption source material.
     assert _STORAGE_FACTORY_CALLS == ["csecret"]
+
+
+_SSO_TEMPLATE = (
+    "https://kc.example/auth/realms/{realm}/.well-known/openid-configuration"
+)
+
+
+def _set_interactive_oidc_env(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+
+
+def test_create_auth_without_sso_template_builds_stock_proxy(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """No template means no `proxy_factory`, so `build_mcp_auth` uses `OIDCProxy` itself."""
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["oidc"].proxy_factory is None
+
+
+def test_create_auth_blank_sso_template_is_unset(monkeypatch: MonkeyPatch) -> None:
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, "   ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["oidc"].proxy_factory is None
+
+
+def test_create_auth_sso_template_installs_realm_proxy_factory(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The template swaps in `AirbyteSsoOidcProxy` with the env-derived realm config."""
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, f"  {_SSO_TEMPLATE}  ")
+    monkeypatch.setenv(server.SSO_IDP_HINT_ENV, " default ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    factory = oidc.proxy_factory
+    assert isinstance(factory, functools.partial)
+    assert factory.func is AirbyteSsoOidcProxy
+    config = factory.keywords["sso_config"]
+    assert isinstance(config, SsoRealmConfig)
+    assert config.discovery_url_template == _SSO_TEMPLATE
+    assert config.idp_hint == "default"
+    assert config.reserved_realms == server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS
+    # Everything else on the interactive path is unchanged by SSO.
+    assert oidc.client_id == "cid"
+    assert oidc.require_authorization_consent == "external"
+    assert oidc.extra_authorize_params == {"prompt": "consent"}
+
+
+def test_create_auth_sso_idp_hint_is_optional(monkeypatch: MonkeyPatch) -> None:
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, _SSO_TEMPLATE)
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["oidc"].proxy_factory.keywords["sso_config"].idp_hint is None
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        pytest.param(
+            "https://kc.example/auth/realms/acme/.well-known/openid-configuration",
+            id="no-placeholder",
+        ),
+        pytest.param(
+            "https://kc.example/auth/realms/{realm}/{realm}/.well-known/openid-configuration",
+            id="two-placeholders",
+        ),
+        pytest.param(
+            "https://kc.example/auth/realms/x-{realm}/.well-known/openid-configuration",
+            id="partial-segment",
+        ),
+        pytest.param("https://kc.example/auth/realms/{realm}", id="missing-suffix"),
+        pytest.param(
+            "http://kc.example/auth/realms/{realm}/.well-known/openid-configuration",
+            id="plain-http",
+        ),
+    ],
+)
+def test_create_auth_rejects_malformed_sso_template(
+    monkeypatch: MonkeyPatch, template: str
+) -> None:
+    """A malformed template fails at startup, naming the env var."""
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, template)
+    with pytest.raises(ValueError, match=server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV):
+        server._create_auth()
+
+
+def test_create_auth_sso_template_requires_interactive_oidc(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """SSO extends the interactive path; a template alone is a misconfiguration."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, _SSO_TEMPLATE)
+    with pytest.raises(ValueError, match=server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV):
+        server._create_auth()
+
+
+def test_reserved_sso_realms_exclude_airbyte() -> None:
+    """`airbyte` is an ordinary customer realm; only internal realms and `master` are reserved."""
+    assert "airbyte" not in server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS
+    assert server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS == {"master"}
+    config = SsoRealmConfig(
+        discovery_url_template=_SSO_TEMPLATE,
+        reserved_realms=server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS,
+    )
+    default_issuer = "https://kc.example/auth/realms/_airbyte-cloud-users"
+    assert (
+        validate_realm_identifier(
+            "airbyte", config=config, default_issuer=default_issuer
+        )
+        == "airbyte"
+    )
+    # Internal realms are excluded by their `_` prefix, not by the reserved list.
+    with pytest.raises(InvalidRealmIdentifierError):
+        validate_realm_identifier(
+            "_airbyte-internal", config=config, default_issuer=default_issuer
+        )

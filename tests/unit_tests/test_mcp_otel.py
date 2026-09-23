@@ -30,7 +30,7 @@ from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
 
-from airbyte.agents import _api_util as agents_api
+from airbyte._direct_connectors import api_util as agents_api
 from airbyte.agents.connectors import AgentConnector
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.mcp import _otel as observability
