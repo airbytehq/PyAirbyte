@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors import api_util as _api_util
-from airbyte._direct_connectors import skills as _skills
 from airbyte._direct_connectors.models import AgentSkillDocs, AgentSkillInfo, AgentSkillList
 
 
@@ -111,9 +110,18 @@ def _iter_skill_pages(
 ) -> Iterator[AgentSkillInfo]:
     """Yield skills across pages, following `next_cursor` until it is `None`.
 
-    Deprecated alias for `airbyte._direct_connectors.skills.iter_skill_pages`.
+    Stops early if the server returns a blank cursor or one already seen, rather than
+    requesting the same page forever.
     """
-    return _skills.iter_skill_pages(fetch_page)
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = fetch_page(cursor)
+        yield from page.data
+        cursor = page.next_cursor
+        if cursor is None or not cursor.strip() or cursor in seen_cursors:
+            return
+        seen_cursors.add(cursor)
 
 
 def iter_skills(
@@ -126,7 +134,13 @@ def iter_skills(
     This is the pagination-free way to list skills: each page is fetched lazily as the
     caller iterates, so no cursor bookkeeping is needed.
     """
-    return _skills.iter_skill_infos(
-        credentials=credentials,
-        workspace_id=workspace_id,
+    return _iter_skill_pages(
+        lambda cursor: AgentSkillList.model_validate(
+            _api_util.list_agent_skills(
+                credentials=credentials,
+                organization_id=credentials.organization_id,
+                workspace_id=workspace_id,
+                cursor=cursor,
+            )
+        )
     )

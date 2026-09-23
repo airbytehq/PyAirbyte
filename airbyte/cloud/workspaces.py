@@ -46,12 +46,12 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
-from airbyte._direct_connectors import skills as agents_skills
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     AgentConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceInfo,
+    DirectAccessGuidanceList,
 )
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
@@ -567,16 +567,28 @@ class CloudWorkspace:
     def _list_guidance(self) -> list[DirectAccessGuidanceInfo]:
         """List the direct-access guidance available to this workspace.
 
-        Requires a Context Layer API for the workspace's API roots (public Airbyte Cloud,
-        or `AIRBYTE_AGENTS_API_URL` for custom deployments).
+        Follows the API's `next_cursor` so the full list is returned regardless of the
+        server's page size. Requires a Context Layer API for the workspace's API roots
+        (public Airbyte Cloud, or `AIRBYTE_AGENTS_API_URL` for custom deployments).
         """
-        return list(
-            agents_skills.iter_skill_infos(
-                credentials=self._credentials,
-                workspace_id=self.workspace_id,
-                organization_id=self._resolve_agents_organization_id(),
+        organization_id = self._resolve_agents_organization_id()
+        infos: list[DirectAccessGuidanceInfo] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            page = DirectAccessGuidanceList.model_validate(
+                agents_api_util.list_agent_skills(
+                    credentials=self._credentials,
+                    organization_id=organization_id,
+                    workspace_id=self.workspace_id,
+                    cursor=cursor,
+                )
             )
-        )
+            infos.extend(page.data)
+            cursor = page.next_cursor
+            if cursor is None or not cursor.strip() or cursor in seen_cursors:
+                return infos
+            seen_cursors.add(cursor)
 
     def _get_guidance(self, skill_id: str) -> DirectAccessGuidance:
         """Get direct-access guidance by skill ID."""
