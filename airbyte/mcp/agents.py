@@ -32,10 +32,13 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte.agents._destination_docs import (
+    DESTINATION_SKILL_PREFIX,
+    LOCAL_DESTINATION_SECTION_IDS,
     build_destination_connector_details,
     build_destination_skill_docs,
     connector_id_from_skill_id,
     destination_skill_id,
+    merge_destination_skill_docs,
 )
 from airbyte.agents._docs_markdown import render_docs_content_markdown
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
@@ -111,6 +114,9 @@ LIST_WORKSPACES_ORGANIZATION_ID_TIP_TEXT = (
 AGENTS_ACCESS_DENIED_STATUS = "access_denied"
 """The `status` reported when the Agents API refused the request."""
 
+AGENTS_EXECUTION_FAILED_STATUS = "error"
+"""The `status` reported when the Agents API rejected an action request."""
+
 AGENTS_UNAUTHORIZED_MESSAGE = (
     "The Airbyte Agents API rejected these credentials. Verify the Airbyte Cloud "
     "credentials, or ask the user for valid ones."
@@ -145,7 +151,8 @@ AGENTS_ENABLE_ACTOR_GUIDANCE = (
 )
 AGENTS_DESTINATION_ACCESS_NOTE = (
     'Query with `execute_agent_connector_ro` and `action="sql_select"` only; `inspect` returns '
-    "built-in docs and `SHOW TABLES` / `DESCRIBE TABLE` discover tables and columns. If "
+    "built-in docs; `SHOW TABLES` lists tables and "
+    '`SELECT * FROM <table> LIMIT 1` with `"dry_run": true` returns columns. If '
     "`sql_select` returns `access_denied`, an organization admin must enable the destination "
     "in Airbyte Cloud under Settings -> Context layer (workspace -> Destinations toggle)."
 )
@@ -412,7 +419,7 @@ class AgentExecuteToolResult(BaseModel):
     """A warning reported alongside an otherwise successful result."""
 
     message: str | None = None
-    """Why the action did not run, when the Agents API denied the request."""
+    """Why the action did not run, when the Agents API denied or rejected the request."""
 
 
 def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
@@ -484,6 +491,51 @@ def _agents_error_detail(response_text: object) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _sql_error_guidance(detail: str) -> str | None:
+    """Return actionable guidance for a known SQL execution error."""
+    normalized_detail = detail.casefold()
+    if "000904" in normalized_detail or "invalid identifier" in normalized_detail:
+        return (
+            "Snowflake identifiers are upper-cased by Airbyte and double-quoted identifiers "
+            "are case-sensitive; write column names unquoted (or upper-cased), or run "
+            '`SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real columns.'
+        )
+    if "002003" in normalized_detail or "does not exist or not authorized" in normalized_detail:
+        return (
+            "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
+            "in another schema as `<database>.<schema>.<table>`."
+        )
+    if "unrecognized name" in normalized_detail:
+        return (
+            'Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` to list the real '
+            "columns, then use one of the listed column names in the query."
+        )
+    if "not found: table" in normalized_detail or "not found: dataset" in normalized_detail:
+        return (
+            "Run `SHOW TABLES` to list the tables this destination exposes, and qualify tables "
+            "in another dataset as `<project>.<dataset>.<table>` (backticked)."
+        )
+    return None
+
+
+def _agents_execution_failure_message(
+    error: AirbyteError,
+    action: AgentAction,
+) -> str | None:
+    """Return a concise explanation for a rejected Agents API action request."""
+    context = error.context or {}
+    if context.get("status_code") not in {
+        HTTPStatus.BAD_REQUEST,
+        HTTPStatus.UNPROCESSABLE_ENTITY,
+    }:
+        return None
+    detail = _agents_error_detail(context.get("response_text"))
+    if detail is None:
+        return None
+    guidance = _sql_error_guidance(detail) if action == AgentReadAction.SQL_SELECT else None
+    return f"{detail} {guidance}" if guidance is not None else detail
 
 
 def _is_not_found(error: AirbyteError) -> bool:
@@ -634,7 +686,9 @@ def _inspect_destination_fallback(
         details = build_destination_connector_details(destination)
         warnings: list[str] = []
         try:
-            skill_docs = _skill_docs_result(build_destination_skill_docs(destination))
+            skill_docs = _skill_docs_result(
+                _read_destination_skill_docs(agent_workspace, destination, None)
+            )
         except (AirbyteError, requests.RequestException) as error:
             detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
             docs_unavailable = f"Connector docs are unavailable: {detail}"
@@ -677,16 +731,42 @@ def _inspect_destination_fallback(
     )
 
 
+def _read_destination_skill_docs(
+    workspace: AgentWorkspace,
+    destination: CloudDestination,
+    section: str | None,
+) -> AgentSkillDocs:
+    """Read a SQL passthrough destination's docs, merging server docs with local guidance.
+
+    Local-only sections are built without calling the Agents API; otherwise server
+    docs are augmented with local guidance, and a 404 falls back to local docs.
+    """
+    if section in LOCAL_DESTINATION_SECTION_IDS:
+        return build_destination_skill_docs(destination, section=section)
+    skill_id = destination_skill_id(destination.connector_id)
+    try:
+        server_docs = workspace.read_skill_docs(skill_id, section=section)
+    except AirbyteError as error:
+        if _is_not_found(error):
+            return build_destination_skill_docs(destination, section=section)
+        raise
+    return merge_destination_skill_docs(server_docs, destination)
+
+
 def _destination_skill_docs_fallback(
     ctx: Context,
     skill_id: str,
     section: str | None,
     workspace_id: str | None = None,
+    *,
+    destination: CloudDestination | None = None,
+    destination_resolved: bool = False,
 ) -> AgentSkillDocsResult:
     """Build a skill docs result for a skill ID the Agents API returned 404 for."""
     connector_id = connector_id_from_skill_id(skill_id)
     resolved_workspace_id = _get_agent_workspace(ctx, workspace_id).workspace_id
-    destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
+    if not destination_resolved:
+        destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
     if (
         destination is not None
         and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
@@ -835,12 +915,18 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
         )
     except AirbyteError as error:
         message = _agents_access_message(error)
-        if message is None:
-            raise
-        return AgentExecuteToolResult(
-            status=AGENTS_ACCESS_DENIED_STATUS,
-            message=message,
-        )
+        if message is not None:
+            return AgentExecuteToolResult(
+                status=AGENTS_ACCESS_DENIED_STATUS,
+                message=message,
+            )
+        message = _agents_execution_failure_message(error, action)
+        if message is not None:
+            return AgentExecuteToolResult(
+                status=AGENTS_EXECUTION_FAILED_STATUS,
+                message=message,
+            )
+        raise
 
     return AgentExecuteToolResult(
         status=result.status,
@@ -1111,8 +1197,11 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
                 "and `list`. "
                 "For `sql_select`, pass `sql` and `sql_dialect` (snowflake or bigquery) in "
                 "`api_args` and any value for `entity_type`; the `connector_id` is a "
-                "destination listed by `list_agent_connectors`, and `SHOW TABLES` / `DESCRIBE "
-                "TABLE <name>` discover its tables and columns. The `download` action "
+                "destination listed by `list_agent_connectors`; `SHOW TABLES` lists its tables "
+                'and `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` '
+                "returns its columns without reading rows; never guess columns. On Snowflake, "
+                "write identifiers unquoted unless discovery returned mixed case. The `download` "
+                "action "
                 "is deliberately absent because it returns a binary stream rather than JSON."
             ),
         ),
@@ -1194,9 +1283,16 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
     are connector-specific, so call `inspect_agent_connector` first. The connector must
     belong to the given workspace.
 
-    To query a destination, use `action="sql_select"` with the destination's `connector_id`
-    and `sql_dialect` as reported by `list_agent_connectors`. Start with `SHOW TABLES` and
-    `DESCRIBE TABLE <name>` to discover tables and columns before selecting data.
+    To query a destination:
+    1. Run `SHOW TABLES` to discover tables.
+    2. Run `SELECT * FROM <table> LIMIT 1` with `"dry_run": true` in `api_args` to get the
+       real column names; never guess them.
+    3. Select data using the discovered names.
+
+    Use the destination's `connector_id` and `sql_dialect` as reported by
+    `list_agent_connectors`. On Snowflake, identifiers are upper-cased; write them unquoted
+    (double-quoting makes them case-sensitive). Quote a name only when discovery returns it in
+    mixed or lower case, exactly as returned.
     """
     return _execute(
         ctx,
@@ -1415,7 +1511,8 @@ def read_agent_skill_docs(
                 "only a docs summary (`docs.content` plus `docs.guidance`); call "
                 "this tool with no `section` for the full section outline, or with "
                 "`section` for one section's full detail. SQL passthrough destinations "
-                "use `connector-destination:<destination_id>`."
+                "use `connector-destination:<destination_id>` and merge the server docs "
+                "with built-in `sql_select` guidance."
             ),
         ),
     ],
@@ -1444,11 +1541,43 @@ def read_agent_skill_docs(
     sections, which is the cheapest way to orient before reading a specific section.
     """
     workspace = _get_agent_workspace(ctx, workspace_id)
+    destination: CloudDestination | None = None
+    destination_resolved = False
+    if skill_id.startswith(DESTINATION_SKILL_PREFIX):
+        destination_resolved = True
+        destination = _resolve_cloud_destination(
+            ctx, connector_id_from_skill_id(skill_id), workspace_id
+        )
+        if (
+            destination is not None
+            and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        ):
+            try:
+                docs = _read_destination_skill_docs(workspace, destination, section)
+            except AirbyteError as error:
+                message = _agents_access_message(error)
+                if message is None:
+                    raise
+                return AgentSkillDocsResult(
+                    skill_id=skill_id,
+                    section_id=section,
+                    outline=[],
+                    content="",
+                    errors=[message],
+                )
+            return _skill_docs_result(docs)
     try:
         docs = workspace.read_skill_docs(skill_id, section=section)
     except AirbyteError as error:
         if _is_not_found(error):
-            return _destination_skill_docs_fallback(ctx, skill_id, section, workspace_id)
+            return _destination_skill_docs_fallback(
+                ctx,
+                skill_id,
+                section,
+                workspace_id,
+                destination=destination,
+                destination_resolved=destination_resolved,
+            )
         message = _agents_access_message(error)
         if message is None:
             raise

@@ -828,6 +828,119 @@ def test_forbidden_message_surfaces_api_detail(
     assert message == expected_message
 
 
+@pytest.mark.parametrize(
+    ("detail", "expected_guidance"),
+    [
+        pytest.param(
+            "Snowflake reported an error (000904): invalid identifier",
+            "Snowflake identifiers are upper-cased by Airbyte",
+            id="snowflake_invalid_identifier",
+        ),
+        pytest.param(
+            "002003: Object does not exist or not authorized",
+            "Run `SHOW TABLES` to list the tables this destination exposes",
+            id="snowflake_missing_table",
+        ),
+        pytest.param(
+            "Unrecognized name: userId",
+            "then use one of the listed column names in the query",
+            id="bigquery_invalid_identifier",
+        ),
+        pytest.param(
+            "Not found: Table project.dataset.calls",
+            "qualify tables in another dataset",
+            id="bigquery_missing_table",
+        ),
+        pytest.param(
+            "Some unrelated SQL error",
+            None,
+            id="unknown",
+        ),
+    ],
+)
+def test_sql_error_guidance(detail: str, expected_guidance: str | None) -> None:
+    """Verify known SQL errors get targeted guidance."""
+    guidance = agents_mcp._sql_error_guidance(detail)  # noqa: SLF001
+
+    if expected_guidance is None:
+        assert guidance is None
+    else:
+        assert guidance is not None
+        assert expected_guidance in guidance
+
+
+def test_execute_sql_error_returns_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a SQL execution error is returned with Snowflake identifier guidance."""
+    response_text = (
+        '{"message":"Snowflake reported an error (000904): SQL compilation error: '
+        'error line 1 at position 7\\ninvalid identifier \'\\"id\\"\'",'
+        '"errors":[{"field":"base","message":"...","error_code":"error"}]}'
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, response_text)
+        ),
+    )
+
+    result = _execute_ro(action="sql_select")
+
+    assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
+    assert result.message is not None
+    assert result.message.startswith("Snowflake reported an error (000904):")
+    assert "dry_run" in result.message
+
+
+def test_execute_non_json_execution_error_is_reraised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an unreadable execution error keeps the original exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, "<html>bad request</html>")
+        ),
+    )
+
+    with pytest.raises(AirbyteError):
+        _execute_ro(action="sql_select")
+
+
+def test_execute_server_error_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify server errors keep the original exception."""
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(_agents_error(500)),  # noqa: ARG005
+    )
+
+    with pytest.raises(AirbyteError):
+        _execute_ro(action="sql_select")
+
+
+def test_execute_non_sql_error_returns_bare_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-SQL execution errors return the API detail without SQL guidance."""
+    detail = "The list action could not be executed."
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            _agents_error(400, f'{{"message":"{detail}"}}')
+        ),
+    )
+
+    result = _execute_ro(action="list")
+
+    assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
+    assert result.message == detail
+
+
 def test_sql_select_forbidden_reports_actor_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1575,6 +1688,85 @@ def _patch_destination_404(
     return cloud_workspace
 
 
+def _patch_destination_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    destinations: list[_FakeDestinationForDocs],
+    server_docs: AgentSkillDocs,
+    *,
+    calls: list[tuple[str, str | None]],
+) -> Any:
+    """Serve `server_docs` for destination skills; inspect still 404s."""
+    not_found = _agents_error(404)
+
+    class _NotFoundConnector:
+        def inspect(self) -> Any:
+            raise not_found
+
+    class _DocsWorkspace:
+        workspace_id = "workspace-1"
+        organization_id = "org-1"
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _NotFoundConnector()
+
+        def read_skill_docs(
+            self,
+            skill_id: str,
+            section: str | None = None,
+        ) -> AgentSkillDocs:
+            calls.append((skill_id, section))
+            return server_docs.model_copy(update={"section_id": section})
+
+    class _CloudWorkspaceWithDestinations:
+        def __init__(self) -> None:
+            self.list_destinations_calls = 0
+
+        def list_destinations(self) -> list[Any]:
+            self.list_destinations_calls += 1
+            return list(destinations)
+
+        def list_sources(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda *args, **kwargs: _NotFoundConnector(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_workspace",
+        lambda *args, **kwargs: _DocsWorkspace(),  # noqa: ARG005
+    )
+    cloud_workspace = _CloudWorkspaceWithDestinations()
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: cloud_workspace,  # noqa: ARG005
+    )
+    return cloud_workspace
+
+
+def _server_destination_docs(
+    outline_ids: list[str] | None = None,
+) -> AgentSkillDocs:
+    return AgentSkillDocs(
+        metadata=AgentSkillInfo(
+            id="connector-destination:dest-snowflake",
+            kind="connector_destination",
+            title="Server destination docs",
+        ),
+        outline=[
+            AgentSkillSection(id=section_id, title=f"Server {section_id}")
+            for section_id in (
+                outline_ids
+                or ["overview", "actions.record.sql_select", "sources.src-1"]
+            )
+        ],
+        content=[{"type": "paragraph", "text": "Server overview text"}],
+    )
+
+
 _SNOWFLAKE_DESTINATION = _FakeDestinationForDocs(
     connector_id="dest-snowflake",
     name="Snowflake dev",
@@ -2004,3 +2196,155 @@ def test_inspect_destination_fallback_lists_destinations_once(
 
     assert result.docs.skill_id == "connector-destination:dest-snowflake"
     assert cloud_workspace.list_destinations_calls == 1
+
+
+_MERGED_OUTLINE = [
+    "overview",
+    "actions.record.sql_select",
+    "sources.src-1",
+    "sql-passthrough",
+    "connections",
+    "streams",
+]
+
+
+@pytest.mark.parametrize(
+    (
+        "destination",
+        "section",
+        "server_outline_ids",
+        "expected_calls",
+        "expected_outline",
+        "present",
+        "absent",
+    ),
+    [
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            None,
+            None,
+            [("connector-destination:dest-snowflake", None)],
+            _MERGED_OUTLINE,
+            ["Server overview text", "dry_run", "SHOW TABLES"],
+            [],
+            id="merges-server-docs",
+        ),
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            "sources.src-1",
+            None,
+            [("connector-destination:dest-snowflake", "sources.src-1")],
+            _MERGED_OUTLINE,
+            ["Server overview text"],
+            ["SHOW TABLES"],
+            id="server-section-passthrough",
+        ),
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            "sql-passthrough",
+            None,
+            [],
+            None,
+            ["SHOW TABLES", '"sql_dialect": "snowflake"'],
+            [],
+            id="local-section-skips-server",
+        ),
+        pytest.param(
+            _SNOWFLAKE_DESTINATION,
+            None,
+            ["overview", "sql-passthrough", "sources.src-1"],
+            [("connector-destination:dest-snowflake", None)],
+            ["overview", "sql-passthrough", "sources.src-1", "connections", "streams"],
+            ["SHOW TABLES"],
+            [],
+            id="dedupes-local-ids",
+        ),
+        pytest.param(
+            _UNSUPPORTED_DESTINATION,
+            None,
+            None,
+            [("connector-destination:dest-null", None)],
+            ["overview", "actions.record.sql_select", "sources.src-1"],
+            ["Server overview text"],
+            ["SHOW TABLES"],
+            id="unsupported-unmodified",
+        ),
+    ],
+)
+def test_read_docs_destination_with_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+    destination: _FakeDestinationForDocs,
+    section: str | None,
+    server_outline_ids: list[str] | None,
+    expected_calls: list[tuple[str, str | None]],
+    expected_outline: list[str] | None,
+    present: list[str],
+    absent: list[str],
+) -> None:
+    """Server destination docs merge with local guidance; unsupported IDs pass through."""
+    calls: list[tuple[str, str | None]] = []
+    cloud_workspace = _patch_destination_server_docs(
+        monkeypatch,
+        [destination],
+        _server_destination_docs(outline_ids=server_outline_ids),
+        calls=calls,
+    )
+
+    result = _read_docs(
+        f"connector-destination:{destination.connector_id}", section=section
+    )
+
+    assert calls == expected_calls
+    assert cloud_workspace.list_destinations_calls == 1
+    if expected_outline is not None:
+        assert [item.section_id for item in result.outline] == expected_outline
+    for text in present:
+        assert text in result.content
+    for text in absent:
+        assert text not in result.content
+    if "SHOW TABLES" in present and "Server overview text" in present:
+        assert result.content.index("SHOW TABLES") < result.content.index(
+            "Server overview text"
+        )
+
+
+def test_inspect_destination_merges_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inspect embeds merged docs when the server serves destination skill docs."""
+    calls: list[tuple[str, str | None]] = []
+    _patch_destination_server_docs(
+        monkeypatch,
+        [_SNOWFLAKE_DESTINATION],
+        _server_destination_docs(),
+        calls=calls,
+    )
+
+    result = _inspect("dest-snowflake")
+
+    assert result.docs is not None
+    assert "Server overview text" in result.docs.content
+    assert "SHOW TABLES" in result.docs.content
+    assert result.docs.guidance is not None
+    assert "overview" in result.docs.guidance
+
+
+def test_read_docs_destination_cloud_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Cloud failure resolving destinations is not swallowed by the docs fallback."""
+    _patch_destination_404(monkeypatch, [])
+    cloud_error = _agents_error(500)
+
+    class _FailingCloudWorkspace:
+        def list_destinations(self) -> list[Any]:
+            raise cloud_error
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _FailingCloudWorkspace(),  # noqa: ARG005
+    )
+
+    with pytest.raises(AirbyteError):
+        _read_docs("connector-destination:dest-snowflake")
