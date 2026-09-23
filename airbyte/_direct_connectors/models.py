@@ -13,11 +13,14 @@ payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.registry import (
+    ApiDocsUrl,  # noqa: TC001  # Needed at runtime for Pydantic field types.
+)
 
 
 class AgentWorkspaceInfo(BaseModel):
@@ -38,7 +41,7 @@ class AgentWorkspaceInfo(BaseModel):
     """The workspace status, for example `active`."""
 
 
-class AgentConnectorInfo(BaseModel):
+class CloudAgentConnectorInfo(BaseModel):
     """Summary information about a connector, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
@@ -50,7 +53,7 @@ class AgentConnectorInfo(BaseModel):
     """The connector name, for example `GitHub - <workspace_id>`."""
 
 
-class AgentContextStoreEntity(BaseModel):
+class CloudContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
 
     model_config = ConfigDict(extra="allow")
@@ -62,19 +65,19 @@ class AgentContextStoreEntity(BaseModel):
     """Whether Airbyte suggests caching this entity."""
 
 
-class AgentContextStoreReadiness(BaseModel):
+class CloudContextStoreReadiness(BaseModel):
     """Context Store readiness information for a connector."""
 
     model_config = ConfigDict(extra="allow")
 
-    supported_context_store_entities: list[AgentContextStoreEntity] = Field(default_factory=list)
+    supported_context_store_entities: list[CloudContextStoreEntity] = Field(default_factory=list)
     """The entities this connector can cache in the Context Store."""
 
     configured_cache_entities: list[dict[str, Any]] = Field(default_factory=list)
     """The entities currently configured for caching, with their sync status."""
 
 
-class AgentSkillInfo(BaseModel):
+class CloudSkillInfo(BaseModel):
     """Summary information about a skill, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
@@ -98,19 +101,19 @@ class AgentSkillInfo(BaseModel):
     """Non-fatal issues reported while building or reading the skill's docs."""
 
 
-class AgentSkillList(BaseModel):
+class CloudSkillList(BaseModel):
     """A page of skills, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    data: list[AgentSkillInfo]
+    data: list[CloudSkillInfo]
     """The skills on this page."""
 
     next_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
 
 
-class AgentSkillSection(BaseModel):
+class CloudSkillSection(BaseModel):
     """A section of a skill's docs, as listed in the docs outline."""
 
     model_config = ConfigDict(extra="allow")
@@ -128,15 +131,15 @@ class AgentSkillSection(BaseModel):
     """Whether this section can currently be read."""
 
 
-class AgentSkillDocs(BaseModel):
+class CloudSkillDocs(BaseModel):
     """Documentation for a single skill, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    metadata: AgentSkillInfo
+    metadata: CloudSkillInfo
     """Metadata for the requested skill."""
 
-    outline: list[AgentSkillSection] = Field(default_factory=list)
+    outline: list[CloudSkillSection] = Field(default_factory=list)
     """The sections available for this skill."""
 
     section_id: str | None = None
@@ -146,7 +149,7 @@ class AgentSkillDocs(BaseModel):
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
 
-class AgentConnectorDetails(BaseModel):
+class CloudContextLayerConnectorDetails(BaseModel):
     """Connector metadata returned by the Agents API `inspect` endpoint."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
@@ -173,7 +176,7 @@ class AgentConnectorDetails(BaseModel):
     """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
     `read_agent_skill_docs`) for this connector's usage docs."""
 
-    context_store_readiness: AgentContextStoreReadiness | None = None
+    context_store_readiness: CloudContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
 
     warnings: list[Any] = Field(default_factory=list)
@@ -195,7 +198,7 @@ class AgentConnectorDetails(BaseModel):
         ]
 
 
-class AgentExecutionMetadata(BaseModel):
+class CloudApiExecutionMetadata(BaseModel):
     """Metadata describing how an Agents connector action was executed."""
 
     model_config = ConfigDict(extra="allow")
@@ -207,7 +210,7 @@ class AgentExecutionMetadata(BaseModel):
     """The server-side execution time, in milliseconds."""
 
 
-class AgentConnectorMetadata(BaseModel):
+class CloudApiConnectorMetadata(BaseModel):
     """Connector-reported metadata about a single action's result, including pagination."""
 
     model_config = ConfigDict(extra="allow")
@@ -221,7 +224,7 @@ class AgentConnectorMetadata(BaseModel):
     actions."""
 
 
-class AgentExecuteResult(BaseModel):
+class CloudApiExecuteResult(BaseModel):
     """The result of executing a single action against an Airbyte Agents connector."""
 
     model_config = ConfigDict(extra="allow")
@@ -232,10 +235,10 @@ class AgentExecuteResult(BaseModel):
     result: Any = None
     """The action's payload. Entity-returning actions put a list of entities here."""
 
-    connector_metadata: AgentConnectorMetadata = Field(default_factory=AgentConnectorMetadata)
+    connector_metadata: CloudApiConnectorMetadata = Field(default_factory=CloudApiConnectorMetadata)
     """Connector-reported metadata about the result, including pagination cursors."""
 
-    execution_metadata: AgentExecutionMetadata = Field(default_factory=AgentExecutionMetadata)
+    execution_metadata: CloudApiExecutionMetadata = Field(default_factory=CloudApiExecutionMetadata)
     """Metadata describing how the action was executed."""
 
     warning: dict[str, Any] | None = None
@@ -280,3 +283,148 @@ class AgentExecuteResult(BaseModel):
     def end_cursor(self) -> str | None:
         """The cursor for the next page, or `None` when there is no next page."""
         return self.connector_metadata.end_cursor
+
+
+class CloudConnectorConnectionInfo(BaseModel):
+    """Summary of a single connection touching a connector."""
+
+    model_config = ConfigDict(extra="allow")
+
+    connection_id: str
+    """The connection ID."""
+
+    name: str
+    """The connection name."""
+
+    source_id: str
+    """The source connector ID."""
+
+    source_name: str
+    """The source connector name."""
+
+    destination_id: str
+    """The destination connector ID."""
+
+    destination_name: str
+    """The destination connector name."""
+
+    schedule: str | None = None
+    """The sync schedule: `manual`, a cron expression, or `every <units> <time_unit>`."""
+
+    stream_names: list[str] = Field(default_factory=list)
+    """The streams enabled on the connection."""
+
+    namespace_definition: str | None = None
+    """How destination namespaces are chosen: `source`, `destination`, or `custom_format`."""
+
+    namespace_format: str | None = None
+    """The namespace format template, when `namespace_definition` is `custom_format`."""
+
+    table_prefix: str = ""
+    """The destination table prefix."""
+
+    destination_database: str | None = None
+    """The database-level location tables land in (Snowflake database, BigQuery project)."""
+
+    destination_schema: str | None = None
+    """The schema-level location tables land in (Snowflake schema, BigQuery dataset)."""
+
+
+class CloudConnectorDocs(BaseModel):
+    """Connector docs rendered for agent consumption."""
+
+    model_config = ConfigDict(extra="allow")
+
+    skill_id: str | None = None
+    """The docs skill ID, for example `connector-source:<id>`."""
+
+    title: str | None = None
+    """The human-readable docs title."""
+
+    content: str
+    """The docs body, rendered as Markdown."""
+
+    outline: list[CloudSkillSection] = Field(default_factory=list)
+    """The sections available in the docs."""
+
+    section_id: str | None = None
+    """The requested section ID, or `None` for the default docs response."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues reported while reading or rendering the docs."""
+
+
+class CloudConnectorDetails(BaseModel):
+    """A description of a deployed Cloud connector, as returned by `describe()`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    connector_id: str
+    """The connector ID."""
+
+    connector_type: Literal["source", "destination"]
+    """Whether the connector is a source or a destination."""
+
+    connector_name: str
+    """The connector's display name."""
+
+    connector_url: str
+    """The connector's web URL."""
+
+    connector_definition_id: str
+    """The connector definition ID (for example, the ID for `source-postgres`)."""
+
+    integration_name: str | None = None
+    """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
+
+    external_access_enabled: bool
+    """Whether AI agents can use this connector through the Airbyte Context layer."""
+
+    search_indexing_enabled: bool
+    """Whether Airbyte indexes this connector's data for fast search."""
+
+    context_store_readiness: CloudContextStoreReadiness | None = None
+    """Context Store readiness information, when reported."""
+
+    docs_skill_id: str | None = None
+    """Skill ID for this connector's direct-access docs."""
+
+    connector_definition_name: str | None = None
+    """The connector definition's display name, populated only by `with_config`."""
+
+    config: dict[str, Any] | None = None
+    """The connector configuration, populated only by `with_config`.
+
+    Secret values are redacted by the Cloud API. Always `None` for sources, which the
+    API does not expose configuration for."""
+
+    connections: list[CloudConnectorConnectionInfo] | None = None
+    """Connections touching this connector, populated only by `with_connections`."""
+
+    direct_access_docs: CloudConnectorDocs | None = None
+    """Direct-access docs rendered as Markdown, populated only by `with_direct_access_docs`."""
+
+    data_replication_docs: list[ApiDocsUrl] | None = None
+    """Upstream API documentation links, populated only by `with_data_replication_docs`."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues encountered while describing the connector."""
+
+    errors: list[str] = Field(default_factory=list)
+    """Fatal issues encountered while describing optional connector details."""
+
+
+# Backwards-compatible aliases for the previous `Agent*` model names. New code should
+# use the `Cloud*` names above.
+
+AgentContextStoreEntity = CloudContextStoreEntity
+AgentContextStoreReadiness = CloudContextStoreReadiness
+AgentSkillInfo = CloudSkillInfo
+AgentSkillList = CloudSkillList
+AgentSkillSection = CloudSkillSection
+AgentSkillDocs = CloudSkillDocs
+AgentExecutionMetadata = CloudApiExecutionMetadata
+AgentConnectorMetadata = CloudApiConnectorMetadata
+AgentExecuteResult = CloudApiExecuteResult
+AgentConnectorInfo = CloudAgentConnectorInfo
+AgentConnectorDetails = CloudContextLayerConnectorDetails
