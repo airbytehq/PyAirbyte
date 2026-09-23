@@ -434,20 +434,20 @@ AgentConnectorInfo = CloudAgentConnectorInfo
 AgentConnectorDetails = CloudContextLayerConnectorDetails
 
 
-SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
-BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
+_SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
+_BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
 
-SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: "snowflake",
-    BIGQUERY_DESTINATION_DEFINITION_ID: "bigquery",
+_SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID: "snowflake",
+    _BIGQUERY_DESTINATION_DEFINITION_ID: "bigquery",
 }
 """Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
 
-SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
-    BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
+_SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
+    _BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
 }
 """Destination definition ID -> display name of the destination integration."""
 
-SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
+_SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(_SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 """Destination definitions AI agents can query through SQL passthrough."""

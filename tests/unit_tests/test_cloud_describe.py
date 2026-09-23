@@ -21,7 +21,7 @@ from airbyte.cloud.connectors import (
     ConnectorFeature,
 )
 from airbyte._direct_connectors.models import (
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
 from airbyte.cloud.models import (
     CloudConnectionInfo,
@@ -36,7 +36,7 @@ from airbyte.exceptions import (
 )
 
 
-SNOWFLAKE_DEFINITION_ID = next(iter(SQL_PASSTHROUGH_DESTINATION_DIALECTS))
+SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
 
 INSPECT_RESPONSE: dict[str, Any] = {
     "connector_id": "source-1",
@@ -432,7 +432,7 @@ def test_get_connector_by_exact_name(monkeypatch: pytest.MonkeyPatch) -> None:
     destination = _seed_destination(workspace, "dest-1", "def-1", name="Warehouse")
     _patch_list_connectors(monkeypatch, workspace, [source, destination])
 
-    assert workspace.get_connector("warehouse") is destination
+    assert workspace.get_connector(name="warehouse") is destination
     assert workspace.get_connector(name="GitHub Issues") is source
 
 
@@ -441,7 +441,7 @@ def test_get_connector_by_unique_substring(monkeypatch: pytest.MonkeyPatch) -> N
     source = _seed_source(workspace, "source-1", "GitHub Issues")
     _patch_list_connectors(monkeypatch, workspace, [source])
 
-    assert workspace.get_connector("issues") is source
+    assert workspace.get_connector(name="issues") is source
 
 
 def test_get_connector_ambiguous_name_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -456,7 +456,7 @@ def test_get_connector_ambiguous_name_raises(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     with pytest.raises(AirbyteError, match="Multiple connectors"):
-        workspace.get_connector("github")
+        workspace.get_connector(name="github")
 
 
 def test_get_connector_no_match_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -466,7 +466,7 @@ def test_get_connector_no_match_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     with pytest.raises(AirbyteError, match="No connector found"):
-        workspace.get_connector("missing")
+        workspace.get_connector(name="missing")
 
 
 def test_get_connector_uuid_positional_makes_no_api_call(
