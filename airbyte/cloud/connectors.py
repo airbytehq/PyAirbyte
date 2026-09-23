@@ -40,6 +40,7 @@ else:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
@@ -660,9 +661,7 @@ class CloudConnector:
 
         Sources are documented by the Agents API skills endpoint, addressed by the
         `docs_skill_id` reported by Context Layer `inspect`. SQL passthrough destinations
-        (Snowflake, BigQuery) read server docs via the destination's docs skill, merged
-        with local SQL guidance; a 403 or 404 there raises
-        `AirbyteExternalAccessNotEnabledError`. Other destinations do
+        (Snowflake, BigQuery) get built-in docs generated locally. Other destinations do
         not support direct access.
         """
         if self.connector_type == ConnectorType.SOURCE:
@@ -700,13 +699,10 @@ class CloudConnector:
                         )
                     )
                 except exc.AirbyteError as error:
-                    if agents_api_util.is_not_enabled_error(error):
-                        raise exc.AirbyteExternalAccessNotEnabledError(
-                            connector_name=self.name,
-                            connector_id=self.connector_id,
-                        ) from error
-                    raise
-                return connector_docs.merge_destination_skill_docs(server_docs, destination)
+                    if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
+                        raise
+                else:
+                    return connector_docs.merge_destination_skill_docs(server_docs, destination)
             return connector_docs.build_direct_access_sql_guidance(
                 destination,
                 section=section,

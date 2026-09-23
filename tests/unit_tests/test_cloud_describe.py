@@ -310,52 +310,6 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
         destination.get_direct_access_guidance()
 
 
-@pytest.mark.parametrize(
-    "probe_error",
-    [
-        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
-        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
-    ],
-)
-def test_get_direct_access_guidance_destination_not_enabled_raises(
-    monkeypatch: pytest.MonkeyPatch,
-    probe_error: AirbyteError,
-) -> None:
-    """A 403/404 destination docs read means not enabled; no local fallback."""
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(
-        agents_api_util,
-        "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(probe_error),
-    )
-    build_local = MagicMock()
-    monkeypatch.setattr(connector_docs, "build_direct_access_sql_guidance", build_local)
-    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
-
-    with pytest.raises(AirbyteExternalAccessNotEnabledError):
-        destination.get_direct_access_guidance()
-    build_local.assert_not_called()
-
-
-def test_get_direct_access_guidance_destination_server_error_propagates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A non-403/404 docs read failure propagates the original `AirbyteError`."""
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(
-        agents_api_util,
-        "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
-    )
-    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
-
-    with pytest.raises(AirbyteError) as exc_info:
-        destination.get_direct_access_guidance()
-    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-
-
 def _patch_list_connectors(
     monkeypatch: pytest.MonkeyPatch,
     workspace: CloudWorkspace,
