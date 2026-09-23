@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
+from airbyte import Destination, Source
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
     DirectAccessGuidance,
@@ -840,6 +841,102 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
     assert "resource-id" in result
 
 
+@pytest.mark.parametrize(
+    "explicit_type",
+    [
+        pytest.param(True, id="explicit-type"),
+        pytest.param(False, id="inferred-type"),
+    ],
+)
+@pytest.mark.parametrize(
+    "connector_type,connector_name,registry_getter",
+    [
+        pytest.param(ConnectorType.SOURCE, "source-faker", "get_source", id="source"),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            "destination-duckdb",
+            "get_destination",
+            id="destination",
+        ),
+    ],
+)
+def test_deploy_connector_to_cloud_routes_by_type(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    connector_name: str,
+    registry_getter: str,
+    explicit_type: bool,
+) -> None:
+    """Verify `deploy_connector_to_cloud` dispatches to the matching getter and deploy path."""
+    connector_cls = Source if connector_type == ConnectorType.SOURCE else Destination
+    connector = MagicMock(spec=connector_cls)
+    connector.config_spec = {"type": "object"}
+    getter_calls: list[str] = []
+    deploy_calls: list[dict[str, object]] = []
+
+    def fake_getter(name: str, *, no_executor: bool) -> MagicMock:
+        assert no_executor is True
+        getter_calls.append(name)
+        return connector
+
+    def fake_deploy(**kwargs: object) -> SimpleNamespace:
+        deploy_calls.append(kwargs)
+        return SimpleNamespace(
+            connector_id="deployed-id",
+            connector_url="https://cloud.airbyte.com/deployed-id",
+        )
+
+    workspace = SimpleNamespace(
+        deploy_source=fake_deploy,
+        deploy_destination=fake_deploy,
+    )
+    monkeypatch.setattr(cloud_mcp, registry_getter, fake_getter)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "resolve_connector_config", lambda **_: {"resolved": True}
+    )
+    registered: list[str] = []
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", registered.append
+    )
+
+    result = cloud_mcp.deploy_connector_to_cloud(
+        cast(Context, object()),
+        name="My Connector",
+        connector_name=connector_name,
+        connector_type=connector_type if explicit_type else None,
+        workspace_id=None,
+        config={"key": "value"},
+        config_secret_name=None,
+        unique=True,
+    )
+
+    assert getter_calls == [connector_name]
+    connector.set_config.assert_called_once_with({"resolved": True}, validate=True)
+    assert len(deploy_calls) == 1
+    assert deploy_calls[0]["name"] == "My Connector"
+    assert deploy_calls[0]["unique"] is True
+    assert deploy_calls[0][connector_type.value] is connector
+    assert registered == ["deployed-id"]
+    assert f"deployed {connector_type.value} 'My Connector'" in result
+    assert "deployed-id" in result
+
+
+def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
+    """Verify a non-canonical name without an explicit type raises `PyAirbyteInputError`."""
+    with pytest.raises(PyAirbyteInputError, match="Cannot infer connector type"):
+        cloud_mcp.deploy_connector_to_cloud(
+            cast(Context, object()),
+            name="My Connector",
+            connector_name="faker",
+            connector_type=None,
+            workspace_id=None,
+            config=None,
+            config_secret_name=None,
+            unique=True,
+        )
+
+
 class _CombinedListingWorkspace:
     """Fake `CloudWorkspace` returning one source and one destination."""
 
@@ -884,9 +981,7 @@ class _CombinedListingWorkspace:
             ),
         ]
         if connector_type is not None:
-            items = [
-                item for item in items if item.connector_type == connector_type.value
-            ]
+            items = [item for item in items if item.connector_type == connector_type]
         if feature_filter is not None:
             items = [item for item in items if feature_filter in item.enabled_features]
         if name_contains:
@@ -922,7 +1017,7 @@ def test_list_cloud_connectors_returns_both_kinds(
     assert results[0].enabled_features == cloud_mcp.FEATURES_NOT_CHECKED
     assert results[1].enabled_features == cloud_mcp.FEATURES_NOT_CHECKED
 
-    resolved = cloud_mcp.list_deployed_cloud_connectors(
+    resolved = cloud_mcp.list_cloud_connectors(
         None,
         workspace_id=None,
         name_contains=None,
