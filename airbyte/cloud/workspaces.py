@@ -508,7 +508,7 @@ class CloudWorkspace:
     def get_connector(
         self,
         connector_id: str,
-    ) -> CloudConnector:
+    ) -> cloud_connectors.CloudConnector:
         """Get an untyped connector by ID without any API call. Kind is resolved lazily."""
         return cloud_connectors.CloudConnector(
             workspace=self,
