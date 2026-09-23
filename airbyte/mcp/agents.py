@@ -75,13 +75,12 @@ from airbyte.exceptions import (
     PyAirbyteError,
     PyAirbyteInputError,
 )
-from airbyte.mcp._arg_resolvers import resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import resolve_api_args, resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
     _get_cloud_client,
     _get_cloud_workspace,
-    _resolve_api_args,
 )
 
 
@@ -869,7 +868,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
             context={"action": action},
         )
 
-    resolved_api_args = _resolve_api_args(api_args)
+    resolved_api_args = resolve_api_args(api_args)
     try:
         connector = _resolve_cloud_connector(ctx, connector_id, workspace_id)
         if action == "sql_select":

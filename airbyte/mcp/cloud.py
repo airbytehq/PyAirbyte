@@ -10,7 +10,6 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
-import json
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
@@ -23,11 +22,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import get_destination, get_source
 from airbyte._direct_connectors import connector_docs
-from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
-    DirectAccessGuidance,
-    DirectAccessGuidanceSection,
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
@@ -74,7 +70,17 @@ from airbyte.exceptions import (
     PyAirbyteError,
     PyAirbyteInputError,
 )
-from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import (
+    resolve_api_args,
+    resolve_connector_config,
+    resolve_list_of_strings,
+)
+from airbyte.mcp._docs_results import (
+    AgentSkillDocsResult,
+    CloudConnectorDocsResult,
+    render_agent_skill_docs_result,
+    render_connector_docs_result,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
@@ -1198,57 +1204,6 @@ def list_deployed_cloud_connectors(
     ]
 
 
-class CloudConnectorDocsResult(BaseModel):
-    """Connector docs rendered for agent consumption by the Cloud MCP tools.
-
-    Returned by `describe_cloud_*`.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    skill_id: str | None = None
-    """The docs skill ID, for example `connector-source:<id>`."""
-
-    title: str | None = None
-    """The human-readable docs title."""
-
-    content: str
-    """The docs body, rendered as Markdown."""
-
-    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
-    """The sections available in the docs."""
-
-    section_id: str | None = None
-    """The requested section ID, or `None` for the default docs response."""
-
-    warnings: list[str] = Field(default_factory=list)
-    """Non-fatal issues reported while reading or rendering the docs."""
-
-
-class AgentSkillDocsResult(BaseModel):
-    """Docs for a single agent skill (skills for agents), returned by `get_agent_skill_docs`."""
-
-    model_config = ConfigDict(extra="allow")
-
-    skill_id: str | None = None
-    """The docs skill ID, for example `connector-source:<id>`."""
-
-    title: str | None = None
-    """The human-readable docs title."""
-
-    content: str
-    """The docs body, rendered as Markdown."""
-
-    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
-    """The sections available in the docs."""
-
-    section_id: str | None = None
-    """The requested section ID, or `None` for the default docs response."""
-
-    warnings: list[str] = Field(default_factory=list)
-    """Non-fatal issues reported while reading or rendering the docs."""
-
-
 class CloudConnectorDetailsResult(BaseModel):
     """A description of a deployed Cloud connector.
 
@@ -1355,7 +1310,7 @@ def _describe_cloud_connector(
         except (PyAirbyteError, requests.RequestException) as error:
             warnings.append(f"Direct access docs are unavailable: {error}")
         else:
-            result.direct_access_guidance = _docs_result(docs)
+            result.direct_access_guidance = render_connector_docs_result(docs)
 
     if with_data_replication_docs:
         try:
@@ -1564,30 +1519,6 @@ def describe_cloud_destination(
     )
 
 
-def _docs_result(docs: DirectAccessGuidance) -> CloudConnectorDocsResult:
-    """Render `DirectAccessGuidance` into a `CloudConnectorDocsResult`."""
-    return CloudConnectorDocsResult(
-        skill_id=docs.metadata.id,
-        title=docs.metadata.title,
-        content=render_docs_content_markdown(docs.content),
-        outline=docs.outline,
-        section_id=docs.section_id,
-        warnings=[str(warning) for warning in docs.metadata.warnings],
-    )
-
-
-def _skill_docs_result(docs: DirectAccessGuidance) -> AgentSkillDocsResult:
-    """Render `DirectAccessGuidance` into an `AgentSkillDocsResult`."""
-    return AgentSkillDocsResult(
-        skill_id=docs.metadata.id,
-        title=docs.metadata.title,
-        content=render_docs_content_markdown(docs.content),
-        outline=docs.outline,
-        section_id=docs.section_id,
-        warnings=[str(warning) for warning in docs.metadata.warnings],
-    )
-
-
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -1644,31 +1575,9 @@ def get_agent_skill_docs(
     the list of available sections.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return _skill_docs_result(
+    return render_agent_skill_docs_result(
         workspace.get_agent_skill_docs(docs_skill_id, connector_id=connector_id, section=section)
     )
-
-
-def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
-    """Resolve `api_args` from a dictionary or a JSON object string."""
-    if api_args is None or isinstance(api_args, dict):
-        return api_args
-
-    try:
-        parsed: Any = json.loads(api_args)
-    except json.JSONDecodeError as ex:
-        raise PyAirbyteInputError(
-            message="The `api_args` string is not valid JSON.",
-            guidance="Pass `api_args` as an object, or as a JSON object string.",
-        ) from ex
-
-    if not isinstance(parsed, dict):
-        raise PyAirbyteInputError(
-            message="The `api_args` string is not a JSON object.",
-            guidance="Pass `api_args` as an object, or as a JSON object string.",
-            context={"parsed_type": type(parsed).__name__},
-        )
-    return parsed
 
 
 @mcp_tool(
@@ -1770,7 +1679,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     return connector.execute_api_query(
         entity_type,
         action,
-        _resolve_api_args(api_args),
+        resolve_api_args(api_args),
         select_fields=resolve_list_of_strings(select_fields),
         exclude_fields=resolve_list_of_strings(exclude_fields),
         page_size=page_size,
@@ -1862,7 +1771,7 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
     return connector.execute_api_action(
         entity_type,
         action,
-        _resolve_api_args(api_args),
+        resolve_api_args(api_args),
         select_fields=resolve_list_of_strings(select_fields),
         exclude_fields=resolve_list_of_strings(exclude_fields),
         skip_truncation=skip_truncation,
