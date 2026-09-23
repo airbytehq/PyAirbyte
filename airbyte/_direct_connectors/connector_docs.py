@@ -511,19 +511,6 @@ def _table_name(dialect: str, table_prefix: str, stream_name: str) -> str:
     return name.upper() if dialect == "snowflake" else name
 
 
-def _stream_rows(connection: CloudConnection, dialect: str) -> list[list[str]]:
-    """Return (stream name, table name) rows for a connection's enabled streams."""
-    rows: list[list[str]] = []
-    for stream_name in connection.stream_names:
-        table_name = _table_name(
-            dialect=dialect,
-            table_prefix=connection.table_prefix,
-            stream_name=stream_name,
-        )
-        rows.append([stream_name, f"`{table_name}`"])
-    return rows
-
-
 def _connection_namespace_note(
     connection: CloudConnection,
     load_context: _DestinationLoadContext,
@@ -588,7 +575,13 @@ def _streams_section(
                 {
                     "type": "table",
                     "headers": ["Stream", "Table"],
-                    "rows": _stream_rows(connection=connection, dialect=dialect),
+                    "rows": [
+                        [
+                            stream_name,
+                            f"`{_table_name(dialect, connection.table_prefix, stream_name)}`",
+                        ]
+                        for stream_name in connection.stream_names
+                    ],
                 },
             ]
         )
