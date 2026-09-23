@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 import requests
-from airbyte.agents import _api_util
+from airbyte._direct_connectors import api_util as _api_util
 from airbyte.agents import _destination_docs as destination_docs
 from airbyte.cloud import models as cloud_models
 from airbyte.agents import skills as skills_module

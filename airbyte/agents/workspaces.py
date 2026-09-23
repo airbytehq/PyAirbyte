@@ -12,8 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte import cloud
-from airbyte.agents import _api_util
+from airbyte._direct_connectors import api_util as _api_util
 from airbyte.agents import skills as _skills
 from airbyte.agents.connectors import AgentConnector, _resolve_connector_lookup
 from airbyte.agents.models import (
@@ -23,11 +22,11 @@ from airbyte.agents.models import (
 )
 from airbyte.agents.skills import AgentSkill
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
-    from airbyte.cloud.workspaces import CloudWorkspace
     from airbyte.secrets.base import SecretString
 
 
@@ -260,7 +259,7 @@ class AgentWorkspace:
         Every Agents workspace is also a Cloud workspace, so this conversion always
         succeeds without calling either API.
         """
-        return cloud.CloudWorkspace(
+        return CloudWorkspace(
             workspace_id=self.workspace_id,
             client_id=self._credentials.client_id,
             client_secret=self._credentials.client_secret,

@@ -8,7 +8,7 @@ from unittest.mock import PropertyMock, patch
 
 import pytest
 
-from airbyte.agents import _api_util as agents_api_util
+from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (

@@ -13,13 +13,13 @@ __all__: list[str] = []
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, cast
 
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
-from airbyte import cloud, get_destination, get_source
+from airbyte import get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import (
@@ -65,6 +65,10 @@ from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
+
+
+if TYPE_CHECKING:
+    from airbyte.cloud.sync_results import SyncResult
 
 
 CLOUD_AUTH_TIP_TEXT = (
@@ -825,7 +829,7 @@ def get_cloud_sync_status(
     connection = workspace.get_connection(connection_id=connection_id)
 
     # If a job ID is provided, get the job by ID.
-    sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)
+    sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
     if not sync_result:
         return {"status": None, "job_id": None, "attempts": []}
@@ -1373,7 +1377,7 @@ def get_cloud_sync_logs(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)
+    sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
     if not sync_result:
         raise AirbyteMissingResourceError(

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte.agents import _api_util
+from airbyte._direct_connectors import api_util as _api_util
 from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo, AgentSkillList
 
 
