@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 import yaml
 
 from airbyte import exceptions as exc
+from airbyte._connectors import ConnectorType
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors.actions import (
     AgentReadAction,
@@ -66,7 +67,6 @@ from airbyte.cloud.models import (
     _DestinationResponseLike,
     _SourceResponseLike,
 )
-from airbyte.constants import ConnectorType
 
 
 if TYPE_CHECKING:
