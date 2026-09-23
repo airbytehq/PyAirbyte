@@ -648,14 +648,9 @@ class CloudConnector:
         if self.connector_type == ConnectorType.SOURCE:
             skill_id = self._direct_access_guidance_id()
             if skill_id is None:
-                raise exc.PyAirbyteInputError(
-                    message="Source is not enabled for direct access.",
-                    guidance=(
-                        "Enable the source for direct access in the Airbyte Cloud UI; "
-                        "direct-access docs are served by the Context Layer for enabled "
-                        "sources."
-                    ),
-                    context={"connector_id": self.connector_id},
+                raise exc.AirbyteExternalAccessNotEnabledError(
+                    connector_name=self.name,
+                    connector_id=self.connector_id,
                 )
             return DirectAccessGuidance.model_validate(
                 agents_api_util.read_agent_skill_docs(

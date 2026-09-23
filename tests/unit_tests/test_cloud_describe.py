@@ -30,6 +30,7 @@ from airbyte.cloud.models import (
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteError,
+    AirbyteExternalAccessNotEnabledError,
     PyAirbyteInputError,
 )
 
@@ -201,7 +202,7 @@ def test_direct_access_guidance_id_source_without_context_layer(
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source._direct_access_guidance_id() is None  # noqa: SLF001
-    with pytest.raises(PyAirbyteInputError, match="not enabled for direct access"):
+    with pytest.raises(AirbyteExternalAccessNotEnabledError):
         source.get_direct_access_guidance()
 
 
@@ -219,7 +220,7 @@ def test_direct_access_guidance_id_source_inspect_failure(
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source._direct_access_guidance_id() is None  # noqa: SLF001
-    with pytest.raises(PyAirbyteInputError, match="not enabled for direct access"):
+    with pytest.raises(AirbyteExternalAccessNotEnabledError):
         source.get_direct_access_guidance()
 
 
