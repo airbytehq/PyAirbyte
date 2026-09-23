@@ -1,8 +1,9 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Connector action names and request-param helpers for the Agents `execute` interface.
+"""Connector action names and request-param helpers for direct connector execution.
 
 This module is a leaf: it must not import anything from `airbyte.agents` or `airbyte.cloud`,
 so `airbyte.cloud.connectors` can use these names without creating an import cycle.
+`airbyte.agents.connectors` re-exports the same names for backwards compatibility.
 """
 
 from __future__ import annotations

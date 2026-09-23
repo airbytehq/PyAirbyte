@@ -49,12 +49,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 import yaml
 
 from airbyte import exceptions as exc
-from airbyte._util import api_util, text_util
-from airbyte.agents import _api_util as agents_api_util
-from airbyte.agents._actions import (
+from airbyte._direct_connectors.actions import (
     AgentReadAction,
     _build_params,
 )
+from airbyte._util import api_util, text_util
+from airbyte.agents import _api_util as agents_api_util
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.cloud.models import (
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,

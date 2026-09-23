@@ -13,14 +13,14 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from airbyte.agents import _api_util
-from airbyte.agents._actions import (
+from airbyte._direct_connectors.actions import (
     UNSUPPORTED_ACTIONS,
     AgentAction,
     AgentReadAction,
     AgentWriteAction,
     _build_params,
 )
+from airbyte.agents import _api_util
 from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
 from airbyte.exceptions import PyAirbyteInputError
 
