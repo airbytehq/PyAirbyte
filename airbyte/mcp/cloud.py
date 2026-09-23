@@ -2118,10 +2118,10 @@ def list_cloud_organizations(
         ConnectorFeature | None,
         Field(
             description=(
-                "Optional feature filter: `external_access` returns only organizations enabled "
-                "for AI agents through the Airbyte Context layer; `search_indexing` returns only "
-                "organizations where search indexing is available. Omit to list every "
-                "organization along with its feature flags."
+                "Optional feature filter: `direct_access` (or any `direct_*` feature) returns "
+                "only organizations enabled for AI agents through the Airbyte Context layer; "
+                "`search_indexing` returns only organizations where search indexing is "
+                "available. Omit to list every organization along with its feature flags."
             ),
             default=None,
         ),
