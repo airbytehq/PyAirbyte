@@ -45,7 +45,7 @@ if TYPE_CHECKING:
         DestinationConfiguration,
     )
 
-    from airbyte._connectors import ConnectorType
+    from airbyte.registry import ConnectorType
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0

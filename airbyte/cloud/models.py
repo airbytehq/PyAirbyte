@@ -10,6 +10,9 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from airbyte._util.compat import StrEnum
+from airbyte.registry import ConnectorType
+
 
 _SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
 _BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
@@ -56,6 +59,20 @@ class _JobResponseLike(Protocol):
     bytes_synced: int | None
     rows_synced: int | None
     start_time: str
+
+
+class ConnectorFeature(StrEnum):
+    """Optional capabilities a deployed Cloud connector may have enabled."""
+
+    EXTERNAL_ACCESS = "external_access"
+    """The connector can be used by AI agents through the Airbyte Context layer."""
+
+    SEARCH_INDEXING = "search_indexing"
+    """Airbyte indexes the connector's data for fast search.
+
+    Distinct from any native search the connector itself may offer as a passthrough
+    operation.
+    """
 
 
 class _SourceResponseLike(Protocol):
@@ -450,3 +467,9 @@ def _enum_value(value: object) -> str:
     if isinstance(value, Enum):
         return str(value.value)
     return str(value)
+
+
+__all__ = [
+    "ConnectorFeature",
+    "ConnectorType",
+]

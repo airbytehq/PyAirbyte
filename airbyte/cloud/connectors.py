@@ -40,7 +40,6 @@ else:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -48,7 +47,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 import yaml
 
 from airbyte import exceptions as exc
-from airbyte._connectors import ConnectorType
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors.actions import (
     AgentReadAction,
@@ -63,6 +61,8 @@ from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
+    ConnectorFeature,
+    ConnectorType,
     _DeclarativeSourceDefinitionResponseLike,
     _DestinationResponseLike,
     _SourceResponseLike,
@@ -116,20 +116,6 @@ class ExternalApiWriteAction(StrEnum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
-
-
-class ConnectorFeature(str, Enum):
-    """Optional capabilities a deployed Cloud connector may have enabled."""
-
-    EXTERNAL_ACCESS = "external_access"
-    """The connector can be used by AI agents through the Airbyte Context layer."""
-
-    SEARCH_INDEXING = "search_indexing"
-    """Airbyte indexes the connector's data for fast search.
-
-    Distinct from any native search the connector itself may offer as a passthrough
-    operation.
-    """
 
 
 class CloudConnector:
@@ -1330,3 +1316,14 @@ class CustomCloudSourceDefinition:
         )
 
         return self
+
+
+__all__ = [
+    "CheckResult",
+    "CloudConnector",
+    "CloudDestination",
+    "CloudSource",
+    "ConnectorFeature",
+    "ConnectorType",
+    "CustomCloudSourceDefinition",
+]

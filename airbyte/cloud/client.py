@@ -88,12 +88,12 @@ from typing import TYPE_CHECKING, Any, Literal, NoReturn, overload
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
-from airbyte.cloud.connectors import ConnectorFeature
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
+    ConnectorFeature,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.organizations import CloudOrganization
