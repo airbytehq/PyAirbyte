@@ -55,6 +55,7 @@ from airbyte._direct_connectors.actions import (
 )
 from airbyte._direct_connectors.models import AgentExecuteResult
 from airbyte._util import api_util, text_util
+from airbyte._util.compat import StrEnum
 from airbyte.cloud.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
@@ -101,28 +102,20 @@ class CheckResult:
         )
 
 
-class ExternalApiReadOnlyAction(str, Enum):
+class ExternalApiReadOnlyAction(StrEnum):
     """Read actions accepted by `CloudConnector.execute_api_query`."""
 
     LIST = "list"
     GET = "get"
     SEARCH = "search"
 
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
 
-
-class ExternalApiWriteAction(str, Enum):
+class ExternalApiWriteAction(StrEnum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
 
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
 
 
 class ConnectorFeature(str, Enum):

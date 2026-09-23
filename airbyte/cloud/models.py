@@ -10,6 +10,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from airbyte._util.compat import StrEnum
+
 
 _SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
 _BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
@@ -78,15 +80,11 @@ class _DeclarativeSourceDefinitionResponseLike(Protocol):
     version: object
 
 
-class ConnectorType(str, Enum):
+class ConnectorType(StrEnum):
     """The kind of a deployed Cloud connector."""
 
     SOURCE = "source"
     DESTINATION = "destination"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
 
 
 class JobStatusEnum(str, Enum):
