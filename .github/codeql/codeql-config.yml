@@ -4,3 +4,7 @@ name: "CodeQL Config"
 # default security queries) for every analyzed language.
 queries:
   - uses: security-and-quality
+
+# Generated vulture whitelist of bare identifiers.
+paths-ignore:
+  - vulture_whitelist.py
