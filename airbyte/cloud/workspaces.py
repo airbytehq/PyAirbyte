@@ -688,9 +688,9 @@ class CloudWorkspace:
         self,
         connection_name: str,
         *,
-        source: cloud_connectors.CloudSource | str,
+        source: "cloud_connectors.CloudSource | str",  # noqa: UP037 (kw-only annotation; CodeQL)
         selected_streams: list[str],
-        destination: cloud_connectors.CloudDestination | str,
+        destination: "cloud_connectors.CloudDestination | str",  # noqa: UP037 (kw-only annotation; CodeQL)
         table_prefix: str | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
