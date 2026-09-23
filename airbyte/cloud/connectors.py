@@ -39,7 +39,6 @@ else:
 
 from __future__ import annotations
 
-import abc
 from dataclasses import dataclass
 from enum import Enum
 from http import HTTPStatus
@@ -138,25 +137,27 @@ class ConnectorFeature(str, Enum):
     """
 
 
-class CloudConnector(abc.ABC):
+class CloudConnector:
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
     You can use a connector object to manage the connector.
     """
 
-    connector_type: ClassVar[Literal["source", "destination"]]
-    """The type of the connector."""
-
     def __init__(
         self,
         workspace: CloudWorkspace,
         connector_id: str,
+        *,
+        connector_type: Literal["source", "destination"] | None = None,
     ) -> None:
         """Initialize a cloud connector object."""
         self.workspace = workspace
         """The workspace that the connector belongs to."""
         self.connector_id = connector_id
         """The ID of the connector."""
+
+        self._connector_type: Literal["source", "destination"] | None = connector_type
+        """The type of the connector. (`None` until resolved for untyped connectors.)"""
 
         self._connector_info: CloudSourceInfo | CloudDestinationInfo | None = None
         """The connection info object. (Cached.)"""
@@ -214,10 +215,108 @@ class CloudConnector(abc.ABC):
 
         return self._connector_info.definition_id
 
-    @abc.abstractmethod
+    @property
+    def connector_type(self) -> Literal["source", "destination"]:
+        """The connector's kind; may make an API call on first access when untyped."""
+        if self._connector_type is None:
+            self._resolve_connector_type()
+
+        assert self._connector_type is not None  # Set by the resolver.
+        return self._connector_type
+
+    def _resolve_connector_type(self) -> None:
+        """Probe the API for the connector's kind, caching both kind and info."""
+        try:
+            self._connector_info = CloudSourceInfo.from_api_response(
+                api_util.get_source(
+                    source_id=self.connector_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+            )
+        except exc.AirbyteMissingResourceError:
+            pass
+        else:
+            self._connector_type = "source"
+            return
+
+        try:
+            self._connector_info = CloudDestinationInfo.from_api_response(
+                api_util.get_destination(
+                    destination_id=self.connector_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+            )
+            self._connector_type = "destination"
+        except exc.AirbyteMissingResourceError as error:
+            raise exc.AirbyteMissingResourceError(
+                resource_name_or_id=self.connector_id,
+                resource_type="connector",
+            ) from error
+
+    def as_cloud_source(self) -> CloudSource:
+        """Return this connector as a `CloudSource`, resolving its kind if needed."""
+        if isinstance(self, CloudSource):
+            return self
+
+        if self.connector_type != "source":
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"Connector {self.connector_id} is a {self.connector_type}, " "not a source."
+                ),
+            )
+
+        result = CloudSource(workspace=self.workspace, connector_id=self.connector_id)
+        result._connector_info = self._connector_info  # noqa: SLF001
+        return result
+
+    def as_cloud_destination(self) -> CloudDestination:
+        """Return this connector as a `CloudDestination`, resolving its kind if needed."""
+        if isinstance(self, CloudDestination):
+            return self
+
+        if self.connector_type != "destination":
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"Connector {self.connector_id} is a {self.connector_type}, "
+                    "not a destination."
+                ),
+            )
+
+        result = CloudDestination(workspace=self.workspace, connector_id=self.connector_id)
+        result._connector_info = self._connector_info  # noqa: SLF001
+        return result
+
     def _fetch_connector_info(self) -> CloudSourceInfo | CloudDestinationInfo:
         """Populate the connector with data from the API."""
-        ...
+        if self._connector_info is not None:
+            return self._connector_info
+
+        if self.connector_type == "source":
+            return CloudSourceInfo.from_api_response(
+                api_util.get_source(
+                    source_id=self.connector_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+            )
+
+        return CloudDestinationInfo.from_api_response(
+            api_util.get_destination(
+                destination_id=self.connector_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        )
 
     @property
     def connector_url(self) -> str:
@@ -491,8 +590,17 @@ class CloudConnector(abc.ABC):
 class CloudSource(CloudConnector):
     """A cloud source is a source that is deployed on Airbyte Cloud."""
 
-    connector_type: ClassVar[Literal["source", "destination"]] = "source"
-    """The type of the connector."""
+    def __init__(
+        self,
+        workspace: CloudWorkspace,
+        connector_id: str,
+    ) -> None:
+        """Initialize a cloud source object."""
+        super().__init__(
+            workspace=workspace,
+            connector_id=connector_id,
+            connector_type="source",
+        )
 
     @property
     def source_id(self) -> str:
@@ -579,16 +687,17 @@ class CloudSource(CloudConnector):
 class CloudDestination(CloudConnector):
     """A cloud destination is a destination that is deployed on Airbyte Cloud."""
 
-    connector_type: ClassVar[Literal["source", "destination"]] = "destination"
-    """The type of the connector."""
-
     def __init__(
         self,
         workspace: CloudWorkspace,
         connector_id: str,
     ) -> None:
         """Initialize a cloud destination object."""
-        super().__init__(workspace=workspace, connector_id=connector_id)
+        super().__init__(
+            workspace=workspace,
+            connector_id=connector_id,
+            connector_type="destination",
+        )
         self._configuration: dict[str, Any] | None = None
         """The destination configuration. (Cached.)"""
 

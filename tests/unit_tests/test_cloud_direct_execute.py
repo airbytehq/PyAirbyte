@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import PropertyMock, patch
 
 import pytest
 
 from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._util import api_util
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
@@ -26,6 +28,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteError,
     AirbyteExternalAccessNotEnabledError,
+    AirbyteMissingResourceError,
     PyAirbyteInputError,
 )
 
@@ -426,3 +429,189 @@ def test_execute_sql_query_requires_dialect_when_not_inferrable(
         destination.execute_sql_query("SELECT 1")
 
     assert calls == []
+
+
+_MISSING: Any = object()
+
+
+def _patch_connector_probes(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    source: Any = _MISSING,  # noqa: ANN401
+    destination: Any = _MISSING,  # noqa: ANN401
+) -> list[str]:
+    """Stub the `get_source`/`get_destination` probes used for lazy kind resolution.
+
+    A `_MISSING` payload raises `AirbyteMissingResourceError`, mirroring the API's
+    not-found response. Returns the ordered list of probes attempted.
+    """
+    calls: list[str] = []
+
+    def fake_get_source(*, source_id: str, **kwargs: Any) -> Any:  # noqa: ANN401, ARG001
+        calls.append("source")
+        if source is _MISSING:
+            raise AirbyteMissingResourceError(
+                resource_name_or_id=source_id,
+                resource_type="source",
+            )
+        return source
+
+    def fake_get_destination(*, destination_id: str, **kwargs: Any) -> Any:  # noqa: ANN401, ARG001
+        calls.append("destination")
+        if destination is _MISSING:
+            raise AirbyteMissingResourceError(
+                resource_name_or_id=destination_id,
+                resource_type="destination",
+            )
+        return destination
+
+    monkeypatch.setattr(api_util, "get_source", fake_get_source)
+    monkeypatch.setattr(api_util, "get_destination", fake_get_destination)
+    return calls
+
+
+def _source_payload(connector_id: str, name: str = "Gong") -> SimpleNamespace:
+    """Return a duck-typed `SourceResponse` for the kind probe."""
+    return SimpleNamespace(
+        source_id=connector_id,
+        name=name,
+        definition_id="source-gong",
+    )
+
+
+def _destination_payload(
+    connector_id: str,
+    definition_id: str = "destination-snowflake",
+) -> SimpleNamespace:
+    """Return a duck-typed `DestinationResponse` for the kind probe."""
+    return SimpleNamespace(
+        destination_id=connector_id,
+        name="Snowflake",
+        definition_id=definition_id,
+        configuration=None,
+    )
+
+
+def test_untyped_connector_resolves_as_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    probes = _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
+    connector = workspace.get_connector("connector-1")
+
+    assert isinstance(connector, CloudConnector)
+    assert connector.connector_type == "source"
+    assert connector.connector_type == "source"
+    assert connector.name == "Gong"
+
+    assert probes == ["source"]
+
+
+def test_untyped_connector_resolves_as_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    probes = _patch_connector_probes(
+        monkeypatch,
+        destination=_destination_payload("connector-1"),
+    )
+    connector = workspace.get_connector("connector-1")
+
+    assert connector.connector_type == "destination"
+    assert connector.connector_type == "destination"
+
+    assert probes == ["source", "destination"]
+
+
+def test_untyped_connector_raises_when_neither_probe_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    probes = _patch_connector_probes(monkeypatch)
+    connector = workspace.get_connector("connector-1")
+
+    with pytest.raises(AirbyteMissingResourceError):
+        connector.connector_type
+
+    assert probes == ["source", "destination"]
+
+
+def test_as_cloud_source_and_destination_casts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
+    connector = workspace.get_connector("connector-1")
+
+    source = connector.as_cloud_source()
+
+    assert isinstance(source, CloudSource)
+    assert source.connector_id == "connector-1"
+    assert source._connector_info is connector._connector_info  # noqa: SLF001
+    assert source.as_cloud_source() is source
+    with pytest.raises(PyAirbyteInputError, match="not a destination"):
+        connector.as_cloud_destination()
+
+
+def test_as_cloud_destination_on_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_connector_probes(
+        monkeypatch,
+        destination=_destination_payload("connector-1"),
+    )
+    connector = workspace.get_connector("connector-1")
+
+    destination = connector.as_cloud_destination()
+
+    assert isinstance(destination, CloudDestination)
+    assert destination.as_cloud_destination() is destination
+    with pytest.raises(PyAirbyteInputError, match="not a source"):
+        connector.as_cloud_source()
+
+
+def test_untyped_connector_executes_without_kind_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy-path execute must not touch `connector_type`/`definition_id`/the flag."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    monkeypatch.setattr(
+        api_util,
+        "get_source",
+        lambda **_: pytest.fail("execute must not probe the connector kind"),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_destination",
+        lambda **_: pytest.fail("execute must not probe the connector kind"),
+    )
+    connector = workspace.get_connector("connector-1")
+
+    result = connector.execute_api_query("issues", "list")
+
+    assert result.status == "success"
+    assert len(calls) == 1
+    assert connector._connector_type is None  # noqa: SLF001
+
+
+def test_execute_sql_query_infers_dialect_via_untyped_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    _patch_connector_probes(
+        monkeypatch,
+        destination=_destination_payload(
+            "connector-1",
+            definition_id=SNOWFLAKE_DEFINITION_ID,
+        ),
+    )
+    connector = workspace.get_connector("connector-1")
+
+    connector.execute_sql_query("SELECT 1")
+
+    assert calls[0]["request_body"]["params"]["sql_dialect"] == SNOWFLAKE_DIALECT

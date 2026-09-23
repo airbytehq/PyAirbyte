@@ -531,6 +531,16 @@ class CloudWorkspace:
             connector_id=destination_id,
         )
 
+    def get_connector(
+        self,
+        connector_id: str,
+    ) -> CloudConnector:
+        """Get an untyped connector by ID without any API call. Kind is resolved lazily."""
+        return CloudConnector(
+            workspace=self,
+            connector_id=connector_id,
+        )
+
     # Deploy sources and destinations
 
     def deploy_source(

@@ -762,23 +762,11 @@ def _resolve_cloud_connector(
 ) -> CloudConnector:
     """Resolve a connector ID to its deployed `CloudConnector` in the workspace.
 
-    Sources and destinations are both scanned, since the execute tools do not presume the
-    connector's kind. An ID that matches neither listing raises a not-found error pointing
-    at `list_agent_connectors`.
+    The connector is returned untyped; its kind is resolved lazily if needed. An ID that
+    matches nothing surfaces a not-found error from the lazy probe, only where kind is
+    required.
     """
-    workspace = _get_cloud_workspace(ctx, workspace_id)
-    for listing in (workspace.list_sources, workspace.list_destinations):
-        for connector in listing():
-            if connector.connector_id == connector_id:
-                return connector
-    raise AirbyteError(
-        message=CONNECTOR_NOT_FOUND_MESSAGE,
-        guidance=(
-            "Use `list_agent_connectors` to see the connectors enabled for Agents access in "
-            "this workspace."
-        ),
-        context={"connector_id": connector_id, "workspace_id": workspace.workspace_id},
-    )
+    return _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
 
 
 _WRITE_ACTIONS: frozenset[str] = frozenset({"create", "update", "delete"})

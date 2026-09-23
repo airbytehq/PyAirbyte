@@ -239,19 +239,17 @@ def test_execute_result_is_shaped_for_agents(connector: _CloudConnectorLike) -> 
     assert result.execution_time_ms == 42
 
 
-def test_execute_sql_select_resolves_cloud_destination(
+def test_execute_sql_select_resolves_cloud_connector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `sql_select` resolves the destination and forwards `sql`/`sql_dialect`."""
+    """Verify `sql_select` resolves the connector and forwards `sql`/`sql_dialect`."""
     _patch_mcp_config(monkeypatch)
     connector = _CloudConnectorLike()
 
     class _CloudWorkspace:
-        def list_sources(self) -> list[Any]:
-            return []
-
-        def list_destinations(self) -> list[_CloudConnectorLike]:
-            return [connector]
+        def get_connector(self, connector_id: str) -> _CloudConnectorLike:
+            assert connector_id == "connector-id"
+            return connector
 
     monkeypatch.setattr(
         agents_mcp,
@@ -282,35 +280,6 @@ def test_execute_sql_select_requires_sql_argument(
     assert connector.calls == []
 
 
-def test_execute_unknown_connector_raises_not_found(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify an unknown connector raises a not-found error pointing at the listing tool."""
-    _patch_mcp_config(monkeypatch)
-
-    class _CloudWorkspace:
-        workspace_id = "workspace-id"
-
-        def list_destinations(self) -> list[Any]:
-            return []
-
-        def list_sources(self) -> list[Any]:
-            return []
-
-    monkeypatch.setattr(
-        agents_mcp,
-        "_get_cloud_workspace",
-        lambda ctx, workspace_id: _CloudWorkspace(),
-    )
-
-    with pytest.raises(
-        AirbyteError, match="No connector found with the given ID or name"
-    ) as excinfo:
-        _execute(action="sql_select")
-
-    assert "list_agent_connectors" in str(excinfo.value)
-
-
 def test_execute_reports_external_access_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -334,18 +303,15 @@ def test_execute_reports_external_access_not_enabled(
     assert "Context layer" in result.message
 
 
-def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
+def test_execute_connector_lookup_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify unrelated connector lookup errors do not trigger Cloud destination fallback."""
+    """Verify connector lookup errors propagate instead of being swallowed."""
     _patch_mcp_config(monkeypatch)
 
     class _CloudWorkspace:
-        def list_sources(self) -> list[Any]:
-            raise AirbyteError(message="Connector listing failed.")
-
-        def list_destinations(self) -> list[Any]:
-            return []
+        def get_connector(self, connector_id: str) -> Any:  # noqa: ANN401, ARG002
+            raise AirbyteError(message="Connector lookup failed.")
 
     monkeypatch.setattr(
         agents_mcp,
@@ -353,26 +319,31 @@ def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
         lambda ctx, workspace_id: _CloudWorkspace(),
     )
 
-    with pytest.raises(AirbyteError, match="Connector listing failed"):
+    with pytest.raises(AirbyteError, match="Connector lookup failed"):
         _execute(action="sql_select")
 
 
 def test_execute_resolves_connector_via_cloud_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify execute resolves the connector by scanning the Cloud workspace listings."""
+    """Verify execute resolves the connector through `CloudWorkspace.get_connector`.
+
+    Resolution must not scan the workspace's source/destination listings.
+    """
     _patch_mcp_config(monkeypatch)
     connector = _CloudConnectorLike()
-    listings: list[str] = []
+    lookups: list[str] = []
 
     class _CloudWorkspace:
-        def list_sources(self) -> list[_CloudConnectorLike]:
-            listings.append("sources")
-            return [connector]
+        def get_connector(self, connector_id: str) -> _CloudConnectorLike:
+            lookups.append(connector_id)
+            return connector
+
+        def list_sources(self) -> list[Any]:
+            pytest.fail("execute must not list sources to resolve a connector")
 
         def list_destinations(self) -> list[Any]:
-            listings.append("destinations")
-            return []
+            pytest.fail("execute must not list destinations to resolve a connector")
 
     monkeypatch.setattr(
         agents_mcp,
@@ -382,7 +353,7 @@ def test_execute_resolves_connector_via_cloud_workspace(
 
     _execute(action="list")
 
-    assert listings == ["sources"]
+    assert lookups == ["connector-id"]
     assert connector.calls[0]["action"] == "list"
 
 
@@ -749,28 +720,18 @@ def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
 
 
 @pytest.mark.parametrize(
-    ("workspace_connector_ids", "requested_workspace_id", "expect_error"),
+    ("requested_workspace_id", "expect_error"),
     [
-        pytest.param(
-            ["connector-id"], "workspace-1", False, id="connector_in_workspace"
-        ),
-        pytest.param(
-            ["other-connector-id"],
-            "workspace-1",
-            True,
-            id="connector_in_other_workspace",
-        ),
-        pytest.param([], "workspace-1", True, id="empty_workspace"),
-        pytest.param(["connector-id"], None, True, id="missing_workspace_rejected"),
+        pytest.param("workspace-1", False, id="connector_in_workspace"),
+        pytest.param(None, True, id="missing_workspace_rejected"),
     ],
 )
 def test_connector_resolution_validates_workspace_scope(
     monkeypatch: pytest.MonkeyPatch,
-    workspace_connector_ids: list[str],
     requested_workspace_id: str | None,
     expect_error: bool,
 ) -> None:
-    """Verify a connector outside the requested workspace is rejected before it is used."""
+    """Verify resolution never scans listings; only a missing workspace is rejected."""
     monkeypatch.setattr(
         agents_mcp,
         "get_mcp_config",
@@ -797,18 +758,22 @@ def test_connector_resolution_validates_workspace_scope(
             (),
             {
                 "workspace_id": workspace_id,
-                "list_sources": lambda self: [
-                    _FakeSource(connector_id=connector_id, name=connector_id)
-                    for connector_id in workspace_connector_ids
-                ],
-                "list_destinations": lambda self: [],
+                "get_connector": lambda self, connector_id: _FakeSource(
+                    connector_id=connector_id, name=connector_id
+                ),
+                "list_sources": lambda self: pytest.fail(
+                    "resolution must not scan listings"
+                ),
+                "list_destinations": lambda self: pytest.fail(
+                    "resolution must not scan listings"
+                ),
             },
         )()
 
     monkeypatch.setattr(agents_mcp, "_get_cloud_workspace", _cloud_workspace)
 
     if expect_error:
-        with pytest.raises((PyAirbyteInputError, AirbyteError)):
+        with pytest.raises(AirbyteError):
             agents_mcp._resolve_cloud_connector(  # noqa: SLF001
                 cast(Context, object()),
                 "connector-id",
