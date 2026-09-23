@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 from typing import overload
 
-from airbyte._util.compat import StrEnum
-
 
 logger = logging.getLogger("airbyte")
 
@@ -228,24 +226,6 @@ secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment va
 
 For more information, see the `airbyte.secrets` module documentation.
 """
-
-
-class ConnectorType(StrEnum):
-    """Connector type: `source` or `destination`."""
-
-    SOURCE = "source"
-    DESTINATION = "destination"
-
-    @classmethod
-    def parse(cls, value: str) -> ConnectorType:
-        """Parse a connector type value."""
-        try:
-            return cls(value)
-        except ValueError:
-            valid = ", ".join(f"`{member.value}`" for member in cls)
-            raise ValueError(
-                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
-            ) from None
 
 
 # Cloud Constants

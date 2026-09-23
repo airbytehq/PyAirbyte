@@ -26,6 +26,8 @@ from airbyte._direct_connectors.models import (
     CloudSkillList,
     CloudSkillSection,
 )
+from airbyte._util.compat import StrEnum
+from airbyte.registry import ConnectorType
 
 
 class _WorkspaceResponseLike(Protocol):
@@ -55,6 +57,20 @@ class _JobResponseLike(Protocol):
     bytes_synced: int | None
     rows_synced: int | None
     start_time: str
+
+
+class ConnectorFeature(StrEnum):
+    """Optional capabilities a deployed Cloud connector may have enabled."""
+
+    EXTERNAL_ACCESS = "external_access"
+    """The connector can be used by AI agents through the Airbyte Context layer."""
+
+    SEARCH_INDEXING = "search_indexing"
+    """Airbyte indexes the connector's data for fast search.
+
+    Distinct from any native search the connector itself may offer as a passthrough
+    operation.
+    """
 
 
 class _SourceResponseLike(Protocol):
@@ -506,6 +522,8 @@ __all__ = [
     "CloudSkillSection",
     "CloudSourceInfo",
     "CloudWorkspaceInfo",
+    "ConnectorFeature",
+    "ConnectorType",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

@@ -54,19 +54,16 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud import connectors as cloud_connectors
 from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import (
-    CloudConnector,
-    CloudDestination,
-    CloudSource,
+from airbyte.cloud.models import (
+    CloudWorkspaceInfo,
     ConnectorFeature,
     ConnectorType,
-    CustomCloudSourceDefinition,
 )
-from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.skills import CloudSkill
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
@@ -423,7 +420,7 @@ class CloudWorkspace:
 
     def _get_connector_features(
         self,
-        connector: CloudConnector,
+        connector: cloud_connectors.CloudConnector,
         *,
         external_access_source_ids: frozenset[str] | None = None,
     ) -> frozenset[ConnectorFeature]:
@@ -488,13 +485,13 @@ class CloudWorkspace:
     def get_source(
         self,
         source_id: str,
-    ) -> CloudSource:
+    ) -> cloud_connectors.CloudSource:
         """Get a source by ID.
 
         This method does not fetch data from the API. It returns a `CloudSource` object,
         which will be loaded lazily as needed.
         """
-        return CloudSource(
+        return cloud_connectors.CloudSource(
             workspace=self,
             connector_id=source_id,
         )
@@ -502,13 +499,13 @@ class CloudWorkspace:
     def get_destination(
         self,
         destination_id: str,
-    ) -> CloudDestination:
+    ) -> cloud_connectors.CloudDestination:
         """Get a destination by ID.
 
         This method does not fetch data from the API. It returns a `CloudDestination` object,
         which will be loaded lazily as needed.
         """
-        return CloudDestination(
+        return cloud_connectors.CloudDestination(
             workspace=self,
             connector_id=destination_id,
         )
@@ -520,7 +517,7 @@ class CloudWorkspace:
         *,
         connector_id: str | None = None,
         name: str | None = None,
-    ) -> CloudConnector:
+    ) -> cloud_connectors.CloudConnector:
         """Get a connector by ID or by name.
 
         An explicit ID (positional or `connector_id="..."`) returns an untyped
@@ -537,7 +534,7 @@ class CloudWorkspace:
         )
 
         if lookup.connector_id:
-            return CloudConnector(workspace=self, connector_id=lookup.connector_id)
+            return cloud_connectors.CloudConnector(workspace=self, connector_id=lookup.connector_id)
 
         connectors = self.list_connectors()
         name_lower = (lookup.name or "").lower()
@@ -609,7 +606,7 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
-    ) -> CloudSource:
+    ) -> cloud_connectors.CloudSource:
         """Deploy a source to the workspace.
 
         Returns the newly deployed source.
@@ -644,7 +641,7 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
-        return CloudSource(
+        return cloud_connectors.CloudSource(
             workspace=self,
             connector_id=deployed_source.source_id,
         )
@@ -656,7 +653,7 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
-    ) -> CloudDestination:
+    ) -> cloud_connectors.CloudDestination:
         """Deploy a destination to the workspace.
 
         Returns the newly deployed destination ID.
@@ -700,14 +697,14 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
-        return CloudDestination(
+        return cloud_connectors.CloudDestination(
             workspace=self,
             connector_id=deployed_destination.destination_id,
         )
 
     def permanently_delete_source(
         self,
-        source: str | CloudSource,
+        source: str | cloud_connectors.CloudSource,
         *,
         safe_mode: bool = True,
     ) -> None:
@@ -720,15 +717,17 @@ class CloudWorkspace:
             safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
-        if not isinstance(source, (str, CloudSource)):
+        if not isinstance(source, (str, cloud_connectors.CloudSource)):
             raise exc.PyAirbyteInputError(
                 message="Invalid source type.",
                 input_value=type(source).__name__,
             )
 
         api_util.delete_source(
-            source_id=source.connector_id if isinstance(source, CloudSource) else source,
-            source_name=source.name if isinstance(source, CloudSource) else None,
+            source_id=source.connector_id
+            if isinstance(source, cloud_connectors.CloudSource)
+            else source,
+            source_name=source.name if isinstance(source, cloud_connectors.CloudSource) else None,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
@@ -740,7 +739,7 @@ class CloudWorkspace:
 
     def permanently_delete_destination(
         self,
-        destination: str | CloudDestination,
+        destination: str | cloud_connectors.CloudDestination,
         *,
         safe_mode: bool = True,
     ) -> None:
@@ -753,7 +752,7 @@ class CloudWorkspace:
             safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
-        if not isinstance(destination, (str, CloudDestination)):
+        if not isinstance(destination, (str, cloud_connectors.CloudDestination)):
             raise exc.PyAirbyteInputError(
                 message="Invalid destination type.",
                 input_value=type(destination).__name__,
@@ -764,7 +763,9 @@ class CloudWorkspace:
                 destination if isinstance(destination, str) else destination.destination_id
             ),
             destination_name=(
-                destination.name if isinstance(destination, CloudDestination) else None
+                destination.name
+                if isinstance(destination, cloud_connectors.CloudDestination)
+                else None
             ),
             api_root=self.api_root,
             client_id=self.client_id,
@@ -779,9 +780,9 @@ class CloudWorkspace:
         self,
         connection_name: str,
         *,
-        source: CloudSource | str,
+        source: "cloud_connectors.CloudSource | str",  # noqa: UP037 (kw-only annotation; CodeQL)
         selected_streams: list[str],
-        destination: CloudDestination | str,
+        destination: "cloud_connectors.CloudDestination | str",  # noqa: UP037 (kw-only annotation; CodeQL)
         table_prefix: str | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
@@ -969,7 +970,7 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> list[CloudSource]:
+    ) -> list[cloud_connectors.CloudSource]:
         """List all sources in the workspace, with an optional limit."""
         sources = api_util.list_sources(
             api_root=self.api_root,
@@ -982,7 +983,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
+            cloud_connectors.CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 source_response=source,
             )
@@ -995,7 +996,7 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> list[CloudDestination]:
+    ) -> list[cloud_connectors.CloudDestination]:
         """List all destinations in the workspace, with an optional limit."""
         destinations = api_util.list_destinations(
             api_root=self.api_root,
@@ -1008,7 +1009,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
+            cloud_connectors.CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 destination_response=destination,
             )
@@ -1022,7 +1023,7 @@ class CloudWorkspace:
         with_feature: ConnectorFeature | None = None,
         name_contains: str | None = None,
         limit: int | None = None,
-    ) -> list[CloudConnector]:
+    ) -> list[cloud_connectors.CloudConnector]:
         """List sources and destinations in the workspace, with optional filters.
 
         Items are `CloudSource` and `CloudDestination` objects. Each has its enabled features
@@ -1037,7 +1038,7 @@ class CloudWorkspace:
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
 
-        connectors: list[CloudConnector] = []
+        connectors: list[cloud_connectors.CloudConnector] = []
         if connector_type in {None, ConnectorType.SOURCE}:
             connectors.extend(self.list_sources())
         if connector_type in {None, ConnectorType.DESTINATION}:
@@ -1080,7 +1081,7 @@ class CloudWorkspace:
         unique: bool = True,
         pre_validate: bool = True,
         testing_values: dict[str, Any] | None = None,
-    ) -> CustomCloudSourceDefinition:
+    ) -> cloud_connectors.CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
         You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
@@ -1162,7 +1163,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            custom_definition = CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
+            custom_definition = cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
                 self, result
             )
 
@@ -1181,7 +1182,7 @@ class CloudWorkspace:
         self,
         *,
         definition_type: Literal["yaml", "docker"],
-    ) -> list[CustomCloudSourceDefinition]:
+    ) -> list[cloud_connectors.CustomCloudSourceDefinition]:
         """List custom source connector definitions.
 
         Args:
@@ -1199,7 +1200,7 @@ class CloudWorkspace:
                 bearer_token=self.bearer_token,
             )
             return [
-                CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
+                cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
             ]
 
@@ -1213,7 +1214,7 @@ class CloudWorkspace:
         definition_id: str,
         *,
         definition_type: Literal["yaml", "docker"],
-    ) -> CustomCloudSourceDefinition:
+    ) -> cloud_connectors.CustomCloudSourceDefinition:
         """Get a specific custom source definition by ID.
 
         Args:
@@ -1232,7 +1233,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+            return cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

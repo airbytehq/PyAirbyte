@@ -7,7 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from airbyte.constants import ConnectorType  # noqa: TC001  # Resolved by Pydantic at model build.
+from airbyte.registry import ConnectorType
 
 
 class SupportLevel(str, Enum):
@@ -109,3 +109,12 @@ class PublicConnectorListResult(BaseModel):
     connector_count: int = Field(description="Number of matching connectors.")
     filters: PublicConnectorFilters = Field(description="Applied filters.")
     connectors: list[PublicConnectorSummary] = Field(description="Matching connectors.")
+
+
+__all__ = [
+    "ConnectorType",
+    "PublicConnectorFilters",
+    "PublicConnectorListResult",
+    "PublicConnectorSummary",
+    "SupportLevel",
+]
