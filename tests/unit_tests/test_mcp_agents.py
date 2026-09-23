@@ -157,11 +157,15 @@ class _RaisingWorkspace:
         """Raise the configured error."""
         raise self._error
 
-    def _list_skills(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    def _list_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
-    def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    def _get_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def _read_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
@@ -480,7 +484,7 @@ def test_inspect_tool_reports_connector_details(
                 external_access_enabled=True,
                 search_indexing_enabled=False,
                 docs_skill_id="connector:github",
-                direct_access_docs=CloudConnectorDocs(
+                direct_access_guidance=CloudConnectorDocs(
                     skill_id="connector:github",
                     content="",
                 ),
@@ -544,7 +548,7 @@ def _inspect_workspace_with_docs(
                 external_access_enabled=True,
                 search_indexing_enabled=False,
                 docs_skill_id=docs_skill_id,
-                direct_access_docs=direct_docs,
+                direct_access_guidance=direct_docs,
                 warnings=warnings,
             )
 
@@ -644,7 +648,7 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _DescribableConnector()
 
-        def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        def _get_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             raise AssertionError("must not run")
 
     monkeypatch.setattr(
@@ -727,7 +731,7 @@ def test_inspect_tool_warns_when_docs_read_times_out(
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _DescribableConnector()
 
-        def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        def _get_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             raise AssertionError("must not run")
 
     monkeypatch.setattr(
@@ -1399,23 +1403,26 @@ def test_workspace_api_roots_come_from_mcp_config(
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify the skills tools shape `AgentSkillList`/`AgentSkillDocs` into results."""
 
-    class _SkillLike:
-        def __init__(self, info: AgentSkillInfo) -> None:
-            self.info = info
+    class _SkilledWorkspace:
+        def _list_guidance(self) -> list[Any]:
+            # Two skills spanning two pages; pagination is internal to the workspace.
+            return [
+                AgentSkillInfo(
+                    id="connector:github",
+                    kind="connector_source",
+                    title="GitHub",
+                    summary="GitHub usage docs.",
+                    tags=["github"],
+                ),
+                AgentSkillInfo(id="context-store", title="Context Store"),
+            ]
 
-    class _SkillDocsSkill:
-        def __init__(self, skill_id: str) -> None:
-            self._skill_id = skill_id
-
-        def read_docs(
-            self,
-            *,
-            section: str | None = None,
-            format: str = "blocks",
+        def _read_guidance(
+            self, skill_id: str, *, section: str | None = None
         ) -> AgentSkillDocs:
             return AgentSkillDocs(
                 metadata=AgentSkillInfo(
-                    id=self._skill_id,
+                    id=skill_id,
                     title="GitHub",
                     warnings=["Partial runtime metadata."],
                 ),
@@ -1426,25 +1433,6 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
                 section_id=section,
                 content=[{"type": "paragraph", "text": "Hello"}],
             )
-
-    class _SkilledWorkspace:
-        def _list_skills(self) -> list[Any]:
-            # Two skills spanning two pages; pagination is internal to the workspace.
-            return [
-                _SkillLike(
-                    AgentSkillInfo(
-                        id="connector:github",
-                        kind="connector_source",
-                        title="GitHub",
-                        summary="GitHub usage docs.",
-                        tags=["github"],
-                    )
-                ),
-                _SkillLike(AgentSkillInfo(id="context-store", title="Context Store")),
-            ]
-
-        def _get_skill(self, skill_id: str) -> Any:  # noqa: ANN401
-            return _SkillDocsSkill(skill_id)
 
     monkeypatch.setattr(
         agents_mcp,
@@ -1696,8 +1684,8 @@ class _FakeDestinationForDocs:
             raise self._connections_error
         return list(self._connections)
 
-    def get_direct_access_docs(self, *, section: str | None = None) -> Any:
-        """Mirror `CloudConnector.get_direct_access_docs` over the patched workspace."""
+    def get_direct_access_guidance(self, *, section: str | None = None) -> Any:
+        """Mirror `CloudConnector.get_direct_access_guidance` over the patched workspace."""
         return agents_mcp._read_destination_skill_docs(  # noqa: SLF001
             agents_mcp._get_agent_workspace(None, "workspace-1"),  # noqa: SLF001
             self,
@@ -1747,10 +1735,6 @@ def _patch_destination_404(
         def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             raise not_found
 
-    class _NotFoundSkill:
-        def read_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            raise not_found
-
     class _NotFoundWorkspace:
         workspace_id = "workspace-1"
         organization_id = "org-1"
@@ -1770,8 +1754,8 @@ def _patch_destination_404(
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _NotFoundConnector()
 
-        def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _NotFoundSkill()
+        def _read_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise not_found
 
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1
@@ -1818,11 +1802,11 @@ def _patch_destination_server_docs(
             self._destination = destination
 
         def describe(
-            self, *, with_direct_access_docs: bool = False, **kwargs: Any
+            self, *, with_direct_access_guidance: bool = False, **kwargs: Any
         ) -> Any:  # noqa: ANN401
             direct_docs = None
-            if with_direct_access_docs:
-                docs = self._destination.get_direct_access_docs()
+            if with_direct_access_guidance:
+                docs = self._destination.get_direct_access_guidance()
                 direct_docs = CloudConnectorDocs(
                     skill_id=docs.metadata.id,
                     title=docs.metadata.title,
@@ -1841,7 +1825,7 @@ def _patch_destination_server_docs(
                 external_access_enabled=False,
                 search_indexing_enabled=False,
                 docs_skill_id=destination_skill_id(self._destination.connector_id),
-                direct_access_docs=direct_docs,
+                direct_access_guidance=direct_docs,
             )
 
     class _DocsWorkspace:
@@ -1857,19 +1841,6 @@ def _patch_destination_server_docs(
             section: str | None = None,
         ) -> AgentSkillDocs:
             calls.append((skill_id, section))
-            return server_docs.model_copy(update={"section_id": section})
-
-    class _ServerDocsSkill:
-        def __init__(self, skill_id: str) -> None:
-            self._skill_id = skill_id
-
-        def read_docs(
-            self,
-            *,
-            section: str | None = None,
-            format: str = "blocks",
-        ) -> AgentSkillDocs:
-            calls.append((self._skill_id, section))
             return server_docs.model_copy(update={"section_id": section})
 
     class _CloudWorkspaceWithDestinations:
@@ -1894,8 +1865,11 @@ def _patch_destination_server_docs(
                 return _NotFoundConnector()
             return _DescribableConnector(match)
 
-        def _get_skill(self, skill_id: str) -> Any:  # noqa: ANN401
-            return _ServerDocsSkill(skill_id)
+        def _read_guidance(
+            self, skill_id: str, *, section: str | None = None
+        ) -> AgentSkillDocs:
+            calls.append((skill_id, section))
+            return server_docs.model_copy(update={"section_id": section})
 
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1

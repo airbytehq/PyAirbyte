@@ -856,7 +856,7 @@ def test_describe_cloud_connector_forwards_id_and_toggles(
         workspace_id="workspace-1",
         with_config=True,
         with_replication_details=True,
-        with_direct_access_docs=True,
+        with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
 
@@ -864,7 +864,7 @@ def test_describe_cloud_connector_forwards_id_and_toggles(
     describe.assert_called_once_with(
         with_config=True,
         with_replication_details=True,
-        with_direct_access_docs=True,
+        with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
     assert result is details
@@ -888,7 +888,7 @@ def test_describe_cloud_source_forwards_toggles(
         workspace_id="workspace-1",
         with_config=True,
         with_replication_details=True,
-        with_direct_access_docs=True,
+        with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
 
@@ -896,7 +896,7 @@ def test_describe_cloud_source_forwards_toggles(
     describe.assert_called_once_with(
         with_config=True,
         with_replication_details=True,
-        with_direct_access_docs=True,
+        with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
     assert result is details
@@ -920,7 +920,7 @@ def test_describe_cloud_destination_forwards_toggles(
         workspace_id="workspace-1",
         with_config=True,
         with_replication_details=True,
-        with_direct_access_docs=True,
+        with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
 
@@ -928,7 +928,7 @@ def test_describe_cloud_destination_forwards_toggles(
     describe.assert_called_once_with(
         with_config=True,
         with_replication_details=True,
-        with_direct_access_docs=True,
+        with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
     assert result is details

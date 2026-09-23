@@ -293,10 +293,10 @@ def test_describe_with_config(
     assert details.config is None
 
 
-def test_describe_with_direct_access_docs_failure_warns(
+def test_describe_with_direct_access_guidance_failure_warns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A docs failure under `with_direct_access_docs` appends a warning."""
+    """A docs failure under `with_direct_access_guidance` appends a warning."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
 
@@ -312,13 +312,13 @@ def test_describe_with_direct_access_docs_failure_warns(
         lambda **_: INSPECT_RESPONSE,
     )
 
-    details = source.describe(with_direct_access_docs=True)
+    details = source.describe(with_direct_access_guidance=True)
 
-    assert details.direct_access_docs is None
+    assert details.direct_access_guidance is None
     assert any("docs" in warning for warning in details.warnings)
 
 
-def test_get_direct_access_docs_non_passthrough_destination_raises(
+def test_get_direct_access_guidance_non_passthrough_destination_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
@@ -327,7 +327,7 @@ def test_get_direct_access_docs_non_passthrough_destination_raises(
     with pytest.raises(
         PyAirbyteInputError, match="does not support direct access docs"
     ):
-        destination.get_direct_access_docs()
+        destination.get_direct_access_guidance()
 
 
 def test_iter_api_entities_follows_cursors(
@@ -498,7 +498,7 @@ def test_get_connector_keyword_id_makes_no_api_call(
 def test_describe_passthrough_docs_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`with_direct_access_docs` renders the built-in SQL destination docs."""
+    """`with_direct_access_guidance` renders the built-in SQL destination docs."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch, available=False)
     monkeypatch.setattr(
@@ -526,30 +526,30 @@ def test_describe_passthrough_docs_end_to_end(
             configuration={"database": "analytics", "schema": "raw"},
         )
 
-        details = destination.describe(with_direct_access_docs=True)
+        details = destination.describe(with_direct_access_guidance=True)
 
-    assert details.direct_access_docs is not None
-    assert details.direct_access_docs.skill_id == details.docs_skill_id
-    assert details.direct_access_docs.content
+    assert details.direct_access_guidance is not None
+    assert details.direct_access_guidance.skill_id == details.docs_skill_id
+    assert details.direct_access_guidance.content
 
 
-def test_describe_direct_access_docs_transport_failure_warns(
+def test_describe_direct_access_guidance_transport_failure_warns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A transport error under `with_direct_access_docs` appends a warning."""
+    """A transport error under `with_direct_access_guidance` appends a warning."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     source = _seed_source(workspace, "source-1", "GitHub")
     source._enabled_features = frozenset()  # noqa: SLF001
     monkeypatch.setattr(
         CloudConnector,
-        "get_direct_access_docs",
+        "get_direct_access_guidance",
         lambda _self, **_: (_ for _ in ()).throw(requests.Timeout("docs timed out")),
     )
 
-    details = source.describe(with_direct_access_docs=True)
+    details = source.describe(with_direct_access_guidance=True)
 
-    assert details.direct_access_docs is None
+    assert details.direct_access_guidance is None
     assert any(
         "Direct access docs are unavailable" in warning for warning in details.warnings
     )
@@ -643,25 +643,25 @@ def test_describe_inspect_transport_failure_warns(
     assert any("Connector inspect failed" in warning for warning in details.warnings)
 
 
-def test_describe_direct_access_docs_input_error_warns(
+def test_describe_direct_access_guidance_input_error_warns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A `PyAirbyteError` under `with_direct_access_docs` appends a warning."""
+    """A `PyAirbyteError` under `with_direct_access_guidance` appends a warning."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     source = _seed_source(workspace, "source-1", "GitHub")
     source._enabled_features = frozenset()  # noqa: SLF001
     monkeypatch.setattr(
         CloudConnector,
-        "get_direct_access_docs",
+        "get_direct_access_guidance",
         lambda _self, **_: (_ for _ in ()).throw(
             PyAirbyteInputError(message="bad docs")
         ),
     )
 
-    details = source.describe(with_direct_access_docs=True)
+    details = source.describe(with_direct_access_guidance=True)
 
-    assert details.direct_access_docs is None
+    assert details.direct_access_guidance is None
     assert any(
         "Direct access docs are unavailable" in warning for warning in details.warnings
     )

@@ -3,7 +3,7 @@
 
 The Agents API may not know destination skills, so connector IDs that address Cloud
 destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs reads.
-This module builds the equivalent `CloudContextLayerConnectorDetails`/`CloudSkillDocs`
+This module builds the equivalent `CloudContextLayerConnectorDetails`/`DirectAccessGuidance`
 payloads locally from the Cloud workspace objects, merges them into server-served
 destination docs so PyAirbyte's SQL guidance is not lost once the API serves them,
 and summarizes the connections touching a connector for `CloudConnector.describe()`.
@@ -20,9 +20,9 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudConnectorConnectionInfo,
     CloudContextLayerConnectorDetails,
-    CloudSkillDocs,
-    CloudSkillInfo,
-    CloudSkillSection,
+    DirectAccessGuidance,
+    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceSection,
 )
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -158,15 +158,15 @@ def _destination_connections(destination: CloudDestination) -> list[Any]:
     ]
 
 
-def build_destination_skill_docs(
+def build_direct_access_sql_guidance(
     destination: CloudDestination,
     *,
     section: str | None = None,
-) -> CloudSkillDocs:
-    """Build `CloudSkillDocs` for a SQL passthrough destination."""
+) -> DirectAccessGuidance:
+    """Build `DirectAccessGuidance` for a SQL passthrough destination."""
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
-    metadata = CloudSkillInfo(
+    metadata = DirectAccessGuidanceInfo(
         id=skill_id,
         kind="connector_destination",
         title=f"{destination.name} (SQL passthrough destination)",
@@ -184,7 +184,9 @@ def build_destination_skill_docs(
         content = _overview(destination, dialect, location)
         content += _connections_section(destination, connections)
         content += _streams_section(connections, location, dialect)
-        return CloudSkillDocs(metadata=metadata, outline=outline, section_id=None, content=content)
+        return DirectAccessGuidance(
+            metadata=metadata, outline=outline, section_id=None, content=content
+        )
 
     if section == SECTION_SQL_PASSTHROUGH:
         content = _sql_passthrough_section(destination, dialect)
@@ -199,21 +201,23 @@ def build_destination_skill_docs(
             message=f"Unknown section {section!r} for skill {skill_id!r}.",
             guidance=f"Valid sections: {', '.join(_SECTION_TITLES)}.",
         )
-    return CloudSkillDocs(metadata=metadata, outline=outline, section_id=section, content=content)
+    return DirectAccessGuidance(
+        metadata=metadata, outline=outline, section_id=section, content=content
+    )
 
 
-def _local_outline() -> list[CloudSkillSection]:
+def _local_outline() -> list[DirectAccessGuidanceSection]:
     """Return the outline entries for the locally built destination sections."""
     return [
-        CloudSkillSection(id=section_id, title=title, available=True)
+        DirectAccessGuidanceSection(id=section_id, title=title, available=True)
         for section_id, title in _SECTION_TITLES.items()
     ]
 
 
 def merge_destination_skill_docs(
-    server_docs: CloudSkillDocs,
+    server_docs: DirectAccessGuidance,
     destination: CloudDestination,
-) -> CloudSkillDocs:
+) -> DirectAccessGuidance:
     """Augment server-provided destination docs with PyAirbyte's SQL guidance.
 
     Local sections are appended to the outline (skipping ids the server already

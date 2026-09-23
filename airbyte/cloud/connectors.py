@@ -62,7 +62,7 @@ from airbyte._direct_connectors.models import (
     CloudConnectorDetails,
     CloudConnectorDocs,
     CloudContextLayerConnectorDetails,
-    CloudSkillDocs,
+    DirectAccessGuidance,
     ExternalApiExecuteResult,
 )
 from airbyte._util import api_util, text_util
@@ -662,7 +662,7 @@ class CloudConnector:
         *,
         with_config: bool = False,
         with_replication_details: bool = False,
-        with_direct_access_docs: bool = False,
+        with_direct_access_guidance: bool = False,
         with_data_replication_docs: bool = False,
         force_refresh: bool = False,
     ) -> CloudConnectorDetails:
@@ -676,7 +676,7 @@ class CloudConnector:
 
         Pass `with_config` for the connector definition name and configuration (secrets are
         redacted by the Cloud API), `with_replication_details` for the connections touching this
-        connector, `with_direct_access_docs` for its direct-access docs rendered as
+        connector, `with_direct_access_guidance` for its direct-access docs rendered as
         Markdown, and `with_data_replication_docs` for links to the connector's upstream
         API documentation. Failures in the optional lookups are collected in `warnings`.
         """
@@ -728,13 +728,13 @@ class CloudConnector:
             except exc.AirbyteError as error:
                 warnings.append(f"Connection listing failed: {error}")
 
-        if with_direct_access_docs:
+        if with_direct_access_guidance:
             try:
-                docs = self.get_direct_access_docs()
+                docs = self.get_direct_access_guidance()
             except (exc.PyAirbyteError, requests.RequestException) as error:
                 warnings.append(f"Direct access docs are unavailable: {error}")
             else:
-                details.direct_access_docs = CloudConnectorDocs(
+                details.direct_access_guidance = CloudConnectorDocs(
                     skill_id=docs.metadata.id,
                     title=docs.metadata.title,
                     content=render_docs_content_markdown(docs.content),
@@ -752,7 +752,7 @@ class CloudConnector:
         details.warnings = warnings
         return details
 
-    def get_direct_access_docs(self, *, section: str | None = None) -> CloudSkillDocs:
+    def get_direct_access_guidance(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's direct-access docs, optionally scoped to a section.
 
         Sources are documented by the Agents API skills endpoint, addressed by the
@@ -769,7 +769,7 @@ class CloudConnector:
                 if context_layer is not None:
                     docs_skill_id = context_layer.docs_skill_id
             skill_id = docs_skill_id or f"{connector_docs.SOURCE_SKILL_PREFIX}{self.connector_id}"
-            return CloudSkillDocs.model_validate(
+            return DirectAccessGuidance.model_validate(
                 agents_api_util.read_agent_skill_docs(
                     skill_id=skill_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001
@@ -782,14 +782,14 @@ class CloudConnector:
         if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             destination = self.as_cloud_destination()
             if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS:
-                return connector_docs.build_destination_skill_docs(
+                return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     section=section,
                 )
             if self.workspace._has_context_layer_api():  # noqa: SLF001
                 skill_id = connector_docs.destination_skill_id(self.connector_id)
                 try:
-                    server_docs = self.workspace._read_skill_docs(  # noqa: SLF001
+                    server_docs = self.workspace._read_guidance(  # noqa: SLF001
                         skill_id, section=section
                     )
                 except exc.AirbyteError as error:
@@ -797,7 +797,7 @@ class CloudConnector:
                         raise
                 else:
                     return connector_docs.merge_destination_skill_docs(server_docs, destination)
-            return connector_docs.build_destination_skill_docs(
+            return connector_docs.build_direct_access_sql_guidance(
                 destination,
                 section=section,
             )

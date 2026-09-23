@@ -1143,7 +1143,7 @@ def describe_cloud_connector(
             default=False,
         ),
     ],
-    with_direct_access_docs: Annotated[
+    with_direct_access_guidance: Annotated[
         bool,
         Field(
             description="Include the connector's direct-access usage docs rendered " "as Markdown.",
@@ -1168,7 +1168,7 @@ def describe_cloud_connector(
     return workspace.get_connector(connector_id=connector_id).describe(
         with_config=with_config,
         with_replication_details=with_replication_details,
-        with_direct_access_docs=with_direct_access_docs,
+        with_direct_access_guidance=with_direct_access_guidance,
         with_data_replication_docs=with_data_replication_docs,
     )
 
@@ -1208,7 +1208,7 @@ def describe_cloud_source(
             default=False,
         ),
     ],
-    with_direct_access_docs: Annotated[
+    with_direct_access_guidance: Annotated[
         bool,
         Field(
             description="Include the source's direct-access usage docs rendered " "as Markdown.",
@@ -1228,7 +1228,7 @@ def describe_cloud_source(
     return workspace.get_source(source_id=source_id).describe(
         with_config=with_config,
         with_replication_details=with_replication_details,
-        with_direct_access_docs=with_direct_access_docs,
+        with_direct_access_guidance=with_direct_access_guidance,
         with_data_replication_docs=with_data_replication_docs,
     )
 
@@ -1268,7 +1268,7 @@ def describe_cloud_destination(
             default=False,
         ),
     ],
-    with_direct_access_docs: Annotated[
+    with_direct_access_guidance: Annotated[
         bool,
         Field(
             description="Include the destination's direct-access usage docs rendered "
@@ -1289,7 +1289,7 @@ def describe_cloud_destination(
     return workspace.get_destination(destination_id=destination_id).describe(
         with_config=with_config,
         with_replication_details=with_replication_details,
-        with_direct_access_docs=with_direct_access_docs,
+        with_direct_access_guidance=with_direct_access_guidance,
         with_data_replication_docs=with_data_replication_docs,
     )
 

@@ -35,7 +35,7 @@ from airbyte._direct_connectors.connector_docs import (
     DESTINATION_SKILL_PREFIX,
     LOCAL_DESTINATION_SECTION_IDS,
     build_destination_connector_details,
-    build_destination_skill_docs,
+    build_direct_access_sql_guidance,
     connector_id_from_skill_id,
     destination_skill_id,
     merge_destination_skill_docs,
@@ -757,13 +757,13 @@ def _read_destination_skill_docs(
     docs are augmented with local guidance, and a 404 falls back to local docs.
     """
     if section in LOCAL_DESTINATION_SECTION_IDS:
-        return build_destination_skill_docs(destination, section=section)
+        return build_direct_access_sql_guidance(destination, section=section)
     skill_id = destination_skill_id(destination.connector_id)
     try:
         server_docs = workspace.read_skill_docs(skill_id, section=section)
     except AirbyteError as error:
         if _is_not_found(error):
-            return build_destination_skill_docs(destination, section=section)
+            return build_direct_access_sql_guidance(destination, section=section)
         raise
     return merge_destination_skill_docs(server_docs, destination)
 
@@ -786,7 +786,7 @@ def _destination_skill_docs_fallback(
         destination is not None
         and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
-        docs = build_destination_skill_docs(destination, section=section)
+        docs = build_direct_access_sql_guidance(destination, section=section)
         return _skill_docs_result(docs)
     if destination is not None:
         message = (
@@ -1140,7 +1140,7 @@ def inspect_agent_connector(
     try:
         cloud_workspace = _get_cloud_workspace(ctx, workspace_id, organization_id=organization_id)
         details = cloud_workspace.get_connector(connector_id=connector_id).describe(
-            with_direct_access_docs=True
+            with_direct_access_guidance=True
         )
         if details.connector_type == "source" and not details.external_access_enabled:
             source = _resolve_cloud_source(ctx, connector_id, cloud_workspace.workspace_id)
@@ -1167,8 +1167,8 @@ def inspect_agent_connector(
 
     warnings = [str(warning) for warning in details.warnings]
     docs_result: AgentConnectorDocsResult | None = None
-    if details.direct_access_docs is not None:
-        direct_docs = details.direct_access_docs
+    if details.direct_access_guidance is not None:
+        direct_docs = details.direct_access_guidance
         outline = [
             AgentSkillSectionResult(
                 section_id=docs_section.id,
@@ -1524,7 +1524,7 @@ def list_agent_skills(
     """
     workspace = _get_cloud_workspace(ctx, workspace_id)
     try:
-        skills = workspace._list_skills()  # noqa: SLF001
+        skills = workspace._list_guidance()  # noqa: SLF001
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:
@@ -1532,7 +1532,7 @@ def list_agent_skills(
         return AgentSkillListResult(skills=[], message=message)
 
     return AgentSkillListResult(
-        skills=[_agent_skill_result(skill.info) for skill in skills],
+        skills=[_agent_skill_result(info) for info in skills],
     )
 
 
@@ -1595,7 +1595,7 @@ def read_agent_skill_docs(
             and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
         ):
             try:
-                docs = destination.get_direct_access_docs(section=section)
+                docs = destination.get_direct_access_guidance(section=section)
             except AirbyteError as error:
                 message = _agents_access_message(error)
                 if message is None:
@@ -1609,8 +1609,8 @@ def read_agent_skill_docs(
                 )
             return _skill_docs_result(docs)
     try:
-        docs = workspace._get_skill(skill_id).read_docs(  # noqa: SLF001
-            section=section, format="blocks"
+        docs = workspace._read_guidance(  # noqa: SLF001
+            skill_id, section=section
         )
     except AirbyteError as error:
         if _is_not_found(error):

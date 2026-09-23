@@ -50,7 +50,8 @@ from airbyte._direct_connectors import skills as agents_skills
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     AgentConnectorInfo,
-    CloudSkillDocs,
+    DirectAccessGuidance,
+    DirectAccessGuidanceInfo,
 )
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
@@ -64,7 +65,6 @@ from airbyte.cloud.models import (
     ConnectorFeature,
     ConnectorType,
 )
-from airbyte.cloud.skills import CloudSkill
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
 
@@ -564,38 +564,45 @@ class CloudWorkspace:
             )
         return matches[0]
 
-    def _list_skills(self) -> list[CloudSkill]:
-        """List all skills available to this workspace, following pagination.
+    def _list_guidance(self) -> list[DirectAccessGuidanceInfo]:
+        """List the direct-access guidance available to this workspace.
 
         Requires a Context Layer API for the workspace's API roots (public Airbyte Cloud,
         or `AIRBYTE_AGENTS_API_URL` for custom deployments).
         """
-        return [
-            CloudSkill(workspace=self, skill_id=info.id, info=info)
-            for info in agents_skills.iter_skill_infos(
+        return list(
+            agents_skills.iter_skill_infos(
                 credentials=self._credentials,
                 workspace_id=self.workspace_id,
                 organization_id=self._resolve_agents_organization_id(),
             )
-        ]
+        )
 
-    def _get_skill(self, skill_id: str) -> CloudSkill:
-        """Get a skill by ID, without calling the Agents API."""
-        return CloudSkill(workspace=self, skill_id=skill_id)
+    def _get_guidance(self, skill_id: str) -> DirectAccessGuidance:
+        """Get direct-access guidance by skill ID."""
+        return self._read_guidance(skill_id)
 
-    def _read_skill_docs(
+    def _read_guidance(
         self,
         skill_id: str,
         *,
         section: str | None = None,
-    ) -> CloudSkillDocs:
-        """Read a skill's docs, optionally scoped to a single section.
+    ) -> DirectAccessGuidance:
+        """Read direct-access guidance, optionally scoped to a single section.
 
         Omit `section` for metadata, guidance, and the outline of available sections, or
         pass an exact section `id` from the outline to read that section. Connector usage
         docs use the `docs_skill_id` reported by `CloudConnector.describe()`.
         """
-        return self._get_skill(skill_id).read_docs(section=section, format="blocks")
+        return DirectAccessGuidance.model_validate(
+            agents_api_util.read_agent_skill_docs(
+                skill_id=skill_id,
+                credentials=self._credentials,
+                organization_id=self._resolve_agents_organization_id(),
+                workspace_id=self.workspace_id,
+                section=section,
+            )
+        )
 
     # Deploy sources and destinations
 

@@ -45,7 +45,7 @@ class AgentWorkspaceInfo(BaseModel):
     """The workspace status, for example `active`."""
 
 
-class CloudAgentConnectorInfo(BaseModel):
+class CloudDirectConnectorInfo(BaseModel):
     """Summary information about a connector, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
@@ -81,13 +81,13 @@ class CloudContextStoreReadiness(BaseModel):
     """The entities currently configured for caching, with their sync status."""
 
 
-class CloudSkillInfo(BaseModel):
-    """Summary information about a skill, as returned by the Agents API."""
+class DirectAccessGuidanceInfo(BaseModel):
+    """Summary of one entry of direct-access guidance, as listed by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
     id: str
-    """The skill ID. Pass it to `CloudWorkspace._read_skill_docs` to read this skill's docs."""
+    """The skill ID. Pass it to `CloudWorkspace._read_guidance` to read the guidance."""
 
     kind: str | None = None
     """The skill category, for example `static` or `connector_source`."""
@@ -105,20 +105,20 @@ class CloudSkillInfo(BaseModel):
     """Non-fatal issues reported while building or reading the skill's docs."""
 
 
-class CloudSkillList(BaseModel):
-    """A page of skills, as returned by the Agents API."""
+class DirectAccessGuidanceList(BaseModel):
+    """A page of direct-access guidance entries, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    data: list[CloudSkillInfo]
+    data: list[DirectAccessGuidanceInfo]
     """The skills on this page."""
 
     next_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
 
 
-class CloudSkillSection(BaseModel):
-    """A section of a skill's docs, as listed in the docs outline."""
+class DirectAccessGuidanceSection(BaseModel):
+    """A section of direct-access guidance, as listed in the guidance outline."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -135,15 +135,15 @@ class CloudSkillSection(BaseModel):
     """Whether this section can currently be read."""
 
 
-class CloudSkillDocs(BaseModel):
-    """Documentation for a single skill, as returned by the Agents API."""
+class DirectAccessGuidance(BaseModel):
+    """Direct-access guidance for a connector: static docs plus dynamic context."""
 
     model_config = ConfigDict(extra="allow")
 
-    metadata: CloudSkillInfo
+    metadata: DirectAccessGuidanceInfo
     """Metadata for the requested skill."""
 
-    outline: list[CloudSkillSection] = Field(default_factory=list)
+    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
     """The sections available for this skill."""
 
     section_id: str | None = None
@@ -352,7 +352,7 @@ class CloudConnectorDocs(BaseModel):
     content: str
     """The docs body, rendered as Markdown."""
 
-    outline: list[CloudSkillSection] = Field(default_factory=list)
+    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
     """The sections available in the docs."""
 
     section_id: str | None = None
@@ -409,8 +409,8 @@ class CloudConnectorDetails(BaseModel):
     replication_details: list[CloudConnectorConnectionInfo] | None = None
     """Connections touching this connector, populated only by `with_replication_details`."""
 
-    direct_access_docs: CloudConnectorDocs | None = None
-    """Direct-access docs rendered as Markdown, populated only by `with_direct_access_docs`."""
+    direct_access_guidance: CloudConnectorDocs | None = None
+    """Direct-access docs rendered as Markdown, populated only by `with_direct_access_guidance`."""
 
     data_replication_docs: list[ApiDocsUrl] | None = None
     """Upstream API documentation links, populated only by `with_data_replication_docs`."""
@@ -427,14 +427,14 @@ class CloudConnectorDetails(BaseModel):
 
 AgentContextStoreEntity = CloudContextStoreEntity
 AgentContextStoreReadiness = CloudContextStoreReadiness
-AgentSkillInfo = CloudSkillInfo
-AgentSkillList = CloudSkillList
-AgentSkillSection = CloudSkillSection
-AgentSkillDocs = CloudSkillDocs
+AgentSkillInfo = DirectAccessGuidanceInfo
+AgentSkillList = DirectAccessGuidanceList
+AgentSkillSection = DirectAccessGuidanceSection
+AgentSkillDocs = DirectAccessGuidance
 AgentExecutionMetadata = ExternalApiExecutionMetadata
 AgentConnectorMetadata = ExternalApiConnectorMetadata
 AgentExecuteResult = ExternalApiExecuteResult
-AgentConnectorInfo = CloudAgentConnectorInfo
+AgentConnectorInfo = CloudDirectConnectorInfo
 AgentConnectorDetails = CloudContextLayerConnectorDetails
 
 

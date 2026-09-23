@@ -1427,7 +1427,9 @@ def test_build_destination_connector_details() -> None:
     assert details.warnings == []
 
 
-def test_build_destination_skill_docs_index_includes_connections_and_streams() -> None:
+def test_build_direct_access_sql_guidance_index_includes_connections_and_streams() -> (
+    None
+):
     """The no-section response embeds connections and their enabled streams inline."""
     matching = _FakeConnection(
         connection_id="conn-1",
@@ -1445,7 +1447,7 @@ def test_build_destination_skill_docs_index_includes_connections_and_streams() -
         configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
     )
 
-    docs = destination_docs.build_destination_skill_docs(cast(Any, destination))
+    docs = destination_docs.build_direct_access_sql_guidance(cast(Any, destination))
 
     assert docs.metadata.id == "connector-destination:dest-1"
     assert docs.metadata.kind == "connector_destination"
@@ -1592,7 +1594,7 @@ def test_connection_namespace_note(
         ),
     ],
 )
-def test_build_destination_skill_docs_sql_passthrough_section(
+def test_build_direct_access_sql_guidance_sql_passthrough_section(
     definition_id: str,
     dialect: str,
 ) -> None:
@@ -1602,7 +1604,7 @@ def test_build_destination_skill_docs_sql_passthrough_section(
         definition_id=definition_id,
     )
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_SQL_PASSTHROUGH,
     )
@@ -1620,7 +1622,9 @@ def test_build_destination_skill_docs_sql_passthrough_section(
         assert "double-quot" in rendered
 
 
-def test_build_destination_skill_docs_connections_section_filters_destination() -> None:
+def test_build_direct_access_sql_guidance_connections_section_filters_destination() -> (
+    None
+):
     matching = _FakeConnection(
         connection_id="conn-1",
         name="GitHub to Snowflake",
@@ -1641,7 +1645,7 @@ def test_build_destination_skill_docs_connections_section_filters_destination() 
         ],
     )
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_CONNECTIONS,
     )
@@ -1655,10 +1659,10 @@ def test_build_destination_skill_docs_connections_section_filters_destination() 
     assert "Slack elsewhere" not in rendered
 
 
-def test_build_destination_skill_docs_connections_section_empty() -> None:
+def test_build_direct_access_sql_guidance_connections_section_empty() -> None:
     destination = _snowflake_destination()
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_CONNECTIONS,
     )
@@ -1682,7 +1686,7 @@ def test_build_destination_skill_docs_connections_section_empty() -> None:
         ),
     ],
 )
-def test_build_destination_skill_docs_streams_section(
+def test_build_direct_access_sql_guidance_streams_section(
     definition_id: str,
     expected_tables: list[str],
 ) -> None:
@@ -1700,7 +1704,7 @@ def test_build_destination_skill_docs_streams_section(
         connections=[connection],
     )
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_STREAMS,
     )
@@ -1716,10 +1720,10 @@ def test_build_destination_skill_docs_streams_section(
     assert "'raw_'" in rendered
 
 
-def test_build_destination_skill_docs_streams_section_empty() -> None:
+def test_build_direct_access_sql_guidance_streams_section_empty() -> None:
     destination = _snowflake_destination()
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_STREAMS,
     )
@@ -1727,11 +1731,11 @@ def test_build_destination_skill_docs_streams_section_empty() -> None:
     assert "No connections" in str(docs.content)
 
 
-def test_build_destination_skill_docs_rejects_unknown_section() -> None:
+def test_build_direct_access_sql_guidance_rejects_unknown_section() -> None:
     destination = _snowflake_destination()
 
     with pytest.raises(PyAirbyteInputError, match="sql-passthrough"):
-        destination_docs.build_destination_skill_docs(
+        destination_docs.build_direct_access_sql_guidance(
             cast(Any, destination),
             section="bogus",
         )
@@ -1746,14 +1750,14 @@ def test_agent_model_aliases_match_cloud_models() -> None:
     aliases = {
         "AgentContextStoreEntity": "CloudContextStoreEntity",
         "AgentContextStoreReadiness": "CloudContextStoreReadiness",
-        "AgentSkillInfo": "CloudSkillInfo",
-        "AgentSkillList": "CloudSkillList",
-        "AgentSkillSection": "CloudSkillSection",
-        "AgentSkillDocs": "CloudSkillDocs",
+        "AgentSkillInfo": "DirectAccessGuidanceInfo",
+        "AgentSkillList": "DirectAccessGuidanceList",
+        "AgentSkillSection": "DirectAccessGuidanceSection",
+        "AgentSkillDocs": "DirectAccessGuidance",
         "AgentExecutionMetadata": "ExternalApiExecutionMetadata",
         "AgentConnectorMetadata": "ExternalApiConnectorMetadata",
         "AgentExecuteResult": "ExternalApiExecuteResult",
-        "AgentConnectorInfo": "CloudAgentConnectorInfo",
+        "AgentConnectorInfo": "CloudDirectConnectorInfo",
         "AgentConnectorDetails": "CloudContextLayerConnectorDetails",
     }
     for agent_name, cloud_name in aliases.items():
