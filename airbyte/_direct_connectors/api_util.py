@@ -434,6 +434,15 @@ def iter_paged_entities(
     Iteration stops when the page reports no next page, when the cursor does not advance,
     or once `limit` entities have been yielded.
     """
+    if limit is not None:
+        if limit < 0:
+            raise PyAirbyteInputError(
+                message="`limit` must be zero or a positive integer.",
+                context={"limit": limit},
+            )
+        if limit == 0:
+            return
+
     seen_cursors: set[str] = set()
     yielded = 0
 

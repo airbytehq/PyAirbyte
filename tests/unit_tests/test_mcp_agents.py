@@ -2522,3 +2522,48 @@ def test_read_docs_destination_cloud_error_propagates(
 
     with pytest.raises(AirbyteError):
         _read_docs("connector-destination:dest-snowflake")
+
+
+def test_inspect_forwards_organization_id_to_cloud_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`inspect_agent_connector` forwards the explicit organization to the workspace."""
+    seen: dict[str, Any] = {}
+
+    class _DescribableConnector:
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return CloudConnectorDetails(
+                connector_id="connector-id",
+                connector_type="source",
+                connector_name="GitHub",
+                connector_url="",
+                connector_definition_id="definition-id",
+                external_access_enabled=True,
+                search_indexing_enabled=False,
+            )
+
+    class _Workspace:
+        workspace_id = "workspace-1"
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _DescribableConnector()
+
+    def _workspace(
+        ctx: Any,
+        workspace_id: str | None = None,
+        organization_id: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        seen["workspace_id"] = workspace_id
+        seen["organization_id"] = organization_id
+        return _Workspace()
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_workspace", _workspace)
+
+    agents_mcp.inspect_agent_connector(
+        ctx=cast(Context, object()),
+        connector_id="connector-id",
+        workspace_id="workspace-1",
+        organization_id="org-42",
+    )
+
+    assert seen["organization_id"] == "org-42"

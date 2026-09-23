@@ -431,6 +431,7 @@ class SyncJobListResult(BaseModel):
 def _get_cloud_workspace(
     ctx: Context,
     workspace_id: str | None = None,
+    organization_id: str | None = None,
 ) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
 
@@ -442,7 +443,7 @@ def _get_cloud_workspace(
     from HTTP headers or environment variables based on the config args
     defined in server.py.
     """
-    client = _get_cloud_client(ctx)
+    client = _get_cloud_client(ctx, organization_id=organization_id)
     resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError

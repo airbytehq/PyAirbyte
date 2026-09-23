@@ -45,6 +45,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
+import requests
 import yaml
 
 from airbyte import exceptions as exc
@@ -736,7 +737,10 @@ class CloudConnector:
             else:
                 details.connector_definition_name = definition.name
             if connector_type == "destination":
-                details.config = self.as_cloud_destination().configuration
+                try:
+                    details.config = self.as_cloud_destination().configuration
+                except exc.AirbyteError as error:
+                    warnings.append(f"Connector configuration lookup failed: {error}")
 
         if with_replication_details:
             try:
@@ -747,7 +751,7 @@ class CloudConnector:
         if with_direct_access_docs:
             try:
                 docs = self.get_direct_access_docs()
-            except exc.AirbyteError as error:
+            except (exc.AirbyteError, requests.RequestException) as error:
                 warnings.append(f"Direct access docs are unavailable: {error}")
             else:
                 details.direct_access_docs = CloudConnectorDocs(
@@ -762,7 +766,7 @@ class CloudConnector:
         if with_data_replication_docs:
             try:
                 details.data_replication_docs = self.get_data_replication_docs()
-            except exc.AirbyteError as error:
+            except (exc.AirbyteError, requests.RequestException) as error:
                 warnings.append(f"Data replication docs are unavailable: {error}")
 
         details.warnings = warnings

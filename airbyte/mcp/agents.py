@@ -1133,10 +1133,22 @@ def inspect_agent_connector(
     built-in docs under `connector-destination:<id>`.
     """
     try:
-        cloud_workspace = _get_cloud_workspace(ctx, workspace_id)
+        cloud_workspace = _get_cloud_workspace(ctx, workspace_id, organization_id=organization_id)
         details = cloud_workspace.get_connector(connector_id=connector_id).describe(
             with_direct_access_docs=True
         )
+        if details.connector_type == "source" and not details.external_access_enabled:
+            source = _resolve_cloud_source(ctx, connector_id, cloud_workspace.workspace_id)
+            if source is not None:
+                raise _ConnectorNotEnabledError(
+                    message=_source_not_enabled_message(
+                        source, cloud_workspace.workspace_id, organization_id
+                    ),
+                    context={
+                        "connector_id": connector_id,
+                        "workspace_id": cloud_workspace.workspace_id,
+                    },
+                )
     except AirbyteError as error:
         if _is_not_found(error) or error.get_message() == CONNECTOR_NOT_FOUND_MESSAGE:
             return _inspect_destination_fallback(ctx, connector_id, workspace_id, organization_id)

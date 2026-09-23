@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import PropertyMock, patch
 
 import pytest
+import requests
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors.models import CloudConnectorDetails
@@ -526,3 +527,94 @@ def test_describe_passthrough_docs_end_to_end(
     assert details.direct_access_docs is not None
     assert details.direct_access_docs.skill_id == details.docs_skill_id
     assert details.direct_access_docs.content
+
+
+def test_describe_direct_access_docs_transport_failure_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transport error under `with_direct_access_docs` appends a warning."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._enabled_features = frozenset()  # noqa: SLF001
+    monkeypatch.setattr(
+        CloudConnector,
+        "get_direct_access_docs",
+        lambda _self, **_: (_ for _ in ()).throw(requests.Timeout("docs timed out")),
+    )
+
+    details = source.describe(with_direct_access_docs=True)
+
+    assert details.direct_access_docs is None
+    assert any(
+        "Direct access docs are unavailable" in warning for warning in details.warnings
+    )
+
+
+def test_describe_with_config_configuration_failure_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A config fetch failure under `with_config` warns but keeps the definition name."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_destination_definition",
+        lambda **_: SimpleNamespace(
+            name="Snowflake",
+            docker_repository="airbyte/destination-snowflake",
+        ),
+    )
+    destination = _seed_destination(
+        workspace,
+        "dest-1",
+        SNOWFLAKE_DEFINITION_ID,
+        name="Warehouse",
+        configuration={"database": "analytics", "schema": "raw"},
+    )
+    destination._enabled_features = frozenset()  # noqa: SLF001
+    monkeypatch.setattr(
+        CloudDestination,
+        "configuration",
+        property(
+            lambda _self: (_ for _ in ()).throw(AirbyteError(message="config boom"))
+        ),
+    )
+
+    details = destination.describe(with_config=True)
+
+    assert details.connector_definition_name == "Snowflake"
+    assert details.config is None
+    assert any(
+        "Connector configuration lookup failed" in warning
+        for warning in details.warnings
+    )
+
+
+def test_iter_api_entities_limit_zero_makes_no_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`limit=0` yields nothing without calling the API."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fake_execute(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {"status": "success", "result": [{"id": 1}]}
+
+    monkeypatch.setattr(agents_api_util, "execute_agent_connector_action", fake_execute)
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    assert list(source.iter_api_entities("issues", limit=0)) == []
+    assert calls == []
+
+
+def test_iter_api_entities_negative_limit_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A negative `limit` is rejected."""
+    workspace = _make_workspace(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    with pytest.raises(PyAirbyteInputError, match="limit"):
+        list(source.iter_api_entities("issues", limit=-1))
