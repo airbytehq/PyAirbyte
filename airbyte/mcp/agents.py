@@ -1621,9 +1621,7 @@ def read_agent_skill_docs(
                 )
             return _skill_docs_result(docs)
     try:
-        docs = workspace._read_guidance(  # noqa: SLF001
-            skill_id, section=section
-        )
+        docs = workspace.get_direct_access_guidance(skill_id, section=section)
     except AirbyteError as error:
         if _is_not_found(error):
             return _destination_skill_docs_fallback(

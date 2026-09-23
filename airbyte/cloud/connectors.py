@@ -632,7 +632,7 @@ class CloudConnector:
                 context_layer = self._context_layer_inspect(warnings=sink)
                 if context_layer is not None:
                     docs_skill_id = context_layer.docs_skill_id
-            return docs_skill_id or f"{connector_docs.SOURCE_SKILL_PREFIX}{self.connector_id}"
+            return docs_skill_id
         if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             return connector_docs.destination_skill_id(self.connector_id)
         return None
@@ -641,15 +641,25 @@ class CloudConnector:
         """Read this connector's direct-access docs, optionally scoped to a section.
 
         Sources are documented by the Agents API skills endpoint, addressed by the
-        `docs_skill_id` reported by Context Layer `inspect` or by the conventional
-        `connector-source:<id>` skill ID. SQL passthrough destinations (Snowflake,
-        BigQuery) get built-in docs generated locally. Other destinations do not support
-        direct access.
+        `docs_skill_id` reported by Context Layer `inspect`. SQL passthrough destinations
+        (Snowflake, BigQuery) get built-in docs generated locally. Other destinations do
+        not support direct access.
         """
         if self.connector_type == ConnectorType.SOURCE:
+            skill_id = self._direct_access_guidance_id()
+            if skill_id is None:
+                raise exc.PyAirbyteInputError(
+                    message="Source is not enabled for direct access.",
+                    guidance=(
+                        "Enable the source for direct access in the Airbyte Cloud UI; "
+                        "direct-access docs are served by the Context Layer for enabled "
+                        "sources."
+                    ),
+                    context={"connector_id": self.connector_id},
+                )
             return DirectAccessGuidance.model_validate(
                 agents_api_util.read_agent_skill_docs(
-                    skill_id=self._direct_access_guidance_id() or "",
+                    skill_id=skill_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001
                     organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
                     workspace_id=self.workspace.workspace_id,
@@ -667,7 +677,7 @@ class CloudConnector:
             if self.workspace._has_context_layer_api():  # noqa: SLF001
                 skill_id = connector_docs.destination_skill_id(self.connector_id)
                 try:
-                    server_docs = self.workspace._read_guidance(  # noqa: SLF001
+                    server_docs = self.workspace.get_direct_access_guidance(
                         skill_id, section=section
                     )
                 except exc.AirbyteError as error:

@@ -90,7 +90,7 @@ class DirectAccessGuidanceIndexEntry(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    """The skill ID. Pass it to `CloudWorkspace._read_guidance` to read the guidance."""
+    """The skill ID. Pass it to `CloudWorkspace.get_direct_access_guidance` to read it."""
 
     kind: str | None = None
     """The guidance category, for example `static` or `connector_source`."""

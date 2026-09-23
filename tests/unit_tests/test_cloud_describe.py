@@ -195,18 +195,20 @@ def test_direct_access_guidance_id_source_with_context_layer(
 def test_direct_access_guidance_id_source_without_context_layer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sources without a Context Layer fall back to the conventional skill ID."""
+    """Sources without a Context Layer report no guidance ID; reads raise."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch, available=False)
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    assert source._direct_access_guidance_id() == "connector-source:source-1"  # noqa: SLF001
+    assert source._direct_access_guidance_id() is None  # noqa: SLF001
+    with pytest.raises(PyAirbyteInputError, match="not enabled for direct access"):
+        source.get_direct_access_guidance()
 
 
-def test_direct_access_guidance_id_source_inspect_failure_falls_back(
+def test_direct_access_guidance_id_source_inspect_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failing `inspect` call falls back to the conventional source skill ID."""
+    """A failing `inspect` call leaves no guidance ID; reads raise."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
@@ -216,7 +218,9 @@ def test_direct_access_guidance_id_source_inspect_failure_falls_back(
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    assert source._direct_access_guidance_id() == "connector-source:source-1"  # noqa: SLF001
+    assert source._direct_access_guidance_id() is None  # noqa: SLF001
+    with pytest.raises(PyAirbyteInputError, match="not enabled for direct access"):
+        source.get_direct_access_guidance()
 
 
 def test_direct_access_guidance_id_sql_passthrough_destination(

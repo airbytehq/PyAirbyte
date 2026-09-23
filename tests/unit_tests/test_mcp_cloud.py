@@ -15,6 +15,7 @@ from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
+    DirectAccessGuidanceSection,
 )
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
@@ -940,6 +941,44 @@ def test_list_deployed_cloud_connectors_filters(
     assert [(r.id, r.connector_type) for r in results] == [
         ("destination-1", "destination")
     ]
+
+
+def test_get_cloud_direct_access_guidance_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tool forwards `docs_skill_id`/`section` and renders the docs result."""
+    guidance = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(
+            id="connector-source:source-1", title="GitHub", warnings=["partial"]
+        ),
+        outline=[
+            DirectAccessGuidanceSection(id="setup", title="Setup"),
+        ],
+        content=[{"type": "paragraph", "text": "Hello"}],
+        section_id="setup",
+    )
+    calls: list[dict[str, object]] = []
+    workspace = SimpleNamespace(
+        get_direct_access_guidance=lambda skill_id, *, section=None: (
+            calls.append({"skill_id": skill_id, "section": section}),
+            guidance,
+        )[1]
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    result = cloud_mcp.get_cloud_direct_access_guidance(
+        None,
+        docs_skill_id="connector-source:source-1",
+        section="setup",
+        workspace_id=None,
+    )
+
+    assert calls == [{"skill_id": "connector-source:source-1", "section": "setup"}]
+    assert result.skill_id == "connector-source:source-1"
+    assert result.title == "GitHub"
+    assert result.section_id == "setup"
+    assert result.warnings == ["partial"]
+    assert "Hello" in result.content
 
 
 def _describe_details() -> CloudConnectorDetailsResult:

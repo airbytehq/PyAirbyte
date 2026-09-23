@@ -46,6 +46,7 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     CloudDirectConnectorInfo,
@@ -582,26 +583,32 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
         )
 
-    def _get_guidance(self, skill_id: str) -> DirectAccessGuidance:
-        """Get direct-access guidance by skill ID."""
-        return self._read_guidance(skill_id)
-
-    def _read_guidance(
+    def get_direct_access_guidance(
         self,
-        skill_id: str,
+        docs_skill_id: str,
+        /,
         *,
         section: str | None = None,
     ) -> DirectAccessGuidance:
-        """Read direct-access guidance, optionally scoped to a single section.
+        """Read direct-access guidance by its fully-qualified skill ID.
 
+        `docs_skill_id` is the `metadata.id` returned by
+        `CloudConnector.get_direct_access_guidance()` or the `describe_cloud_*` MCP tools.
         Omit `section` for metadata, guidance, and the outline of available sections, or
-        pass an exact section `id` from the outline to read that section. Connector usage
-        docs use the `docs_skill_id` reported by Context Layer `inspect`, or the
-        conventional `connector-source:<id>` / `connector-destination:<id>` IDs.
+        pass an exact section `id` from the outline to read that section.
+
+        IDs with the `connector-destination:` prefix are served locally: the destination's
+        built-in direct-access docs, resolved through `get_destination`. All other IDs go
+        to the Agents API.
         """
+        if docs_skill_id.startswith(connector_docs.DESTINATION_SKILL_PREFIX):
+            destination = self.get_destination(
+                connector_docs.connector_id_from_skill_id(docs_skill_id)
+            )
+            return destination.get_direct_access_guidance(section=section)
         return DirectAccessGuidance.model_validate(
             agents_api_util.read_agent_skill_docs(
-                skill_id=skill_id,
+                skill_id=docs_skill_id,
                 credentials=self._credentials,
                 organization_id=self._resolve_agents_organization_id(),
                 workspace_id=self.workspace_id,

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -81,8 +82,10 @@ def test_list_guidance_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> No
     assert calls[1]["cursor"] == "cursor-1"
 
 
-def test_get_guidance_reads_docs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`_get_guidance` returns the skill's parsed `DirectAccessGuidance`."""
+def test_get_direct_access_guidance_reads_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`get_direct_access_guidance` returns the skill's parsed `DirectAccessGuidance`."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
@@ -92,7 +95,7 @@ def test_get_guidance_reads_docs(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fake_read_docs)
 
-    guidance = workspace._get_guidance("connector:github")  # noqa: SLF001
+    guidance = workspace.get_direct_access_guidance("connector:github")
 
     assert isinstance(guidance, DirectAccessGuidance)
     assert guidance.metadata.id == "connector:github"
@@ -100,8 +103,10 @@ def test_get_guidance_reads_docs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0]["skill_id"] == "connector:github"
 
 
-def test_read_guidance(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`_read_guidance` passes the section through and returns parsed docs."""
+def test_get_direct_access_guidance_passes_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`get_direct_access_guidance` passes the section through to the Agents API."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
@@ -111,7 +116,7 @@ def test_read_guidance(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fake_read_docs)
 
-    docs = workspace._read_guidance("connector:github", section="setup")  # noqa: SLF001
+    docs = workspace.get_direct_access_guidance("connector:github", section="setup")
 
     assert docs.metadata.id == "connector:github"
     assert docs.metadata.title == "GitHub"
@@ -136,3 +141,33 @@ def test_list_guidance_passes_resolved_organization_id(
     workspace._list_guidance()  # noqa: SLF001
 
     assert calls[0]["organization_id"] == "organization-id"
+
+
+def test_get_direct_access_guidance_destination_prefix_served_locally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`connector-destination:` IDs resolve locally through `get_destination`."""
+    workspace = _make_workspace(monkeypatch)
+    destination = MagicMock()
+    destination.get_direct_access_guidance.return_value = SKILL_DOCS_RESPONSE[
+        "metadata"
+    ] and DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_destination",
+        lambda _self, destination_id: (calls.append(destination_id), destination)[1],
+    )
+
+    def fail_read_docs(**_kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("Agents API must not be called for destination skill IDs")
+
+    monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fail_read_docs)
+
+    docs = workspace.get_direct_access_guidance(
+        "connector-destination:destination-1", section="sql"
+    )
+
+    assert calls == ["destination-1"]
+    destination.get_direct_access_guidance.assert_called_once_with(section="sql")
+    assert docs.metadata.id == "connector:github"

@@ -25,6 +25,7 @@ from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
+    DirectAccessGuidance,
     DirectAccessGuidanceSection,
 )
 from airbyte._util import api_util
@@ -1194,7 +1195,10 @@ def list_deployed_cloud_connectors(
 
 
 class CloudConnectorDocsResult(BaseModel):
-    """Connector docs rendered for agent consumption by the `describe_cloud_*` MCP tools."""
+    """Connector docs rendered for agent consumption by the Cloud MCP tools.
+
+    Returned by `describe_cloud_*` and `get_cloud_direct_access_guidance`.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -1323,14 +1327,7 @@ def _describe_cloud_connector(
         except (PyAirbyteError, requests.RequestException) as error:
             warnings.append(f"Direct access docs are unavailable: {error}")
         else:
-            result.direct_access_guidance = CloudConnectorDocsResult(
-                skill_id=docs.metadata.id,
-                title=docs.metadata.title,
-                content=render_docs_content_markdown(docs.content),
-                outline=docs.outline,
-                section_id=docs.section_id,
-                warnings=[str(warning) for warning in docs.metadata.warnings],
-            )
+            result.direct_access_guidance = _docs_result(docs)
 
     if with_data_replication_docs:
         try:
@@ -1537,6 +1534,63 @@ def describe_cloud_destination(
         with_direct_access_guidance=with_direct_access_guidance,
         with_data_replication_docs=with_data_replication_docs,
     )
+
+
+def _docs_result(docs: DirectAccessGuidance) -> CloudConnectorDocsResult:
+    """Render `DirectAccessGuidance` into a `CloudConnectorDocsResult`."""
+    return CloudConnectorDocsResult(
+        skill_id=docs.metadata.id,
+        title=docs.metadata.title,
+        content=render_docs_content_markdown(docs.content),
+        outline=docs.outline,
+        section_id=docs.section_id,
+        warnings=[str(warning) for warning in docs.metadata.warnings],
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_cloud_direct_access_guidance(
+    ctx: Context,
+    *,
+    docs_skill_id: Annotated[
+        str,
+        Field(
+            description=(
+                "The fully-qualified skill ID to read, for example "
+                "`connector-source:<connector_id>` or `connector-destination:<connector_id>`."
+            ),
+        ),
+    ],
+    section: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional exact section ID from the guidance's outline to read a single "
+                "section. Omit for the overview, metadata, and outline."
+            ),
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> CloudConnectorDocsResult:
+    """Read direct-access guidance by skill ID, optionally a single section.
+
+    Use the `skill_id` and `outline` returned by `describe_cloud_*` (with
+    `with_direct_access_guidance=True`) to pick the ID and section.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    return _docs_result(workspace.get_direct_access_guidance(docs_skill_id, section=section))
 
 
 @mcp_tool(
