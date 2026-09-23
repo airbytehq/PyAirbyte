@@ -496,6 +496,13 @@ def _agents_error_detail(response_text: object) -> str | None:
     return None
 
 
+_WRITE_ACTIONS: frozenset[str] = frozenset({"create", "update", "delete"})
+"""Write actions the read-only tool and `read_only` flag reject."""
+
+_ReadAction = Literal["list", "get", "search", "sql_select"]
+_Action = Literal["list", "get", "search", "sql_select", "create", "update", "delete"]
+
+
 def _sql_error_guidance(detail: str) -> str | None:
     """Return actionable guidance for a known SQL execution error."""
     normalized_detail = detail.casefold()
@@ -525,7 +532,7 @@ def _sql_error_guidance(detail: str) -> str | None:
 
 def _agents_execution_failure_message(
     error: AirbyteError,
-    action: AgentAction,
+    action: _Action,
 ) -> str | None:
     """Return a concise explanation for a rejected Agents API action request."""
     context = error.context or {}
@@ -537,7 +544,7 @@ def _agents_execution_failure_message(
     detail = _agents_error_detail(context.get("response_text"))
     if detail is None:
         return None
-    guidance = _sql_error_guidance(detail) if action == AgentReadAction.SQL_SELECT else None
+    guidance = _sql_error_guidance(detail) if action == "sql_select" else None
     return f"{detail} {guidance}" if guidance is not None else detail
 
 
@@ -847,13 +854,6 @@ def _resolve_cloud_connector(
     required.
     """
     return _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
-
-
-_WRITE_ACTIONS: frozenset[str] = frozenset({"create", "update", "delete"})
-"""Write actions the read-only tool and `read_only` flag reject."""
-
-_ReadAction = Literal["list", "get", "search", "sql_select"]
-_Action = Literal["list", "get", "search", "sql_select", "create", "update", "delete"]
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.

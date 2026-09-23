@@ -914,13 +914,13 @@ def test_execute_sql_error_returns_guidance(
     )
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(400, response_text)
         ),
     )
 
-    result = _execute_ro(action="sql_select")
+    result = _execute_ro(action="sql_select", api_args={"sql": "SELECT 1"})
 
     assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
     assert result.message is not None
@@ -934,26 +934,26 @@ def test_execute_non_json_execution_error_is_reraised(
     """Verify an unreadable execution error keeps the original exception."""
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(400, "<html>bad request</html>")
         ),
     )
 
     with pytest.raises(AirbyteError):
-        _execute_ro(action="sql_select")
+        _execute_ro(action="sql_select", api_args={"sql": "SELECT 1"})
 
 
 def test_execute_server_error_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify server errors keep the original exception."""
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(_agents_error(500)),  # noqa: ARG005
     )
 
     with pytest.raises(AirbyteError):
-        _execute_ro(action="sql_select")
+        _execute_ro(action="sql_select", api_args={"sql": "SELECT 1"})
 
 
 def test_execute_non_sql_error_returns_bare_detail(
@@ -963,7 +963,7 @@ def test_execute_non_sql_error_returns_bare_detail(
     detail = "The list action could not be executed."
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(400, f'{{"message":"{detail}"}}')
         ),
@@ -1757,11 +1757,6 @@ def _patch_destination_server_docs(
         def list_sources(self) -> list[Any]:
             return []
 
-    monkeypatch.setattr(
-        agents_mcp,
-        "_get_agent_connector",
-        lambda *args, **kwargs: _NotFoundConnector(),  # noqa: ARG005
-    )
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_workspace",
