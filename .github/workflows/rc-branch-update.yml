@@ -6,7 +6,7 @@
 # dedicated sync branch and opens (or refreshes) a PR into the release-candidate
 # branch so a human can resolve the conflicts.
 
-name: Sync main into release candidate
+name: "RC Branch: Update from `main`"
 
 on:
   schedule:
