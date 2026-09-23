@@ -54,7 +54,9 @@ from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
-    CloudConnector,
+    # The back-edge is a `TYPE_CHECKING` import in `connectors.py`, so there is no
+    # runtime cycle to break here.
+    CloudConnector,  # lgtm [py/cyclic-import]
     CloudDestination,
     CloudSource,
     ConnectorFeature,
