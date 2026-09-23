@@ -14,7 +14,7 @@ from airbyte._util import api_util
 from airbyte._direct_connectors.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
-    ApiQueryAction,
+    ExternalApiReadOnlyAction,
     CloudConnector,
     CloudDestination,
     CloudSource,
@@ -176,7 +176,9 @@ def test_execute_api_query_accepts_enum_action(
     calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    source.execute_api_query("issues", ApiQueryAction.SEARCH, {"query": "bug"})
+    source.execute_api_query(
+        "issues", ExternalApiReadOnlyAction.SEARCH, {"query": "bug"}
+    )
 
     assert calls[0]["request_body"]["action"] == "search"
 

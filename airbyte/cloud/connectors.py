@@ -120,7 +120,7 @@ class CheckResult:
         )
 
 
-class ApiQueryAction(str, Enum):
+class ExternalApiReadOnlyAction(str, Enum):
     """Read actions accepted by `CloudConnector.execute_api_query`."""
 
     LIST = "list"
@@ -128,7 +128,7 @@ class ApiQueryAction(str, Enum):
     SEARCH = "search"
 
 
-class ApiAction(str, Enum):
+class ExternalApiWriteAction(str, Enum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
 
     CREATE = "create"
@@ -421,7 +421,8 @@ class CloudConnector:
     def execute_api_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
         entity_type: str,
-        action: ApiQueryAction | Literal["list", "get", "search"] = ApiQueryAction.LIST,
+        action: ExternalApiReadOnlyAction
+        | Literal["list", "get", "search"] = ExternalApiReadOnlyAction.LIST,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -438,7 +439,7 @@ class CloudConnector:
         API's own error.
         """
         try:
-            resolved_action = ApiQueryAction(action)
+            resolved_action = ExternalApiReadOnlyAction(action)
         except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid read action.",
@@ -462,7 +463,7 @@ class CloudConnector:
     def execute_api_action(
         self,
         entity_type: str,
-        action: ApiAction | Literal["create", "update", "delete"],
+        action: ExternalApiWriteAction | Literal["create", "update", "delete"],
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -477,7 +478,7 @@ class CloudConnector:
         API's own error.
         """
         try:
-            resolved_action = ApiAction(action)
+            resolved_action = ExternalApiWriteAction(action)
         except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid write action.",
@@ -567,7 +568,7 @@ class CloudConnector:
         including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
-        if read_only and action in {write_action.value for write_action in ApiAction}:
+        if read_only and action in {write_action.value for write_action in ExternalApiWriteAction}:
             raise exc.PyAirbyteInputError(
                 message=(
                     f"The {action!r} action is a write action but was requested as read-only."
