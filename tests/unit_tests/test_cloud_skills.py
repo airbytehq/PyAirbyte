@@ -134,3 +134,21 @@ def test_read_docs_markdown_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert isinstance(markdown, str)
     assert "Hello" in markdown
+
+
+def test_list_skills_passes_resolved_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_list_skills` sends the workspace's resolved organization ID to the API."""
+    workspace = _make_workspace(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fake_list_skills(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {"data": [], "next_cursor": None}
+
+    monkeypatch.setattr(agents_api_util, "list_agent_skills", fake_list_skills)
+
+    workspace._list_skills()
+
+    assert calls[0]["organization_id"] == "organization-id"

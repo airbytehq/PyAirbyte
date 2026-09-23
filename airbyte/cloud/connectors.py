@@ -645,7 +645,7 @@ class CloudConnector:
                     organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
                 )
             )
-        except exc.AirbyteError as error:
+        except (exc.AirbyteError, requests.RequestException) as error:
             warnings.append(f"Connector inspect failed: {error}")
             return None
         self._context_layer_details = parsed
@@ -751,7 +751,7 @@ class CloudConnector:
         if with_direct_access_docs:
             try:
                 docs = self.get_direct_access_docs()
-            except (exc.AirbyteError, requests.RequestException) as error:
+            except (exc.PyAirbyteError, requests.RequestException) as error:
                 warnings.append(f"Direct access docs are unavailable: {error}")
             else:
                 details.direct_access_docs = CloudConnectorDocs(
@@ -766,7 +766,7 @@ class CloudConnector:
         if with_data_replication_docs:
             try:
                 details.data_replication_docs = self.get_data_replication_docs()
-            except (exc.AirbyteError, requests.RequestException) as error:
+            except (exc.PyAirbyteError, requests.RequestException) as error:
                 warnings.append(f"Data replication docs are unavailable: {error}")
 
         details.warnings = warnings

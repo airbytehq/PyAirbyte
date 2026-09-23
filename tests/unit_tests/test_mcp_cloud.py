@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Callable, cast
+from unittest.mock import MagicMock
 
 import pytest
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
+    CloudConnectorDetails,
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
@@ -821,3 +823,112 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 
     assert seen_workspace_ids == ["explicit-workspace-id"]
     assert "resource-id" in result
+
+
+def _describe_details() -> CloudConnectorDetails:
+    """Return a minimal `CloudConnectorDetails` for describe-tool forwarding tests."""
+    return CloudConnectorDetails(
+        connector_id="connector-1",
+        connector_type="source",
+        connector_name="GitHub",
+        connector_url="",
+        connector_definition_id="definition-id",
+        external_access_enabled=False,
+        search_indexing_enabled=False,
+    )
+
+
+def test_describe_cloud_connector_forwards_id_and_toggles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`describe_cloud_connector` forwards the ID and all `with_*` toggles."""
+    details = _describe_details()
+    describe = MagicMock(return_value=details)
+    get_connector = MagicMock(return_value=SimpleNamespace(describe=describe))
+    workspace = SimpleNamespace(get_connector=get_connector)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
+    )
+
+    result = cloud_mcp.describe_cloud_connector(
+        ctx=cast(Context, object()),
+        connector_id="connector-1",
+        workspace_id="workspace-1",
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_docs=True,
+        with_data_replication_docs=True,
+    )
+
+    get_connector.assert_called_once_with(connector_id="connector-1")
+    describe.assert_called_once_with(
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_docs=True,
+        with_data_replication_docs=True,
+    )
+    assert result is details
+
+
+def test_describe_cloud_source_forwards_toggles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`describe_cloud_source` describes the source with all `with_*` toggles."""
+    details = _describe_details()
+    describe = MagicMock(return_value=details)
+    get_source = MagicMock(return_value=SimpleNamespace(describe=describe))
+    workspace = SimpleNamespace(get_source=get_source)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
+    )
+
+    result = cloud_mcp.describe_cloud_source(
+        ctx=cast(Context, object()),
+        source_id="source-1",
+        workspace_id="workspace-1",
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_docs=True,
+        with_data_replication_docs=True,
+    )
+
+    get_source.assert_called_once_with(source_id="source-1")
+    describe.assert_called_once_with(
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_docs=True,
+        with_data_replication_docs=True,
+    )
+    assert result is details
+
+
+def test_describe_cloud_destination_forwards_toggles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`describe_cloud_destination` describes the destination with all `with_*` toggles."""
+    details = _describe_details()
+    describe = MagicMock(return_value=details)
+    get_destination = MagicMock(return_value=SimpleNamespace(describe=describe))
+    workspace = SimpleNamespace(get_destination=get_destination)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
+    )
+
+    result = cloud_mcp.describe_cloud_destination(
+        ctx=cast(Context, object()),
+        destination_id="dest-1",
+        workspace_id="workspace-1",
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_docs=True,
+        with_data_replication_docs=True,
+    )
+
+    get_destination.assert_called_once_with(destination_id="dest-1")
+    describe.assert_called_once_with(
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_docs=True,
+        with_data_replication_docs=True,
+    )
+    assert result is details

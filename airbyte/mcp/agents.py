@@ -69,6 +69,7 @@ from airbyte.constants import (
 from airbyte.exceptions import (
     AirbyteError,
     AirbyteExternalAccessNotEnabledError,
+    AirbyteMissingResourceError,
     PyAirbyteInputError,
 )
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
@@ -550,7 +551,10 @@ def _agents_execution_failure_message(
 
 def _is_not_found(error: AirbyteError) -> bool:
     """Return whether the Agents API reported the connector or skill as not found."""
-    return (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND
+    return (
+        isinstance(error, AirbyteMissingResourceError)
+        or (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND
+    )
 
 
 def _resolve_cloud_destination(

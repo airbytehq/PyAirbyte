@@ -29,7 +29,11 @@ from airbyte.cloud.models import (
     CloudSourceInfo,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteConnectorNotRegisteredError,
+    AirbyteError,
+    PyAirbyteInputError,
+)
 
 
 SNOWFLAKE_DEFINITION_ID = next(iter(SQL_PASSTHROUGH_DESTINATION_DIALECTS))
@@ -618,3 +622,71 @@ def test_iter_api_entities_negative_limit_raises(
 
     with pytest.raises(PyAirbyteInputError, match="limit"):
         list(source.iter_api_entities("issues", limit=-1))
+
+
+def test_describe_inspect_transport_failure_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transport error from Context Layer `inspect` degrades to a warning."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "inspect_agent_connector",
+        lambda **_: (_ for _ in ()).throw(requests.ConnectionError("conn down")),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._enabled_features = frozenset({ConnectorFeature.EXTERNAL_ACCESS})  # noqa: SLF001
+
+    details = source.describe()
+
+    assert any("Connector inspect failed" in warning for warning in details.warnings)
+
+
+def test_describe_direct_access_docs_input_error_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `PyAirbyteError` under `with_direct_access_docs` appends a warning."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._enabled_features = frozenset()  # noqa: SLF001
+    monkeypatch.setattr(
+        CloudConnector,
+        "get_direct_access_docs",
+        lambda _self, **_: (_ for _ in ()).throw(
+            PyAirbyteInputError(message="bad docs")
+        ),
+    )
+
+    details = source.describe(with_direct_access_docs=True)
+
+    assert details.direct_access_docs is None
+    assert any(
+        "Direct access docs are unavailable" in warning for warning in details.warnings
+    )
+
+
+def test_describe_data_replication_docs_registry_error_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registry miss under `with_data_replication_docs` appends a warning."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._enabled_features = frozenset()  # noqa: SLF001
+    monkeypatch.setattr(
+        CloudConnector,
+        "get_data_replication_docs",
+        lambda _self, **_: (_ for _ in ()).throw(
+            AirbyteConnectorNotRegisteredError(message="unregistered")
+        ),
+    )
+
+    details = source.describe(with_data_replication_docs=True)
+
+    assert details.data_replication_docs is None
+    assert any(
+        "Data replication docs are unavailable" in warning
+        for warning in details.warnings
+    )

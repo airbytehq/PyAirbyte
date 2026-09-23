@@ -39,13 +39,16 @@ def iter_skill_infos(
     *,
     credentials: _AirbyteCredentials,
     workspace_id: str | None = None,
+    organization_id: str | None = None,
 ) -> Iterator[CloudSkillInfo]:
     """Yield all skills available to a workspace or organization, following pagination."""
     return iter_skill_pages(
         lambda cursor: CloudSkillList.model_validate(
             _api_util.list_agent_skills(
                 credentials=credentials,
-                organization_id=credentials.organization_id,
+                organization_id=organization_id
+                if organization_id is not None
+                else credentials.organization_id,
                 workspace_id=workspace_id,
                 cursor=cursor,
             )

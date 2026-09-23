@@ -620,6 +620,7 @@ class CloudWorkspace:
             for info in agents_skills.iter_skill_infos(
                 credentials=self._credentials,
                 workspace_id=self.workspace_id,
+                organization_id=self._resolve_agents_organization_id(),
             )
         ]
 

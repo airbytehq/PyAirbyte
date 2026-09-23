@@ -36,6 +36,7 @@ from airbyte.constants import (
 from airbyte.exceptions import (
     AirbyteError,
     AirbyteExternalAccessNotEnabledError,
+    AirbyteMissingResourceError,
     PyAirbyteError,
     PyAirbyteInputError,
 )
@@ -2567,3 +2568,32 @@ def test_inspect_forwards_organization_id_to_cloud_workspace(
     )
 
     assert seen["organization_id"] == "org-42"
+
+
+def test_inspect_missing_resource_falls_back_to_destination_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing-resource error from `describe` takes the destination fallback."""
+    cloud_workspace = _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    missing = AirbyteMissingResourceError(
+        message="Connector not found.",
+        resource_type="connector",
+        resource_name_or_id="dest-snowflake",
+    )
+
+    class _MissingConnector:
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise missing
+
+    monkeypatch.setattr(
+        cloud_workspace,
+        "get_connector",
+        lambda *args, **kwargs: _MissingConnector(),  # noqa: ARG005
+    )
+
+    result = _inspect("dest-snowflake")
+
+    assert result.errors is None
+    assert result.docs is not None
+    assert result.docs.skill_id == "connector-destination:dest-snowflake"
