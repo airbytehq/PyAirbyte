@@ -82,8 +82,6 @@ from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -793,38 +791,6 @@ class CloudConnector:
             for connection in self.workspace.list_connections()
             if connection.destination_id == self.connector_id
         ]
-
-    def iter_api_entities(  # Explicit args are the point of this public API.
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        *,
-        limit: int | None = None,
-        page_size: int | None = None,
-        select_fields: list[str] | None = None,
-        exclude_fields: list[str] | None = None,
-        intent: str | None = None,
-    ) -> Iterator[dict[str, Any]]:
-        """Yield entities of `entity_type`, following the connector's pagination cursor.
-
-        Runs the `list` action repeatedly via `execute_api_query`. `limit` caps how many
-        entities are yielded in total; `page_size` controls how many are fetched per
-        request. Iteration stops early if the connector reports another page without
-        advancing its cursor, rather than requesting the same page forever.
-        """
-        yield from agents_api_util.iter_paged_entities(
-            lambda cursor: self.execute_api_query(
-                entity_type,
-                ExternalApiReadOnlyAction.LIST,
-                api_args,
-                select_fields=select_fields,
-                exclude_fields=exclude_fields,
-                page_size=page_size,
-                cursor=cursor,
-                intent=intent,
-            ),
-            limit=limit,
-        )
 
 
 class CloudSource(CloudConnector):

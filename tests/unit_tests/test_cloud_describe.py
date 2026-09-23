@@ -27,6 +27,7 @@ from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
+    ExternalApiExecuteResult,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
@@ -330,88 +331,6 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
         destination.get_direct_access_guidance()
 
 
-def test_iter_api_entities_follows_cursors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`iter_api_entities` pages until `has_next_page` is false."""
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls: list[dict[str, Any]] = []
-    pages = {
-        None: {
-            "status": "success",
-            "result": [{"id": 1}, {"id": 2}],
-            "connector_metadata": {"has_next_page": True, "end_cursor": "cursor-1"},
-        },
-        "cursor-1": {
-            "status": "success",
-            "result": [{"id": 3}],
-            "connector_metadata": {"has_next_page": False, "end_cursor": "cursor-2"},
-        },
-    }
-
-    def fake_execute(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return pages[kwargs["request_body"].get("params", {}).get("cursor")]
-
-    monkeypatch.setattr(agents_api_util, "execute_agent_connector_action", fake_execute)
-    source = _seed_source(workspace, "source-1", "GitHub")
-
-    records = list(source.iter_api_entities("issues", api_args={"repository": "repo"}))
-
-    assert [record["id"] for record in records] == [1, 2, 3]
-    assert len(calls) == 2
-    assert calls[1]["request_body"]["params"]["cursor"] == "cursor-1"
-
-
-def test_iter_api_entities_respects_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls: list[dict[str, Any]] = []
-
-    def fake_execute(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return {
-            "status": "success",
-            "result": [{"id": 1}, {"id": 2}],
-            "connector_metadata": {"has_next_page": True, "end_cursor": "cursor-1"},
-        }
-
-    monkeypatch.setattr(agents_api_util, "execute_agent_connector_action", fake_execute)
-    source = _seed_source(workspace, "source-1", "GitHub")
-
-    records = list(source.iter_api_entities("issues", limit=3))
-
-    assert [record["id"] for record in records] == [1, 2, 1]
-    assert len(calls) == 2
-
-
-def test_iter_api_entities_stops_on_repeated_cursor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls: list[dict[str, Any]] = []
-
-    def fake_execute(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return {
-            "status": "success",
-            "result": [{"id": len(calls)}],
-            "connector_metadata": {"has_next_page": True, "end_cursor": "cursor-1"},
-        }
-
-    monkeypatch.setattr(agents_api_util, "execute_agent_connector_action", fake_execute)
-    source = _seed_source(workspace, "source-1", "GitHub")
-
-    records = list(source.iter_api_entities("issues"))
-
-    assert len(records) == 2
-    assert len(calls) == 2
-
-
 def _patch_list_connectors(
     monkeypatch: pytest.MonkeyPatch,
     workspace: CloudWorkspace,
@@ -594,36 +513,6 @@ def test_describe_with_config_configuration_failure_warns(
     )
 
 
-def test_iter_api_entities_limit_zero_makes_no_calls(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`limit=0` yields nothing without calling the API."""
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls: list[dict[str, Any]] = []
-
-    def fake_execute(**kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
-        return {"status": "success", "result": [{"id": 1}]}
-
-    monkeypatch.setattr(agents_api_util, "execute_agent_connector_action", fake_execute)
-    source = _seed_source(workspace, "source-1", "GitHub")
-
-    assert list(source.iter_api_entities("issues", limit=0)) == []
-    assert calls == []
-
-
-def test_iter_api_entities_negative_limit_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A negative `limit` is rejected."""
-    workspace = _make_workspace(monkeypatch)
-    source = _seed_source(workspace, "source-1", "GitHub")
-
-    with pytest.raises(PyAirbyteInputError, match="limit"):
-        list(source.iter_api_entities("issues", limit=-1))
-
-
 def test_describe_inspect_transport_failure_warns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -690,3 +579,48 @@ def test_describe_data_replication_docs_registry_error_warns(
         "Data replication docs are unavailable" in warning
         for warning in details.warnings
     )
+
+
+@pytest.mark.parametrize(
+    ("limit", "expected_ids", "expected_calls", "expected_error"),
+    [
+        pytest.param(None, [1, 2, 3], 2, None, id="follows_cursors_to_last_page"),
+        pytest.param(2, [1, 2], 1, None, id="limit_stops_within_first_page"),
+        pytest.param(0, [], 0, None, id="limit_zero_makes_no_calls"),
+        pytest.param(-1, [], 0, PyAirbyteInputError, id="negative_limit_raises"),
+    ],
+)
+def test_iter_paged_entities_limit(
+    limit: int | None,
+    expected_ids: list[int],
+    expected_calls: int,
+    expected_error: type[Exception] | None,
+) -> None:
+    """`iter_paged_entities` caps yielded entities by `limit` and validates it."""
+    pages = {
+        None: {
+            "status": "success",
+            "result": [{"id": 1}, {"id": 2}],
+            "connector_metadata": {"has_next_page": True, "end_cursor": "cursor-1"},
+        },
+        "cursor-1": {
+            "status": "success",
+            "result": [{"id": 3}],
+            "connector_metadata": {"has_next_page": False, "end_cursor": None},
+        },
+    }
+    calls: list[str | None] = []
+
+    def fetch_page(cursor: str | None) -> ExternalApiExecuteResult:
+        calls.append(cursor)
+        return ExternalApiExecuteResult.model_validate(pages[cursor])
+
+    if expected_error is not None:
+        with pytest.raises(expected_error, match="limit"):
+            list(agents_api_util.iter_paged_entities(fetch_page, limit=limit))
+        return
+
+    records = list(agents_api_util.iter_paged_entities(fetch_page, limit=limit))
+
+    assert [record["id"] for record in records] == expected_ids
+    assert len(calls) == expected_calls
