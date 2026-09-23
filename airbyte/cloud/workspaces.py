@@ -988,18 +988,19 @@ class CloudWorkspace:
         self,
         *,
         connector_type: ConnectorType | None = None,
-        with_feature: ConnectorFeature | None = None,
+        feature_filter: ConnectorFeature | None = None,
         name_contains: str | None = None,
         limit: int | None = None,
     ) -> list[cloud_connectors.CloudConnector]:
         """List sources and destinations in the workspace, with optional filters.
 
-        Items are `CloudSource` and `CloudDestination` objects. Each has its enabled features
-        resolved, so `enabled_features` reads from cache.
+        Items are `CloudSource` and `CloudDestination` objects. Enabled features are
+        resolved (and cached) only when `feature_filter` is set; otherwise
+        `enabled_features` resolves lazily on first access.
 
         Args:
             connector_type: Return only sources or only destinations.
-            with_feature: Return only connectors with this feature enabled.
+            feature_filter: Return only connectors with this feature enabled.
             name_contains: Case-insensitive substring to match against connector names.
             limit: Maximum number of connectors to return.
         """
@@ -1022,11 +1023,12 @@ class CloudWorkspace:
 
         matches: list[cloud_connectors.CloudConnector] = []
         for connector in connectors:
-            connector._enabled_features = self._get_connector_features(connector)  # noqa: SLF001
-            if (
-                with_feature is not None and with_feature not in connector._get_enabled_features()  # noqa: SLF001
-            ):
-                continue
+            if feature_filter is not None:
+                connector._enabled_features = self._get_connector_features(  # noqa: SLF001
+                    connector
+                )
+                if feature_filter not in connector._get_enabled_features():  # noqa: SLF001
+                    continue
             matches.append(connector)
             if limit is not None and len(matches) >= limit:
                 break

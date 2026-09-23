@@ -1724,7 +1724,7 @@ def _patch_workspace_connectors(
 
 
 @pytest.mark.parametrize(
-    ("connector_type", "with_feature", "name_contains", "limit", "expected"),
+    ("connector_type", "feature_filter", "name_contains", "limit", "expected"),
     [
         pytest.param(
             None,
@@ -1875,7 +1875,7 @@ def _patch_workspace_connectors(
 def test_cloud_workspace_list_connectors(
     monkeypatch: pytest.MonkeyPatch,
     connector_type: ConnectorType | None,
-    with_feature: ConnectorFeature | None,
+    feature_filter: ConnectorFeature | None,
     name_contains: str | None,
     limit: int | None,
     expected: list[tuple[str, set[ConnectorFeature]]],
@@ -1889,7 +1889,7 @@ def test_cloud_workspace_list_connectors(
 
     connectors = workspace.list_connectors(
         connector_type=connector_type,
-        with_feature=with_feature,
+        feature_filter=feature_filter,
         name_contains=name_contains,
         limit=limit,
     )
@@ -1922,7 +1922,7 @@ def test_cloud_workspace_list_connectors_stops_probing_at_limit(
     monkeypatch.setattr(workspace, "_get_connector_features", get_features)
 
     assert len(workspace.list_connectors(limit=1)) == 1
-    assert get_features.call_count == 1
+    assert get_features.call_count == 0
 
     get_features.reset_mock()
     get_features.side_effect = [
@@ -1932,12 +1932,35 @@ def test_cloud_workspace_list_connectors_stops_probing_at_limit(
     ]
 
     results = workspace.list_connectors(
-        with_feature=ConnectorFeature.DIRECT_ACCESS,
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
         limit=1,
     )
 
     assert [connector.connector_id for connector in results] == ["source-2"]
     assert get_features.call_count == 2
+
+
+def test_cloud_workspace_list_connectors_does_not_probe_without_feature_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without `feature_filter`, features stay lazy and no docs probe is issued."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    connectors = [
+        _seed_source(workspace, "source-1", "GitHub Issues"),
+        _seed_source(workspace, "source-2", "Salesforce"),
+    ]
+    monkeypatch.setattr(workspace, "list_sources", lambda **_: connectors)
+    monkeypatch.setattr(workspace, "list_destinations", lambda **_: [])
+
+    get_features = MagicMock()
+    monkeypatch.setattr(workspace, "_get_connector_features", get_features)
+
+    results = workspace.list_connectors()
+
+    get_features.assert_not_called()
+    assert all(connector._enabled_features is None for connector in results)  # noqa: SLF001
 
 
 def test_cloud_workspace_list_connectors_rejects_non_positive_limit(
@@ -1969,7 +1992,9 @@ def test_cloud_workspace_features_false_without_context_layer(
     assert not workspace.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
     assert len(connectors) == 5
     assert not any(c.enabled_features for c in connectors)
-    assert workspace.list_connectors(with_feature=ConnectorFeature.DIRECT_ACCESS) == []
+    assert (
+        workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == []
+    )
     assert calls == {"list": 0}
 
 
@@ -2044,16 +2069,12 @@ def test_cloud_destination_features_raise_on_probe_failure(
 
 
 @pytest.mark.parametrize(
-    ("with_feature", "expected_ids", "expected_flags"),
+    ("feature_filter", "expected_ids", "expected_flags"),
     [
         pytest.param(
             None,
             ["source-1", "source-2", "source-3"],
-            [
-                [ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY],
-                [ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY],
-                [],
-            ],
+            [None, None, None],
             id="no_filter",
         ),
         pytest.param(
@@ -2066,7 +2087,7 @@ def test_cloud_destination_features_raise_on_probe_failure(
 )
 def test_mcp_list_deployed_cloud_source_connectors_features(
     monkeypatch: pytest.MonkeyPatch,
-    with_feature: ConnectorFeature | None,
+    feature_filter: ConnectorFeature | None,
     expected_ids: list[str],
     expected_flags: list[list[ConnectorFeature]],
 ) -> None:
@@ -2083,7 +2104,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
         workspace_id=None,
         name_contains=None,
         limit=None,
-        with_feature=with_feature,
+        feature_filter=feature_filter,
     )
 
     assert [result.id for result in results] == expected_ids
@@ -2092,12 +2113,12 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
 
 
 @pytest.mark.parametrize(
-    ("with_feature", "expected_ids", "expected_flags"),
+    ("feature_filter", "expected_ids", "expected_flags"),
     [
         pytest.param(
             None,
             ["snowflake", "postgres"],
-            [[ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY], []],
+            [None, None],
             id="no_filter",
         ),
         pytest.param(
@@ -2117,7 +2138,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
 )
 def test_mcp_list_deployed_cloud_destination_connectors_features(
     monkeypatch: pytest.MonkeyPatch,
-    with_feature: ConnectorFeature | None,
+    feature_filter: ConnectorFeature | None,
     expected_ids: list[str],
     expected_flags: list[list[ConnectorFeature]],
 ) -> None:
@@ -2132,7 +2153,7 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
         workspace_id=None,
         name_contains=None,
         limit=None,
-        with_feature=with_feature,
+        feature_filter=feature_filter,
     )
 
     assert [result.id for result in results] == expected_ids
@@ -2346,7 +2367,7 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
         limit=1,
     )
 
-    assert captured == {"name_contains": "develop", "with_feature": None, "limit": 1}
+    assert captured == {"name_contains": "develop", "feature_filter": None, "limit": 1}
     assert len(result.organizations) == 1
     assert (
         result.message == "Showing the first 1 organizations; more may exist. "
@@ -2355,7 +2376,7 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
 
 
 @pytest.mark.parametrize(
-    ("with_feature", "expected_fragment"),
+    ("feature_filter", "expected_fragment"),
     [
         pytest.param(None, "Verify the credentials", id="no_filter"),
         pytest.param(
@@ -2367,7 +2388,7 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
 )
 def test_mcp_list_cloud_organizations_empty_message(
     monkeypatch: pytest.MonkeyPatch,
-    with_feature: ConnectorFeature | None,
+    feature_filter: ConnectorFeature | None,
     expected_fragment: str,
 ) -> None:
     class DiscoveryClient:
@@ -2376,7 +2397,7 @@ def test_mcp_list_cloud_organizations_empty_message(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(None, with_feature=with_feature)
+    result = mcp_cloud.list_cloud_organizations(None, feature_filter=feature_filter)
 
     assert result.organizations == []
     assert expected_fragment in (result.message or "")
@@ -2409,7 +2430,7 @@ def test_cloud_organization_feature_flags(
 
 
 @pytest.mark.parametrize(
-    ("with_feature", "limit", "expected_ids"),
+    ("feature_filter", "limit", "expected_ids"),
     [
         pytest.param(None, None, ["disabled", "enabled"], id="no_filter"),
         pytest.param(
@@ -2429,9 +2450,9 @@ def test_cloud_organization_feature_flags(
         ),
     ],
 )
-def test_cloud_client_list_organizations_with_feature(
+def test_cloud_client_list_organizations_feature_filter(
     monkeypatch: pytest.MonkeyPatch,
-    with_feature: OrganizationFeature | None,
+    feature_filter: OrganizationFeature | None,
     limit: int | None,
     expected_ids: list[str],
 ) -> None:
@@ -2447,7 +2468,7 @@ def test_cloud_client_list_organizations_with_feature(
         lambda **_: True,
     )
 
-    result = client.list_organizations(with_feature=with_feature, limit=limit)
+    result = client.list_organizations(feature_filter=feature_filter, limit=limit)
 
     assert [organization.organization_id for organization in result] == expected_ids
 
@@ -2466,10 +2487,10 @@ def test_mcp_list_cloud_organizations_reports_feature_flags(
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
     result = mcp_cloud.list_cloud_organizations(
-        None, with_feature=OrganizationFeature.DIRECT_ACCESS
+        None, feature_filter=OrganizationFeature.DIRECT_ACCESS
     )
 
-    assert captured["with_feature"] is OrganizationFeature.DIRECT_ACCESS
+    assert captured["feature_filter"] is OrganizationFeature.DIRECT_ACCESS
     assert result.organizations[0].enabled_features == [
         OrganizationFeature.DIRECT_ACCESS
     ]

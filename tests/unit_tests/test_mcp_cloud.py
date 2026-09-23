@@ -173,13 +173,13 @@ class _CloudWorkspace:
         self,
         *,
         connector_type: ConnectorType | None = None,
-        with_feature: ConnectorFeature | None = None,
+        feature_filter: ConnectorFeature | None = None,
         name_contains: str | None = None,
         limit: int | None = None,
     ) -> list[_CloudConnectorLike]:
         """Capture the list limit and mimic core filtering on connector test data."""
         assert connector_type is not None
-        assert with_feature is None
+        assert feature_filter is None
         self.limits[f"{connector_type.value}s"] = limit
         items = [
             _CloudConnectorLike(
@@ -843,14 +843,14 @@ class _CombinedListingWorkspace:
         self,
         *,
         connector_type: ConnectorType | None = None,
-        with_feature: ConnectorFeature | None = None,
+        feature_filter: ConnectorFeature | None = None,
         name_contains: str | None = None,
         limit: int | None = None,
     ) -> list[_CloudConnectorLike]:
         """Capture filters and mimic the core `list_connectors` filtering."""
         self.calls.append({
             "connector_type": connector_type,
-            "with_feature": with_feature,
+            "feature_filter": feature_filter,
             "name_contains": name_contains,
             "limit": limit,
         })
@@ -880,8 +880,8 @@ class _CombinedListingWorkspace:
             items = [
                 item for item in items if item.connector_type == connector_type.value
             ]
-        if with_feature is not None:
-            items = [item for item in items if with_feature in item.enabled_features]
+        if feature_filter is not None:
+            items = [item for item in items if feature_filter in item.enabled_features]
         if name_contains:
             items = [item for item in items if name_contains in item.name]
         return items if limit is None else items[:limit]
@@ -906,18 +906,28 @@ def test_list_deployed_cloud_connectors_returns_both_kinds(
         workspace_id=None,
         name_contains=None,
         limit=None,
-        with_feature=None,
+        feature_filter=None,
     )
-
     assert [(r.id, r.connector_type) for r in results] == [
         ("source-1", "source"),
         ("destination-1", "destination"),
     ]
-    assert results[0].enabled_features == [
+    assert results[0].enabled_features is None
+    assert results[1].enabled_features is None
+
+    resolved = cloud_mcp.list_deployed_cloud_connectors(
+        None,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=None,
+        with_enabled_features_list=True,
+    )
+    assert resolved[0].enabled_features == [
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_API_QUERY,
     ]
-    assert results[1].enabled_features == [
+    assert resolved[1].enabled_features == [
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_SQL_QUERY,
     ]
@@ -926,7 +936,7 @@ def test_list_deployed_cloud_connectors_returns_both_kinds(
 def test_list_deployed_cloud_connectors_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`connector_type` and `with_feature` narrow the combined listing."""
+    """`connector_type` and `feature_filter` narrow the combined listing."""
     workspace = _patch_combined_listing(monkeypatch)
 
     results = cloud_mcp.list_deployed_cloud_connectors(
@@ -935,11 +945,11 @@ def test_list_deployed_cloud_connectors_filters(
         connector_type=ConnectorType.DESTINATION,
         name_contains=None,
         limit=None,
-        with_feature=ConnectorFeature.DIRECT_SQL_QUERY,
+        feature_filter=ConnectorFeature.DIRECT_SQL_QUERY,
     )
 
     assert workspace.calls[0]["connector_type"] == ConnectorType.DESTINATION
-    assert workspace.calls[0]["with_feature"] is ConnectorFeature.DIRECT_SQL_QUERY
+    assert workspace.calls[0]["feature_filter"] is ConnectorFeature.DIRECT_SQL_QUERY
     assert [(r.id, r.connector_type) for r in results] == [
         ("destination-1", "destination")
     ]

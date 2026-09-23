@@ -147,10 +147,10 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
     )
 
 
-WITH_FEATURE_TIP_TEXT = (
+FEATURE_FILTER_TIP_TEXT = (
     "Optional feature filter: `direct_access` returns only connectors AI agents can use "
     "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
-    "query. Omit to list every connector along with its enabled features."
+    "query. Omit to list every connector without resolving their features."
 )
 
 
@@ -163,8 +163,9 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
-    enabled_features: list[ConnectorFeature]
-    """Features enabled for this connector; see `ConnectorFeature`."""
+    enabled_features: list[ConnectorFeature] | None = None
+    """Features enabled for this connector, or `None` when not resolved
+    (pass `with_enabled_features_list=True` or `feature_filter`)."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -176,8 +177,9 @@ class CloudDestinationResult(BaseModel):
     """Display name of the destination."""
     url: str
     """Web URL for managing this destination in Airbyte Cloud."""
-    enabled_features: list[ConnectorFeature]
-    """Features enabled for this connector; see `ConnectorFeature`."""
+    enabled_features: list[ConnectorFeature] | None = None
+    """Features enabled for this connector, or `None` when not resolved
+    (pass `with_enabled_features_list=True` or `feature_filter`)."""
 
 
 class CloudConnectionResult(BaseModel):
@@ -1018,33 +1020,45 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ],
-    with_feature: Annotated[
+    feature_filter: Annotated[
         ConnectorFeature | None,
         Field(
-            description=WITH_FEATURE_TIP_TEXT,
+            description=FEATURE_FILTER_TIP_TEXT,
             default=None,
         ),
     ] = None,
+    with_enabled_features_list: Annotated[
+        bool,
+        Field(
+            description=(
+                "Populate `enabled_features` for each returned source. Costs one "
+                "Context layer request per source. Implied when `feature_filter` is set."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
-    Each source reports `enabled_features`; pass `with_feature` to return only sources
+    Each source reports `enabled_features` when `feature_filter` is set or
+    `with_enabled_features_list=True`; pass `feature_filter` to return only sources
     with a given feature (for example `direct_api_query` or `direct_access`).
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     sources = workspace.list_connectors(
         connector_type=ConnectorType.SOURCE,
-        with_feature=with_feature,
+        feature_filter=feature_filter,
         name_contains=name_contains,
         limit=limit,
     )
+    resolve_features = with_enabled_features_list or feature_filter is not None
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudSourceResult(
             id=source.connector_id,
             name=cast(str, source.name),
             url=source.connector_url,
-            enabled_features=sorted(source.enabled_features),
+            enabled_features=sorted(source.enabled_features) if resolve_features else None,
         )
         for source in sources
     ]
@@ -1080,39 +1094,52 @@ def list_deployed_cloud_destination_connectors(
             default=None,
         ),
     ],
-    with_feature: Annotated[
+    feature_filter: Annotated[
         ConnectorFeature | None,
         Field(
             description=(
                 "Optional feature filter: `direct_sql_query` returns only destinations "
                 "that AI agents can query through `sql_select`; `direct_access` returns "
-                "those usable by AI agents. Omit to list every destination along with "
-                "its enabled features."
+                "those usable by AI agents. Omit to list every destination without "
+                "resolving their features."
             ),
             default=None,
         ),
     ] = None,
+    with_enabled_features_list: Annotated[
+        bool,
+        Field(
+            description=(
+                "Populate `enabled_features` for each returned destination. Costs one "
+                "Context layer request per destination. Implied when `feature_filter` is set."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
-    Each destination reports `enabled_features`; pass `with_feature` to return only
-    destinations with a given feature (for example `direct_sql_query` or `direct_access`).
-    SQL passthrough destinations are queryable by AI agents via `sql_select`.
+    Each destination reports `enabled_features` when `feature_filter` is set or
+    `with_enabled_features_list=True`; pass `feature_filter` to return only
+    destinations with a given feature (for example `direct_sql_query` or
+    `direct_access`). SQL passthrough destinations are queryable by AI agents via
+    `sql_select`.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destinations = workspace.list_connectors(
         connector_type=ConnectorType.DESTINATION,
-        with_feature=with_feature,
+        feature_filter=feature_filter,
         name_contains=name_contains,
         limit=limit,
     )
+    resolve_features = with_enabled_features_list or feature_filter is not None
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudDestinationResult(
             id=destination.connector_id,
             name=cast(str, destination.name),
             url=destination.connector_url,
-            enabled_features=sorted(destination.enabled_features),
+            enabled_features=(sorted(destination.enabled_features) if resolve_features else None),
         )
         for destination in destinations
     ]
@@ -1129,8 +1156,9 @@ class CloudConnectorResult(BaseModel):
     """The connector's display name."""
     url: str
     """The connector's page in the Airbyte Cloud UI."""
-    enabled_features: list[ConnectorFeature]
-    """Features enabled for this connector; see `ConnectorFeature`."""
+    enabled_features: list[ConnectorFeature] | None = None
+    """Features enabled for this connector, or `None` when not resolved
+    (pass `with_enabled_features_list=True` or `feature_filter`)."""
 
 
 @mcp_tool(
@@ -1170,27 +1198,39 @@ def list_deployed_cloud_connectors(
             default=None,
         ),
     ],
-    with_feature: Annotated[
+    feature_filter: Annotated[
         ConnectorFeature | None,
         Field(
-            description=WITH_FEATURE_TIP_TEXT,
+            description=FEATURE_FILTER_TIP_TEXT,
             default=None,
         ),
     ] = None,
+    with_enabled_features_list: Annotated[
+        bool,
+        Field(
+            description=(
+                "Populate `enabled_features` for each returned connector. Costs one "
+                "Context layer request per connector. Implied when `feature_filter` is set."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
-    Each connector reports `enabled_features`; pass `with_feature` to return only
+    Each connector reports `enabled_features` when `feature_filter` is set or
+    `with_enabled_features_list=True`; pass `feature_filter` to return only
     connectors with a given feature (for example `direct_api_query` for sources,
     `direct_sql_query` for destinations, or `direct_access` for either).
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connectors = workspace.list_connectors(
         connector_type=connector_type,
-        with_feature=with_feature,
+        feature_filter=feature_filter,
         name_contains=name_contains,
         limit=limit,
     )
+    resolve_features = with_enabled_features_list or feature_filter is not None
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudConnectorResult(
@@ -1198,7 +1238,7 @@ def list_deployed_cloud_connectors(
             connector_type=connector.connector_type.value,
             name=cast(str, connector.name),
             url=connector.connector_url,
-            enabled_features=sorted(connector.enabled_features),
+            enabled_features=(sorted(connector.enabled_features) if resolve_features else None),
         )
         for connector in connectors
     ]
@@ -2516,7 +2556,7 @@ def list_cloud_organizations(
             default=None,
         ),
     ] = None,
-    with_feature: Annotated[
+    feature_filter: Annotated[
         OrganizationFeature | None,
         Field(
             description=(
@@ -2531,14 +2571,14 @@ def list_cloud_organizations(
 ) -> CloudOrganizationListResult:
     """List organizations visible to the authenticated Airbyte Cloud credentials.
 
-    Each organization reports `enabled_features`; pass `with_feature` to return only
+    Each organization reports `enabled_features`; pass `feature_filter` to return only
     organizations with a given feature.
     """
     effective_limit = 100 if limit is None else limit
     try:
         organizations = _get_cloud_client(ctx).list_organizations(
             name_contains=name_contains,
-            with_feature=with_feature,
+            feature_filter=feature_filter,
             limit=effective_limit,
         )
     except AirbyteError as error:
@@ -2550,12 +2590,12 @@ def list_cloud_organizations(
             ),
         )
 
-    if not organizations and with_feature is not None:
+    if not organizations and feature_filter is not None:
         return CloudOrganizationListResult(
             organizations=[],
             message=(
-                f"No organizations visible to these credentials have `{with_feature.value}` "
-                "enabled. Omit `with_feature` to list every organization with its feature flags."
+                f"No organizations visible to these credentials have `{feature_filter.value}` "
+                "enabled. Omit `feature_filter` to list every organization with its feature flags."
             ),
         )
 
