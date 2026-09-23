@@ -1197,8 +1197,32 @@ def list_deployed_cloud_connectors(
 class CloudConnectorDocsResult(BaseModel):
     """Connector docs rendered for agent consumption by the Cloud MCP tools.
 
-    Returned by `describe_cloud_*` and `get_agent_direct_access_guidance`.
+    Returned by `describe_cloud_*`.
     """
+
+    model_config = ConfigDict(extra="allow")
+
+    skill_id: str | None = None
+    """The docs skill ID, for example `connector-source:<id>`."""
+
+    title: str | None = None
+    """The human-readable docs title."""
+
+    content: str
+    """The docs body, rendered as Markdown."""
+
+    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
+    """The sections available in the docs."""
+
+    section_id: str | None = None
+    """The requested section ID, or `None` for the default docs response."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues reported while reading or rendering the docs."""
+
+
+class AgentSkillDocsResult(BaseModel):
+    """Docs for a single agent skill (skills for agents), returned by `get_agent_skill_docs`."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -1548,24 +1572,47 @@ def _docs_result(docs: DirectAccessGuidance) -> CloudConnectorDocsResult:
     )
 
 
+def _skill_docs_result(docs: DirectAccessGuidance) -> AgentSkillDocsResult:
+    """Render `DirectAccessGuidance` into an `AgentSkillDocsResult`."""
+    return AgentSkillDocsResult(
+        skill_id=docs.metadata.id,
+        title=docs.metadata.title,
+        content=render_docs_content_markdown(docs.content),
+        outline=docs.outline,
+        section_id=docs.section_id,
+        warnings=[str(warning) for warning in docs.metadata.warnings],
+    )
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def get_agent_direct_access_guidance(
+def get_agent_skill_docs(
     ctx: Context,
     *,
     docs_skill_id: Annotated[
-        str,
+        str | None,
         Field(
             description=(
-                "The fully-qualified skill ID to read, for example "
-                "`connector-source:<connector_id>` or `connector-destination:<connector_id>`."
+                "Fully-qualified skill ID, e.g. from `describe_cloud_*` `skill_id`. "
+                "Provide this or `connector_id`."
             ),
+            default=None,
         ),
-    ],
+    ] = None,
+    connector_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Deployed source or destination ID; resolves that connector's skill docs. "
+                "Provide this or `docs_skill_id`."
+            ),
+            default=None,
+        ),
+    ] = None,
     section: Annotated[
         str | None,
         Field(
@@ -1583,14 +1630,19 @@ def get_agent_direct_access_guidance(
             default=None,
         ),
     ],
-) -> CloudConnectorDocsResult:
-    """Read direct-access guidance by skill ID, optionally a single section.
+) -> AgentSkillDocsResult:
+    """Returns the requested skill document by ID for an AI agent.
 
-    Use the `skill_id` and `outline` returned by `describe_cloud_*` (with
-    `with_direct_access_guidance=True`) to pick the ID and section.
+    Pass either a fully-qualified `docs_skill_id` or a `connector_id` (source or
+    destination); exactly one is required.
+
+    `section` is optional; if omitted, the summary overview is returned along with
+    the list of available sections.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return _docs_result(workspace.get_direct_access_guidance(docs_skill_id, section=section))
+    return _skill_docs_result(
+        workspace.get_agent_skill_docs(docs_skill_id, connector_id=connector_id, section=section)
+    )
 
 
 @mcp_tool(

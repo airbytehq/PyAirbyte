@@ -943,7 +943,7 @@ def test_list_deployed_cloud_connectors_filters(
     ]
 
 
-def test_get_agent_direct_access_guidance_tool(
+def test_get_agent_skill_docs_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool forwards `docs_skill_id`/`section` and renders the docs result."""
@@ -959,26 +959,69 @@ def test_get_agent_direct_access_guidance_tool(
     )
     calls: list[dict[str, object]] = []
     workspace = SimpleNamespace(
-        get_direct_access_guidance=lambda skill_id, *, section=None: (
-            calls.append({"skill_id": skill_id, "section": section}),
+        get_agent_skill_docs=lambda skill_id, *, connector_id=None, section=None: (
+            calls.append({
+                "skill_id": skill_id,
+                "connector_id": connector_id,
+                "section": section,
+            }),
             guidance,
         )[1]
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    result = cloud_mcp.get_agent_direct_access_guidance(
+    result = cloud_mcp.get_agent_skill_docs(
         None,
         docs_skill_id="connector-source:source-1",
         section="setup",
         workspace_id=None,
     )
 
-    assert calls == [{"skill_id": "connector-source:source-1", "section": "setup"}]
+    assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
+    assert calls == [
+        {
+            "skill_id": "connector-source:source-1",
+            "connector_id": None,
+            "section": "setup",
+        }
+    ]
     assert result.skill_id == "connector-source:source-1"
     assert result.title == "GitHub"
     assert result.section_id == "setup"
     assert result.warnings == ["partial"]
     assert "Hello" in result.content
+
+
+def test_get_agent_skill_docs_tool_connector_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tool forwards `connector_id` to the workspace method."""
+    guidance = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(id="connector-source:source-1"),
+        content=[],
+    )
+    calls: list[dict[str, object]] = []
+    workspace = SimpleNamespace(
+        get_agent_skill_docs=lambda skill_id, *, connector_id=None, section=None: (
+            calls.append({
+                "skill_id": skill_id,
+                "connector_id": connector_id,
+                "section": section,
+            }),
+            guidance,
+        )[1]
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    result = cloud_mcp.get_agent_skill_docs(
+        None,
+        connector_id="source-1",
+        workspace_id=None,
+    )
+
+    assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
+    assert calls == [{"skill_id": None, "connector_id": "source-1", "section": None}]
+    assert result.skill_id == "connector-source:source-1"
 
 
 def _describe_details() -> CloudConnectorDetailsResult:

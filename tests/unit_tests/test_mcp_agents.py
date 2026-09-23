@@ -161,7 +161,7 @@ class _RaisingWorkspace:
         """Raise the configured error."""
         raise self._error
 
-    def get_direct_access_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    def get_agent_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
@@ -1433,7 +1433,7 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
                 ),
             ]
 
-        def get_direct_access_guidance(
+        def get_agent_skill_docs(
             self, skill_id: str, *, section: str | None = None
         ) -> DirectAccessGuidance:
             return DirectAccessGuidance(
@@ -1770,7 +1770,7 @@ def _patch_destination_404(
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _NotFoundConnector()
 
-        def get_direct_access_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        def get_agent_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             raise not_found
 
         def list_destinations(self) -> list[Any]:
@@ -1869,7 +1869,7 @@ def _patch_destination_server_docs(
                 return _NotFoundConnector()
             return _DescribableConnector(match)
 
-        def get_direct_access_guidance(
+        def get_agent_skill_docs(
             self, skill_id: str, *, section: str | None = None
         ) -> DirectAccessGuidance:
             calls.append((skill_id, section))

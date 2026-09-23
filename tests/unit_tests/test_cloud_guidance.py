@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
@@ -82,10 +83,10 @@ def test_list_guidance_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> No
     assert calls[1]["cursor"] == "cursor-1"
 
 
-def test_get_direct_access_guidance_reads_docs(
+def test_get_agent_skill_docs_reads_docs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`get_direct_access_guidance` returns the skill's parsed `DirectAccessGuidance`."""
+    """`get_agent_skill_docs` returns the skill's parsed `DirectAccessGuidance`."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
@@ -95,7 +96,7 @@ def test_get_direct_access_guidance_reads_docs(
 
     monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fake_read_docs)
 
-    guidance = workspace.get_direct_access_guidance("connector:github")
+    guidance = workspace.get_agent_skill_docs("connector:github")
 
     assert isinstance(guidance, DirectAccessGuidance)
     assert guidance.metadata.id == "connector:github"
@@ -103,10 +104,10 @@ def test_get_direct_access_guidance_reads_docs(
     assert calls[0]["skill_id"] == "connector:github"
 
 
-def test_get_direct_access_guidance_passes_section(
+def test_get_agent_skill_docs_passes_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`get_direct_access_guidance` passes the section through to the Agents API."""
+    """`get_agent_skill_docs` passes the section through to the Agents API."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
@@ -116,7 +117,7 @@ def test_get_direct_access_guidance_passes_section(
 
     monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fake_read_docs)
 
-    docs = workspace.get_direct_access_guidance("connector:github", section="setup")
+    docs = workspace.get_agent_skill_docs("connector:github", section="setup")
 
     assert docs.metadata.id == "connector:github"
     assert docs.metadata.title == "GitHub"
@@ -143,7 +144,7 @@ def test_list_guidance_passes_resolved_organization_id(
     assert calls[0]["organization_id"] == "organization-id"
 
 
-def test_get_direct_access_guidance_destination_prefix_served_locally(
+def test_get_agent_skill_docs_destination_prefix_served_locally(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`connector-destination:` IDs resolve locally through `get_destination`."""
@@ -164,10 +165,41 @@ def test_get_direct_access_guidance_destination_prefix_served_locally(
 
     monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fail_read_docs)
 
-    docs = workspace.get_direct_access_guidance(
+    docs = workspace.get_agent_skill_docs(
         "connector-destination:destination-1", section="sql"
     )
 
     assert calls == ["destination-1"]
     destination.get_direct_access_guidance.assert_called_once_with(section="sql")
     assert docs.metadata.id == "connector:github"
+
+
+def test_get_agent_skill_docs_connector_id_delegates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`connector_id` resolves through `get_connector` and forwards `section`."""
+    workspace = _make_workspace(monkeypatch)
+    connector = MagicMock()
+    connector.get_direct_access_guidance.return_value = (
+        DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    )
+    get_connector = MagicMock(return_value=connector)
+    monkeypatch.setattr(CloudWorkspace, "get_connector", get_connector)
+
+    docs = workspace.get_agent_skill_docs(connector_id="connector-1", section="setup")
+
+    get_connector.assert_called_once_with("connector-1")
+    connector.get_direct_access_guidance.assert_called_once_with(section="setup")
+    assert docs.metadata.id == "connector:github"
+
+
+def test_get_agent_skill_docs_requires_exactly_one_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Passing both or neither of `docs_skill_id`/`connector_id` raises."""
+    workspace = _make_workspace(monkeypatch)
+
+    with pytest.raises(exc.PyAirbyteInputError, match="exactly one"):
+        workspace.get_agent_skill_docs()
+    with pytest.raises(exc.PyAirbyteInputError, match="exactly one"):
+        workspace.get_agent_skill_docs("connector:github", connector_id="connector-1")

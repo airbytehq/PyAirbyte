@@ -583,24 +583,32 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
         )
 
-    def get_direct_access_guidance(
+    def get_agent_skill_docs(
         self,
-        docs_skill_id: str,
+        docs_skill_id: str | None = None,
         /,
         *,
+        connector_id: str | None = None,
         section: str | None = None,
     ) -> DirectAccessGuidance:
-        """Read direct-access guidance by its fully-qualified skill ID.
+        """Returns the requested skill document by ID for an AI agent.
 
-        `docs_skill_id` is the `metadata.id` returned by
-        `CloudConnector.get_direct_access_guidance()` or the `describe_cloud_*` MCP tools.
-        Omit `section` for metadata, guidance, and the outline of available sections, or
-        pass an exact section `id` from the outline to read that section.
+        Pass either a fully-qualified `docs_skill_id` (positional) or a
+        `connector_id` (source or destination); exactly one is required.
 
-        IDs with the `connector-destination:` prefix are served locally: the destination's
-        built-in direct-access docs, resolved through `get_destination`. All other IDs go
-        to the Agents API.
+        `section` is optional; if omitted, the summary overview is returned along with
+        the list of available sections.
         """
+        if connector_id is not None and docs_skill_id is not None:
+            raise exc.PyAirbyteInputError(
+                message="Provide exactly one of `docs_skill_id` or `connector_id`.",
+            )
+        if connector_id is not None:
+            return self.get_connector(connector_id).get_direct_access_guidance(section=section)
+        if docs_skill_id is None:
+            raise exc.PyAirbyteInputError(
+                message="Provide exactly one of `docs_skill_id` or `connector_id`.",
+            )
         if docs_skill_id.startswith(connector_docs.DESTINATION_SKILL_PREFIX):
             destination = self.get_destination(
                 connector_docs.connector_id_from_skill_id(docs_skill_id)

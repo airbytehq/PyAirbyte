@@ -672,9 +672,7 @@ class CloudConnector:
             if self.workspace._has_context_layer_api():  # noqa: SLF001
                 skill_id = connector_docs.destination_skill_id(self.connector_id)
                 try:
-                    server_docs = self.workspace.get_direct_access_guidance(
-                        skill_id, section=section
-                    )
+                    server_docs = self.workspace.get_agent_skill_docs(skill_id, section=section)
                 except exc.AirbyteError as error:
                     if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
                         raise
