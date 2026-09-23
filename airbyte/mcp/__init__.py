@@ -274,8 +274,16 @@ Session grouping uses a SHA-256 digest of the unsigned, client-echoed
 `Mcp-Session-Id`, not the raw token or a verified identity. Intent itself is free
 text and may contain customer information, so keep it free of sensitive data.
 
+Registered root tool-call server spans also carry `airbyte.mcp.entity_kind`
+from a static exact-name mapping: `connection`, `source`, `destination`,
+`workspace`, `organization`, `sync_job`, `connector_definition`,
+`agent_connector`, `skill`, `stream`, or `cache`. Arguments and results never
+determine this value. Unknown tools and `get_default_cloud_context`,
+`list_connector_config_secrets`, and `list_dotenv_secrets` omit it.
+
 Any OTLP backend can receive these spans. With `AIRBYTE_MCP_OTEL_VENDOR=datadog`,
-intent is also supplied as Datadog metadata. Export is best effort and does not
+intent and the validated `entity_kind` are also supplied as Datadog metadata,
+rebuilt from native attributes at export time. Export is best effort and does not
 determine whether a tool call succeeds; the backend controls retention and
 access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
 export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.

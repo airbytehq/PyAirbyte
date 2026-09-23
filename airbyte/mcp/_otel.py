@@ -95,6 +95,73 @@ _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
+_TOOL_ENTITY_KINDS: dict[str, str] = {
+    "create_connection_on_cloud": "connection",
+    "describe_cloud_connection": "connection",
+    "list_deployed_cloud_connections": "connection",
+    "permanently_delete_cloud_connection": "connection",
+    "rename_cloud_connection": "connection",
+    "set_cloud_connection_table_prefix": "connection",
+    "set_cloud_connection_selected_streams": "connection",
+    "update_cloud_connection": "connection",
+    "get_connection_artifact": "connection",
+    "deploy_source_to_cloud": "source",
+    "list_deployed_cloud_source_connectors": "source",
+    "describe_cloud_source": "source",
+    "check_cloud_source": "source",
+    "permanently_delete_cloud_source": "source",
+    "rename_cloud_source": "source",
+    "update_cloud_source_config": "source",
+    "validate_connector_config": "source",
+    "deploy_destination_to_cloud": "destination",
+    "deploy_noop_destination_to_cloud": "destination",
+    "list_deployed_cloud_destination_connectors": "destination",
+    "describe_cloud_destination": "destination",
+    "check_cloud_destination": "destination",
+    "permanently_delete_cloud_destination": "destination",
+    "rename_cloud_destination": "destination",
+    "update_cloud_destination_config": "destination",
+    "destination_smoke_test": "destination",
+    "list_cloud_workspaces": "workspace",
+    "describe_cloud_workspace": "workspace",
+    "set_default_cloud_workspace": "workspace",
+    "list_agent_workspaces": "workspace",
+    "show_workspace_sync_status": "workspace",
+    "list_cloud_organizations": "organization",
+    "describe_cloud_organization": "organization",
+    "get_cloud_organization_billing_status": "organization",
+    "run_cloud_sync": "sync_job",
+    "get_cloud_sync_status": "sync_job",
+    "list_cloud_sync_jobs": "sync_job",
+    "cancel_cloud_sync": "sync_job",
+    "get_cloud_sync_logs": "sync_job",
+    "show_connection_sync_history": "sync_job",
+    "publish_custom_source_definition": "connector_definition",
+    "list_custom_source_definitions": "connector_definition",
+    "get_custom_source_definition": "connector_definition",
+    "get_connector_builder_draft_manifest": "connector_definition",
+    "update_custom_source_definition": "connector_definition",
+    "permanently_delete_custom_source_definition": "connector_definition",
+    "list_connectors": "connector_definition",
+    "get_connector_info": "connector_definition",
+    "get_api_docs_urls": "connector_definition",
+    "get_connector_version_history": "connector_definition",
+    "show_connectors_list": "connector_definition",
+    "list_agent_connectors": "agent_connector",
+    "inspect_agent_connector": "agent_connector",
+    "execute_agent_connector_ro": "agent_connector",
+    "execute_agent_connector": "agent_connector",
+    "list_agent_skills": "skill",
+    "read_agent_skill_docs": "skill",
+    "list_source_streams": "stream",
+    "get_source_stream_json_schema": "stream",
+    "read_source_stream_records": "stream",
+    "get_stream_previews": "stream",
+    "list_cached_streams": "stream",
+    "sync_source_to_cache": "cache",
+    "describe_default_cache": "cache",
+    "run_sql_query": "cache",
+}
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
 _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
     "mcp_intent", default=None
@@ -283,6 +350,8 @@ class IntentCaptureMiddleware(Middleware):
         if intent:
             attrs["airbyte.mcp.intent"] = intent
         if name in _TOOL_MODULES:
+            if entity_kind := _TOOL_ENTITY_KINDS.get(name):
+                attrs["airbyte.mcp.entity_kind"] = entity_kind
             hints = _TOOL_ANNOTATIONS.get(name, {})
             attrs.update(
                 {
@@ -398,6 +467,18 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        tool_name = span.name.removeprefix("tools/call ")
+        entity_kind = attrs.get("airbyte.mcp.entity_kind")
+        if not (
+            span.kind == SpanKind.SERVER
+            and span.parent is None
+            and span.name.startswith("tools/call ")
+            and tool_name in _TOOL_MODULES
+            and isinstance(entity_kind, str)
+            and entity_kind == _TOOL_ENTITY_KINDS.get(tool_name)
+        ):
+            attrs.pop("airbyte.mcp.entity_kind", None)
+        attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
@@ -406,6 +487,7 @@ class RedactingExporter(SpanExporter):
                     "intent",
                     "intent_present",
                     "tool_module",
+                    "entity_kind",
                     "workspace_id",
                     "organization_id",
                     "error_type",
