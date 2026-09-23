@@ -254,11 +254,13 @@ assembles the verifier(s) and reads no environment variables itself.
 
 ## Optional Hosted Tool Intent Observability
 
-A hosted HTTP deployment may advertise an optional `telemetry.intent` argument
+A hosted HTTP deployment may advertise an optional top-level `intent` argument
 when its operator sets `AIRBYTE_MCP_INTENT_CAPTURE=1`. If provided, use one
 sentence explaining why the tool is being called; never include credentials,
 identifiers or data values. Calls without intent continue to work. The Agents
-tools' existing `intent` parameter is separate and remains unchanged.
+tools' existing `intent` parameter serves the same purpose and passes through
+unchanged to the Agents API; only the trace copy is trimmed and capped.
+Advertisement and model guidance do not require an export endpoint.
 
 Export is enabled only when an OTLP traces endpoint is configured. The server
 exports the supplied intent (capped at 4096 characters), tool name, outcome class,
@@ -278,9 +280,12 @@ determine whether a tool call succeeds; the backend controls retention and
 access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
 export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.
 Segment requests are excluded from traces. Local stdio is unchanged. Hosted
-clients with cached `telemetry` schemas remain compatible after export is
+clients with cached `intent` schemas remain compatible after export is
 disabled by unsetting both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
-`OTEL_EXPORTER_OTLP_ENDPOINT`.
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Legacy synthetic `telemetry.intent` is accepted
+without advertising it, with top-level `intent` taking precedence when supplied.
+Real tool parameters named `intent` or `telemetry` retain their normal validation
+and dispatch behavior.
 
 ## Troubleshooting
 

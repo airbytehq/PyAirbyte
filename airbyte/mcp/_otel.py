@@ -48,10 +48,11 @@ if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
-TELEMETRY_ARG = "telemetry"
+INTENT_ARG = "intent"
+_LEGACY_TELEMETRY_ARG = "telemetry"
 MCP_SESSION_ID_HEADER = "mcp-session-id"
 INTENT_INSTRUCTIONS_SENTENCE = (
-    " Tools may accept an optional `telemetry.intent` string; if present, "
+    " Tools may accept an optional `intent` string; if present, "
     "state in one sentence why you are calling the tool "
     "(never credentials, identifiers or data values)."
 )
@@ -60,16 +61,11 @@ _PROVIDER_OWNERSHIP_ERROR = (
     "and requests instrumentation."
 )
 _INTENT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "intent": {
-            "type": "string",
-            "description": (
-                "Briefly describe the wider task and why you chose this tool, in English. "
-                "Omit argument values, personal information, and secrets."
-            ),
-        }
-    },
+    "type": "string",
+    "description": (
+        "Briefly describe the wider task and why you chose this tool, in English. "
+        "Omit argument values, personal information, and secrets."
+    ),
 }
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _UUID_RE = re.compile(rf"\A{_UUID_PATTERN}\Z")
@@ -156,14 +152,14 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
     # Set the guard only once ownership is established, so a refused startup stays refused.
     _INSTALLED, _ENVIRON = True, environ
     app.add_middleware(IntentCaptureMiddleware(app, environ=environ))
+    if _flag(
+        environ, "AIRBYTE_MCP_INTENT_CAPTURE"
+    ) and INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or ""):
+        app.instructions = (app.instructions or "") + INTENT_INSTRUCTIONS_SENTENCE
     if provider is None:
         return
     try:
         RequestsInstrumentor().instrument(excluded_urls="api.segment.io")  # type: ignore[missing-attribute]  # Instrumentor singleton is non-null.
-        if _flag(
-            environ, "AIRBYTE_MCP_INTENT_CAPTURE"
-        ) and INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or ""):
-            app.instructions = (app.instructions or "") + INTENT_INSTRUCTIONS_SENTENCE
     except Exception:
         logger.debug("Optional OpenTelemetry setup failed")
 
@@ -203,7 +199,7 @@ class IntentCaptureMiddleware(Middleware):
     """Advertise optional intent and carry it into FastMCP's existing tool span."""
 
     def __init__(self, app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-        """Retain the app to distinguish synthetic telemetry from real parameters."""
+        """Retain the app to distinguish synthetic intent from real parameters."""
         self._app, self._environ = app, environ
 
     async def on_list_tools(
@@ -211,7 +207,7 @@ class IntentCaptureMiddleware(Middleware):
         context: MiddlewareContext[ListToolsRequest],
         call_next: CallNext[ListToolsRequest, Sequence[Tool]],
     ) -> Sequence[Tool]:
-        """Return copied schemas, leaving required fields and real telemetry intact."""
+        """Return copied schemas, leaving required fields and declared intent intact."""
         tools = await call_next(context)
         if not _flag(self._environ, "AIRBYTE_MCP_INTENT_CAPTURE"):
             return tools
@@ -220,7 +216,7 @@ class IntentCaptureMiddleware(Middleware):
             for tool in tools:
                 parameters = copy.deepcopy(tool.parameters)
                 parameters.setdefault("properties", {}).setdefault(
-                    TELEMETRY_ARG, copy.deepcopy(_INTENT_SCHEMA)
+                    INTENT_ARG, copy.deepcopy(_INTENT_SCHEMA)
                 )
                 result.append(tool.model_copy(update={"parameters": parameters}))
         except Exception:
@@ -244,14 +240,19 @@ class IntentCaptureMiddleware(Middleware):
                     meta.model_extra.pop("traceparent", None)
                     meta.model_extra.pop("tracestate", None)
             args = dict(context.message.arguments or {})
-            if TELEMETRY_ARG in args:
+            intent = args.get(INTENT_ARG)
+            if INTENT_ARG in args or _LEGACY_TELEMETRY_ARG in args:
                 tool = await self._app.get_tool(context.message.name)
-                if tool is None or TELEMETRY_ARG not in tool.parameters.get("properties", {}):
-                    telemetry = args.pop(TELEMETRY_ARG)
-                    intent = telemetry.get("intent") if isinstance(telemetry, dict) else None
-                    context = context.copy(
-                        message=context.message.model_copy(update={"arguments": args})
-                    )
+                properties = tool.parameters.get("properties", {}) if tool is not None else {}
+                if _LEGACY_TELEMETRY_ARG not in properties:
+                    telemetry = args.pop(_LEGACY_TELEMETRY_ARG, None)
+                    if INTENT_ARG not in args and isinstance(telemetry, dict):
+                        intent = telemetry.get(INTENT_ARG)
+                if INTENT_ARG not in properties:
+                    args.pop(INTENT_ARG, None)
+                context = context.copy(
+                    message=context.message.model_copy(update={"arguments": args})
+                )
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")

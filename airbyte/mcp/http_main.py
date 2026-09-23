@@ -94,10 +94,11 @@ hosted redaction boundary and continue exporting after rollback.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
 - `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
   intent available as Datadog metadata. Leave unset for other OTLP backends.
-- `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional `telemetry.intent` and append
-  guidance to omit credentials, identifiers and data values. Removing this flag
-  stops advertising; intent supplied by cached clients is still recorded when
-  export is enabled.
+- `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
+  guidance to omit credentials, identifiers and data values, even without an
+  export endpoint. Removing this flag stops synthetic advertisement; declared
+  parameters remain visible and intent supplied by cached clients is still
+  recorded when export is enabled.
 
 Each tool call is a fresh trace, with outbound `requests` calls nested beneath
 it. Client-supplied MCP trace context is stripped. Export removes exception
@@ -111,7 +112,11 @@ declarations are preserved. Intent is free text capped at 4096 characters.
 
 Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
 to disable export. The hosted entrypoint still strips
-synthetic `telemetry` arguments for cached clients and hashes session tokens.
+synthetic `intent` arguments for cached clients and hashes session tokens.
+Declared `intent` parameters pass through unchanged; only the trace copy is
+trimmed and capped. Legacy synthetic `telemetry.intent` is accepted but never
+advertised, and top-level `intent` takes precedence. Real `telemetry` parameters
+are left untouched.
 Export is best effort; backend retention and access control apply. Local stdio
 is unchanged.
 """

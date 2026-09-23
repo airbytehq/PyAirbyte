@@ -20,6 +20,7 @@ import httpx
 import pytest
 import requests
 from fastmcp import Client, FastMCP
+from fastmcp import telemetry as fastmcp_telemetry
 from fastmcp.exceptions import NotFoundError
 from fastmcp_extensions import CapabilityTokenMiddleware
 from jsonschema import ValidationError
@@ -29,7 +30,11 @@ from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
 
+from airbyte.agents import _api_util as agents_api
+from airbyte.agents.connectors import AgentConnector
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.mcp import _otel as observability
+from airbyte.mcp import agents as agents_mcp
 from airbyte.version import get_version
 
 
@@ -139,7 +144,7 @@ def _capture(app: FastMCP, *, capture: bool = True) -> None:
 
 @pytest.fixture
 def app(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
-    """Use a real tool signature so unstripped telemetry fails validation."""
+    """Use a real tool signature so unstripped intent fails validation."""
     server = FastMCP("otel-tests")
 
     @server.tool()
@@ -203,6 +208,7 @@ def agents_app(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
 
 def test_list_tools_advertises_optional_intent_without_mutating_tool_parameters(
     agents_app,
+    monkeypatch,
 ):
     """Repeated listings preserve both plain and Agents server-owned schemas."""
 
@@ -213,29 +219,41 @@ def test_list_tools_advertises_optional_intent_without_mutating_tool_parameters(
             for name in names
         }
         async with Client(agents_app) as client:
+            with monkeypatch.context() as disabled:
+                for middleware in agents_app.middleware:
+                    if isinstance(middleware, observability.IntentCaptureMiddleware):
+                        disabled.setattr(middleware, "_environ", {})
+                baseline = {
+                    tool.name: tool.inputSchema for tool in await client.list_tools()
+                }
             first = {tool.name: tool.inputSchema for tool in await client.list_tools()}
             second = {tool.name: tool.inputSchema for tool in await client.list_tools()}
         assert first == second
         for name in names:
-            assert "telemetry" not in first[name].get("required", [])
-            assert (
-                first[name]["properties"]["telemetry"]["properties"]["intent"]["type"]
-                == "string"
-            )
+            assert "intent" not in first[name].get("required", [])
+            assert "telemetry" not in first[name]["properties"]
+            assert first[name].get("required", []) == original[name].get("required", [])
             assert (await agents_app.get_tool(name)).parameters == original[name]
-            assert "telemetry" not in original[name]["properties"]
+            if "intent" in original[name]["properties"]:
+                assert first[name] == baseline[name]
+            else:
+                assert "intent" not in baseline[name]["properties"]
+                assert first[name]["properties"]["intent"]["type"] == "string"
+                advertised = copy.deepcopy(first[name])
+                advertised["properties"].pop("intent")
+                assert advertised == baseline[name]
 
     asyncio.run(check())
 
 
-def test_call_strips_telemetry_and_tool_receives_clean_arguments(app):
+def test_call_strips_intent_and_tool_receives_clean_arguments(app):
     result = asyncio.run(
-        _call(app, {"value": "argument-SENTINEL", "telemetry": {"intent": "Inspect"}})
+        _call(app, {"value": "argument-SENTINEL", "intent": "Inspect"})
     )
     assert result.data == "argument-SENTINEL"
 
 
-def test_call_strips_telemetry_when_capture_disabled(monkeypatch, otel_provider):
+def test_call_strips_intent_when_capture_disabled(monkeypatch, otel_provider):
     server = FastMCP("capture-disabled")
 
     @server.tool()
@@ -248,11 +266,10 @@ def test_call_strips_telemetry_when_capture_disabled(monkeypatch, otel_provider)
     async def check():
         async with Client(server) as client:
             assert (
-                "telemetry"
-                not in (await client.list_tools())[0].inputSchema["properties"]
+                "intent" not in (await client.list_tools())[0].inputSchema["properties"]
             )
             return await client.call_tool(
-                "echo", {"value": "clean", "telemetry": {"intent": "Still recorded"}}
+                "echo", {"value": "clean", "intent": "Still recorded"}
             )
 
     assert asyncio.run(check()).data == "clean"
@@ -261,7 +278,198 @@ def test_call_strips_telemetry_when_capture_disabled(monkeypatch, otel_provider)
     )
 
 
-def test_strip_preserves_real_telemetry_parameter(monkeypatch):
+@pytest.mark.parametrize("capture", [False, True])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"intent": "Inspect"},
+        {"telemetry": {"intent": "Inspect"}},
+        {},
+    ],
+)
+def test_export_disabled_keeps_advertisement_and_cached_calls(
+    monkeypatch, otel_provider, uninitialized_provider, capture, arguments
+):
+    server = FastMCP("export-disabled", instructions="original")
+
+    @server.tool()
+    def echo(value: str) -> str:
+        return value
+
+    monkeypatch.setattr(
+        fastmcp_telemetry, "otel_get_tracer", trace.NoOpTracerProvider().get_tracer
+    )
+    build = Mock()
+    monkeypatch.setattr(observability, "_build_provider", build)
+    observability.install(
+        server, environ={"AIRBYTE_MCP_INTENT_CAPTURE": str(int(capture))}
+    )
+    monkeypatch.setitem(observability._TOOL_MODULES, "echo", "cloud")
+
+    async def check():
+        async with Client(server) as client:
+            properties = (await client.list_tools())[0].inputSchema["properties"]
+            assert ("intent" in properties) == capture
+            assert "telemetry" not in properties
+            return await client.call_tool("echo", {"value": "ok", **arguments})
+
+    assert asyncio.run(check()).data == "ok"
+    assert (
+        observability.INTENT_INSTRUCTIONS_SENTENCE.strip() in server.instructions
+    ) == capture
+    build.assert_not_called()
+    uninitialized_provider.assert_not_called()
+    assert not _spans(otel_provider)
+
+
+@pytest.mark.parametrize("capture", [False, True])
+@pytest.mark.parametrize(
+    "arguments,expected",
+    [
+        ({"telemetry": {"intent": "  Legacy intent  "}}, "Legacy intent"),
+        ({"telemetry": {"intent": 123}}, None),
+        ({"telemetry": "argument-SENTINEL"}, None),
+        (
+            {"telemetry": {"intent": "argument-SENTINEL"}, "intent": "Top level"},
+            "Top level",
+        ),
+        ({"telemetry": {"intent": "argument-SENTINEL"}, "intent": None}, None),
+        ({"telemetry": {"intent": "argument-SENTINEL"}, "intent": "  "}, None),
+    ],
+)
+def test_legacy_intent_is_receive_only_with_top_level_precedence(
+    monkeypatch, otel_provider, capture, arguments, expected
+):
+    server = FastMCP("legacy")
+
+    @server.tool()
+    def echo(value: str) -> str:
+        return value
+
+    _capture(server, capture=capture)
+    monkeypatch.setitem(observability._TOOL_MODULES, "echo", "cloud")
+    original = copy.deepcopy(arguments)
+    assert asyncio.run(_call(server, {"value": "ok", **arguments})).data == "ok"
+    assert arguments == original
+    attrs = _tool_span(otel_provider).attributes
+    assert attrs.get("airbyte.mcp.intent") == expected
+    assert attrs["airbyte.mcp.intent_present"] == bool(expected)
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("tracing", [False, True])
+@pytest.mark.parametrize("capture", [False, True])
+@pytest.mark.parametrize(
+    "intent", [None, "  Inspect state  ", "  " + "x" * 5000 + "  "]
+)
+def test_agents_intent_reaches_api_unchanged_with_bounded_trace_copy(
+    agents_app, monkeypatch, otel_provider, tracing, capture, intent
+):
+    credentials = _AirbyteCredentials.from_auth(
+        bearer_token="bearer-SENTINEL", env_vars=False
+    )
+    connector = AgentConnector("connector-SENTINEL", credentials=credentials)
+    monkeypatch.setattr(agents_mcp, "_get_agent_connector", lambda **kwargs: connector)
+    execute = Mock(return_value={"status": "success", "result": ["result-SENTINEL"]})
+    monkeypatch.setattr(agents_api, "execute_agent_connector_action", execute)
+    for middleware in agents_app.middleware:
+        if isinstance(middleware, observability.IntentCaptureMiddleware):
+            monkeypatch.setattr(
+                middleware,
+                "_environ",
+                {"AIRBYTE_MCP_INTENT_CAPTURE": str(int(capture))},
+            )
+    if not tracing:
+        monkeypatch.setattr(
+            fastmcp_telemetry, "otel_get_tracer", trace.NoOpTracerProvider().get_tracer
+        )
+    result = asyncio.run(
+        _call(
+            agents_app,
+            {
+                "connector_id": "connector-SENTINEL",
+                "entity_type": "issues",
+                "action": "list",
+                **({"intent": intent} if intent is not None else {}),
+            },
+            name="execute_agent_connector_ro",
+        )
+    )
+    assert not result.is_error
+    execute.assert_called_once()
+    body = execute.call_args.kwargs["request_body"]
+    if intent is None:
+        assert "intent" not in body
+    else:
+        assert body["intent"] == intent
+    if tracing:
+        attrs = _tool_span(otel_provider).attributes
+        if intent is None:
+            assert "airbyte.mcp.intent" not in attrs
+            assert attrs["airbyte.mcp.intent_present"] is False
+        else:
+            expected = intent.strip()
+            if len(expected) > 4096:
+                expected = expected[: 4096 - len("...[truncated]")] + "...[truncated]"
+            assert attrs["airbyte.mcp.intent"] == expected
+            assert attrs["airbyte.mcp.intent_present"] is True
+        assert "SENTINEL" not in _export_text(otel_provider)
+    else:
+        assert not _spans(otel_provider)
+
+
+@pytest.mark.parametrize("intent", [123, {"secret": "argument-SENTINEL"}, []])
+def test_invalid_declared_intent_still_fails_validation(
+    agents_app, monkeypatch, otel_provider, intent
+):
+    execute = Mock()
+    monkeypatch.setattr(agents_api, "execute_agent_connector_action", execute)
+    result = asyncio.run(
+        _call(
+            agents_app,
+            {
+                "connector_id": "connector-SENTINEL",
+                "entity_type": "issues",
+                "action": "list",
+                "intent": intent,
+            },
+            name="execute_agent_connector_ro",
+            raise_on_error=False,
+        )
+    )
+    assert result.is_error
+    execute.assert_not_called()
+    attrs = _tool_span(otel_provider).attributes
+    assert "airbyte.mcp.intent" not in attrs
+    assert attrs["airbyte.mcp.intent_present"] is False
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+def test_required_non_string_intent_keeps_schema_and_validation(
+    monkeypatch, otel_provider
+):
+    server = FastMCP("declared-intent")
+
+    @server.tool()
+    def real(intent: int) -> int:
+        return intent
+
+    _capture(server)
+    monkeypatch.setitem(observability._TOOL_MODULES, "real", "cloud")
+
+    async def check():
+        original = copy.deepcopy((await server.get_tool("real")).parameters)
+        async with Client(server) as client:
+            assert (await client.list_tools())[0].inputSchema == original
+            assert "intent" in original["required"]
+            assert original["properties"]["intent"]["type"] == "integer"
+            return await client.call_tool("real", {"intent": 123})
+
+    assert asyncio.run(check()).data == 123
+    assert "airbyte.mcp.intent" not in _tool_span(otel_provider).attributes
+
+
+def test_strip_preserves_real_string_telemetry_parameter(monkeypatch, otel_provider):
     server = FastMCP("real-telemetry")
 
     @server.tool()
@@ -276,9 +484,44 @@ def test_strip_preserves_real_telemetry_parameter(monkeypatch):
             assert (await client.list_tools())[0].inputSchema["properties"][
                 "telemetry"
             ]["type"] == "string"
-            return await client.call_tool("real", {"telemetry": "real argument"})
+            return await client.call_tool("real", {"telemetry": "argument-SENTINEL"})
 
-    assert asyncio.run(check()).data == "real argument"
+    assert asyncio.run(check()).data == "argument-SENTINEL"
+    assert "airbyte.mcp.intent" not in _tool_span(otel_provider).attributes
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("arguments", [{}, {"intent": "Inspect"}])
+def test_strip_preserves_real_telemetry_parameter(
+    monkeypatch, otel_provider, arguments
+):
+    server = FastMCP("real-telemetry")
+
+    @server.tool()
+    def real(telemetry: dict[str, str]) -> str:
+        return telemetry["intent"]
+
+    _capture(server)
+    monkeypatch.setitem(observability._TOOL_MODULES, "real", "cloud")
+
+    async def check():
+        async with Client(server) as client:
+            assert (await client.list_tools())[0].inputSchema["properties"][
+                "telemetry"
+            ]["type"] == "object"
+            return await client.call_tool(
+                "real",
+                {
+                    "telemetry": {"intent": "argument-SENTINEL"},
+                    **arguments,
+                },
+            )
+
+    assert asyncio.run(check()).data == "argument-SENTINEL"
+    assert _tool_span(otel_provider).attributes.get(
+        "airbyte.mcp.intent"
+    ) == arguments.get("intent")
+    assert "SENTINEL" not in _export_text(otel_provider)
 
 
 def test_tool_span_carries_intent_and_gen_ai_attributes_in_memory(app, otel_provider):
@@ -287,7 +530,7 @@ def test_tool_span_carries_intent_and_gen_ai_attributes_in_memory(app, otel_prov
             app,
             {
                 "value": "argument-SENTINEL",
-                "telemetry": {"intent": "  Inspect state  "},
+                "intent": "  Inspect state  ",
             },
         )
     )
@@ -311,7 +554,7 @@ def test_tool_span_carries_intent_over_http(app, otel_provider):
                 "name": "echo",
                 "arguments": {
                     "value": "result-SENTINEL",
-                    "telemetry": {"intent": "Inspect HTTP"},
+                    "intent": "Inspect HTTP",
                 },
             },
         )
@@ -334,7 +577,7 @@ def test_tool_span_carries_intent_when_client_sends_meta_traceparent_and_is_root
             "tools/call",
             {
                 "name": "echo",
-                "arguments": {"value": "ok", "telemetry": {"intent": "Own trace"}},
+                "arguments": {"value": "ok", "intent": "Own trace"},
                 "_meta": {
                     "traceparent": parent,
                     "tracestate": "vendor=meta-SENTINEL",
@@ -586,7 +829,7 @@ def test_install_leaves_provider_unset_when_build_fails(
 
 
 @pytest.mark.parametrize(
-    "enabled,capture", [(False, False), (True, False), (True, True)]
+    "enabled,capture", [(False, False), (False, True), (True, False), (True, True)]
 )
 def test_install_respects_explicit_environ(
     monkeypatch, enabled, capture, uninitialized_provider
@@ -622,13 +865,15 @@ def test_install_respects_explicit_environ(
             "AIRBYTE_MCP_INTENT_CAPTURE": str(int(capture)),
         }
         if enabled
-        else {}
+        else {"AIRBYTE_MCP_INTENT_CAPTURE": str(int(capture))}
     )
     observability.install(server, environ=environment)
     if not enabled:
         factory.assert_not_called()
         setter.assert_not_called()
-        assert server.instructions == "original"
+        assert (
+            observability.INTENT_INSTRUCTIONS_SENTENCE.strip() in server.instructions
+        ) == capture
         return
     provider = setter.call_args.args[0]
     try:
@@ -669,7 +914,7 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
             "tools/call",
             {
                 "name": "show_connectors_list",
-                "arguments": {"telemetry": {"intent": "Inspect state"}},
+                "arguments": {"intent": "Inspect state"},
             },
             {
                 "x-mcp-extensions": "io.modelcontextprotocol/ui",
@@ -707,7 +952,7 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
 
 
 @pytest.mark.parametrize(
-    "endpoint,capture", [(False, True), (True, False), (True, True)]
+    "endpoint,capture", [(False, False), (False, True), (True, False), (True, True)]
 )
 def test_instructions_sentence_requires_capture_flag(
     monkeypatch, otel_provider, endpoint, capture, uninitialized_provider
@@ -738,7 +983,7 @@ def test_instructions_sentence_requires_capture_flag(
     observability.install(server, environ=environ)
     assert server.instructions.count(
         observability.INTENT_INSTRUCTIONS_SENTENCE.strip()
-    ) == int(endpoint and capture)
+    ) == int(capture)
     assert server.instructions.startswith("original")
     if endpoint:
         instrument.assert_called_once_with(excluded_urls="api.segment.io")
@@ -826,9 +1071,10 @@ def test_real_cloud_connection_argument_cannot_escape_through_url(
     )
 
 
-@pytest.mark.parametrize("intent", [None, 123, "  ", "x" * 5000])
+@pytest.mark.parametrize("intent", [None, 123, {}, [], "  ", "x" * 5000])
 def test_intent_is_optional_and_bounded(app, otel_provider, intent):
-    asyncio.run(_call(app, {"value": "ok", "telemetry": {"intent": intent}}))
+    result = asyncio.run(_call(app, {"value": "ok", "intent": intent}))
+    assert result.data == "ok"
     attrs = _tool_span(otel_provider).attributes
     if isinstance(intent, str) and intent.strip():
         assert len(attrs["airbyte.mcp.intent"]) == 4096
@@ -875,7 +1121,7 @@ def test_non_tool_requests_do_not_export_caller_text_or_trace_context(
             "tools/call",
             {
                 "name": "show_connectors_list",
-                "arguments": {"telemetry": {"intent": "Inspect tools"}},
+                "arguments": {"intent": "Inspect tools"},
             },
             {"x-mcp-extensions": "io.modelcontextprotocol/ui"},
         )
