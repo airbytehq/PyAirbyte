@@ -10,9 +10,14 @@ from typing import Callable, cast
 from unittest.mock import MagicMock
 
 import pytest
+import requests
+from airbyte._direct_connectors.models import (
+    CloudConnectorConnectionInfo,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+)
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
-    CloudConnectorDetails,
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
@@ -21,11 +26,13 @@ from airbyte.cloud.models import (
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
+    CloudConnectorDetailsResult,
     CloudDestinationResult,
     CloudSourceResult,
     ConnectorCheckResult,
     SyncJobResult,
 )
+from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from fastmcp import Context
 
 
@@ -825,9 +832,9 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
     assert "resource-id" in result
 
 
-def _describe_details() -> CloudConnectorDetails:
-    """Return a minimal `CloudConnectorDetails` for describe-tool forwarding tests."""
-    return CloudConnectorDetails(
+def _describe_details() -> CloudConnectorDetailsResult:
+    """Return a minimal `CloudConnectorDetailsResult` for describe-tool forwarding tests."""
+    return CloudConnectorDetailsResult(
         connector_id="connector-1",
         connector_type="source",
         connector_name="GitHub",
@@ -844,7 +851,9 @@ def test_describe_cloud_connector_forwards_id_and_toggles(
     """`describe_cloud_connector` forwards the ID and all `with_*` toggles."""
     details = _describe_details()
     describe = MagicMock(return_value=details)
-    get_connector = MagicMock(return_value=SimpleNamespace(describe=describe))
+    monkeypatch.setattr(cloud_mcp, "_describe_cloud_connector", describe)
+    connector = object()
+    get_connector = MagicMock(return_value=connector)
     workspace = SimpleNamespace(get_connector=get_connector)
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
@@ -862,6 +871,7 @@ def test_describe_cloud_connector_forwards_id_and_toggles(
 
     get_connector.assert_called_once_with(connector_id="connector-1")
     describe.assert_called_once_with(
+        connector,
         with_config=True,
         with_replication_details=True,
         with_direct_access_guidance=True,
@@ -876,7 +886,9 @@ def test_describe_cloud_source_forwards_toggles(
     """`describe_cloud_source` describes the source with all `with_*` toggles."""
     details = _describe_details()
     describe = MagicMock(return_value=details)
-    get_source = MagicMock(return_value=SimpleNamespace(describe=describe))
+    monkeypatch.setattr(cloud_mcp, "_describe_cloud_connector", describe)
+    connector = object()
+    get_source = MagicMock(return_value=connector)
     workspace = SimpleNamespace(get_source=get_source)
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
@@ -894,6 +906,7 @@ def test_describe_cloud_source_forwards_toggles(
 
     get_source.assert_called_once_with(source_id="source-1")
     describe.assert_called_once_with(
+        connector,
         with_config=True,
         with_replication_details=True,
         with_direct_access_guidance=True,
@@ -908,7 +921,9 @@ def test_describe_cloud_destination_forwards_toggles(
     """`describe_cloud_destination` describes the destination with all `with_*` toggles."""
     details = _describe_details()
     describe = MagicMock(return_value=details)
-    get_destination = MagicMock(return_value=SimpleNamespace(describe=describe))
+    monkeypatch.setattr(cloud_mcp, "_describe_cloud_connector", describe)
+    connector = object()
+    get_destination = MagicMock(return_value=connector)
     workspace = SimpleNamespace(get_destination=get_destination)
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
@@ -926,9 +941,261 @@ def test_describe_cloud_destination_forwards_toggles(
 
     get_destination.assert_called_once_with(destination_id="dest-1")
     describe.assert_called_once_with(
+        connector,
         with_config=True,
         with_replication_details=True,
         with_direct_access_guidance=True,
         with_data_replication_docs=True,
     )
     assert result is details
+
+
+@dataclass
+class _DescribedConnector:
+    """Subset of `CloudConnector` exercised by `_describe_cloud_connector` tests."""
+
+    connector_id: str = "connector-1"
+    connector_type: ConnectorType = ConnectorType.SOURCE
+    name: str | None = "GitHub"
+    connector_url: str = ""
+    definition_id: str = "definition-id"
+    external_access_enabled: bool = False
+    search_indexing_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        self._integration_name: str | AirbyteError = "GitHub"
+        self.workspace = SimpleNamespace(_has_context_layer_api=lambda: False)
+        self.inspect_result: object | None = None
+        self.inspect_error: AirbyteError | None = None
+        self.config: dict[str, object] | AirbyteError = {"key": "value"}
+        self.guidance: DirectAccessGuidance | Exception | None = None
+        self.replication_docs: list[object] | Exception = []
+
+    @property
+    def integration_name(self) -> str:
+        """The integration title, raising the stored error when set."""
+        if isinstance(self._integration_name, AirbyteError):
+            raise self._integration_name
+        return self._integration_name
+
+    def _context_layer_inspect(
+        self, *, warnings: list[str], **_kwargs: object
+    ) -> object:
+        if self.inspect_error is not None:
+            warnings.append(f"Connector inspect failed: {self.inspect_error}")
+            return None
+        return self.inspect_result
+
+    def as_cloud_source(self) -> "_DescribedConnector":
+        return self
+
+    def as_cloud_destination(self) -> "_DescribedConnector":
+        return self
+
+    @property
+    def configuration(self) -> dict[str, object]:
+        if isinstance(self.config, AirbyteError):
+            raise self.config
+        return self.config
+
+    def get_direct_access_guidance(self, **_kwargs: object) -> DirectAccessGuidance:
+        if isinstance(self.guidance, Exception):
+            raise self.guidance
+        assert self.guidance is not None
+        return self.guidance
+
+    def get_data_replication_docs(self, **_kwargs: object) -> list[object]:
+        if isinstance(self.replication_docs, AirbyteError):
+            raise self.replication_docs
+        return self.replication_docs
+
+
+def _describe(
+    connector: _DescribedConnector, **overrides: object
+) -> CloudConnectorDetailsResult:
+    kwargs = {
+        "with_config": False,
+        "with_replication_details": False,
+        "with_direct_access_guidance": False,
+        "with_data_replication_docs": False,
+    }
+    kwargs.update(overrides)
+    return cloud_mcp._describe_cloud_connector(connector, **kwargs)  # noqa: SLF001
+
+
+def test_describe_helper_reports_identity_and_source_search_indexing() -> None:
+    """Identity fields populate always; sources report `search_indexing_enabled`."""
+    connector = _DescribedConnector(search_indexing_enabled=False)
+
+    result = _describe(connector)
+
+    assert result.connector_id == "connector-1"
+    assert result.connector_type == "source"
+    assert result.connector_name == "GitHub"
+    assert result.integration_name == "GitHub"
+    assert result.search_indexing_enabled is False
+    assert result.warnings == []
+
+
+def test_describe_helper_destination_search_indexing_is_none() -> None:
+    """Destinations are not search-indexed, so the flag reads `None`."""
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+
+    result = _describe(connector)
+
+    assert result.connector_type == "destination"
+    assert result.search_indexing_enabled is None
+
+
+def test_describe_helper_integration_name_failure_warns() -> None:
+    """A definition lookup failure warns and leaves `integration_name` unset."""
+    connector = _DescribedConnector()
+    connector._integration_name = AirbyteError(message="lookup boom")  # noqa: SLF001
+
+    result = _describe(connector)
+
+    assert result.integration_name is None
+    assert any("Integration name lookup failed" in w for w in result.warnings)
+
+
+def test_describe_helper_collects_inspect_warnings() -> None:
+    """Context Layer `inspect` failures and warnings land in `warnings`."""
+    connector = _DescribedConnector(external_access_enabled=True)
+    connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
+    connector.inspect_error = AirbyteError(message="inspect boom")
+
+    result = _describe(connector)
+
+    assert any("Connector inspect failed" in w for w in result.warnings)
+
+
+def test_describe_helper_extends_context_layer_warnings() -> None:
+    """Warnings reported by a successful `inspect` are surfaced too."""
+    connector = _DescribedConnector(external_access_enabled=True)
+    connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
+    connector.inspect_result = SimpleNamespace(warnings=["Partial runtime metadata."])
+
+    result = _describe(connector)
+
+    assert "Partial runtime metadata." in result.warnings
+
+
+def test_describe_helper_with_config_reads_destination_config() -> None:
+    """`with_config` on a destination returns the redacted configuration."""
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+    connector.config = {"database": "analytics"}
+
+    result = _describe(connector, with_config=True)
+
+    assert result.config == {"database": "analytics"}
+
+
+def test_describe_helper_with_config_source_has_no_config() -> None:
+    """Sources never expose configuration."""
+    connector = _DescribedConnector()
+
+    result = _describe(connector, with_config=True)
+
+    assert result.config is None
+
+
+def test_describe_helper_with_config_failure_warns() -> None:
+    """A config fetch failure under `with_config` warns instead of raising."""
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+    connector.config = AirbyteError(message="config boom")
+
+    result = _describe(connector, with_config=True)
+
+    assert result.config is None
+    assert any("Connector configuration lookup failed" in w for w in result.warnings)
+
+
+def test_describe_helper_with_replication_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`with_replication_details` returns the connections touching the connector."""
+    info = CloudConnectorConnectionInfo(
+        connection_id="conn-1",
+        name="sync",
+        source_id="source-1",
+        source_name="GitHub",
+        destination_id="dest-1",
+        destination_name="Warehouse",
+        schedule="manual",
+        stream_names=["issues"],
+        table_prefix="raw_",
+        destination_database="analytics",
+        destination_schema="raw",
+    )
+    monkeypatch.setattr(
+        cloud_mcp.connector_docs,
+        "build_connection_infos",
+        lambda _connector: [info],
+    )
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+
+    result = _describe(connector, with_replication_details=True)
+
+    assert result.replication_details == [info]
+
+
+def test_describe_helper_replication_details_failure_warns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection listing failure warns instead of raising."""
+
+    def fail(_connector: object) -> list[object]:
+        raise AirbyteError(message="listing boom")
+
+    monkeypatch.setattr(cloud_mcp.connector_docs, "build_connection_infos", fail)
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+
+    result = _describe(connector, with_replication_details=True)
+
+    assert result.replication_details is None
+    assert any("Connection listing failed" in w for w in result.warnings)
+
+
+def test_describe_helper_with_direct_access_guidance() -> None:
+    """`with_direct_access_guidance` renders the connector's docs as Markdown."""
+    connector = _DescribedConnector()
+    connector.guidance = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(id="connector:github", title="GitHub"),
+        content=[{"type": "paragraph", "text": "Use it."}],
+    )
+
+    result = _describe(connector, with_direct_access_guidance=True)
+
+    assert result.direct_access_guidance is not None
+    assert result.direct_access_guidance.skill_id == "connector:github"
+    assert result.direct_access_guidance.title == "GitHub"
+    assert "Use it." in result.direct_access_guidance.content
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(PyAirbyteInputError(message="bad docs"), id="input_error"),
+        pytest.param(requests.Timeout("docs timed out"), id="transport_error"),
+    ],
+)
+def test_describe_helper_direct_access_guidance_failure_warns(error: Exception) -> None:
+    """Docs failures under `with_direct_access_guidance` append a warning."""
+    connector = _DescribedConnector()
+    connector.guidance = error
+
+    result = _describe(connector, with_direct_access_guidance=True)
+
+    assert result.direct_access_guidance is None
+    assert any("Direct access docs are unavailable" in w for w in result.warnings)
+
+
+def test_describe_helper_data_replication_docs_failure_warns() -> None:
+    """A registry miss under `with_data_replication_docs` appends a warning."""
+    connector = _DescribedConnector()
+    connector.replication_docs = AirbyteError(message="unregistered")
+
+    result = _describe(connector, with_data_replication_docs=True)
+
+    assert result.data_replication_docs is None
+    assert any("Data replication docs are unavailable" in w for w in result.warnings)

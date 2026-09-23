@@ -11,11 +11,6 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte._direct_connectors.models import (
-    CloudConnectorConnectionInfo,
-    CloudConnectorDetails,
-    CloudConnectorDocs,
-    CloudContextStoreEntity,
-    CloudContextStoreReadiness,
     CloudDirectConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
@@ -469,11 +464,6 @@ def _enum_value(value: object) -> str:
 
 __all__ = [
     "CloudConnectionInfo",
-    "CloudConnectorConnectionInfo",
-    "CloudConnectorDetails",
-    "CloudConnectorDocs",
-    "CloudContextStoreEntity",
-    "CloudContextStoreReadiness",
     "CloudCustomSourceDefinitionInfo",
     "CloudDefaultContextInfo",
     "CloudDefaultWorkspaceUpdateInfo",

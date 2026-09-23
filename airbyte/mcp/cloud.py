@@ -15,20 +15,27 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, cast
 
+import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import get_destination, get_source
+from airbyte._direct_connectors import connector_docs
+from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.models import (
+    CloudConnectorConnectionInfo,
+    DirectAccessGuidanceSection,
+)
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import (
     CheckResult,
+    CloudConnector,
     CustomCloudSourceDefinition,
 )
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
-    CloudConnectorDetails,
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
@@ -58,6 +65,7 @@ from airbyte.exceptions import (
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
+    PyAirbyteError,
     PyAirbyteInputError,
 )
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
@@ -65,6 +73,9 @@ from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
     register_guid_created_in_session,
+)
+from airbyte.registry import (
+    ApiDocsUrl,  # Needed at runtime for Pydantic field types.
 )
 
 
@@ -161,9 +172,6 @@ class CloudDestinationResult(BaseModel):
     """Whether AI agents can query the destination with `sql_select`: the workspace is
     enabled for the Airbyte Context layer and the destination is a SQL passthrough type
     (Snowflake, BigQuery)."""
-    search_indexing_enabled: bool
-    """Whether Airbyte indexes the destination's data for fast search. Always `False` today:
-    destinations are not indexed."""
 
 
 class CloudConnectionResult(BaseModel):
@@ -1072,7 +1080,11 @@ def list_deployed_cloud_destination_connectors(
     with_feature: Annotated[
         ConnectorFeature | None,
         Field(
-            description=WITH_FEATURE_TIP_TEXT,
+            description=(
+                "Optional feature filter: `external_access` returns only destinations "
+                "that AI agents can query through `sql_select`. Omit to list every "
+                "destination along with its feature flag."
+            ),
             default=None,
         ),
     ] = None,
@@ -1080,8 +1092,8 @@ def list_deployed_cloud_destination_connectors(
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
     Each destination reports `external_access_enabled` (queryable by AI agents via
-    `sql_select`) and `search_indexing_enabled`; pass `with_feature` to return only
-    destinations with one of those features.
+    `sql_select`); pass `with_feature` to return only destinations with that feature.
+    Destinations are not search-indexed.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destinations = workspace.list_connectors(
@@ -1097,10 +1109,165 @@ def list_deployed_cloud_destination_connectors(
             name=cast(str, destination.name),
             url=destination.connector_url,
             external_access_enabled=destination.external_access_enabled,
-            search_indexing_enabled=destination.search_indexing_enabled,
         )
         for destination in destinations
     ]
+
+
+class CloudConnectorDocsResult(BaseModel):
+    """Connector docs rendered for agent consumption by the `describe_cloud_*` MCP tools."""
+
+    model_config = ConfigDict(extra="allow")
+
+    skill_id: str | None = None
+    """The docs skill ID, for example `connector-source:<id>`."""
+
+    title: str | None = None
+    """The human-readable docs title."""
+
+    content: str
+    """The docs body, rendered as Markdown."""
+
+    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
+    """The sections available in the docs."""
+
+    section_id: str | None = None
+    """The requested section ID, or `None` for the default docs response."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues reported while reading or rendering the docs."""
+
+
+class CloudConnectorDetailsResult(BaseModel):
+    """A description of a deployed Cloud connector.
+
+    As returned by the `describe_cloud_*` MCP tools.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    connector_id: str
+    """The connector ID."""
+
+    connector_type: Literal["source", "destination"]
+    """Whether the connector is a source or a destination."""
+
+    connector_name: str
+    """The connector's display name."""
+
+    connector_url: str
+    """The connector's web URL."""
+
+    connector_definition_id: str
+    """The connector definition ID (for example, the ID for `source-postgres`)."""
+
+    integration_name: str | None = None
+    """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
+
+    external_access_enabled: bool
+    """Whether AI agents can use this connector through the Airbyte Context layer."""
+
+    search_indexing_enabled: bool | None = None
+    """Whether Airbyte indexes this connector's data for fast search.
+
+    `None` for destinations, which are not indexed."""
+
+    config: dict[str, Any] | None = None
+    """The connector configuration, populated only by `with_config`.
+
+    Secret values are redacted by the Cloud API. Always `None` for sources, which the
+    API does not expose configuration for."""
+
+    replication_details: list[CloudConnectorConnectionInfo] | None = None
+    """Connections touching this connector, populated only by `with_replication_details`."""
+
+    direct_access_guidance: CloudConnectorDocsResult | None = None
+    """Direct-access docs rendered as Markdown, populated only by `with_direct_access_guidance`."""
+
+    data_replication_docs: list[ApiDocsUrl] | None = None
+    """Upstream API documentation links, populated only by `with_data_replication_docs`."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues encountered while describing the connector."""
+
+    errors: list[str] = Field(default_factory=list)
+    """Fatal issues encountered while describing optional connector details."""
+
+
+def _describe_cloud_connector(
+    connector: CloudConnector,
+    *,
+    with_config: bool,
+    with_replication_details: bool,
+    with_direct_access_guidance: bool,
+    with_data_replication_docs: bool,
+) -> CloudConnectorDetailsResult:
+    """Assemble the `describe_cloud_*` MCP tools' result for a deployed connector."""
+    connector_type = connector.connector_type
+    warnings: list[str] = []
+    try:
+        integration_name = connector.integration_name
+    except AirbyteError as error:
+        warnings.append(f"Integration name lookup failed: {error}")
+        integration_name = None
+
+    result = CloudConnectorDetailsResult(
+        connector_id=connector.connector_id,
+        connector_type=connector_type.value,
+        connector_name=connector.name or "",
+        connector_url=connector.connector_url,
+        connector_definition_id=connector.definition_id,
+        integration_name=integration_name,
+        external_access_enabled=connector.external_access_enabled,
+        search_indexing_enabled=(
+            connector.as_cloud_source().search_indexing_enabled
+            if connector_type == ConnectorType.SOURCE
+            else None
+        ),
+    )
+
+    if connector.external_access_enabled and connector.workspace._has_context_layer_api():  # noqa: SLF001
+        context_layer = connector._context_layer_inspect(  # noqa: SLF001
+            warnings=warnings,
+        )
+        if context_layer is not None:
+            warnings.extend(str(warning) for warning in context_layer.warnings)
+
+    if with_config and connector_type == ConnectorType.DESTINATION:
+        try:
+            result.config = connector.as_cloud_destination().configuration
+        except AirbyteError as error:
+            warnings.append(f"Connector configuration lookup failed: {error}")
+
+    if with_replication_details:
+        try:
+            result.replication_details = connector_docs.build_connection_infos(connector)
+        except AirbyteError as error:
+            warnings.append(f"Connection listing failed: {error}")
+
+    if with_direct_access_guidance:
+        try:
+            docs = connector.get_direct_access_guidance()
+        except (PyAirbyteError, requests.RequestException) as error:
+            warnings.append(f"Direct access docs are unavailable: {error}")
+        else:
+            result.direct_access_guidance = CloudConnectorDocsResult(
+                skill_id=docs.metadata.id,
+                title=docs.metadata.title,
+                content=render_docs_content_markdown(docs.content),
+                outline=docs.outline,
+                section_id=docs.section_id,
+                warnings=[str(warning) for warning in docs.metadata.warnings],
+            )
+
+    if with_data_replication_docs:
+        try:
+            result.data_replication_docs = connector.get_data_replication_docs()
+        except (PyAirbyteError, requests.RequestException) as error:
+            warnings.append(f"Data replication docs are unavailable: {error}")
+
+    result.warnings = warnings
+    return result
 
 
 @mcp_tool(
@@ -1131,8 +1298,9 @@ def describe_cloud_connector(
     with_config: Annotated[
         bool,
         Field(
-            description="Include the connector definition name and configuration "
-            "(secrets are redacted by the Cloud API).",
+            description=(
+                "Include the connector configuration (secrets are redacted by the " "Cloud API)."
+            ),
             default=False,
         ),
     ],
@@ -1157,7 +1325,7 @@ def describe_cloud_connector(
             default=False,
         ),
     ],
-) -> CloudConnectorDetails:
+) -> CloudConnectorDetailsResult:
     """Get detailed information about a deployed source or destination connector.
 
     Always returns identity fields and enabled features. The `with_*` toggles add the
@@ -1165,7 +1333,8 @@ def describe_cloud_connector(
     its upstream API documentation.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return workspace.get_connector(connector_id=connector_id).describe(
+    return _describe_cloud_connector(
+        workspace.get_connector(connector_id=connector_id),
         with_config=with_config,
         with_replication_details=with_replication_details,
         with_direct_access_guidance=with_direct_access_guidance,
@@ -1196,8 +1365,9 @@ def describe_cloud_source(
     with_config: Annotated[
         bool,
         Field(
-            description="Include the connector definition name and configuration "
-            "(secrets are redacted by the Cloud API).",
+            description=(
+                "Include the connector configuration (secrets are redacted by the " "Cloud API)."
+            ),
             default=False,
         ),
     ],
@@ -1222,10 +1392,11 @@ def describe_cloud_source(
             default=False,
         ),
     ],
-) -> CloudConnectorDetails:
+) -> CloudConnectorDetailsResult:
     """Get detailed information about a specific deployed source connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return workspace.get_source(source_id=source_id).describe(
+    return _describe_cloud_connector(
+        workspace.get_source(source_id=source_id),
         with_config=with_config,
         with_replication_details=with_replication_details,
         with_direct_access_guidance=with_direct_access_guidance,
@@ -1256,8 +1427,9 @@ def describe_cloud_destination(
     with_config: Annotated[
         bool,
         Field(
-            description="Include the connector definition name and configuration "
-            "(secrets are redacted by the Cloud API).",
+            description=(
+                "Include the connector configuration (secrets are redacted by the " "Cloud API)."
+            ),
             default=False,
         ),
     ],
@@ -1283,10 +1455,11 @@ def describe_cloud_destination(
             default=False,
         ),
     ],
-) -> CloudConnectorDetails:
+) -> CloudConnectorDetailsResult:
     """Get detailed information about a specific deployed destination connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return workspace.get_destination(destination_id=destination_id).describe(
+    return _describe_cloud_connector(
+        workspace.get_destination(destination_id=destination_id),
         with_config=with_config,
         with_replication_details=with_replication_details,
         with_direct_access_guidance=with_direct_access_guidance,

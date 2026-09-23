@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from collections.abc import Callable
 from typing import Any, cast, get_args
 
 import pytest
+import requests
 from airbyte._direct_connectors.models import (
     ExternalApiConnectorMetadata,
     ExternalApiExecuteResult,
@@ -17,13 +19,10 @@ from airbyte._direct_connectors.models import (
     DirectAccessGuidanceSection,
 )
 from airbyte._direct_connectors.connector_docs import destination_skill_id
-from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
     _BIGQUERY_DESTINATION_DEFINITION_ID,
     _SNOWFLAKE_DESTINATION_DEFINITION_ID,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
-    CloudConnectorDetails,
-    CloudConnectorDocs,
 )
 from airbyte.cloud.client import CloudClient
 from airbyte.constants import (
@@ -472,30 +471,24 @@ def test_inspect_tool_reports_connector_details(
 ) -> None:
     """Verify `inspect_agent_connector` surfaces connector metadata, docs, and warnings."""
 
-    class _DescribableConnector:
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return CloudConnectorDetails(
-                connector_id="connector-id",
-                connector_type="source",
-                connector_name="GitHub",
-                connector_url="",
-                connector_definition_id="definition-id",
-                integration_name="GitHub",
-                external_access_enabled=True,
-                search_indexing_enabled=False,
-                docs_skill_id="connector:github",
-                direct_access_guidance=CloudConnectorDocs(
-                    skill_id="connector:github",
-                    content="",
-                ),
-                warnings=["Context Store is still syncing."],
-            )
+    class _InspectableConnector:
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        external_access_enabled = True
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise PyAirbyteError(message="Context Store is still syncing.")
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return "connector:github"
 
     class _DescribableWorkspace:
         workspace_id = "workspace-id"
 
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _DescribableConnector()
+            return _InspectableConnector()
 
     monkeypatch.setattr(
         agents_mcp,
@@ -512,7 +505,11 @@ def test_inspect_tool_reports_connector_details(
 
     assert result.integration_name == "GitHub"
     assert result.docs.skill_id == "connector:github"
-    assert result.warnings == ["Context Store is still syncing."]
+    assert result.docs.content == ""
+    assert len(result.warnings) == 1
+    assert result.warnings[0].startswith(
+        "Direct access docs are unavailable: Context Store is still syncing."
+    )
 
 
 def _inspect_workspace_with_docs(
@@ -524,39 +521,32 @@ def _inspect_workspace_with_docs(
     """Stub a workspace whose connector describes cleanly and docs read as configured."""
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
-    class _DescribableConnector:
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            warnings = ["Context Store is still syncing."]
-            direct_docs = None
-            if docs_skill_id:
-                calls.append(((docs_skill_id,), {}))
-                if docs is None:
-                    warnings.append("Connector docs are unavailable: Skill docs failed")
-                else:
-                    direct_docs = CloudConnectorDocs(
-                        skill_id=docs.metadata.id,
-                        title=docs.metadata.title,
-                        content=render_docs_content_markdown(docs.content),
-                        outline=docs.outline,
-                    )
-            return CloudConnectorDetails(
-                connector_id="connector-id",
-                connector_type="source",
-                connector_name="GitHub",
-                connector_url="",
-                connector_definition_id="definition-id",
-                external_access_enabled=True,
-                search_indexing_enabled=False,
-                docs_skill_id=docs_skill_id,
-                direct_access_guidance=direct_docs,
-                warnings=warnings,
-            )
+    class _InspectableConnector:
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        external_access_enabled = True
+
+        @property
+        def integration_name(self) -> str:
+            raise AirbyteError(message="Context Store is still syncing.")
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            if not docs_skill_id:
+                raise PyAirbyteInputError(message="No docs skill ID.")
+            calls.append(((docs_skill_id,), {}))
+            if docs is None:
+                raise PyAirbyteError(message="Skill docs failed")
+            return docs
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return docs_skill_id
 
     class _DescribableWorkspace:
         workspace_id = "workspace-id"
 
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _DescribableConnector()
+            return _InspectableConnector()
 
     monkeypatch.setattr(
         agents_mcp,
@@ -603,7 +593,9 @@ def test_inspect_tool_includes_docs_summary(
     assert "connector:github" in result.docs.guidance
     assert "actions.issues.get" in result.docs.guidance
     assert "read_agent_skill_docs" in result.docs.guidance
-    assert result.warnings == ["Context Store is still syncing."]
+    assert result.warnings is not None
+    assert result.warnings[0].startswith("Integration name lookup failed")
+    assert "Context Store is still syncing." in result.warnings[0]
 
 
 def test_inspect_tool_warns_when_docs_unavailable(
@@ -617,11 +609,17 @@ def test_inspect_tool_warns_when_docs_unavailable(
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
     assert "outline" not in result.docs.model_dump()
-    assert result.docs.warnings == ["Connector docs are unavailable: Skill docs failed"]
-    assert result.warnings == [
-        "Context Store is still syncing.",
-        "Connector docs are unavailable: Skill docs failed",
-    ]
+    assert result.docs.warnings is not None
+    assert len(result.docs.warnings) == 1
+    assert result.docs.warnings[0].startswith(
+        "Direct access docs are unavailable: Skill docs failed"
+    )
+    assert len(result.warnings) == 2
+    assert result.warnings[0].startswith("Integration name lookup failed")
+    assert "Context Store is still syncing." in result.warnings[0]
+    assert result.warnings[1].startswith(
+        "Direct access docs are unavailable: Skill docs failed"
+    )
 
 
 def test_inspect_tool_skips_docs_read_without_docs_skill_id(
@@ -629,27 +627,26 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
 ) -> None:
     """No `docs_skill_id` means no docs read and no extra warning."""
 
-    class _DescribableConnector:
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return CloudConnectorDetails(
-                connector_id="connector-id",
-                connector_type="source",
-                connector_name="GitHub",
-                connector_url="",
-                connector_definition_id="definition-id",
-                external_access_enabled=True,
-                search_indexing_enabled=False,
-                docs_skill_id=None,
+    class _InspectableConnector:
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="destination")
+        name = "GitHub"
+        external_access_enabled = False
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise PyAirbyteInputError(
+                message="Destination does not support direct access docs."
             )
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return None
 
     class _DescribableWorkspace:
         workspace_id = "workspace-id"
 
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _DescribableConnector()
-
-        def _get_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            raise AssertionError("must not run")
+            return _InspectableConnector()
 
     monkeypatch.setattr(
         agents_mcp,
@@ -660,7 +657,12 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
     result = _inspect_connector_result()
 
     assert result.docs is None
-    assert result.warnings is None
+    assert result.warnings == [
+        "Direct access docs are unavailable: Destination does not support direct access "
+        "docs. (PyAirbyteInputError)"
+        "\n------------------------------------------------------------"
+        "\nPyAirbyteInputError: Destination does not support direct access docs."
+    ]
 
 
 def test_inspect_tool_docs_guidance_uses_first_available_section(
@@ -713,28 +715,24 @@ def test_inspect_tool_warns_when_docs_read_times_out(
 ) -> None:
     """A transport error reading docs degrades to a `docs` message plus a warning."""
 
-    class _DescribableConnector:
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return CloudConnectorDetails(
-                connector_id="connector-id",
-                connector_type="source",
-                connector_name="GitHub",
-                connector_url="",
-                connector_definition_id="definition-id",
-                external_access_enabled=True,
-                search_indexing_enabled=False,
-                docs_skill_id="connector:github",
-                warnings=["Connector docs are unavailable: docs timed out"],
-            )
+    class _InspectableConnector:
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        external_access_enabled = True
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise requests.Timeout("docs timed out")
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return "connector:github"
 
     class _DescribableWorkspace:
         workspace_id = "workspace-id"
 
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _DescribableConnector()
-
-        def _get_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            raise AssertionError("must not run")
+            return _InspectableConnector()
 
     monkeypatch.setattr(
         agents_mcp,
@@ -748,8 +746,10 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
     assert "outline" not in result.docs.model_dump()
-    assert result.docs.warnings == ["Connector docs are unavailable: docs timed out"]
-    assert result.warnings == ["Connector docs are unavailable: docs timed out"]
+    assert result.docs.warnings == [
+        "Direct access docs are unavailable: docs timed out"
+    ]
+    assert result.warnings == ["Direct access docs are unavailable: docs timed out"]
 
 
 def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
@@ -1735,10 +1735,8 @@ def _patch_destination_404(
     not_found = _agents_error(404)
 
     class _NotFoundConnector:
-        def inspect(self) -> Any:
-            raise not_found
-
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        @property
+        def connector_type(self) -> Any:  # noqa: ANN401
             raise not_found
 
     class _NotFoundWorkspace:
@@ -1795,44 +1793,29 @@ def _patch_destination_server_docs(
     not_found = _agents_error(404)
 
     class _NotFoundConnector:
-        def inspect(self) -> Any:
-            raise not_found
-
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        @property
+        def connector_type(self) -> Any:  # noqa: ANN401
             raise not_found
 
     class _DescribableConnector:
-        """Wraps a `_FakeDestinationForDocs` as `CloudConnector.describe` would return."""
+        """Exposes the `CloudConnector` seams `inspect_agent_connector` reads."""
 
         def __init__(self, destination: _FakeDestinationForDocs) -> None:
             self._destination = destination
-
-        def describe(
-            self, *, with_direct_access_guidance: bool = False, **kwargs: Any
-        ) -> Any:  # noqa: ANN401
-            direct_docs = None
-            if with_direct_access_guidance:
-                docs = self._destination.get_direct_access_guidance()
-                direct_docs = CloudConnectorDocs(
-                    skill_id=docs.metadata.id,
-                    title=docs.metadata.title,
-                    content=render_docs_content_markdown(docs.content),
-                    outline=docs.outline,
-                )
-            return CloudConnectorDetails(
-                connector_id=self._destination.connector_id,
-                connector_type="destination",
-                connector_name=self._destination.name,
-                connector_url="",
-                connector_definition_id=self._destination.definition_id,
-                integration_name=_SQL_PASSTHROUGH_DESTINATION_NAMES.get(
-                    self._destination.definition_id
-                ),
-                external_access_enabled=False,
-                search_indexing_enabled=False,
-                docs_skill_id=destination_skill_id(self._destination.connector_id),
-                direct_access_guidance=direct_docs,
+            self.connector_id = destination.connector_id
+            self.connector_type = SimpleNamespace(value="destination")
+            self.name = destination.name
+            self.definition_id = destination.definition_id
+            self.external_access_enabled = False
+            self.integration_name = _SQL_PASSTHROUGH_DESTINATION_NAMES.get(
+                destination.definition_id
             )
+
+        def get_direct_access_guidance(self, **kwargs: Any) -> Any:  # noqa: ANN401
+            return self._destination.get_direct_access_guidance(**kwargs)
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return destination_skill_id(self._destination.connector_id)
 
     class _DocsWorkspace:
         workspace_id = "workspace-1"
@@ -2512,16 +2495,17 @@ def test_inspect_forwards_organization_id_to_cloud_workspace(
     seen: dict[str, Any] = {}
 
     class _DescribableConnector:
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return CloudConnectorDetails(
-                connector_id="connector-id",
-                connector_type="source",
-                connector_name="GitHub",
-                connector_url="",
-                connector_definition_id="definition-id",
-                external_access_enabled=True,
-                search_indexing_enabled=False,
-            )
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        external_access_enabled = True
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise PyAirbyteInputError(message="No docs skill ID.")
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return None
 
     class _Workspace:
         workspace_id = "workspace-1"
@@ -2563,7 +2547,8 @@ def test_inspect_missing_resource_falls_back_to_destination_lookup(
     )
 
     class _MissingConnector:
-        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        @property
+        def connector_type(self) -> Any:  # noqa: ANN401
             raise missing
 
     monkeypatch.setattr(

@@ -71,6 +71,7 @@ from airbyte.exceptions import (
     AirbyteError,
     AirbyteExternalAccessNotEnabledError,
     AirbyteMissingResourceError,
+    PyAirbyteError,
     PyAirbyteInputError,
 )
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
@@ -1139,10 +1140,8 @@ def inspect_agent_connector(
     """
     try:
         cloud_workspace = _get_cloud_workspace(ctx, workspace_id, organization_id=organization_id)
-        details = cloud_workspace.get_connector(connector_id=connector_id).describe(
-            with_direct_access_guidance=True
-        )
-        if details.connector_type == "source" and not details.external_access_enabled:
+        connector = cloud_workspace.get_connector(connector_id=connector_id)
+        if connector.connector_type.value == "source" and not connector.external_access_enabled:
             source = _resolve_cloud_source(ctx, connector_id, cloud_workspace.workspace_id)
             if source is not None:
                 raise _ConnectorNotEnabledError(
@@ -1165,10 +1164,27 @@ def inspect_agent_connector(
             errors=[message],
         )
 
-    warnings = [str(warning) for warning in details.warnings]
+    warnings: list[str] = []
+    try:
+        integration_name = connector.integration_name
+    except AirbyteError as error:
+        warnings.append(f"Integration name lookup failed: {error}")
+        integration_name = None
+
     docs_result: AgentConnectorDocsResult | None = None
-    if details.direct_access_guidance is not None:
-        direct_docs = details.direct_access_guidance
+    try:
+        docs = connector.get_direct_access_guidance()
+    except (PyAirbyteError, requests.RequestException) as error:
+        warnings.append(f"Direct access docs are unavailable: {error}")
+        docs_skill_id = connector._direct_access_guidance_id()  # noqa: SLF001
+        if docs_skill_id:
+            docs_warnings = [warning for warning in warnings if "docs" in warning.lower()] or None
+            docs_result = AgentConnectorDocsResult(
+                skill_id=docs_skill_id,
+                content="",
+                warnings=docs_warnings,
+            )
+    else:
         outline = [
             AgentSkillSectionResult(
                 section_id=docs_section.id,
@@ -1176,28 +1192,21 @@ def inspect_agent_connector(
                 summary=docs_section.summary,
                 available=docs_section.available,
             )
-            for docs_section in direct_docs.outline
+            for docs_section in docs.outline
         ]
         docs_result = AgentConnectorDocsResult(
-            skill_id=direct_docs.skill_id or "",
-            title=direct_docs.title,
-            content=direct_docs.content,
-            guidance=_inspect_docs_guidance(direct_docs.skill_id or "", outline),
-            warnings=_or_none(direct_docs.warnings),
-        )
-    elif details.docs_skill_id:
-        docs_warnings = [warning for warning in warnings if "docs" in warning.lower()] or None
-        docs_result = AgentConnectorDocsResult(
-            skill_id=details.docs_skill_id,
-            content="",
-            warnings=docs_warnings,
+            skill_id=docs.metadata.id or "",
+            title=docs.metadata.title,
+            content=render_docs_content_markdown(docs.content),
+            guidance=_inspect_docs_guidance(docs.metadata.id or "", outline),
+            warnings=_or_none([str(warning) for warning in docs.metadata.warnings]),
         )
 
     return AgentConnectorDetailsResult(
-        connector_id=details.connector_id,
-        connector_name=details.connector_name or None,
+        connector_id=connector.connector_id,
+        connector_name=connector.name or None,
         workspace_id=cloud_workspace.workspace_id,
-        integration_name=details.integration_name,
+        integration_name=integration_name,
         docs=docs_result,
         warnings=_or_none(warnings),
     )

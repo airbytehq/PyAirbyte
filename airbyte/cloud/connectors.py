@@ -54,13 +54,9 @@ from airbyte._direct_connectors.actions import (
     AgentReadAction,
     _build_params,
 )
-from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
-    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
-    CloudConnectorDetails,
-    CloudConnectorDocs,
     DirectAccessGuidance,
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
@@ -611,100 +607,24 @@ class CloudConnector:
         self._connector_definition = definition
         return definition
 
-    def describe(  # Explicit args are the point of this public API.
-        self,
-        *,
-        with_config: bool = False,
-        with_replication_details: bool = False,
-        with_direct_access_guidance: bool = False,
-        with_data_replication_docs: bool = False,
-        force_refresh: bool = False,
-    ) -> CloudConnectorDetails:
-        """Describe this connector: identity, Context Layer status, and optional details.
+    @property
+    def integration_name(self) -> str:
+        """The connector's integration title, for example `GitHub` or `Snowflake`."""
+        return self._fetch_connector_definition().name
 
-        Always populates the identity fields, `external_access_enabled`, and
-        `search_indexing_enabled`. SQL passthrough destinations (Snowflake, BigQuery) are
-        described locally because the Context Layer `inspect` endpoint does not know them;
-        other connectors with external access enabled are inspected through the Agents API,
-        and an `inspect` failure is reported in `warnings` rather than raised.
-
-        Pass `with_config` for the connector definition name and configuration (secrets are
-        redacted by the Cloud API), `with_replication_details` for the connections touching this
-        connector, `with_direct_access_guidance` for its direct-access docs rendered as
-        Markdown, and `with_data_replication_docs` for links to the connector's upstream
-        API documentation. Failures in the optional lookups are collected in `warnings`.
-        """
-        connector_type = self.connector_type
-        warnings: list[str] = []
-        details = CloudConnectorDetails(
-            connector_id=self.connector_id,
-            connector_type=connector_type.value,
-            connector_name=self.name or "",
-            connector_url=self.connector_url,
-            connector_definition_id=self.definition_id,
-            external_access_enabled=self.external_access_enabled,
-            search_indexing_enabled=self.search_indexing_enabled,
-        )
-
-        if (
-            connector_type == ConnectorType.DESTINATION
-            and self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-        ):
-            details.docs_skill_id = connector_docs.destination_skill_id(self.connector_id)
-            details.integration_name = _SQL_PASSTHROUGH_DESTINATION_NAMES.get(self.definition_id)
-        elif details.external_access_enabled and self.workspace._has_context_layer_api():  # noqa: SLF001
-            context_layer = self._context_layer_inspect(
-                warnings=warnings,
-                force_refresh=force_refresh,
-            )
-            if context_layer is not None:
-                details.integration_name = context_layer.integration_name
-                details.context_store_readiness = context_layer.context_store_readiness
-                details.docs_skill_id = context_layer.docs_skill_id
-                warnings.extend(str(warning) for warning in context_layer.warnings)
-
-        if with_config:
-            try:
-                definition = self._fetch_connector_definition()
-            except exc.AirbyteError as error:
-                warnings.append(f"Connector definition lookup failed: {error}")
-            else:
-                details.connector_definition_name = definition.name
-            if connector_type == ConnectorType.DESTINATION:
-                try:
-                    details.config = self.as_cloud_destination().configuration
-                except exc.AirbyteError as error:
-                    warnings.append(f"Connector configuration lookup failed: {error}")
-
-        if with_replication_details:
-            try:
-                details.replication_details = connector_docs.build_connection_infos(self)
-            except exc.AirbyteError as error:
-                warnings.append(f"Connection listing failed: {error}")
-
-        if with_direct_access_guidance:
-            try:
-                docs = self.get_direct_access_guidance()
-            except (exc.PyAirbyteError, requests.RequestException) as error:
-                warnings.append(f"Direct access docs are unavailable: {error}")
-            else:
-                details.direct_access_guidance = CloudConnectorDocs(
-                    skill_id=docs.metadata.id,
-                    title=docs.metadata.title,
-                    content=render_docs_content_markdown(docs.content),
-                    outline=docs.outline,
-                    section_id=docs.section_id,
-                    warnings=[str(warning) for warning in docs.metadata.warnings],
-                )
-
-        if with_data_replication_docs:
-            try:
-                details.data_replication_docs = self.get_data_replication_docs()
-            except (exc.PyAirbyteError, requests.RequestException) as error:
-                warnings.append(f"Data replication docs are unavailable: {error}")
-
-        details.warnings = warnings
-        return details
+    def _direct_access_guidance_id(self) -> str | None:
+        """The skill ID serving this connector's direct-access docs, if any."""
+        if self.connector_type == ConnectorType.SOURCE:
+            docs_skill_id: str | None = None
+            if self.workspace._has_context_layer_api():  # noqa: SLF001
+                sink: list[str] = []
+                context_layer = self._context_layer_inspect(warnings=sink)
+                if context_layer is not None:
+                    docs_skill_id = context_layer.docs_skill_id
+            return docs_skill_id or f"{connector_docs.SOURCE_SKILL_PREFIX}{self.connector_id}"
+        if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
+            return connector_docs.destination_skill_id(self.connector_id)
+        return None
 
     def get_direct_access_guidance(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's direct-access docs, optionally scoped to a section.
@@ -716,16 +636,9 @@ class CloudConnector:
         direct access.
         """
         if self.connector_type == ConnectorType.SOURCE:
-            docs_skill_id: str | None = None
-            if self.workspace._has_context_layer_api():  # noqa: SLF001
-                sink: list[str] = []
-                context_layer = self._context_layer_inspect(warnings=sink)
-                if context_layer is not None:
-                    docs_skill_id = context_layer.docs_skill_id
-            skill_id = docs_skill_id or f"{connector_docs.SOURCE_SKILL_PREFIX}{self.connector_id}"
             return DirectAccessGuidance.model_validate(
                 agents_api_util.read_agent_skill_docs(
-                    skill_id=skill_id,
+                    skill_id=self._direct_access_guidance_id() or "",
                     credentials=self.workspace._credentials,  # noqa: SLF001
                     organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
                     workspace_id=self.workspace.workspace_id,
@@ -815,6 +728,14 @@ class CloudSource(CloudConnector):
         This is an alias for `connector_id`.
         """
         return self.connector_id
+
+    @property
+    def search_indexing_enabled(self) -> bool:
+        """Whether Airbyte indexes this connector's data for fast search.
+
+        Search indexing has not launched yet, so this is always `False`.
+        """
+        return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
 
     def _fetch_connector_info(self) -> CloudSourceInfo:
         """Populate the source with data from the API."""

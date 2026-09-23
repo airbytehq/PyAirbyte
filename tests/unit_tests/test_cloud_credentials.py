@@ -1975,7 +1975,7 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
 
     assert [result.id for result in results] == expected_ids
     assert [result.external_access_enabled for result in results] == expected_flags
-    assert all(result.search_indexing_enabled is False for result in results)
+    assert all(not hasattr(result, "search_indexing_enabled") for result in results)
 
 
 @pytest.mark.parametrize(

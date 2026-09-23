@@ -13,15 +13,12 @@ payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from airbyte._util.compat import StrEnum
 from airbyte.exceptions import PyAirbyteInputError
-from airbyte.registry import (
-    ApiDocsUrl,  # noqa: TC001  # Needed at runtime for Pydantic field types.
-)
 
 
 if TYPE_CHECKING:
@@ -359,90 +356,6 @@ class CloudConnectorConnectionInfo(BaseModel):
     destination_schema: str | None = None
     """The schema-level location tables land in, resolved from the destination config and
     the connection's namespace setting (Snowflake schema, BigQuery dataset)."""
-
-
-class CloudConnectorDocs(BaseModel):
-    """Connector docs rendered for agent consumption."""
-
-    model_config = ConfigDict(extra="allow")
-
-    skill_id: str | None = None
-    """The docs skill ID, for example `connector-source:<id>`."""
-
-    title: str | None = None
-    """The human-readable docs title."""
-
-    content: str
-    """The docs body, rendered as Markdown."""
-
-    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
-    """The sections available in the docs."""
-
-    section_id: str | None = None
-    """The requested section ID, or `None` for the default docs response."""
-
-    warnings: list[str] = Field(default_factory=list)
-    """Non-fatal issues reported while reading or rendering the docs."""
-
-
-class CloudConnectorDetails(BaseModel):
-    """A description of a deployed Cloud connector, as returned by `describe()`."""
-
-    model_config = ConfigDict(extra="allow")
-
-    connector_id: str
-    """The connector ID."""
-
-    connector_type: Literal["source", "destination"]
-    """Whether the connector is a source or a destination."""
-
-    connector_name: str
-    """The connector's display name."""
-
-    connector_url: str
-    """The connector's web URL."""
-
-    connector_definition_id: str
-    """The connector definition ID (for example, the ID for `source-postgres`)."""
-
-    integration_name: str | None = None
-    """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
-
-    external_access_enabled: bool
-    """Whether AI agents can use this connector through the Airbyte Context layer."""
-
-    search_indexing_enabled: bool
-    """Whether Airbyte indexes this connector's data for fast search."""
-
-    context_store_readiness: CloudContextStoreReadiness | None = None
-    """Context Store readiness information, when reported."""
-
-    docs_skill_id: str | None = None
-    """Skill ID for this connector's direct-access docs."""
-
-    connector_definition_name: str | None = None
-    """The connector definition's display name, populated only by `with_config`."""
-
-    config: dict[str, Any] | None = None
-    """The connector configuration, populated only by `with_config`.
-
-    Secret values are redacted by the Cloud API. Always `None` for sources, which the
-    API does not expose configuration for."""
-
-    replication_details: list[CloudConnectorConnectionInfo] | None = None
-    """Connections touching this connector, populated only by `with_replication_details`."""
-
-    direct_access_guidance: CloudConnectorDocs | None = None
-    """Direct-access docs rendered as Markdown, populated only by `with_direct_access_guidance`."""
-
-    data_replication_docs: list[ApiDocsUrl] | None = None
-    """Upstream API documentation links, populated only by `with_data_replication_docs`."""
-
-    warnings: list[str] = Field(default_factory=list)
-    """Non-fatal issues encountered while describing the connector."""
-
-    errors: list[str] = Field(default_factory=list)
-    """Fatal issues encountered while describing optional connector details."""
 
 
 _SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"

@@ -6,7 +6,7 @@ destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs r
 This module builds the equivalent `_DirectConnectorInspectResult`/`DirectAccessGuidance`
 payloads locally from the Cloud workspace objects, merges them into server-served
 destination docs so PyAirbyte's SQL guidance is not lost once the API serves them,
-and summarizes the connections touching a connector for `CloudConnector.describe()`.
+and summarizes the connections touching a connector for the `describe_cloud_*` MCP tools.
 """
 
 from __future__ import annotations

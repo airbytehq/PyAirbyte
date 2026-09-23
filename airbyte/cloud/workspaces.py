@@ -590,7 +590,8 @@ class CloudWorkspace:
 
         Omit `section` for metadata, guidance, and the outline of available sections, or
         pass an exact section `id` from the outline to read that section. Connector usage
-        docs use the `docs_skill_id` reported by `CloudConnector.describe()`.
+        docs use the `docs_skill_id` reported by Context Layer `inspect`, or the
+        conventional `connector-source:<id>` / `connector-destination:<id>` IDs.
         """
         return DirectAccessGuidance.model_validate(
             agents_api_util.read_agent_skill_docs(
