@@ -515,17 +515,15 @@ def _table_name(dialect: str, table_prefix: str, stream_name: str) -> str:
 
 def _stream_rows(connection: CloudConnection, dialect: str) -> list[list[str]]:
     """Return (stream name, table name) rows for a connection's enabled streams."""
-    return [
-        [
-            stream_name,
-            f"`{_table_name(
-                dialect=dialect,
-                table_prefix=connection.table_prefix,
-                stream_name=stream_name,
-            )}`",
-        ]
-        for stream_name in connection.stream_names
-    ]
+    rows: list[list[str]] = []
+    for stream_name in connection.stream_names:
+        table_name = _table_name(
+            dialect=dialect,
+            table_prefix=connection.table_prefix,
+            stream_name=stream_name,
+        )
+        rows.append([stream_name, f"`{table_name}`"])
+    return rows
 
 
 def _connection_namespace_note(

@@ -19,7 +19,6 @@ from airbyte._direct_connectors.models import (
     CloudDirectConnectorInfo,
     DirectAccessGuidance,
 )
-from airbyte.agents import skills as _skills
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.skills import AgentSkill
 from airbyte.cloud._credentials import _AirbyteCredentials
@@ -155,10 +154,7 @@ class AgentWorkspace:
                 workspace_id=self.workspace_id,
                 info=info,
             )
-            for info in _skills.iter_skills(
-                credentials=self._credentials,
-                workspace_id=self.workspace_id,
-            )
+            for info in self.as_cloud_workspace()._list_guidance()  # noqa: SLF001
         ]
 
     def get_skill(self, skill_id: str) -> AgentSkill:

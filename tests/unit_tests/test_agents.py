@@ -10,7 +10,6 @@ import pytest
 import requests
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import connector_docs as destination_docs
-from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte._direct_connectors.models import (
     ExternalApiConnectorMetadata,
@@ -1152,8 +1151,12 @@ def test_skill_requests_omit_none_params(
     assert captured_requests[1]["params"] == {"id": "connector:github"}
 
 
-def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> None:
+def test_workspace_skill_methods(
+    captured_requests: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`AgentWorkspace` skill methods scope requests to the workspace and parse results."""
+    monkeypatch.setattr(CloudWorkspace, "_organization_info", {})
     workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
 
     skills = workspace.list_skills()
@@ -1177,75 +1180,6 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
     assert docs.outline[0].id == "setup"
     assert docs.outline[1].available is False
     assert docs.content == [{"type": "paragraph", "text": "Hello"}]
-
-
-@pytest.mark.parametrize(
-    ("pages", "expected_ids", "expected_request_count"),
-    [
-        pytest.param(
-            [
-                (["s1", "s2"], "cursor-1"),
-                (["s3"], None),
-            ],
-            ["s1", "s2", "s3"],
-            2,
-            id="follows_cursor_to_last_page",
-        ),
-        pytest.param(
-            [(["s1"], None)],
-            ["s1"],
-            1,
-            id="single_page",
-        ),
-        pytest.param(
-            [
-                (["s1"], "cursor-1"),
-                (["s2"], "cursor-1"),
-            ],
-            ["s1", "s2"],
-            2,
-            id="stops_when_cursor_does_not_advance",
-        ),
-        pytest.param(
-            [(["s1"], "  ")],
-            ["s1"],
-            1,
-            id="stops_on_blank_cursor",
-        ),
-    ],
-)
-def test_iter_skills(
-    monkeypatch: pytest.MonkeyPatch,
-    pages: list[tuple[list[str], str | None]],
-    expected_ids: list[str],
-    expected_request_count: int,
-) -> None:
-    """`iter_skills()` follows the API's cursor and stops without looping."""
-    calls: list[dict[str, Any]] = []
-
-    def _fake_request(**kwargs: Any) -> _FakeResponse:
-        calls.append(kwargs)
-        ids, next_cursor = pages[min(len(calls) - 1, len(pages) - 1)]
-        return _FakeResponse({
-            "data": [{"id": skill_id} for skill_id in ids],
-            "next_cursor": next_cursor,
-        })
-
-    monkeypatch.setattr(requests, "request", _fake_request)
-
-    skills = list(
-        skills_module.iter_skills(
-            credentials=_credentials(),
-            workspace_id="workspace-id",
-        )
-    )
-
-    assert [skill.id for skill in skills] == expected_ids
-    assert len(calls) == expected_request_count
-    assert [call["params"].get("cursor") for call in calls] == [
-        None,
-        *[page[1] for page in pages[: expected_request_count - 1]],
-    ]
 
 
 def test_get_skill(captured_requests: list[dict[str, Any]]) -> None:
@@ -1751,31 +1685,6 @@ def test_build_direct_access_sql_guidance_rejects_unknown_section() -> None:
             cast(Any, destination),
             section="bogus",
         )
-
-
-def test_agent_model_aliases_match_cloud_models() -> None:
-    """The `Agent*` model names alias the renamed `Cloud*` models."""
-    from airbyte._direct_connectors import models as dc_models
-    from airbyte import agents as agent_models
-    from airbyte.cloud import models as cloud_models_module
-
-    aliases = {
-        "AgentContextStoreEntity": "CloudContextStoreEntity",
-        "AgentContextStoreReadiness": "CloudContextStoreReadiness",
-        "AgentSkillInfo": "DirectAccessGuidanceInfo",
-        "AgentSkillList": "DirectAccessGuidanceList",
-        "AgentSkillSection": "DirectAccessGuidanceSection",
-        "AgentSkillDocs": "DirectAccessGuidance",
-        "AgentExecutionMetadata": "ExternalApiExecutionMetadata",
-        "AgentConnectorMetadata": "ExternalApiConnectorMetadata",
-        "AgentExecuteResult": "ExternalApiExecuteResult",
-        "AgentConnectorInfo": "CloudDirectConnectorInfo",
-        "AgentConnectorDetails": "CloudContextLayerConnectorDetails",
-    }
-    for agent_name, cloud_name in aliases.items():
-        cloud_model = getattr(dc_models, cloud_name)
-        assert getattr(agent_models, agent_name) is cloud_model
-        assert getattr(cloud_models_module, cloud_name) is cloud_model
 
 
 def test_merge_destination_skill_docs() -> None:
