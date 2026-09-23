@@ -406,6 +406,40 @@ def test_validate_direct_workspaces_resolves_org_name_once_per_org() -> None:
     get_workspace_organization_info.assert_called_once()
 
 
+def test_direct_workspace_info_carries_notifications() -> None:
+    notifications = [
+        {
+            "notificationType": "slack",
+            "sendOnFailure": {"slackConfigurationId": "slack-1"},
+        }
+    ]
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+        patch(
+            "airbyte._util.api_util.get_workspace_config_api",
+            return_value={
+                "workspaceId": "workspace-1",
+                "name": "Workspace 1",
+                "tombstone": False,
+                "notifications": notifications,
+            },
+        ),
+    ):
+        client = CloudClient(bearer_token="token")
+
+        workspace_info = client._get_direct_workspace_info("workspace-1")
+
+    assert workspace_info is not None
+    assert workspace_info.notifications == notifications
+
+
 def test_direct_workspace_404_and_tombstone_treated_as_stale() -> None:
     permissions = [
         {"permissionType": "workspace_admin", "workspaceId": "missing"},

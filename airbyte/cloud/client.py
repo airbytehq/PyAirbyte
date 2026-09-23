@@ -796,11 +796,13 @@ class CloudClient:
             return None
         organization_id = workspace.get("organizationId")
         data_residency = workspace.get("defaultGeography")
+        notifications = workspace.get("notifications")
         workspace_info = CloudWorkspaceInfo(
             workspace_id=workspace_id,
             name=name,
             organization_id=(organization_id if isinstance(organization_id, str) else None),
             data_residency=data_residency if isinstance(data_residency, str) else None,
+            notifications=notifications if isinstance(notifications, (list, dict)) else {},
         )
         self._direct_workspace_infos[workspace_id] = workspace_info
         return workspace_info
