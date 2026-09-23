@@ -9,18 +9,19 @@
 #   That repo has only a production service, so the preview path skips it.
 #
 # Triggers:
-# - push (main) - Every merge refreshes cloud-mcp-preview with that commit,
-#   installed straight from git so no PyPI release is needed.
+# - push (release-candidate/**) - Every merge to a release-candidate branch
+#   refreshes cloud-mcp-preview with that commit, installed straight from git
+#   so no PyPI release is needed.
 # - workflow_call - `pypi_publish.yml` calls this after a publish to ship the
-#   published version: every publish refreshes the preview service, and a
-#   public release also goes to production.
+#   published version: a release-candidate release refreshes preview and
+#   promotes to production; a `/prerelease` dev build refreshes preview only.
 
 name: Deploy Cloud MCP
 
 on:
   push:
     branches:
-      - main
+      - 'release-candidate/**'
   workflow_call:
     inputs:
       pyairbyte-version:
@@ -92,7 +93,8 @@ jobs:
 
           # ---------- Requirement to install into the image ----------
           # A published version is pinned exactly; otherwise install the
-          # triggering commit from git, so a merge to main needs no release.
+          # triggering commit from git, so a push to a release-candidate
+          # branch needs no release.
           if [ -n "$version" ]; then
             requirement="airbyte==$version"
             pinned="true"

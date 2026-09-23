@@ -5,9 +5,11 @@ on:
   push:
     branches:
       - main
+      - 'release-candidate/**'
 
 concurrency:
-  group: release-drafter
+  # Group by ref so main and release-candidate branches don't serialize.
+  group: release-drafter-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -31,12 +33,17 @@ jobs:
           fetch-depth: 1
 
       - name: Create draft release (not ready)
-        uses: aaronsteers/semantic-pr-release-drafter@v2.3.1
+        uses: aaronsteers/semantic-pr-release-drafter@v2.4.4
         id: not-ready-draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           not-ready: true
+          # Pushes to `release-candidate/vX[.Y[.Z]]` draft `vX.Y.Z-rc.N`
+          # prereleases; pushes to `main` keep drafting stable releases.
+          prerelease-branch-rules: |
+            - branch-prefix: release-candidate/
+              prerelease-identifier: rc
 
       - name: Build package
         env:
@@ -45,13 +52,18 @@ jobs:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Attach assets and finalize draft
-        uses: aaronsteers/semantic-pr-release-drafter@v2.3.1
+        uses: aaronsteers/semantic-pr-release-drafter@v2.4.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # Finalize the exact draft prepared above via a strongly consistent
           # point-read; version/tag/prerelease/SHA are reused from that release.
           prepared-release-id: ${{ steps.not-ready-draft.outputs.id }}
+          # Pushes to `release-candidate/vX[.Y[.Z]]` draft `vX.Y.Z-rc.N`
+          # prereleases; pushes to `main` keep drafting stable releases.
+          prerelease-branch-rules: |
+            - branch-prefix: release-candidate/
+              prerelease-identifier: rc
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
