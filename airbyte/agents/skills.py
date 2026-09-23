@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
-    DirectAccessGuidanceList,
+    DirectAccessGuidanceIndexEntry,
+    _DirectAccessGuidanceIndexPage,
 )
 
 
@@ -37,7 +37,7 @@ class AgentSkill:
         *,
         credentials: _AirbyteCredentials,
         workspace_id: str | None = None,
-        info: DirectAccessGuidanceInfo | None = None,
+        info: DirectAccessGuidanceIndexEntry | None = None,
     ) -> None:
         """Initialize an `AgentSkill`. Prefer `AgentWorkspace.get_skill()`."""
         self.skill_id = skill_id
@@ -48,7 +48,7 @@ class AgentSkill:
         self._info = info
 
     @property
-    def info(self) -> DirectAccessGuidanceInfo:
+    def info(self) -> DirectAccessGuidanceIndexEntry:
         """The skill's metadata, fetched from the Agents API if not already known."""
         if self._info is None:
             self._info = self.read_docs().metadata
@@ -90,13 +90,13 @@ def list_skills(
     workspace_id: str | None = None,
     limit: int | None = None,
     cursor: str | None = None,
-) -> DirectAccessGuidanceList:
+) -> _DirectAccessGuidanceIndexPage:
     """List the skills available to a workspace or organization.
 
     Pass `limit` to cap the page size and the `next_cursor` of a previous result as
     `cursor` to fetch the next page.
     """
-    return DirectAccessGuidanceList.model_validate(
+    return _DirectAccessGuidanceIndexPage.model_validate(
         _api_util.list_agent_skills(
             credentials=credentials,
             organization_id=credentials.organization_id,

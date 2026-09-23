@@ -21,7 +21,7 @@ from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
     CloudContextLayerConnectorDetails,
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
 )
 from airbyte.exceptions import PyAirbyteInputError
@@ -200,7 +200,7 @@ def build_direct_access_sql_guidance(
     """Build `DirectAccessGuidance` for a SQL passthrough destination."""
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
-    metadata = DirectAccessGuidanceInfo(
+    metadata = DirectAccessGuidanceIndexEntry(
         id=skill_id,
         kind="connector_destination",
         title=f"{destination.name} (SQL passthrough destination)",

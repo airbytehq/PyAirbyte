@@ -45,7 +45,7 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceIndexEntry,
 )
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
@@ -1488,8 +1488,8 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     )
 
 
-def _agent_skill_result(skill: DirectAccessGuidanceInfo) -> AgentSkillResult:
-    """Shape an `DirectAccessGuidanceInfo` into an `AgentSkillResult`."""
+def _agent_skill_result(skill: DirectAccessGuidanceIndexEntry) -> AgentSkillResult:
+    """Shape an `DirectAccessGuidanceIndexEntry` into an `AgentSkillResult`."""
     return AgentSkillResult(
         skill_id=skill.id,
         kind=skill.kind,

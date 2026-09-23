@@ -13,7 +13,7 @@ from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     ExternalApiExecutionMetadata,
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
 )
 from airbyte._direct_connectors.connector_docs import destination_skill_id
@@ -580,7 +580,7 @@ def test_inspect_tool_includes_docs_summary(
 ) -> None:
     """Verify `inspect_agent_connector` embeds the docs summary and guidance."""
     docs = DirectAccessGuidance(
-        metadata=DirectAccessGuidanceInfo(id="connector:github", title="GitHub"),
+        metadata=DirectAccessGuidanceIndexEntry(id="connector:github", title="GitHub"),
         outline=[
             DirectAccessGuidanceSection(
                 id="actions.issues.get",
@@ -668,7 +668,7 @@ def test_inspect_tool_docs_guidance_uses_first_available_section(
 ) -> None:
     """The guidance example picks the first available outline section."""
     docs = DirectAccessGuidance(
-        metadata=DirectAccessGuidanceInfo(id="connector:github", title="GitHub"),
+        metadata=DirectAccessGuidanceIndexEntry(id="connector:github", title="GitHub"),
         outline=[
             DirectAccessGuidanceSection(id="actions.a", title="a", available=False),
             DirectAccessGuidanceSection(id="actions.b", title="b"),
@@ -691,7 +691,9 @@ def test_inspect_tool_docs_guidance_omits_example_without_outline(
         [DirectAccessGuidanceSection(id="actions.a", title="a", available=False)],
     ):
         docs = DirectAccessGuidance(
-            metadata=DirectAccessGuidanceInfo(id="connector:github", title="GitHub"),
+            metadata=DirectAccessGuidanceIndexEntry(
+                id="connector:github", title="GitHub"
+            ),
             outline=outline,
         )
         _inspect_workspace_with_docs(monkeypatch, docs=docs)
@@ -1401,27 +1403,29 @@ def test_workspace_api_roots_come_from_mcp_config(
 
 
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify the skills tools shape `DirectAccessGuidanceList`/`DirectAccessGuidance` into results."""
+    """Verify the skills tools shape `_DirectAccessGuidanceIndexPage`/`DirectAccessGuidance` into results."""
 
     class _SkilledWorkspace:
         def _list_guidance(self) -> list[Any]:
             # Two skills spanning two pages; pagination is internal to the workspace.
             return [
-                DirectAccessGuidanceInfo(
+                DirectAccessGuidanceIndexEntry(
                     id="connector:github",
                     kind="connector_source",
                     title="GitHub",
                     summary="GitHub usage docs.",
                     tags=["github"],
                 ),
-                DirectAccessGuidanceInfo(id="context-store", title="Context Store"),
+                DirectAccessGuidanceIndexEntry(
+                    id="context-store", title="Context Store"
+                ),
             ]
 
         def _read_guidance(
             self, skill_id: str, *, section: str | None = None
         ) -> DirectAccessGuidance:
             return DirectAccessGuidance(
-                metadata=DirectAccessGuidanceInfo(
+                metadata=DirectAccessGuidanceIndexEntry(
                     id=skill_id,
                     title="GitHub",
                     warnings=["Partial runtime metadata."],
@@ -1898,7 +1902,7 @@ def _server_destination_docs(
     outline_ids: list[str] | None = None,
 ) -> DirectAccessGuidance:
     return DirectAccessGuidance(
-        metadata=DirectAccessGuidanceInfo(
+        metadata=DirectAccessGuidanceIndexEntry(
             id="connector-destination:dest-snowflake",
             kind="connector_destination",
             title="Server destination docs",

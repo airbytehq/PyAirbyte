@@ -15,7 +15,7 @@ from airbyte._direct_connectors.models import (
     ExternalApiConnectorMetadata,
     ExternalApiExecuteResult,
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
 )
 from airbyte.agents.organizations import AgentOrganization
@@ -1238,7 +1238,7 @@ def test_agent_skill_read_docs_keeps_listed_info(
     captured_requests: list[dict[str, Any]],
 ) -> None:
     """`read_docs()` does not replace richer metadata supplied at construction."""
-    listed_info = DirectAccessGuidanceInfo(
+    listed_info = DirectAccessGuidanceIndexEntry(
         id="connector:github",
         kind="connector_source",
         title="GitHub",
@@ -1694,7 +1694,7 @@ def test_merge_destination_skill_docs() -> None:
         configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
     )
     server_docs = DirectAccessGuidance(
-        metadata=DirectAccessGuidanceInfo(
+        metadata=DirectAccessGuidanceIndexEntry(
             id="connector-destination:dest-1",
             kind="connector_destination",
             title="Server title",

@@ -50,8 +50,8 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     CloudDirectConnectorInfo,
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
-    DirectAccessGuidanceList,
+    DirectAccessGuidanceIndexEntry,
+    _DirectAccessGuidanceIndexPage,
 )
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
@@ -564,7 +564,7 @@ class CloudWorkspace:
             )
         return matches[0]
 
-    def _list_guidance(self) -> list[DirectAccessGuidanceInfo]:
+    def _list_guidance(self) -> list[DirectAccessGuidanceIndexEntry]:
         """List the direct-access guidance available to this workspace.
 
         Follows the API's `next_cursor` so the full list is returned regardless of the
@@ -572,11 +572,11 @@ class CloudWorkspace:
         (public Airbyte Cloud, or `AIRBYTE_AGENTS_API_URL` for custom deployments).
         """
         organization_id = self._resolve_agents_organization_id()
-        infos: list[DirectAccessGuidanceInfo] = []
+        infos: list[DirectAccessGuidanceIndexEntry] = []
         cursor: str | None = None
         seen_cursors: set[str] = set()
         while True:
-            page = DirectAccessGuidanceList.model_validate(
+            page = _DirectAccessGuidanceIndexPage.model_validate(
                 agents_api_util.list_agent_skills(
                     credentials=self._credentials,
                     organization_id=organization_id,

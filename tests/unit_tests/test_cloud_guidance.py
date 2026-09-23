@@ -10,7 +10,7 @@ import pytest
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
-    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceIndexEntry,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -57,7 +57,7 @@ def _make_workspace(monkeypatch: pytest.MonkeyPatch) -> CloudWorkspace:
 
 
 def test_list_guidance_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`_list_guidance` returns `DirectAccessGuidanceInfo` objects across result pages."""
+    """`_list_guidance` returns `DirectAccessGuidanceIndexEntry` objects across result pages."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
     pages = [
@@ -74,7 +74,7 @@ def test_list_guidance_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> No
     infos = workspace._list_guidance()  # noqa: SLF001
 
     assert [info.id for info in infos] == ["connector:github", "connector:slack"]
-    assert all(isinstance(info, DirectAccessGuidanceInfo) for info in infos)
+    assert all(isinstance(info, DirectAccessGuidanceIndexEntry) for info in infos)
     assert infos[0].title == "GitHub"
     assert infos[0].kind == "connector_source"
     assert len(calls) == 2

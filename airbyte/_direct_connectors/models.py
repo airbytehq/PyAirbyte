@@ -81,8 +81,13 @@ class CloudContextStoreReadiness(BaseModel):
     """The entities currently configured for caching, with their sync status."""
 
 
-class DirectAccessGuidanceInfo(BaseModel):
-    """Summary of one entry of direct-access guidance, as listed by the Agents API."""
+class DirectAccessGuidanceIndexEntry(BaseModel):
+    """One entry in the direct-access guidance index.
+
+    The catalog record advertising a guidance doc (`id`, `kind`, `title`, `summary`,
+    `tags`) so a caller can pick one and read it by `id`. The same record is returned as
+    `DirectAccessGuidance.metadata`.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -90,28 +95,28 @@ class DirectAccessGuidanceInfo(BaseModel):
     """The skill ID. Pass it to `CloudWorkspace._read_guidance` to read the guidance."""
 
     kind: str | None = None
-    """The skill category, for example `static` or `connector_source`."""
+    """The guidance category, for example `static` or `connector_source`."""
 
     title: str | None = None
-    """The human-readable skill title."""
+    """The human-readable guidance title."""
 
     summary: str | None = None
-    """A short summary of what the skill documents."""
+    """A short summary of what the guidance documents."""
 
     tags: list[str] = Field(default_factory=list)
-    """Search and categorization tags for the skill."""
+    """Search and categorization tags for the guidance."""
 
     warnings: list[Any] = Field(default_factory=list)
-    """Non-fatal issues reported while building or reading the skill's docs."""
+    """Non-fatal issues reported while building or reading the guidance's docs."""
 
 
-class DirectAccessGuidanceList(BaseModel):
-    """A page of direct-access guidance entries, as returned by the Agents API."""
+class _DirectAccessGuidanceIndexPage(BaseModel):
+    """One page of the direct-access guidance index, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    data: list[DirectAccessGuidanceInfo]
-    """The skills on this page."""
+    data: list[DirectAccessGuidanceIndexEntry]
+    """The guidance index entries on this page."""
 
     next_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
@@ -140,11 +145,11 @@ class DirectAccessGuidance(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    metadata: DirectAccessGuidanceInfo
-    """Metadata for the requested skill."""
+    metadata: DirectAccessGuidanceIndexEntry
+    """The index entry for the requested guidance."""
 
     outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
-    """The sections available for this skill."""
+    """The sections available for this guidance."""
 
     section_id: str | None = None
     """The requested section ID, or `None` for the default docs response."""
