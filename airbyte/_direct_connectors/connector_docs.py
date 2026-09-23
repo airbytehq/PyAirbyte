@@ -41,8 +41,6 @@ _DESTINATION_LOCATION_KEYS: Mapping[str, tuple[tuple[str, str], tuple[str, str]]
 
 _NAMESPACE_LABELS = frozenset({"schema", "dataset"})
 
-_SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(_SQL_PASSTHROUGH_DESTINATION_DIALECTS)
-
 DESTINATION_SKILL_PREFIX = "connector-destination:"
 SOURCE_SKILL_PREFIX = "connector-source:"
 

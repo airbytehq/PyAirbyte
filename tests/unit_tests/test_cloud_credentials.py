@@ -1656,14 +1656,14 @@ def _patch_workspace_connectors(
     *,
     context_layer: bool = True,
     workspace_enabled: bool = True,
-    source_status: dict[str, bool] | None = None,
+    external_access_source_ids: list[str] | None = None,
 ) -> dict[str, int]:
     """Stub the Cloud listings and Context layer lookups for `workspace`.
 
     Returns a counter of Context layer calls so tests can assert on batching.
     """
-    calls = {"list": 0, "inspect": 0, "workspace": 0}
-    source_status = source_status or {}
+    calls = {"list": 0, "workspace": 0}
+    source_ids = external_access_source_ids or []
 
     monkeypatch.setattr(
         workspace,
@@ -1696,20 +1696,7 @@ def _patch_workspace_connectors(
 
     def fake_list_agent_connectors(**_: object) -> list[dict[str, object]]:
         calls["list"] += 1
-        return [{"id": connector_id} for connector_id in source_status]
-
-    def fake_inspect_agent_connector(
-        *, connector_id: str, **_: object
-    ) -> dict[str, object]:
-        calls["inspect"] += 1
-        return {
-            "connector_id": connector_id,
-            "context_store_readiness": {
-                "configured_cache_entities": (
-                    [{"entity": "issues"}] if source_status[connector_id] else []
-                )
-            },
-        }
+        return [{"id": connector_id} for connector_id in source_ids]
 
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
@@ -1720,11 +1707,6 @@ def _patch_workspace_connectors(
         cloud_workspaces.agents_api_util,
         "list_agent_connectors",
         fake_list_agent_connectors,
-    )
-    monkeypatch.setattr(
-        cloud_workspaces.agents_api_util,
-        "inspect_agent_connector",
-        fake_inspect_agent_connector,
     )
     return calls
 
@@ -1738,7 +1720,7 @@ def _patch_workspace_connectors(
             None,
             None,
             [
-                ("source-1", True, True),
+                ("source-1", True, False),
                 ("source-2", True, False),
                 ("source-3", False, False),
                 ("snowflake", True, False),
@@ -1752,7 +1734,7 @@ def _patch_workspace_connectors(
             None,
             None,
             [
-                ("source-1", True, True),
+                ("source-1", True, False),
                 ("source-2", True, False),
                 ("source-3", False, False),
             ],
@@ -1772,7 +1754,7 @@ def _patch_workspace_connectors(
             None,
             None,
             [
-                ("source-1", True, True),
+                ("source-1", True, False),
                 ("source-2", True, False),
                 ("snowflake", True, False),
             ],
@@ -1783,7 +1765,7 @@ def _patch_workspace_connectors(
             ConnectorFeature.SEARCH_INDEXING,
             None,
             None,
-            [("source-1", True, True)],
+            [],
             id="search_indexing",
         ),
         pytest.param(
@@ -1791,7 +1773,7 @@ def _patch_workspace_connectors(
             ConnectorFeature.EXTERNAL_ACCESS,
             None,
             2,
-            [("source-1", True, True), ("source-2", True, False)],
+            [("source-1", True, False), ("source-2", True, False)],
             id="limit_applies_after_feature_filter",
         ),
         pytest.param(
@@ -1816,7 +1798,7 @@ def test_cloud_workspace_list_connectors(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
     calls = _patch_workspace_connectors(
-        monkeypatch, workspace, source_status={"source-1": True, "source-2": False}
+        monkeypatch, workspace, external_access_source_ids=["source-1", "source-2"]
     )
 
     connectors = workspace.list_connectors(
@@ -1834,9 +1816,8 @@ def test_cloud_workspace_list_connectors(
         isinstance(c, CloudSource if c.connector_type == "source" else CloudDestination)
         for c in connectors
     )
-    # One Context layer listing per call at most, and one inspect per listed source.
+    # One Context layer listing per call at most.
     assert calls["list"] <= 1
-    assert calls["inspect"] == 2 * calls["list"]
     assert calls["workspace"] <= 1
 
 
@@ -1857,7 +1838,10 @@ def test_cloud_workspace_features_false_without_context_layer(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
     calls = _patch_workspace_connectors(
-        monkeypatch, workspace, context_layer=False, source_status={"source-1": True}
+        monkeypatch,
+        workspace,
+        context_layer=False,
+        external_access_source_ids=["source-1"],
     )
 
     connectors = workspace.list_connectors()
@@ -1870,7 +1854,7 @@ def test_cloud_workspace_features_false_without_context_layer(
     assert (
         workspace.list_connectors(with_feature=ConnectorFeature.EXTERNAL_ACCESS) == []
     )
-    assert calls == {"list": 0, "inspect": 0, "workspace": 0}
+    assert calls == {"list": 0, "workspace": 0}
 
 
 def test_cloud_connector_features_resolve_lazily_and_cache(
@@ -1880,16 +1864,15 @@ def test_cloud_connector_features_resolve_lazily_and_cache(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
     calls = _patch_workspace_connectors(
-        monkeypatch, workspace, source_status={"source-1": True}
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
     )
     source = _seed_source(workspace, "source-1", "GitHub Issues")
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
 
-    assert calls == {"list": 0, "inspect": 0, "workspace": 0}
-    assert source.search_indexing_enabled is True
+    assert calls == {"list": 0, "workspace": 0}
     assert source.external_access_enabled is True
+    assert source.search_indexing_enabled is False
     assert calls["list"] == 1
-    assert calls["inspect"] == 1
     assert destination.external_access_enabled is True
     assert destination.search_indexing_enabled is False
     assert calls["workspace"] == 1
@@ -1914,13 +1897,13 @@ def test_cloud_destination_external_access_requires_enabled_workspace(
         pytest.param(
             None,
             ["source-1", "source-2", "source-3"],
-            [(True, True), (True, False), (False, False)],
+            [(True, False), (True, False), (False, False)],
             id="no_filter",
         ),
         pytest.param(
             ConnectorFeature.SEARCH_INDEXING,
-            ["source-1"],
-            [(True, True)],
+            [],
+            [],
             id="search_indexing",
         ),
     ],
@@ -1935,7 +1918,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
     _patch_workspace_connectors(
-        monkeypatch, workspace, source_status={"source-1": True, "source-2": False}
+        monkeypatch, workspace, external_access_source_ids=["source-1", "source-2"]
     )
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
@@ -1952,7 +1935,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
         (result.external_access_enabled, result.search_indexing_enabled)
         for result in results
     ] == expected_flags
-    assert results[0].url.endswith("/source/source-1")
+    assert all(result.url.endswith(f"/source/{result.id}") for result in results)
 
 
 @pytest.mark.parametrize(
@@ -2156,71 +2139,40 @@ def test_cloud_workspace_external_access_enabled(
             _ = workspace.external_access_enabled
     else:
         assert workspace.external_access_enabled is expected
-        assert workspace.search_indexing_enabled is expected
+        assert workspace.search_indexing_enabled is False
 
 
 @pytest.mark.parametrize(
-    ("list_error", "connectors", "expected"),
+    ("list_error", "expected"),
     [
+        pytest.param(None, frozenset({"source-1", "source-2"}), id="listed"),
         pytest.param(
-            None,
-            {
-                "cached": [{"entity": "issues"}],
-                "not_cached": [],
-                "no_readiness": None,
-            },
-            {"cached": True, "not_cached": False, "no_readiness": False},
-            id="mixed_connectors",
+            AirbyteError(context={"status_code": 403}), frozenset(), id="list_forbidden"
         ),
         pytest.param(
-            None,
-            {"inspect_fails": AirbyteError(context={"status_code": 500})},
-            AirbyteError,
-            id="inspect_fails",
-        ),
-        pytest.param(
-            AirbyteError(context={"status_code": 403}),
-            {},
-            {},
-            id="list_forbidden",
-        ),
-        pytest.param(
-            AirbyteError(context={"status_code": 404}),
-            {},
-            {},
-            id="list_not_found",
+            AirbyteError(context={"status_code": 404}), frozenset(), id="list_not_found"
         ),
         pytest.param(
             AirbyteError(context={"status_code": 500}),
-            {},
             AirbyteError,
             id="list_server_error",
         ),
         pytest.param(
             requests.ConnectionError("offline"),
-            {},
             requests.ConnectionError,
             id="transport",
         ),
         pytest.param(
-            None,
-            {"malformed_inspect": {"connector_id": 123}},
-            ValidationError,
-            id="malformed_inspect_payload",
-        ),
-        pytest.param(
             [{"name": "missing-id"}],
-            {},
             ValidationError,
             id="malformed_list_payload",
         ),
     ],
 )
-def test_cloud_workspace_list_source_search_indexing_status(
+def test_cloud_workspace_list_external_access_source_ids(
     monkeypatch: pytest.MonkeyPatch,
     list_error: Exception | list[dict[str, object]] | None,
-    connectors: dict[str, list[dict[str, str]] | dict[str, object] | Exception | None],
-    expected: dict[str, bool] | type[Exception],
+    expected: frozenset[str] | type[Exception],
 ) -> None:
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
@@ -2235,40 +2187,19 @@ def test_cloud_workspace_list_source_search_indexing_status(
             raise list_error
         if list_error is not None:
             return list_error
-        return [{"id": connector_id} for connector_id in connectors]
-
-    def fake_inspect_agent_connector(
-        *, connector_id: str, credentials: object, organization_id: str | None
-    ) -> dict[str, object]:
-        assert organization_id == "organization-id"
-        outcome = connectors[connector_id]
-        if isinstance(outcome, Exception):
-            raise outcome
-        if isinstance(outcome, dict):
-            return outcome
-        if outcome is None:
-            return {"connector_id": connector_id}
-        return {
-            "connector_id": connector_id,
-            "context_store_readiness": {"configured_cache_entities": outcome},
-        }
+        return [{"id": "source-1"}, {"id": "source-2"}]
 
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "list_agent_connectors",
         fake_list_agent_connectors,
     )
-    monkeypatch.setattr(
-        cloud_workspaces.agents_api_util,
-        "inspect_agent_connector",
-        fake_inspect_agent_connector,
-    )
 
-    if isinstance(expected, dict):
-        assert workspace._list_source_search_indexing_status() == expected  # noqa: SLF001
+    if isinstance(expected, frozenset):
+        assert workspace._list_external_access_source_ids() == expected  # noqa: SLF001
     else:
         with pytest.raises(expected):
-            workspace._list_source_search_indexing_status()  # noqa: SLF001
+            workspace._list_external_access_source_ids()  # noqa: SLF001
 
 
 @pytest.mark.parametrize(
@@ -2489,7 +2420,7 @@ def test_cloud_organization_feature_flags(
         return
 
     assert organization.external_access_enabled is expected
-    assert organization.search_indexing_enabled is expected
+    assert organization.search_indexing_enabled is False
     assert calls == (1 if context_layer else 0)
 
 
@@ -2500,9 +2431,7 @@ def test_cloud_organization_feature_flags(
         pytest.param(
             ConnectorFeature.EXTERNAL_ACCESS, None, ["enabled"], id="external_access"
         ),
-        pytest.param(
-            ConnectorFeature.SEARCH_INDEXING, None, ["enabled"], id="search_indexing"
-        ),
+        pytest.param(ConnectorFeature.SEARCH_INDEXING, None, [], id="search_indexing"),
         pytest.param(
             ConnectorFeature.EXTERNAL_ACCESS, 1, ["enabled"], id="limit_after_filter"
         ),
@@ -2561,7 +2490,7 @@ def test_mcp_list_cloud_organizations_reports_feature_flags(
 
     assert captured["with_feature"] is ConnectorFeature.EXTERNAL_ACCESS
     assert result.organizations[0].external_access_enabled is True
-    assert result.organizations[0].search_indexing_enabled is True
+    assert result.organizations[0].search_indexing_enabled is False
 
 
 def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(

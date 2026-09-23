@@ -159,12 +159,8 @@ class CloudConnector(abc.ABC):
     def search_indexing_enabled(self) -> bool:
         """Whether Airbyte indexes this connector's data for fast search.
 
-        Always `False` for destinations and when the workspace's API root has no Context
-        layer. Otherwise this may make API calls on first access.
+        Search indexing has not launched yet, so this is always `False`.
         """
-        if self.connector_type == ConnectorType.DESTINATION:
-            return False
-
         return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
 
     @property

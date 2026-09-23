@@ -46,7 +46,7 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
-from airbyte._direct_connectors.models import AgentConnectorDetails, AgentConnectorInfo
+from airbyte._direct_connectors.models import AgentConnectorInfo
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud import organizations as cloud_organizations
@@ -390,63 +390,45 @@ class CloudWorkspace:
 
     @property
     def search_indexing_enabled(self) -> bool:
-        """Whether search indexing is available in this workspace.
+        """Whether search indexing is enabled for this workspace.
 
-        Search indexing is available wherever external access is enabled; individual
-        sources report whether indexing is configured via
-        `CloudConnector.search_indexing_enabled`.
+        Search indexing has not launched yet, so this is always `False`.
         """
-        return self.external_access_enabled
+        return False
 
-    def _list_source_search_indexing_status(self) -> dict[str, bool]:
-        """Map each externally accessible source ID to whether search indexing is configured.
+    def _list_external_access_source_ids(self) -> frozenset[str]:
+        """Return the IDs of sources in this workspace that are enabled for external access.
 
-        Sources missing from the mapping are not enabled for external access. The mapping is
-        empty when the Context layer API reports the workspace as forbidden or not found.
+        Empty when the Context layer API reports the workspace as forbidden or not found.
         Raises when the API is unreachable or returns a payload that does not match the
         expected models.
         """
-        organization_id = self._resolve_agents_organization_id()
         try:
             records = agents_api_util.list_agent_connectors(
                 workspace_id=self.workspace_id,
                 credentials=self._credentials,
-                organization_id=organization_id,
+                organization_id=self._resolve_agents_organization_id(),
             )
         except AirbyteError as error:
             status_code = (error.context or {}).get("status_code")
             if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                return {}
+                return frozenset()
 
             raise
 
-        connectors = [AgentConnectorInfo.model_validate(record) for record in records]
-
-        status_by_source_id: dict[str, bool] = {}
-        for connector in connectors:
-            details = AgentConnectorDetails.model_validate(
-                agents_api_util.inspect_agent_connector(
-                    connector_id=connector.id,
-                    credentials=self._credentials,
-                    organization_id=organization_id,
-                )
-            )
-            readiness = details.context_store_readiness
-            status_by_source_id[connector.id] = bool(
-                readiness is not None and readiness.configured_cache_entities
-            )
-        return status_by_source_id
+        return frozenset(AgentConnectorInfo.model_validate(record).id for record in records)
 
     def _get_connector_features(
         self,
         connector: CloudConnector,
         *,
-        source_search_indexing_status: dict[str, bool] | None = None,
+        external_access_source_ids: frozenset[str] | None = None,
     ) -> frozenset[ConnectorFeature]:
         """Resolve the enabled features for one connector in this workspace.
 
-        `source_search_indexing_status` lets `list_connectors()` share one Context layer
-        lookup across many sources instead of repeating it per connector.
+        `external_access_source_ids` lets `list_connectors()` share one Context layer
+        lookup across many sources instead of repeating it per connector. Search indexing
+        has not launched yet, so it is never reported as enabled.
         """
         if not self._has_context_layer_api():
             return frozenset()
@@ -459,15 +441,12 @@ class CloudWorkspace:
                 return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
             return frozenset()
 
-        if source_search_indexing_status is None:
-            source_search_indexing_status = self._list_source_search_indexing_status()
-        if connector.connector_id not in source_search_indexing_status:
+        if external_access_source_ids is None:
+            external_access_source_ids = self._list_external_access_source_ids()
+        if connector.connector_id not in external_access_source_ids:
             return frozenset()
 
-        features = {ConnectorFeature.EXTERNAL_ACCESS}
-        if source_search_indexing_status[connector.connector_id]:
-            features.add(ConnectorFeature.SEARCH_INDEXING)
-        return frozenset(features)
+        return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
 
     # Test connection and creds
 
@@ -982,15 +961,15 @@ class CloudWorkspace:
                 if connector.name is not None and needle in connector.name.casefold()
             ]
 
-        source_status: dict[str, bool] | None = None
+        source_ids: frozenset[str] | None = None
         if self._has_context_layer_api() and any(
             connector.connector_type == ConnectorType.SOURCE for connector in connectors
         ):
-            source_status = self._list_source_search_indexing_status()
+            source_ids = self._list_external_access_source_ids()
         for connector in connectors:
             connector._enabled_features = self._get_connector_features(  # noqa: SLF001
                 connector,
-                source_search_indexing_status=source_status,
+                external_access_source_ids=source_ids,
             )
 
         if with_feature is not None:
