@@ -387,10 +387,6 @@ _ = (
 """Destination definitions AI agents can query through SQL passthrough."""
 
 
-_PROTOCOL_STUB: Any = ...
-"""Placeholder return value for `Protocol` member declarations (never invoked)."""
-
-
 # Structural typing helpers. The `airbyte.cloud` classes conform to these protocols,
 # letting this package type its helpers without importing `airbyte.cloud.*` (which
 # would create an import cycle, as `airbyte.cloud` imports this package).
@@ -402,7 +398,7 @@ class _EnumValueLike(Protocol):
     @property
     def value(self) -> str:
         """The enum member's string value."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
 
 class _ConnectionLike(Protocol):
@@ -413,37 +409,37 @@ class _ConnectionLike(Protocol):
     @property
     def name(self) -> str | None:
         """The connection's display name."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def source_id(self) -> str:
         """The source connector ID."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def destination_id(self) -> str:
         """The destination connector ID."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def stream_names(self) -> list[str]:
         """The enabled stream names."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def table_prefix(self) -> str:
         """The prefix applied to synced table names."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def namespace_definition(self) -> str | None:
         """The connection's namespace definition mode."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def namespace_format(self) -> str | None:
         """The connection's custom namespace format."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
 
 class _ConnectorLike(Protocol):
@@ -458,12 +454,12 @@ class _ConnectorLike(Protocol):
     @property
     def name(self) -> str | None:
         """The connector's display name."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def connector_type(self) -> _EnumValueLike:
         """The connector type (`source` or `destination`)."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
 
 class _DestinationLike(_ConnectorLike, Protocol):
@@ -472,12 +468,12 @@ class _DestinationLike(_ConnectorLike, Protocol):
     @property
     def definition_id(self) -> str:
         """The connector definition ID."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     @property
     def configuration(self) -> dict[str, Any] | None:
         """The destination configuration, secrets redacted."""
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
 
 class _WorkspaceLike(Protocol):
@@ -497,8 +493,7 @@ class _WorkspaceLike(Protocol):
         limit: int | None = None,
     ) -> Sequence[_ConnectionLike]:
         """List the workspace's connections."""
-        del name, name_filter, limit
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     def list_sources(
         self,
@@ -508,8 +503,7 @@ class _WorkspaceLike(Protocol):
         limit: int | None = None,
     ) -> Sequence[_ConnectorLike]:
         """List the workspace's source connectors."""
-        del name, name_filter, limit
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
     def list_destinations(
         self,
@@ -519,8 +513,7 @@ class _WorkspaceLike(Protocol):
         limit: int | None = None,
     ) -> Sequence[_DestinationLike]:
         """List the workspace's destination connectors."""
-        del name, name_filter, limit
-        return _PROTOCOL_STUB
+        raise NotImplementedError
 
 
 # Referenced here so unused-global linters don't flag `_WorkspaceLike`, which is
