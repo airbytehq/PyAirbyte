@@ -56,8 +56,8 @@ from airbyte._direct_connectors.actions import (
 from airbyte._direct_connectors.models import AgentExecuteResult
 from airbyte._util import api_util, text_util
 from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-    SQL_PASSTHROUGH_DESTINATION_NAMES,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -148,7 +148,7 @@ class CloudConnector:
         workspace: CloudWorkspace,
         connector_id: str,
         *,
-        connector_type: Literal["source", "destination"] | None = None,
+        connector_type: ConnectorType | None = None,
     ) -> None:
         """Initialize a cloud connector object."""
         self.workspace = workspace
@@ -156,7 +156,7 @@ class CloudConnector:
         self.connector_id = connector_id
         """The ID of the connector."""
 
-        self._connector_type: Literal["source", "destination"] | None = connector_type
+        self._connector_type: ConnectorType | None = connector_type
         """The type of the connector. (`None` until resolved for untyped connectors.)"""
 
         self._connector_info: CloudSourceInfo | CloudDestinationInfo | None = None
@@ -212,7 +212,7 @@ class CloudConnector:
         return self._connector_info.definition_id
 
     @property
-    def connector_type(self) -> Literal["source", "destination"]:
+    def connector_type(self) -> ConnectorType:
         """The connector's kind; may make an API call on first access when untyped."""
         if self._connector_type is None:
             self._resolve_connector_type()
@@ -235,7 +235,7 @@ class CloudConnector:
         except exc.AirbyteMissingResourceError:
             pass
         else:
-            self._connector_type = "source"
+            self._connector_type = ConnectorType.SOURCE
             return
 
         try:
@@ -248,7 +248,7 @@ class CloudConnector:
                     bearer_token=self.workspace.bearer_token,
                 )
             )
-            self._connector_type = "destination"
+            self._connector_type = ConnectorType.DESTINATION
         except exc.AirbyteMissingResourceError as error:
             raise exc.AirbyteMissingResourceError(
                 resource_name_or_id=self.connector_id,
@@ -260,10 +260,10 @@ class CloudConnector:
         if isinstance(self, CloudSource):
             return self
 
-        if self.connector_type != "source":
+        if self.connector_type != ConnectorType.SOURCE:
             raise exc.PyAirbyteInputError(
                 message=(
-                    f"Connector {self.connector_id} is a {self.connector_type}, " "not a source."
+                    f"Connector {self.connector_id} is a {self.connector_type.value}, not a source."
                 ),
             )
 
@@ -276,10 +276,10 @@ class CloudConnector:
         if isinstance(self, CloudDestination):
             return self
 
-        if self.connector_type != "destination":
+        if self.connector_type != ConnectorType.DESTINATION:
             raise exc.PyAirbyteInputError(
                 message=(
-                    f"Connector {self.connector_id} is a {self.connector_type}, "
+                    f"Connector {self.connector_id} is a {self.connector_type.value}, "
                     "not a destination."
                 ),
             )
@@ -293,7 +293,7 @@ class CloudConnector:
         if self._connector_info is not None:
             return self._connector_info
 
-        if self.connector_type == "source":
+        if self.connector_type == ConnectorType.SOURCE:
             return CloudSourceInfo.from_api_response(
                 api_util.get_source(
                     source_id=self.connector_id,
@@ -317,12 +317,12 @@ class CloudConnector:
     @property
     def connector_url(self) -> str:
         """Get the web URL of the source connector."""
-        return f"{self.workspace.workspace_url}/{self.connector_type}/{self.connector_id}"
+        return f"{self.workspace.workspace_url}/{self.connector_type.value}/{self.connector_id}"
 
     def __repr__(self) -> str:
         """String representation of the connector."""
         return (
-            f"CloudConnector(type={self.connector_type!s}, "
+            f"CloudConnector(type={self.connector_type.value}, "
             f"workspace_id={self.workspace.workspace_id}, "
             f"connector_id={self.connector_id}, "
             f"connector_url={self.connector_url})"
@@ -330,7 +330,7 @@ class CloudConnector:
 
     def permanently_delete(self) -> None:
         """Permanently delete the connector."""
-        if self.connector_type == "source":
+        if self.connector_type == ConnectorType.SOURCE:
             self.workspace.permanently_delete_source(self.connector_id)
         else:
             self.workspace.permanently_delete_destination(self.connector_id)
@@ -349,7 +349,7 @@ class CloudConnector:
         """
         result = api_util.check_connector(
             workspace_id=self.workspace.workspace_id,
-            connector_type=self.connector_type,
+            connector_type=self.connector_type.value,
             actor_id=self.connector_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
@@ -380,8 +380,7 @@ class CloudConnector:
     def execute_api_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
         entity_type: str,
-        action: ExternalApiReadOnlyAction
-        | Literal["list", "get", "search"] = ExternalApiReadOnlyAction.LIST,
+        action: ExternalApiReadOnlyAction = ExternalApiReadOnlyAction.LIST,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -422,7 +421,7 @@ class CloudConnector:
     def execute_api_action(
         self,
         entity_type: str,
-        action: ExternalApiWriteAction | Literal["create", "update", "delete"],
+        action: ExternalApiWriteAction,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -473,11 +472,11 @@ class CloudConnector:
         """
         self._require_context_layer_api()
         if sql_dialect is None:
-            sql_dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
+            sql_dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
         if sql_dialect is None:
             supported = ", ".join(
                 f"{name} ({definition_id})"
-                for definition_id, name in SQL_PASSTHROUGH_DESTINATION_NAMES.items()
+                for definition_id, name in _SQL_PASSTHROUGH_DESTINATION_NAMES.items()
             )
             raise exc.PyAirbyteInputError(
                 message=(
@@ -596,7 +595,7 @@ class CloudSource(CloudConnector):
         super().__init__(
             workspace=workspace,
             connector_id=connector_id,
-            connector_type="source",
+            connector_type=ConnectorType.SOURCE,
         )
 
     @property
@@ -693,7 +692,7 @@ class CloudDestination(CloudConnector):
         super().__init__(
             workspace=workspace,
             connector_id=connector_id,
-            connector_type="destination",
+            connector_type=ConnectorType.DESTINATION,
         )
         self._configuration: dict[str, Any] | None = None
         """The destination configuration. (Cached.)"""
@@ -801,7 +800,7 @@ class CustomCloudSourceDefinition:
     This represents either a YAML (declarative) or Docker-based custom source definition.
     """
 
-    connector_type: ClassVar[Literal["source", "destination"]] = "source"
+    connector_type: ClassVar[ConnectorType] = ConnectorType.SOURCE
     """The type of the connector: 'source' or 'destination'."""
 
     def __init__(
@@ -1057,7 +1056,7 @@ class CustomCloudSourceDefinition:
         """
         return (
             self.connector_builder_project_url
-            or f"{self.workspace.workspace_url}/settings/{self.connector_type}"
+            or f"{self.workspace.workspace_url}/settings/{self.connector_type.value}"
         )
 
     def permanently_delete(

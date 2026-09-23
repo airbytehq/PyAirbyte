@@ -20,7 +20,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
 )
 from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     CloudDestinationInfo,
     CloudSourceInfo,
 )
@@ -33,8 +33,8 @@ from airbyte.exceptions import (
 )
 
 
-SNOWFLAKE_DEFINITION_ID = next(iter(SQL_PASSTHROUGH_DESTINATION_DIALECTS))
-SNOWFLAKE_DIALECT = SQL_PASSTHROUGH_DESTINATION_DIALECTS[SNOWFLAKE_DEFINITION_ID]
+SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
+SNOWFLAKE_DIALECT = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[SNOWFLAKE_DEFINITION_ID]
 
 
 def _make_workspace(monkeypatch: pytest.MonkeyPatch) -> CloudWorkspace:

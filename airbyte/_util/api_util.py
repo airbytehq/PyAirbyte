@@ -16,7 +16,7 @@ from __future__ import annotations
 import base64
 import json
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import airbyte_api
 import requests
@@ -1938,7 +1938,7 @@ def _make_config_api_request(
 def check_connector(
     *,
     actor_id: str,
-    connector_type: Literal["source", "destination"],
+    connector_type: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
