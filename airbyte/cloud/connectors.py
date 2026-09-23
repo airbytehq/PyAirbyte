@@ -62,11 +62,11 @@ from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
-    ConnectorType,
     _DeclarativeSourceDefinitionResponseLike,
     _DestinationResponseLike,
     _SourceResponseLike,
 )
+from airbyte.constants import ConnectorType
 
 
 if TYPE_CHECKING:
