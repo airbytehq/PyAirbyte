@@ -215,10 +215,6 @@ class ExternalApiReadOnlyAction(StrEnum):
     GET = "get"
     SEARCH = "search"
 
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
-
 
 class ExternalApiWriteAction(StrEnum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
@@ -226,10 +222,6 @@ class ExternalApiWriteAction(StrEnum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
 
 
 class ExternalApiExecutionMetadata(BaseModel):
