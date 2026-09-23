@@ -14,13 +14,14 @@ from airbyte._util import api_util
 from airbyte._direct_connectors.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
-    ExternalApiReadOnlyAction,
     CloudConnector,
     CloudDestination,
     CloudSource,
+    ConnectorType,
+    ExternalApiReadOnlyAction,
 )
 from airbyte._direct_connectors.models import (
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
 from airbyte.cloud.models import (
     CloudDestinationInfo,
@@ -35,8 +36,11 @@ from airbyte.exceptions import (
 )
 
 
-SNOWFLAKE_DEFINITION_ID = next(iter(SQL_PASSTHROUGH_DESTINATION_DIALECTS))
-SNOWFLAKE_DIALECT = SQL_PASSTHROUGH_DESTINATION_DIALECTS[SNOWFLAKE_DEFINITION_ID]
+SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
+SNOWFLAKE_DIALECT = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[SNOWFLAKE_DEFINITION_ID]
+
+_MISSING: Any = object()
+"""Sentinel for parameters that should be omitted from a call rather than passed."""
 
 
 def _make_workspace(monkeypatch: pytest.MonkeyPatch) -> CloudWorkspace:
@@ -111,14 +115,32 @@ def _patch_external_access(*, enabled: bool) -> Any:
     )
 
 
-def test_execute_api_query_forwards_to_agents_api(
+@pytest.mark.parametrize(
+    ("action_input", "expected_action"),
+    [
+        pytest.param(_MISSING, "list", id="default_is_list"),
+        pytest.param("get", "get", id="string_get"),
+        pytest.param("search", "search", id="string_search"),
+        pytest.param(
+            ExternalApiReadOnlyAction.SEARCH,
+            "search",
+            id="enum_search",
+        ),
+    ],
+)
+def test_execute_api_query_forwards_action(
     monkeypatch: pytest.MonkeyPatch,
+    action_input: Any,  # noqa: ANN401
+    expected_action: str,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     calls = _patch_execute(monkeypatch, {"status": "success", "result": [{"id": 1}]})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
+    kwargs: dict[str, Any] = {}
+    if action_input is not _MISSING:
+        kwargs["action"] = action_input
     result = source.execute_api_query(
         "issues",
         api_args={"repository": "airbytehq/PyAirbyte"},
@@ -128,6 +150,7 @@ def test_execute_api_query_forwards_to_agents_api(
         cursor="cursor-1",
         skip_truncation=False,
         intent="find open issues",
+        **kwargs,
     )
 
     assert isinstance(result, AgentExecuteResult)
@@ -139,7 +162,7 @@ def test_execute_api_query_forwards_to_agents_api(
     assert call["organization_id"] == "organization-id"
     assert call["request_body"] == {
         "entity": "issues",
-        "action": "list",
+        "action": expected_action,
         "params": {
             "repository": "airbytehq/PyAirbyte",
             "limit": 10,
@@ -152,37 +175,6 @@ def test_execute_api_query_forwards_to_agents_api(
     }
 
 
-def test_execute_api_query_supports_get_and_search(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    source.execute_api_query("issues", "get", {"issue_id": "42"})
-    source.execute_api_query("issues", "search", {"query": "bug"})
-
-    assert calls[0]["request_body"]["action"] == "get"
-    assert calls[0]["request_body"]["params"] == {"issue_id": "42"}
-    assert calls[1]["request_body"]["action"] == "search"
-
-
-def test_execute_api_query_accepts_enum_action(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    source.execute_api_query(
-        "issues", ExternalApiReadOnlyAction.SEARCH, {"query": "bug"}
-    )
-
-    assert calls[0]["request_body"]["action"] == "search"
-
-
 def test_execute_api_action_forwards_to_agents_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -192,7 +184,10 @@ def test_execute_api_action_forwards_to_agents_api(
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     result = source.execute_api_action(
-        "issues", "create", {"title": "New issue"}, intent="file a bug"
+        "issues",
+        "create",  # type: ignore[arg-type]
+        {"title": "New issue"},
+        intent="file a bug",
     )
 
     assert isinstance(result, AgentExecuteResult)
@@ -203,8 +198,17 @@ def test_execute_api_action_forwards_to_agents_api(
     assert body["intent"] == "file a bug"
 
 
-def test_execute_api_query_rejects_write_actions(
+@pytest.mark.parametrize(
+    ("method_name", "bad_action"),
+    [
+        pytest.param("execute_api_query", "create", id="query_rejects_write"),
+        pytest.param("execute_api_action", "get", id="action_rejects_read"),
+    ],
+)
+def test_execute_rejects_mismatched_action(
     monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    bad_action: str,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
@@ -212,21 +216,7 @@ def test_execute_api_query_rejects_write_actions(
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     with pytest.raises(PyAirbyteInputError):
-        source.execute_api_query("issues", "create")  # type: ignore[arg-type]
-
-    assert calls == []
-
-
-def test_execute_api_action_rejects_read_actions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success"})
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    with pytest.raises(PyAirbyteInputError):
-        source.execute_api_action("issues", "get")  # type: ignore[arg-type]
+        getattr(source, method_name)("issues", bad_action)  # type: ignore[arg-type]
 
     assert calls == []
 
@@ -249,96 +239,86 @@ def test_execute_direct_action_rejects_write_action_as_read_only(
     assert calls == []
 
 
-def test_execute_forbidden_raises_not_enabled_when_access_disabled(
+_FLAG_LOOKUP_ERROR: Any = object()
+"""Marker: the `external_access_enabled` lookup itself fails."""
+
+
+@pytest.mark.parametrize(
+    ("execute_status", "access_flag", "expected_exc", "expected_status"),
+    [
+        pytest.param(
+            403,
+            False,
+            AirbyteExternalAccessNotEnabledError,
+            None,
+            id="forbidden_disabled_raises_not_enabled",
+        ),
+        pytest.param(
+            404,
+            True,
+            AirbyteError,
+            404,
+            id="not_found_enabled_reraises",
+        ),
+        pytest.param(
+            403,
+            _FLAG_LOOKUP_ERROR,
+            AirbyteError,
+            403,
+            id="flag_lookup_failure_reraises",
+        ),
+        pytest.param(
+            500,
+            True,
+            AirbyteError,
+            500,
+            id="other_error_propagates",
+        ),
+    ],
+)
+def test_execute_error_handling(
     monkeypatch: pytest.MonkeyPatch,
+    execute_status: int,
+    access_flag: Any,  # noqa: ANN401
+    expected_exc: type[Exception],
+    expected_status: int | None,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     _patch_execute(
         monkeypatch,
         {},
-        error=AirbyteError(context={"status_code": 403}),
+        error=AirbyteError(context={"status_code": execute_status}),
     )
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    with (
-        _patch_external_access(enabled=False),
-        pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info,
-    ):
-        source.execute_api_query("issues")
-
-    assert exc_info.value.connector_id == "source-1"
-    assert exc_info.value.connector_name == "GitHub Issues"
-
-
-def test_execute_not_found_reraises_when_access_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    _patch_execute(
-        monkeypatch,
-        {},
-        error=AirbyteError(context={"status_code": 404}),
-    )
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    with (
-        _patch_external_access(enabled=True),
-        pytest.raises(AirbyteError) as exc_info,
-    ):
-        source.execute_api_query("issues")
-
-    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-
-
-def test_execute_forbidden_reraises_when_access_flag_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    _patch_execute(
-        monkeypatch,
-        {},
-        error=AirbyteError(context={"status_code": 403}),
-    )
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    with (
-        patch.object(
+    flag_patch = (
+        _patch_external_access(enabled=access_flag)
+        if isinstance(access_flag, bool)
+        else patch.object(
             CloudConnector,
             "external_access_enabled",
             new_callable=PropertyMock,
             side_effect=AirbyteError(context={"status_code": 500}),
-        ),
-        pytest.raises(AirbyteError) as exc_info,
-    ):
-        source.execute_api_query("issues")
-
-    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-    assert exc_info.value.context["status_code"] == 403
-
-
-def test_execute_propagates_other_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    _patch_execute(
-        monkeypatch,
-        {},
-        error=AirbyteError(context={"status_code": 500}),
+        )
     )
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    with pytest.raises(AirbyteError) as exc_info:
+    with flag_patch, pytest.raises(expected_exc) as exc_info:
         source.execute_api_query("issues")
 
-    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+    if expected_exc is AirbyteExternalAccessNotEnabledError:
+        assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+        assert exc_info.value.connector_id == "source-1"
+        assert exc_info.value.connector_name == "GitHub Issues"
+    else:
+        assert isinstance(exc_info.value, AirbyteError)
+        assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+        assert (exc_info.value.context or {})["status_code"] == expected_status
 
 
+@pytest.mark.parametrize("method_name", ["execute_api_query", "execute_api_action"])
 def test_direct_methods_raise_without_context_layer(
     monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch, available=False)
@@ -350,56 +330,89 @@ def test_direct_methods_raise_without_context_layer(
     )
     # `_connector_info` stays unset so any `definition_id`/`name` lookup would hit the
     # public API; the Context layer gate must fire first.
-    source = CloudSource(workspace=workspace, connector_id="source-1")
-    destination = CloudDestination(workspace=workspace, connector_id="destination-1")
+    connectors = (
+        CloudSource(workspace=workspace, connector_id="source-1"),
+        CloudDestination(workspace=workspace, connector_id="destination-1"),
+    )
+    method_args = (
+        ("issues", "create") if method_name == "execute_api_action" else ("issues",)
+    )
 
-    for call in (
-        lambda: source.execute_api_query("issues"),
-        lambda: source.execute_api_action("issues", "create"),
-        lambda: source.execute_sql_query("SELECT 1"),
-        lambda: destination.execute_api_query("issues"),
-        lambda: destination.execute_api_action("issues", "create"),
-        lambda: destination.execute_sql_query("SELECT 1"),
-    ):
-        with pytest.raises(AirbyteExternalAccessNotEnabledError):
-            call()
+    for connector in connectors:
+        for method in (method_name, "execute_sql_query"):
+            args = method_args if method == method_name else ("SELECT 1",)
+            with pytest.raises(AirbyteExternalAccessNotEnabledError):
+                getattr(connector, method)(*args)
 
     assert calls == []
 
 
-def test_execute_sql_query_infers_dialect(
+@pytest.mark.parametrize(
+    ("kind", "sql_dialect", "expected_dialect"),
+    [
+        pytest.param(
+            "seeded_destination",
+            None,
+            SNOWFLAKE_DIALECT,
+            id="inferred_on_seeded_destination",
+        ),
+        pytest.param(
+            "seeded_source",
+            "postgres",
+            "postgres",
+            id="explicit_on_source",
+        ),
+        pytest.param(
+            "untyped_destination",
+            None,
+            SNOWFLAKE_DIALECT,
+            id="inferred_via_untyped_probe",
+        ),
+    ],
+)
+def test_execute_sql_query_dialect(
     monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    sql_dialect: str | None,
+    expected_dialect: str,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     calls = _patch_execute(monkeypatch, {"status": "success", "result": [{"n": 1}]})
-    destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
 
-    result = destination.execute_sql_query("SELECT 1", page_size=5)
+    if kind == "untyped_destination":
+        probes = _patch_connector_probes(
+            monkeypatch,
+            destination=_destination_payload(
+                "connector-1",
+                definition_id=SNOWFLAKE_DEFINITION_ID,
+            ),
+        )
+        connector: CloudConnector = workspace.get_connector("connector-1")
+    elif kind == "seeded_destination":
+        probes = None
+        connector = _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
+    else:
+        probes = None
+        connector = _seed_source(workspace, "connector-1", "GitHub Issues")
+
+    result = connector.execute_sql_query(
+        "SELECT 1",
+        sql_dialect=sql_dialect,
+        page_size=5,
+    )
 
     assert isinstance(result, AgentExecuteResult)
     body = calls[0]["request_body"]
     assert body["entity"] == "sql"
     assert body["action"] == "sql_select"
     assert body["params"]["sql"] == "SELECT 1"
-    assert body["params"]["sql_dialect"] == SNOWFLAKE_DIALECT
+    assert body["params"]["sql_dialect"] == expected_dialect
     assert body["params"]["limit"] == 5
     assert body["params"]["workspace_id"] == "workspace-id"
-
-
-def test_execute_sql_query_explicit_dialect_on_source(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
-    source.execute_sql_query("SELECT 1", sql_dialect="postgres")
-
-    params = calls[0]["request_body"]["params"]
-    assert params["sql_dialect"] == "postgres"
-    assert calls[0]["connector_id"] == "source-1"
+    assert calls[0]["connector_id"] == "connector-1"
+    if probes is not None:
+        assert probes == ["source", "destination"]
 
 
 def test_execute_api_query_works_on_destinations(
@@ -412,7 +425,7 @@ def test_execute_api_query_works_on_destinations(
         workspace, "destination-1", "not-a-passthrough-definition"
     )
 
-    result = destination.execute_api_query("tables", "list")
+    result = destination.execute_api_query("tables", "list")  # type: ignore[arg-type]
 
     assert result.status == "success"
     assert calls[0]["connector_id"] == "destination-1"
@@ -433,9 +446,6 @@ def test_execute_sql_query_requires_dialect_when_not_inferrable(
         destination.execute_sql_query("SELECT 1")
 
     assert calls == []
-
-
-_MISSING: Any = object()
 
 
 def _patch_connector_probes(
@@ -496,35 +506,51 @@ def _destination_payload(
     )
 
 
-def test_untyped_connector_resolves_as_source(
+@pytest.mark.parametrize(
+    ("kind", "expected_type", "expected_probes", "expected_name"),
+    [
+        pytest.param(
+            "source",
+            ConnectorType.SOURCE,
+            ["source"],
+            "Gong",
+            id="resolves_as_source",
+        ),
+        pytest.param(
+            "destination",
+            ConnectorType.DESTINATION,
+            ["source", "destination"],
+            None,
+            id="resolves_as_destination",
+        ),
+    ],
+)
+def test_untyped_connector_resolves_kind(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    probes = _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
-    connector = workspace.get_connector(connector_id="connector-1")
-
-    assert isinstance(connector, CloudConnector)
-    assert connector.connector_type == "source"
-    assert connector.connector_type == "source"
-    assert connector.name == "Gong"
-
-    assert probes == ["source"]
-
-
-def test_untyped_connector_resolves_as_destination(
-    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    expected_type: ConnectorType,
+    expected_probes: list[str],
+    expected_name: str | None,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     probes = _patch_connector_probes(
         monkeypatch,
-        destination=_destination_payload("connector-1"),
+        **{
+            kind: (_source_payload if kind == "source" else _destination_payload)(
+                "connector-1"
+            )
+        },
     )
     connector = workspace.get_connector(connector_id="connector-1")
 
-    assert connector.connector_type == "destination"
-    assert connector.connector_type == "destination"
+    assert isinstance(connector, CloudConnector)
+    assert connector.connector_type == expected_type
+    # Kind and connector info are cached: repeat reads don't re-probe.
+    assert connector.connector_type == expected_type
+    if expected_name is not None:
+        assert connector.name == expected_name
 
-    assert probes == ["source", "destination"]
+    assert probes == expected_probes
 
 
 def test_untyped_connector_raises_when_neither_probe_matches(
@@ -540,39 +566,54 @@ def test_untyped_connector_raises_when_neither_probe_matches(
     assert probes == ["source", "destination"]
 
 
-def test_as_cloud_source_and_destination_casts(
+@pytest.mark.parametrize(
+    ("kind", "cast_name", "expected_cls", "mismatch_name", "mismatch_match"),
+    [
+        pytest.param(
+            "source",
+            "as_cloud_source",
+            CloudSource,
+            "as_cloud_destination",
+            "not a destination",
+            id="casts_to_source",
+        ),
+        pytest.param(
+            "destination",
+            "as_cloud_destination",
+            CloudDestination,
+            "as_cloud_source",
+            "not a source",
+            id="casts_to_destination",
+        ),
+    ],
+)
+def test_as_cloud_subclass_casts(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
-    connector = workspace.get_connector(connector_id="connector-1")
-
-    source = connector.as_cloud_source()
-
-    assert isinstance(source, CloudSource)
-    assert source.connector_id == "connector-1"
-    assert source._connector_info is connector._connector_info  # noqa: SLF001
-    assert source.as_cloud_source() is source
-    with pytest.raises(PyAirbyteInputError, match="not a destination"):
-        connector.as_cloud_destination()
-
-
-def test_as_cloud_destination_on_destination(
-    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    cast_name: str,
+    expected_cls: type,
+    mismatch_name: str,
+    mismatch_match: str,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_connector_probes(
         monkeypatch,
-        destination=_destination_payload("connector-1"),
+        **{
+            kind: (_source_payload if kind == "source" else _destination_payload)(
+                "connector-1"
+            )
+        },
     )
     connector = workspace.get_connector(connector_id="connector-1")
 
-    destination = connector.as_cloud_destination()
+    casted = getattr(connector, cast_name)()
 
-    assert isinstance(destination, CloudDestination)
-    assert destination.as_cloud_destination() is destination
-    with pytest.raises(PyAirbyteInputError, match="not a source"):
-        connector.as_cloud_source()
+    assert isinstance(casted, expected_cls)
+    assert casted.connector_id == "connector-1"
+    assert casted._connector_info is connector._connector_info  # noqa: SLF001
+    assert getattr(casted, cast_name)() is casted
+    with pytest.raises(PyAirbyteInputError, match=mismatch_match):
+        getattr(connector, mismatch_name)()
 
 
 def test_untyped_connector_executes_without_kind_probe(
@@ -594,28 +635,8 @@ def test_untyped_connector_executes_without_kind_probe(
     )
     connector = workspace.get_connector(connector_id="connector-1")
 
-    result = connector.execute_api_query("issues", "list")
+    result = connector.execute_api_query("issues", "list")  # type: ignore[arg-type]
 
     assert result.status == "success"
     assert len(calls) == 1
     assert connector._connector_type is None  # noqa: SLF001
-
-
-def test_execute_sql_query_infers_dialect_via_untyped_probe(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
-    _patch_connector_probes(
-        monkeypatch,
-        destination=_destination_payload(
-            "connector-1",
-            definition_id=SNOWFLAKE_DEFINITION_ID,
-        ),
-    )
-    connector = workspace.get_connector(connector_id="connector-1")
-
-    connector.execute_sql_query("SELECT 1")
-
-    assert calls[0]["request_body"]["params"]["sql_dialect"] == SNOWFLAKE_DIALECT

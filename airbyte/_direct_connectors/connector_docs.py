@@ -14,10 +14,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from airbyte._direct_connectors.models import (
-    BIGQUERY_DESTINATION_DEFINITION_ID,
-    SNOWFLAKE_DESTINATION_DEFINITION_ID,
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-    SQL_PASSTHROUGH_DESTINATION_NAMES,
+    _BIGQUERY_DESTINATION_DEFINITION_ID,
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudConnectorConnectionInfo,
     CloudContextLayerConnectorDetails,
     CloudSkillDocs,
@@ -34,14 +34,12 @@ if TYPE_CHECKING:
     from airbyte.cloud.connectors import CloudConnector, CloudDestination
 
 _DESTINATION_LOCATION_KEYS: Mapping[str, tuple[tuple[str, str], tuple[str, str]]] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: (("database", "database"), ("schema", "schema")),
-    BIGQUERY_DESTINATION_DEFINITION_ID: (("project", "project_id"), ("dataset", "dataset_id")),
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID: (("database", "database"), ("schema", "schema")),
+    _BIGQUERY_DESTINATION_DEFINITION_ID: (("project", "project_id"), ("dataset", "dataset_id")),
 }
 """Destination definition ID -> (label, configuration key) pairs locating synced tables."""
 
 _NAMESPACE_LABELS = frozenset({"schema", "dataset"})
-
-SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 
 DESTINATION_SKILL_PREFIX = "connector-destination:"
 SOURCE_SKILL_PREFIX = "connector-source:"
@@ -129,7 +127,7 @@ def build_destination_connector_details(
         name=destination.name,
         workspace_id=destination.workspace.workspace_id,
         docs_skill_id=destination_skill_id(destination.connector_id),
-        integration_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
+        integration_name=_SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
         warnings=[],
     )
 
@@ -166,7 +164,7 @@ def build_destination_skill_docs(
     section: str | None = None,
 ) -> CloudSkillDocs:
     """Build `CloudSkillDocs` for a SQL passthrough destination."""
-    dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
+    dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
     metadata = CloudSkillInfo(
         id=skill_id,
@@ -222,7 +220,7 @@ def merge_destination_skill_docs(
     provides), and the local overview is prepended to the default (no-section) or
     `overview` content.
     """
-    dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
+    dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     server_section_ids = {section.id for section in server_docs.outline}
     outline = [
         *server_docs.outline,
@@ -406,7 +404,7 @@ def _qualified_table_example(destination: CloudDestination) -> str:
     if namespace_entry is None:
         return "SELECT * FROM <table> LIMIT 10"
     namespace = namespace_entry[1]
-    if destination.definition_id == BIGQUERY_DESTINATION_DEFINITION_ID:
+    if destination.definition_id == _BIGQUERY_DESTINATION_DEFINITION_ID:
         return f"SELECT * FROM `{namespace}.<table>` LIMIT 10"
     return f"SELECT * FROM {namespace}.<table> LIMIT 10"
 
@@ -526,7 +524,7 @@ def build_connection_infos(connector: CloudConnector) -> list[CloudConnectorConn
     from its configuration.
     """
     workspace = connector.workspace
-    if connector.connector_type == "source":
+    if connector.connector_type.value == "source":
         connections = [
             connection
             for connection in workspace.list_connections()

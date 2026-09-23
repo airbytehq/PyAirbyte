@@ -19,9 +19,9 @@ from airbyte._direct_connectors.models import (
 from airbyte._direct_connectors.connector_docs import destination_skill_id
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
-    BIGQUERY_DESTINATION_DEFINITION_ID,
-    SNOWFLAKE_DESTINATION_DEFINITION_ID,
-    SQL_PASSTHROUGH_DESTINATION_NAMES,
+    _BIGQUERY_DESTINATION_DEFINITION_ID,
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudConnectorDetails,
     CloudConnectorDocs,
 )
@@ -1835,7 +1835,7 @@ def _patch_destination_server_docs(
                 connector_name=self._destination.name,
                 connector_url="",
                 connector_definition_id=self._destination.definition_id,
-                integration_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(
+                integration_name=_SQL_PASSTHROUGH_DESTINATION_NAMES.get(
                     self._destination.definition_id
                 ),
                 external_access_enabled=False,
@@ -1974,8 +1974,8 @@ def _read_docs(
 @pytest.mark.parametrize(
     ("definition_id", "expected_integration_name"),
     [
-        (SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
-        (BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
+        (_SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
+        (_BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
     ],
 )
 def test_inspect_destination_fallback_reports_docs_skill(
@@ -2011,7 +2011,7 @@ def test_inspect_destination_fallback_docs_failure_yields_warning(
     destination = _FakeDestinationForDocs(
         connector_id="dest-snowflake",
         name="Snowflake dev",
-        definition_id=SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        definition_id=_SNOWFLAKE_DESTINATION_DEFINITION_ID,
         connections_error=AirbyteError(message="boom"),
     )
     _patch_destination_404(monkeypatch, [destination])

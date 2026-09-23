@@ -57,8 +57,9 @@ from airbyte._direct_connectors.actions import (
 )
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-    SQL_PASSTHROUGH_DESTINATION_NAMES,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudApiExecuteResult,
     CloudConnectorDetails,
     CloudConnectorDocs,
@@ -127,6 +128,10 @@ class ExternalApiReadOnlyAction(str, Enum):
     GET = "get"
     SEARCH = "search"
 
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
+
 
 class ExternalApiWriteAction(str, Enum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
@@ -134,6 +139,10 @@ class ExternalApiWriteAction(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
 
 
 class ConnectorType(str, Enum):
@@ -152,6 +161,10 @@ class ConnectorType(str, Enum):
             raise ValueError(
                 f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
             ) from None
+
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
 
 
 class ConnectorFeature(str, Enum):
@@ -179,7 +192,7 @@ class CloudConnector:
         workspace: CloudWorkspace,
         connector_id: str,
         *,
-        connector_type: Literal["source", "destination"] | None = None,
+        connector_type: ConnectorType | None = None,
     ) -> None:
         """Initialize a cloud connector object."""
         self.workspace = workspace
@@ -187,7 +200,7 @@ class CloudConnector:
         self.connector_id = connector_id
         """The ID of the connector."""
 
-        self._connector_type: Literal["source", "destination"] | None = connector_type
+        self._connector_type: ConnectorType | None = connector_type
         """The type of the connector. (`None` until resolved for untyped connectors.)"""
 
         self._connector_info: CloudSourceInfo | CloudDestinationInfo | None = None
@@ -222,12 +235,8 @@ class CloudConnector:
     def search_indexing_enabled(self) -> bool:
         """Whether Airbyte indexes this connector's data for fast search.
 
-        Always `False` for destinations and when the workspace's API root has no Context
-        layer. Otherwise this may make API calls on first access.
+        Search indexing has not launched yet, so this is always `False`.
         """
-        if self.connector_type == ConnectorType.DESTINATION:
-            return False
-
         return ConnectorFeature.SEARCH_INDEXING in self._get_enabled_features()
 
     @property
@@ -253,7 +262,7 @@ class CloudConnector:
         return self._connector_info.definition_id
 
     @property
-    def connector_type(self) -> Literal["source", "destination"]:
+    def connector_type(self) -> ConnectorType:
         """The connector's kind; may make an API call on first access when untyped."""
         if self._connector_type is None:
             self._resolve_connector_type()
@@ -276,7 +285,7 @@ class CloudConnector:
         except exc.AirbyteMissingResourceError:
             pass
         else:
-            self._connector_type = "source"
+            self._connector_type = ConnectorType.SOURCE
             return
 
         try:
@@ -289,7 +298,7 @@ class CloudConnector:
                     bearer_token=self.workspace.bearer_token,
                 )
             )
-            self._connector_type = "destination"
+            self._connector_type = ConnectorType.DESTINATION
         except exc.AirbyteMissingResourceError as error:
             raise exc.AirbyteMissingResourceError(
                 resource_name_or_id=self.connector_id,
@@ -301,10 +310,10 @@ class CloudConnector:
         if isinstance(self, CloudSource):
             return self
 
-        if self.connector_type != "source":
+        if self.connector_type != ConnectorType.SOURCE:
             raise exc.PyAirbyteInputError(
                 message=(
-                    f"Connector {self.connector_id} is a {self.connector_type}, " "not a source."
+                    f"Connector {self.connector_id} is a {self.connector_type}, not a source."
                 ),
             )
 
@@ -317,7 +326,7 @@ class CloudConnector:
         if isinstance(self, CloudDestination):
             return self
 
-        if self.connector_type != "destination":
+        if self.connector_type != ConnectorType.DESTINATION:
             raise exc.PyAirbyteInputError(
                 message=(
                     f"Connector {self.connector_id} is a {self.connector_type}, "
@@ -334,7 +343,12 @@ class CloudConnector:
         if self._connector_info is not None:
             return self._connector_info
 
-        if self.connector_type == "source":
+        # `connector_type` may resolve the kind lazily and cache the fetched info.
+        connector_type = self.connector_type
+        if self._connector_info is not None:
+            return self._connector_info
+
+        if connector_type == ConnectorType.SOURCE:
             return CloudSourceInfo.from_api_response(
                 api_util.get_source(
                     source_id=self.connector_id,
@@ -363,7 +377,7 @@ class CloudConnector:
     def __repr__(self) -> str:
         """String representation of the connector."""
         return (
-            f"CloudConnector(type={self.connector_type!s}, "
+            f"CloudConnector(type={self.connector_type}, "
             f"workspace_id={self.workspace.workspace_id}, "
             f"connector_id={self.connector_id}, "
             f"connector_url={self.connector_url})"
@@ -371,7 +385,7 @@ class CloudConnector:
 
     def permanently_delete(self) -> None:
         """Permanently delete the connector."""
-        if self.connector_type == "source":
+        if self.connector_type == ConnectorType.SOURCE:
             self.workspace.permanently_delete_source(self.connector_id)
         else:
             self.workspace.permanently_delete_destination(self.connector_id)
@@ -421,8 +435,7 @@ class CloudConnector:
     def execute_api_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
         entity_type: str,
-        action: ExternalApiReadOnlyAction
-        | Literal["list", "get", "search"] = ExternalApiReadOnlyAction.LIST,
+        action: ExternalApiReadOnlyAction = ExternalApiReadOnlyAction.LIST,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -463,7 +476,7 @@ class CloudConnector:
     def execute_api_action(
         self,
         entity_type: str,
-        action: ExternalApiWriteAction | Literal["create", "update", "delete"],
+        action: ExternalApiWriteAction,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -514,11 +527,11 @@ class CloudConnector:
         """
         self._require_context_layer_api()
         if sql_dialect is None:
-            sql_dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
+            sql_dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS.get(self.definition_id)
         if sql_dialect is None:
             supported = ", ".join(
                 f"{name} ({definition_id})"
-                for definition_id, name in SQL_PASSTHROUGH_DESTINATION_NAMES.items()
+                for definition_id, name in _SQL_PASSTHROUGH_DESTINATION_NAMES.items()
             )
             raise exc.PyAirbyteInputError(
                 message=(
@@ -657,7 +670,7 @@ class CloudConnector:
         if self._connector_definition is not None:
             return self._connector_definition
 
-        if self.connector_type == "source":
+        if self.connector_type == ConnectorType.SOURCE:
             definition: _ConnectorDefinitionLike = api_util.get_source_definition(
                 definition_id=self.definition_id,
                 workspace_id=self.workspace.workspace_id,
@@ -705,7 +718,7 @@ class CloudConnector:
         warnings: list[str] = []
         details = CloudConnectorDetails(
             connector_id=self.connector_id,
-            connector_type=connector_type,
+            connector_type=connector_type.value,
             connector_name=self.name or "",
             connector_url=self.connector_url,
             connector_definition_id=self.definition_id,
@@ -714,11 +727,11 @@ class CloudConnector:
         )
 
         if (
-            connector_type == "destination"
-            and self.definition_id in connector_docs.SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+            connector_type == ConnectorType.DESTINATION
+            and self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
         ):
             details.docs_skill_id = connector_docs.destination_skill_id(self.connector_id)
-            details.integration_name = SQL_PASSTHROUGH_DESTINATION_NAMES.get(self.definition_id)
+            details.integration_name = _SQL_PASSTHROUGH_DESTINATION_NAMES.get(self.definition_id)
         elif details.external_access_enabled and self.workspace._has_context_layer_api():  # noqa: SLF001
             context_layer = self._context_layer_inspect(
                 warnings=warnings,
@@ -737,7 +750,7 @@ class CloudConnector:
                 warnings.append(f"Connector definition lookup failed: {error}")
             else:
                 details.connector_definition_name = definition.name
-            if connector_type == "destination":
+            if connector_type == ConnectorType.DESTINATION:
                 try:
                     details.config = self.as_cloud_destination().configuration
                 except exc.AirbyteError as error:
@@ -782,7 +795,7 @@ class CloudConnector:
         BigQuery) get built-in docs generated locally. Other destinations do not support
         direct access.
         """
-        if self.connector_type == "source":
+        if self.connector_type == ConnectorType.SOURCE:
             docs_skill_id: str | None = None
             if self.workspace._has_context_layer_api():  # noqa: SLF001
                 sink: list[str] = []
@@ -800,7 +813,7 @@ class CloudConnector:
                 )
             )
 
-        if self.definition_id in SQL_PASSTHROUGH_DESTINATION_DIALECTS:
+        if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             destination = self.as_cloud_destination()
             if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS:
                 return connector_docs.build_destination_skill_docs(
@@ -847,7 +860,7 @@ class CloudConnector:
 
     def list_connections(self) -> list[CloudConnection]:
         """List the connections that read from or write to this connector."""
-        if self.connector_type == "source":
+        if self.connector_type == ConnectorType.SOURCE:
             return [
                 connection
                 for connection in self.workspace.list_connections()
@@ -880,7 +893,7 @@ class CloudConnector:
         yield from agents_api_util.iter_paged_entities(
             lambda cursor: self.execute_api_query(
                 entity_type,
-                "list",
+                ExternalApiReadOnlyAction.LIST,
                 api_args,
                 select_fields=select_fields,
                 exclude_fields=exclude_fields,
@@ -904,7 +917,7 @@ class CloudSource(CloudConnector):
         super().__init__(
             workspace=workspace,
             connector_id=connector_id,
-            connector_type="source",
+            connector_type=ConnectorType.SOURCE,
         )
 
     @property
@@ -1001,7 +1014,7 @@ class CloudDestination(CloudConnector):
         super().__init__(
             workspace=workspace,
             connector_id=connector_id,
-            connector_type="destination",
+            connector_type=ConnectorType.DESTINATION,
         )
         self._configuration: dict[str, Any] | None = None
         """The destination configuration. (Cached.)"""
@@ -1109,7 +1122,7 @@ class CustomCloudSourceDefinition:
     This represents either a YAML (declarative) or Docker-based custom source definition.
     """
 
-    connector_type: ClassVar[Literal["source", "destination"]] = "source"
+    connector_type: ClassVar[ConnectorType] = ConnectorType.SOURCE
     """The type of the connector: 'source' or 'destination'."""
 
     def __init__(

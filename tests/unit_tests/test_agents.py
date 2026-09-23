@@ -1395,7 +1395,7 @@ def _snowflake_destination(**kwargs: Any) -> _FakeDestination:
     return _FakeDestination(
         connector_id="dest-1",
         name="Snowflake dev",
-        definition_id=destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        definition_id=destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
         **kwargs,
     )
 
@@ -1473,19 +1473,19 @@ def test_build_destination_skill_docs_index_includes_connections_and_streams() -
     ("definition_id", "configuration", "expected"),
     [
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             {"database": "DB", "schema": "S"},
             [("database", "DB"), ("schema", "S")],
             id="snowflake",
         ),
         pytest.param(
-            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             {"project_id": "P", "dataset_id": "D"},
             [("project", "P"), ("dataset", "D")],
             id="bigquery",
         ),
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             None,
             [],
             id="missing_config",
@@ -1581,12 +1581,12 @@ def test_connection_namespace_note(
     ("definition_id", "dialect"),
     [
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             "snowflake",
             id="snowflake",
         ),
         pytest.param(
-            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             "bigquery",
             id="bigquery",
         ),
@@ -1671,12 +1671,12 @@ def test_build_destination_skill_docs_connections_section_empty() -> None:
     ("definition_id", "expected_tables"),
     [
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             ["`RAW_ISSUES`", "`RAW_PULL_REQUESTS`"],
             id="snowflake-upper-cases",
         ),
         pytest.param(
-            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             ["`raw_issues`", "`raw_pull_requests`"],
             id="bigquery-preserves-case",
         ),

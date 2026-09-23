@@ -185,10 +185,8 @@ class CloudOrganization:
 
     @property
     def search_indexing_enabled(self) -> bool:
-        """Whether search indexing is available in this organization.
+        """Whether search indexing is enabled for this organization.
 
-        Search indexing is available wherever external access is enabled; individual
-        sources report whether indexing is configured via
-        `CloudConnector.search_indexing_enabled`.
+        Search indexing has not launched yet, so this is always `False`.
         """
-        return self.external_access_enabled
+        return False

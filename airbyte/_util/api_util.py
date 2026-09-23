@@ -16,7 +16,7 @@ from __future__ import annotations
 import base64
 import json
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import airbyte_api
 import requests
@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from airbyte_api.models import (
         DestinationConfiguration,
     )
+
+    from airbyte.cloud.connectors import ConnectorType
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
@@ -2010,7 +2012,7 @@ def _make_config_api_request(
 def check_connector(
     *,
     actor_id: str,
-    connector_type: Literal["source", "destination"],
+    connector_type: ConnectorType,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
@@ -2049,7 +2051,7 @@ def check_connector(
     raise AirbyteError(
         context={
             "actor_id": actor_id,
-            "connector_type": connector_type,
+            "connector_type": str(connector_type),
             "response": json_result,
         },
     )

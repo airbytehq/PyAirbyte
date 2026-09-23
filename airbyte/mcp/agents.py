@@ -42,8 +42,8 @@ from airbyte._direct_connectors.connector_docs import (
 )
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     AgentSkillDocs,
     AgentSkillInfo,
 )
@@ -696,7 +696,7 @@ def _inspect_destination_fallback(
     destination = _resolve_cloud_destination(ctx, connector_id, workspace_id, organization_id)
     if (
         destination is not None
-        and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         details = build_destination_connector_details(destination)
         warnings: list[str] = []
@@ -784,7 +784,7 @@ def _destination_skill_docs_fallback(
         destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
     if (
         destination is not None
-        and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         docs = build_destination_skill_docs(destination, section=section)
         return _skill_docs_result(docs)
@@ -1080,7 +1080,7 @@ def _list_sql_passthrough_destinations(
     return [
         destination
         for destination in _get_cloud_workspace(ctx, workspace_id).list_destinations()
-        if destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        if destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ]
 
 
@@ -1091,7 +1091,7 @@ def _destination_connector_result(destination: CloudDestination) -> AgentConnect
         connector_name=destination.name,
         connector_kind="destination",
         supported_actions=["sql_select"],
-        sql_dialect=SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id],
+        sql_dialect=_SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id],
         note=AGENTS_DESTINATION_ACCESS_NOTE,
     )
 
@@ -1592,7 +1592,7 @@ def read_agent_skill_docs(
         )
         if (
             destination is not None
-            and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+            and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
         ):
             try:
                 docs = destination.get_direct_access_docs(section=section)
