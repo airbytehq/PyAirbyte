@@ -31,8 +31,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import SpanKind, StatusCode
 
 from airbyte._direct_connectors import api_util as agents_api
-from airbyte.agents.connectors import AgentConnector
-from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.connectors import CloudConnector
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import agents as agents_mcp
 from airbyte.version import get_version
@@ -365,11 +364,10 @@ def test_legacy_intent_is_receive_only_with_top_level_precedence(
 def test_agents_intent_reaches_api_unchanged_with_bounded_trace_copy(
     agents_app, monkeypatch, otel_provider, tracing, capture, intent
 ):
-    credentials = _AirbyteCredentials.from_auth(
-        bearer_token="bearer-SENTINEL", env_vars=False
+    connector = CloudConnector(workspace=Mock(), connector_id="connector-SENTINEL")
+    monkeypatch.setattr(
+        agents_mcp, "_resolve_cloud_connector", lambda *args, **kwargs: connector
     )
-    connector = AgentConnector("connector-SENTINEL", credentials=credentials)
-    monkeypatch.setattr(agents_mcp, "_get_agent_connector", lambda **kwargs: connector)
     execute = Mock(return_value={"status": "success", "result": ["result-SENTINEL"]})
     monkeypatch.setattr(agents_api, "execute_agent_connector_action", execute)
     for middleware in agents_app.middleware:
