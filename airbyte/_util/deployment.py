@@ -48,18 +48,14 @@ def get_deployment_mode(
     config_api_root: str | None = None,
 ) -> DeploymentMode:
     """Return "CLOUD" when the effective Cloud API roots are public Airbyte Cloud, else "OSS"."""
-    try:
-        return (
-            "CLOUD"
-            if is_airbyte_cloud(
-                public_api_root=public_api_root,
-                config_api_root=config_api_root,
-            )
-            else "OSS"
+    return (
+        "CLOUD"
+        if is_airbyte_cloud(
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
         )
-    except NotImplementedError:
-        # A custom API root may not allow inferring a Config API root.
-        return "OSS"
+        else "OSS"
+    )
 
 
 def is_agents_api_available(
