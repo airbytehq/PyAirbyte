@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from types import SimpleNamespace
 
 import pytest
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connectors import CloudDestination, CloudSource
-from airbyte.cloud.models import CloudDestinationInfo, CloudSourceInfo
+from airbyte.cloud.models import (
+    CloudConnectionInfo,
+    CloudDestinationInfo,
+    CloudSourceInfo,
+)
 from airbyte_api.models import (
     DestinationDuckdb,
     DestinationResponse,
@@ -58,6 +63,28 @@ def test_cloud_connector_info_from_api_response_populates_definition_id(
     info = from_api_response(response)
 
     assert info.definition_id == expected_definition_id
+
+
+def test_cloud_connection_info_from_api_response_populates_schedule() -> None:
+    """`CloudConnectionInfo` carries the schedule returned by the API."""
+    schedule = SimpleNamespace(schedule_type=SimpleNamespace(value="manual"))
+    info = CloudConnectionInfo.from_api_response(
+        SimpleNamespace(
+            connection_id="conn-1",
+            workspace_id="workspace-id",
+            source_id="source-1",
+            destination_id="dest-1",
+            name="sync",
+            configurations=None,
+            prefix=None,
+            namespace_definition=None,
+            namespace_format=None,
+            schedule=schedule,
+            status="active",
+        )
+    )
+
+    assert info.schedule is schedule
 
 
 @pytest.mark.parametrize(

@@ -24,7 +24,7 @@ from airbyte.exceptions import PyAirbyteInputError
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from airbyte.secrets.base import SecretString
+    from airbyte_api.models import AirbyteAPIConnectionSchedule
 
 
 class AgentWorkspaceInfo(BaseModel):
@@ -429,6 +429,11 @@ class _ConnectionLike(Protocol):
         """The connection's custom namespace format."""
         raise NotImplementedError
 
+    @property
+    def schedule(self) -> AirbyteAPIConnectionSchedule | None:
+        """The connection's sync schedule, when known."""
+        raise NotImplementedError
+
 
 class _ConnectorLike(Protocol):
     """Attributes `connector_docs` reads off `airbyte.cloud.connectors.CloudConnector`."""
@@ -468,10 +473,6 @@ class _WorkspaceLike(Protocol):
     """Attributes `connector_docs` reads off `airbyte.cloud.workspaces.CloudWorkspace`."""
 
     workspace_id: str
-    api_root: str
-    client_id: SecretString | None
-    client_secret: SecretString | None
-    bearer_token: SecretString | None
 
     def list_connections(
         self,

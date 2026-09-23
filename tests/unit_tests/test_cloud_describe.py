@@ -581,6 +581,48 @@ def test_schedule_description(schedule: Any, expected: str | None) -> None:
     assert connector_docs._schedule_description(schedule) == expected  # noqa: SLF001
 
 
+def test_build_connection_details_reads_cached_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`build_connection_details` uses the listed connection's schedule, not a fetch."""
+    workspace = _make_workspace(monkeypatch)
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+    connection = CloudConnection(workspace=workspace, connection_id="conn-1")
+    connection._connection_info = CloudConnectionInfo(  # noqa: SLF001
+        connection_id="conn-1",
+        workspace_id="workspace-id",
+        source_id="source-1",
+        destination_id="snowflake",
+        name="sync",
+        configurations=SimpleNamespace(streams=[SimpleNamespace(name="issues")]),
+        schedule=SimpleNamespace(schedule_type=SimpleNamespace(value="manual")),
+        status="active",
+    )
+    monkeypatch.setattr(
+        CloudWorkspace, "list_connections", lambda *_, **__: [connection]
+    )
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "list_sources",
+        lambda *_, **__: [_seed_source(workspace, "source-1", "GitHub")],
+    )
+    monkeypatch.setattr(
+        CloudWorkspace, "list_destinations", lambda *_, **__: [destination]
+    )
+    get_connection = MagicMock()
+    monkeypatch.setattr("airbyte._util.api_util.get_connection", get_connection)
+
+    (info,) = connector_docs.build_connection_details(destination)
+
+    get_connection.assert_not_called()
+    assert info.schedule == "manual"
+
+
 def test_enabled_features_context_layer_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

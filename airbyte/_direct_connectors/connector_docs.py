@@ -26,7 +26,6 @@ from airbyte._direct_connectors.models import (
     _DirectConnectorInspectResult,
     _WorkspaceLike,
 )
-from airbyte._util import api_util
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -678,16 +677,7 @@ def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorCo
                 destination_name=str(
                     destination.name if destination is not None else connection.destination_id
                 ),
-                schedule=_schedule_description(
-                    api_util.get_connection(
-                        workspace_id=workspace.workspace_id,
-                        connection_id=connection.connection_id,
-                        api_root=workspace.api_root,
-                        client_id=workspace.client_id,
-                        client_secret=workspace.client_secret,
-                        bearer_token=workspace.bearer_token,
-                    ).schedule
-                ),
+                schedule=_schedule_description(connection.schedule),
                 stream_names=list(connection.stream_names),
                 namespace_definition=connection.namespace_definition,
                 namespace_format=connection.namespace_format,

@@ -70,6 +70,8 @@ def _validate_quartz_cron_expression(cron_expression: str) -> None:
 
 
 if TYPE_CHECKING:
+    from airbyte_api.models import AirbyteAPIConnectionSchedule
+
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -306,6 +308,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             self._connection_info = self._fetch_connection_info()
 
         return self._connection_info.namespace_format
+
+    @property
+    def schedule(self) -> AirbyteAPIConnectionSchedule | None:
+        """The connection's sync schedule, when known."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.schedule
 
     @property
     def connection_url(self) -> str | None:

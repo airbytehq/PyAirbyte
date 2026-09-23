@@ -322,6 +322,9 @@ class CloudConnectionInfo(BaseModel):
     namespace_format: str | None = None
     """The namespace format template, when `namespace_definition` is `custom_format`."""
 
+    schedule: Any = None
+    """The connection's sync schedule, as returned by the API."""
+
     status: str
     """The connection status."""
 
@@ -342,6 +345,7 @@ class CloudConnectionInfo(BaseModel):
                 else None
             ),
             namespace_format=connection.namespace_format,
+            schedule=connection.schedule,
             status=_enum_value(connection.status),
         )
 
