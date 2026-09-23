@@ -31,11 +31,7 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
-from airbyte._direct_connectors.models import (
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-)
-from airbyte.agents._destination_docs import (
+from airbyte._direct_connectors.connector_docs import (
     DESTINATION_SKILL_PREFIX,
     LOCAL_DESTINATION_SECTION_IDS,
     build_destination_connector_details,
@@ -44,8 +40,13 @@ from airbyte.agents._destination_docs import (
     destination_skill_id,
     merge_destination_skill_docs,
 )
-from airbyte.agents._docs_markdown import render_docs_content_markdown
-from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
+from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.models import (
+    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    AgentSkillDocs,
+    AgentSkillInfo,
+)
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudConnector, CloudDestination, CloudSource

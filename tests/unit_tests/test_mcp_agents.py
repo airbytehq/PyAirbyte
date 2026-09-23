@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any, cast, get_args
 
 import pytest
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
     AgentExecutionMetadata,

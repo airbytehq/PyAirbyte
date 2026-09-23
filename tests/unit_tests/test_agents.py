@@ -12,7 +12,7 @@ from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import connector_docs as destination_docs
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
     AgentSkillDocs,
@@ -1740,7 +1740,7 @@ def test_build_destination_skill_docs_rejects_unknown_section() -> None:
 def test_agent_model_aliases_match_cloud_models() -> None:
     """The `Agent*` model names alias the renamed `Cloud*` models."""
     from airbyte._direct_connectors import models as dc_models
-    from airbyte.agents import models as agent_models
+    from airbyte import agents as agent_models
     from airbyte.cloud import models as cloud_models_module
 
     aliases = {

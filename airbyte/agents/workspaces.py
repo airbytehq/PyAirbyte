@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors.api_util import _resolve_connector_lookup
-from airbyte.agents import skills as _skills
-from airbyte.agents.connectors import AgentConnector
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorInfo,
     AgentSkillDocs,
     AgentWorkspaceInfo,
 )
+from airbyte.agents import skills as _skills
+from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.skills import AgentSkill
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.workspaces import CloudWorkspace
