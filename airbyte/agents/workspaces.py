@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors.api_util import _resolve_connector_lookup
 from airbyte._direct_connectors.models import (
-    AgentConnectorInfo,
-    AgentSkillDocs,
     AgentWorkspaceInfo,
+    CloudDirectConnectorInfo,
+    DirectAccessGuidance,
 )
 from airbyte.agents import skills as _skills
 from airbyte.agents.connectors import AgentConnector
@@ -137,7 +137,7 @@ class AgentWorkspace:
                 workspace_id=self.workspace_id,
             )
             for info in (
-                AgentConnectorInfo.model_validate(record)
+                CloudDirectConnectorInfo.model_validate(record)
                 for record in _api_util.list_agent_connectors(
                     workspace_id=self.workspace_id,
                     credentials=self._credentials,
@@ -174,7 +174,7 @@ class AgentWorkspace:
         skill_id: str,
         *,
         section: str | None = None,
-    ) -> AgentSkillDocs:
+    ) -> DirectAccessGuidance:
         """Read a skill's docs, optionally scoped to a single section.
 
         Omit `section` for metadata, guidance, and the outline of available sections, or

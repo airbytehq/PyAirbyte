@@ -87,18 +87,40 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors.models import (
-    AgentConnectorDetails,
-    AgentConnectorInfo,
-    AgentConnectorMetadata,
-    AgentContextStoreEntity,
-    AgentContextStoreReadiness,
-    AgentExecuteResult,
-    AgentExecutionMetadata,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillList,
-    AgentSkillSection,
     AgentWorkspaceInfo,
+)
+from airbyte._direct_connectors.models import (
+    CloudContextLayerConnectorDetails as AgentConnectorDetails,
+)
+from airbyte._direct_connectors.models import (
+    CloudContextStoreEntity as AgentContextStoreEntity,
+)
+from airbyte._direct_connectors.models import (
+    CloudContextStoreReadiness as AgentContextStoreReadiness,
+)
+from airbyte._direct_connectors.models import (
+    CloudDirectConnectorInfo as AgentConnectorInfo,
+)
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidance as AgentSkillDocs,
+)
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidanceInfo as AgentSkillInfo,
+)
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidanceList as AgentSkillList,
+)
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidanceSection as AgentSkillSection,
+)
+from airbyte._direct_connectors.models import (
+    ExternalApiConnectorMetadata as AgentConnectorMetadata,
+)
+from airbyte._direct_connectors.models import (
+    ExternalApiExecuteResult as AgentExecuteResult,
+)
+from airbyte._direct_connectors.models import (
+    ExternalApiExecutionMetadata as AgentExecutionMetadata,
 )
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.organizations import AgentOrganization

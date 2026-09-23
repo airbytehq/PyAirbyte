@@ -158,28 +158,24 @@ class _DestinationLocation(NamedTuple):
         return [part for part in (self.container, self.namespace) if part is not None]
 
 
+def _location_part(label: str, value: object) -> _LocationPart | None:
+    """Return a `_LocationPart` for a non-empty string configuration value, else `None`."""
+    return _LocationPart(label, value) if isinstance(value, str) and value else None
+
+
 def _destination_location(
     definition_id: str,
     configuration: Mapping[str, Any] | None,
 ) -> _DestinationLocation:
     """Return where the destination writes synced tables, read from its configuration."""
+    keys = _DESTINATION_LOCATION_KEYS.get(definition_id)
+    if keys is None:
+        return _DestinationLocation()
     config = dict(configuration or {})
-    (container_key, namespace_key) = _DESTINATION_LOCATION_KEYS.get(
-        definition_id, (("", ""), ("", ""))
-    )
-    container_value = config.get(container_key[1])
-    namespace_value = config.get(namespace_key[1])
+    (container_label, container_key), (namespace_label, namespace_key) = keys
     return _DestinationLocation(
-        container=(
-            _LocationPart(container_key[0], container_value)
-            if isinstance(container_value, str) and container_value
-            else None
-        ),
-        namespace=(
-            _LocationPart(namespace_key[0], namespace_value)
-            if isinstance(namespace_value, str) and namespace_value
-            else None
-        ),
+        container=_location_part(container_label, config.get(container_key)),
+        namespace=_location_part(namespace_label, config.get(namespace_key)),
     )
 
 
@@ -517,6 +513,21 @@ def _table_name(dialect: str, table_prefix: str, stream_name: str) -> str:
     return name.upper() if dialect == "snowflake" else name
 
 
+def _stream_rows(connection: CloudConnection, dialect: str) -> list[list[str]]:
+    """Return (stream name, table name) rows for a connection's enabled streams."""
+    return [
+        [
+            stream_name,
+            f"`{_table_name(
+                dialect=dialect,
+                table_prefix=connection.table_prefix,
+                stream_name=stream_name,
+            )}`",
+        ]
+        for stream_name in connection.stream_names
+    ]
+
+
 def _connection_namespace_note(
     connection: CloudConnection,
     location: _DestinationLocation,
@@ -578,17 +589,7 @@ def _streams_section(
                 {
                     "type": "table",
                     "headers": ["Stream", "Table"],
-                    "rows": [
-                        [
-                            stream_name,
-                            f"`{_table_name(
-                                dialect=dialect,
-                                table_prefix=connection.table_prefix,
-                                stream_name=stream_name,
-                            )}`",
-                        ]
-                        for stream_name in connection.stream_names
-                    ],
+                    "rows": _stream_rows(connection=connection, dialect=dialect),
                 },
             ]
         )

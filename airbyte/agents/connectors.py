@@ -21,7 +21,10 @@ from airbyte._direct_connectors.actions import (
     AgentWriteAction,
     _build_params,
 )
-from airbyte._direct_connectors.models import AgentConnectorDetails, AgentExecuteResult
+from airbyte._direct_connectors.models import (
+    CloudContextLayerConnectorDetails,
+    ExternalApiExecuteResult,
+)
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -64,7 +67,7 @@ class AgentConnector:
 
         self._credentials = credentials
         self._name = name
-        self._details: AgentConnectorDetails | None = None
+        self._details: CloudContextLayerConnectorDetails | None = None
 
     @property
     def name(self) -> str | None:
@@ -73,13 +76,13 @@ class AgentConnector:
             self._name = self.inspect().name
         return self._name
 
-    def inspect(self, *, force_refresh: bool = False) -> AgentConnectorDetails:
+    def inspect(self, *, force_refresh: bool = False) -> CloudContextLayerConnectorDetails:
         """Return connector metadata from the Agents API `inspect` endpoint.
 
         The result is cached; pass `force_refresh=True` to fetch it again.
         """
         if self._details is None or force_refresh:
-            self._details = AgentConnectorDetails.model_validate(
+            self._details = CloudContextLayerConnectorDetails.model_validate(
                 _api_util.inspect_agent_connector(
                     connector_id=self.connector_id,
                     credentials=self._credentials,
@@ -102,7 +105,7 @@ class AgentConnector:
         workspace_id: str | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Execute a single action against one entity type on this connector.
 
         `entity_type` and `action` are connector-specific, for example `issues` and `list`.
@@ -171,7 +174,7 @@ class AgentConnector:
         if intent is not None:
             request_body["intent"] = intent
 
-        return AgentExecuteResult.model_validate(
+        return ExternalApiExecuteResult.model_validate(
             _api_util.execute_agent_connector_action(
                 connector_id=self.connector_id,
                 request_body=request_body,
@@ -185,7 +188,7 @@ class AgentConnector:
         entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run the `list` action, which returns a page of entities of `entity_type`."""
         return self.execute(entity_type, "list", api_args, **kwargs)
 
@@ -233,7 +236,7 @@ class AgentConnector:
         entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run the `search` action, which returns matching entities of `entity_type`."""
         return self.execute(entity_type, "search", api_args, **kwargs)
 
@@ -242,7 +245,7 @@ class AgentConnector:
         entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run the `get` action, which returns a single entity of `entity_type`."""
         return self.execute(entity_type, "get", api_args, **kwargs)
 
@@ -251,7 +254,7 @@ class AgentConnector:
         entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run the `create` action, which creates an entity of `entity_type`."""
         return self.execute(entity_type, "create", api_args, **kwargs)
 
@@ -260,7 +263,7 @@ class AgentConnector:
         entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run the `update` action, which updates an entity of `entity_type`."""
         return self.execute(entity_type, "update", api_args, **kwargs)
 
@@ -269,6 +272,6 @@ class AgentConnector:
         entity_type: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Run the `delete` action, which deletes an entity of `entity_type`."""
         return self.execute(entity_type, "delete", api_args, **kwargs)

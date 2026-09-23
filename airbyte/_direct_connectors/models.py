@@ -422,22 +422,6 @@ class CloudConnectorDetails(BaseModel):
     """Fatal issues encountered while describing optional connector details."""
 
 
-# Backwards-compatible aliases for the previous `Agent*` model names. New code should
-# use the `Cloud*` names above.
-
-AgentContextStoreEntity = CloudContextStoreEntity
-AgentContextStoreReadiness = CloudContextStoreReadiness
-AgentSkillInfo = DirectAccessGuidanceInfo
-AgentSkillList = DirectAccessGuidanceList
-AgentSkillSection = DirectAccessGuidanceSection
-AgentSkillDocs = DirectAccessGuidance
-AgentExecutionMetadata = ExternalApiExecutionMetadata
-AgentConnectorMetadata = ExternalApiConnectorMetadata
-AgentExecuteResult = ExternalApiExecuteResult
-AgentConnectorInfo = CloudDirectConnectorInfo
-AgentConnectorDetails = CloudContextLayerConnectorDetails
-
-
 _SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
 _BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
 
@@ -454,4 +438,12 @@ _SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
 """Destination definition ID -> display name of the destination integration."""
 
 _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(_SQL_PASSTHROUGH_DESTINATION_DIALECTS)
+
+# Referenced here so unused-global linters (CodeQL) don't flag these package-private
+# constants, which are consumed from sibling modules.
+_ = (
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+)
 """Destination definitions AI agents can query through SQL passthrough."""

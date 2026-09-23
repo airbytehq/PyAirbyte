@@ -11,7 +11,7 @@ import pytest
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
-from airbyte._direct_connectors.models import AgentExecuteResult
+from airbyte._direct_connectors.models import ExternalApiExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
     CloudConnector,
@@ -153,7 +153,7 @@ def test_execute_api_query_forwards_action(
         **kwargs,
     )
 
-    assert isinstance(result, AgentExecuteResult)
+    assert isinstance(result, ExternalApiExecuteResult)
     assert result.status == "success"
     assert len(calls) == 1
     call = calls[0]
@@ -190,7 +190,7 @@ def test_execute_api_action_forwards_to_agents_api(
         intent="file a bug",
     )
 
-    assert isinstance(result, AgentExecuteResult)
+    assert isinstance(result, ExternalApiExecuteResult)
     body = calls[0]["request_body"]
     assert body["entity"] == "issues"
     assert body["action"] == "create"
@@ -402,7 +402,7 @@ def test_execute_sql_query_dialect(
         page_size=5,
     )
 
-    assert isinstance(result, AgentExecuteResult)
+    assert isinstance(result, ExternalApiExecuteResult)
     body = calls[0]["request_body"]
     assert body["entity"] == "sql"
     assert body["action"] == "sql_select"

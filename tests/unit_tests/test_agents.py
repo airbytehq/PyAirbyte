@@ -13,11 +13,11 @@ from airbyte._direct_connectors import connector_docs as destination_docs
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte._direct_connectors.models import (
-    AgentConnectorMetadata,
-    AgentExecuteResult,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    DirectAccessGuidance,
+    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceSection,
 )
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.skills import AgentSkill
@@ -567,7 +567,7 @@ def test_entities(
     result_payload: Any, expectation: list[dict[str, Any]] | None
 ) -> None:
     """`entities` returns entity lists and raises on any other payload shape."""
-    result = AgentExecuteResult(status="success", result=result_payload)
+    result = ExternalApiExecuteResult(status="success", result=result_payload)
     if expectation is None:
         with pytest.raises(PyAirbyteInputError):
             _ = result.entities
@@ -576,8 +576,8 @@ def test_entities(
 
 
 def test_execute_result_accepts_null_metadata() -> None:
-    """`AgentExecuteResult` accepts null metadata from the Agents API."""
-    result = AgentExecuteResult.model_validate({
+    """`ExternalApiExecuteResult` accepts null metadata from the Agents API."""
+    result = ExternalApiExecuteResult.model_validate({
         "status": "success",
         "result": {"data": [], "meta": {}},
         "connector_metadata": None,
@@ -585,7 +585,7 @@ def test_execute_result_accepts_null_metadata() -> None:
         "bundle": None,
     })
 
-    assert result.connector_metadata == AgentConnectorMetadata()
+    assert result.connector_metadata == ExternalApiConnectorMetadata()
     assert result.has_next_page is False
     assert result.end_cursor is None
 
@@ -1304,7 +1304,7 @@ def test_agent_skill_read_docs_keeps_listed_info(
     captured_requests: list[dict[str, Any]],
 ) -> None:
     """`read_docs()` does not replace richer metadata supplied at construction."""
-    listed_info = AgentSkillInfo(
+    listed_info = DirectAccessGuidanceInfo(
         id="connector:github",
         kind="connector_source",
         title="GitHub",
@@ -1503,7 +1503,7 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
 def test_destination_location(
     definition_id: str,
     configuration: dict[str, Any] | None,
-    expected: Any,
+    expected: destination_docs._DestinationLocation,
 ) -> None:
     destination = _FakeDestination(
         connector_id="dest-1",
@@ -1576,7 +1576,7 @@ def test_connection_namespace_note(
     namespace_definition: str | None,
     namespace_format: str | None,
     table_prefix: str,
-    location: Any,
+    location: destination_docs._DestinationLocation,
     expected: str,
 ) -> None:
     connection = _FakeConnection(
@@ -1588,12 +1588,7 @@ def test_connection_namespace_note(
         namespace_format=namespace_format,
     )
 
-    assert (
-        destination_docs._connection_namespace_note(  # noqa: SLF001
-            connection, location
-        )
-        == expected
-    )
+    assert destination_docs._connection_namespace_note(connection, location) == expected
 
 
 @pytest.mark.parametrize(
@@ -1780,7 +1775,6 @@ def test_agent_model_aliases_match_cloud_models() -> None:
     for agent_name, cloud_name in aliases.items():
         cloud_model = getattr(dc_models, cloud_name)
         assert getattr(agent_models, agent_name) is cloud_model
-        assert getattr(dc_models, agent_name) is cloud_model
         assert getattr(cloud_models_module, cloud_name) is cloud_model
 
 
@@ -1790,15 +1784,15 @@ def test_merge_destination_skill_docs() -> None:
         fail_on_connections=True,
         configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
     )
-    server_docs = AgentSkillDocs(
-        metadata=AgentSkillInfo(
+    server_docs = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceInfo(
             id="connector-destination:dest-1",
             kind="connector_destination",
             title="Server title",
         ),
         outline=[
-            AgentSkillSection(id="overview", title="Server overview"),
-            AgentSkillSection(
+            DirectAccessGuidanceSection(id="overview", title="Server overview"),
+            DirectAccessGuidanceSection(
                 id=destination_docs.SECTION_SQL_PASSTHROUGH,
                 title="Server sql-passthrough",
             ),

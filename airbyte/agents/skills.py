@@ -13,7 +13,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors import api_util as _api_util
-from airbyte._direct_connectors.models import AgentSkillDocs, AgentSkillInfo, AgentSkillList
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidance,
+    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceList,
+)
 
 
 if TYPE_CHECKING:
@@ -35,7 +39,7 @@ class AgentSkill:
         *,
         credentials: _AirbyteCredentials,
         workspace_id: str | None = None,
-        info: AgentSkillInfo | None = None,
+        info: DirectAccessGuidanceInfo | None = None,
     ) -> None:
         """Initialize an `AgentSkill`. Prefer `AgentWorkspace.get_skill()`."""
         self.skill_id = skill_id
@@ -46,7 +50,7 @@ class AgentSkill:
         self._info = info
 
     @property
-    def info(self) -> AgentSkillInfo:
+    def info(self) -> DirectAccessGuidanceInfo:
         """The skill's metadata, fetched from the Agents API if not already known."""
         if self._info is None:
             self._info = self.read_docs().metadata
@@ -62,13 +66,13 @@ class AgentSkill:
         """The skill category, for example `static` or `connector_source`."""
         return self.info.kind
 
-    def read_docs(self, *, section: str | None = None) -> AgentSkillDocs:
+    def read_docs(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this skill's docs, optionally scoped to a single section.
 
         Omit `section` for metadata, guidance, and the outline of available sections, or
         pass an exact section `id` from the outline to read that section.
         """
-        docs = AgentSkillDocs.model_validate(
+        docs = DirectAccessGuidance.model_validate(
             _api_util.read_agent_skill_docs(
                 skill_id=self.skill_id,
                 credentials=self._credentials,
@@ -88,13 +92,13 @@ def list_skills(
     workspace_id: str | None = None,
     limit: int | None = None,
     cursor: str | None = None,
-) -> AgentSkillList:
+) -> DirectAccessGuidanceList:
     """List the skills available to a workspace or organization.
 
     Pass `limit` to cap the page size and the `next_cursor` of a previous result as
     `cursor` to fetch the next page.
     """
-    return AgentSkillList.model_validate(
+    return DirectAccessGuidanceList.model_validate(
         _api_util.list_agent_skills(
             credentials=credentials,
             organization_id=credentials.organization_id,
@@ -106,8 +110,8 @@ def list_skills(
 
 
 def _iter_skill_pages(
-    fetch_page: Callable[[str | None], AgentSkillList],
-) -> Iterator[AgentSkillInfo]:
+    fetch_page: Callable[[str | None], DirectAccessGuidanceList],
+) -> Iterator[DirectAccessGuidanceInfo]:
     """Yield skills across pages, following `next_cursor` until it is `None`.
 
     Stops early if the server returns a blank cursor or one already seen, rather than
@@ -128,14 +132,14 @@ def iter_skills(
     *,
     credentials: _AirbyteCredentials,
     workspace_id: str | None = None,
-) -> Iterator[AgentSkillInfo]:
+) -> Iterator[DirectAccessGuidanceInfo]:
     """Yield all available skills, following the API's pagination cursor.
 
     This is the pagination-free way to list skills: each page is fetched lazily as the
     caller iterates, so no cursor bookkeeping is needed.
     """
     return _iter_skill_pages(
-        lambda cursor: AgentSkillList.model_validate(
+        lambda cursor: DirectAccessGuidanceList.model_validate(
             _api_util.list_agent_skills(
                 credentials=credentials,
                 organization_id=credentials.organization_id,

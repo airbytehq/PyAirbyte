@@ -48,7 +48,7 @@ from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    AgentConnectorInfo,
+    CloudDirectConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceInfo,
     DirectAccessGuidanceList,
@@ -416,7 +416,7 @@ class CloudWorkspace:
 
             raise
 
-        return frozenset(AgentConnectorInfo.model_validate(record).id for record in records)
+        return frozenset(CloudDirectConnectorInfo.model_validate(record).id for record in records)
 
     def _get_connector_features(
         self,

@@ -9,12 +9,12 @@ from typing import Any, cast, get_args
 
 import pytest
 from airbyte._direct_connectors.models import (
-    AgentConnectorMetadata,
-    AgentExecuteResult,
-    AgentExecutionMetadata,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    ExternalApiExecutionMetadata,
+    DirectAccessGuidance,
+    DirectAccessGuidanceInfo,
+    DirectAccessGuidanceSection,
 )
 from airbyte._direct_connectors.connector_docs import destination_skill_id
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
@@ -58,7 +58,7 @@ class _CloudConnectorLike:
         action: str,
         api_args: dict[str, Any] | None,
         kwargs: dict[str, Any],
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Record the call and return a fixed successful result."""
         self.calls.append({
             "entity": entity_type,
@@ -66,14 +66,14 @@ class _CloudConnectorLike:
             "api_args": api_args,
             **kwargs,
         })
-        return AgentExecuteResult(
+        return ExternalApiExecuteResult(
             status="success",
             result=[{"id": "1"}],
-            connector_metadata=AgentConnectorMetadata(
+            connector_metadata=ExternalApiConnectorMetadata(
                 has_next_page=True,
                 end_cursor="cursor-2",
             ),
-            execution_metadata=AgentExecutionMetadata(
+            execution_metadata=ExternalApiExecutionMetadata(
                 connector_instance_id="connector-id",
                 execution_time_ms=42,
             ),
@@ -85,7 +85,7 @@ class _CloudConnectorLike:
         action: str = "list",
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Record the read call."""
         return self._record(entity_type, action, api_args, kwargs)
 
@@ -95,7 +95,7 @@ class _CloudConnectorLike:
         action: str,
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Record the write call."""
         return self._record(entity_type, action, api_args, kwargs)
 
@@ -106,7 +106,7 @@ class _CloudConnectorLike:
         sql_dialect: str | None = None,
         page_size: int | None = None,
         cursor: str | None = None,
-    ) -> AgentExecuteResult:
+    ) -> ExternalApiExecuteResult:
         """Record the `sql_select` call."""
         return self._record(
             "sql",
@@ -518,7 +518,7 @@ def test_inspect_tool_reports_connector_details(
 def _inspect_workspace_with_docs(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    docs: AgentSkillDocs | None,
+    docs: DirectAccessGuidance | None,
     docs_skill_id: str | None = "connector:github",
 ) -> Any:  # noqa: ANN401
     """Stub a workspace whose connector describes cleanly and docs read as configured."""
@@ -579,10 +579,10 @@ def test_inspect_tool_includes_docs_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `inspect_agent_connector` embeds the docs summary and guidance."""
-    docs = AgentSkillDocs(
-        metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+    docs = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceInfo(id="connector:github", title="GitHub"),
         outline=[
-            AgentSkillSection(
+            DirectAccessGuidanceSection(
                 id="actions.issues.get",
                 title="issues.get",
                 summary="4 parameters; Get a specific issue",
@@ -667,11 +667,11 @@ def test_inspect_tool_docs_guidance_uses_first_available_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The guidance example picks the first available outline section."""
-    docs = AgentSkillDocs(
-        metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+    docs = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceInfo(id="connector:github", title="GitHub"),
         outline=[
-            AgentSkillSection(id="actions.a", title="a", available=False),
-            AgentSkillSection(id="actions.b", title="b"),
+            DirectAccessGuidanceSection(id="actions.a", title="a", available=False),
+            DirectAccessGuidanceSection(id="actions.b", title="b"),
         ],
     )
     _inspect_workspace_with_docs(monkeypatch, docs=docs)
@@ -688,10 +688,10 @@ def test_inspect_tool_docs_guidance_omits_example_without_outline(
     """An empty or fully unavailable outline yields guidance with no section example."""
     for outline in (
         [],
-        [AgentSkillSection(id="actions.a", title="a", available=False)],
+        [DirectAccessGuidanceSection(id="actions.a", title="a", available=False)],
     ):
-        docs = AgentSkillDocs(
-            metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+        docs = DirectAccessGuidance(
+            metadata=DirectAccessGuidanceInfo(id="connector:github", title="GitHub"),
             outline=outline,
         )
         _inspect_workspace_with_docs(monkeypatch, docs=docs)
@@ -1401,34 +1401,36 @@ def test_workspace_api_roots_come_from_mcp_config(
 
 
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify the skills tools shape `AgentSkillList`/`AgentSkillDocs` into results."""
+    """Verify the skills tools shape `DirectAccessGuidanceList`/`DirectAccessGuidance` into results."""
 
     class _SkilledWorkspace:
         def _list_guidance(self) -> list[Any]:
             # Two skills spanning two pages; pagination is internal to the workspace.
             return [
-                AgentSkillInfo(
+                DirectAccessGuidanceInfo(
                     id="connector:github",
                     kind="connector_source",
                     title="GitHub",
                     summary="GitHub usage docs.",
                     tags=["github"],
                 ),
-                AgentSkillInfo(id="context-store", title="Context Store"),
+                DirectAccessGuidanceInfo(id="context-store", title="Context Store"),
             ]
 
         def _read_guidance(
             self, skill_id: str, *, section: str | None = None
-        ) -> AgentSkillDocs:
-            return AgentSkillDocs(
-                metadata=AgentSkillInfo(
+        ) -> DirectAccessGuidance:
+            return DirectAccessGuidance(
+                metadata=DirectAccessGuidanceInfo(
                     id=skill_id,
                     title="GitHub",
                     warnings=["Partial runtime metadata."],
                 ),
                 outline=[
-                    AgentSkillSection(id="setup", title="Setup", available=True),
-                    AgentSkillSection(id="faq", title="FAQ", available=False),
+                    DirectAccessGuidanceSection(
+                        id="setup", title="Setup", available=True
+                    ),
+                    DirectAccessGuidanceSection(id="faq", title="FAQ", available=False),
                 ],
                 section_id=section,
                 content=[{"type": "paragraph", "text": "Hello"}],
@@ -1781,7 +1783,7 @@ def _patch_destination_404(
 def _patch_destination_server_docs(
     monkeypatch: pytest.MonkeyPatch,
     destinations: list[_FakeDestinationForDocs],
-    server_docs: AgentSkillDocs,
+    server_docs: DirectAccessGuidance,
     *,
     calls: list[tuple[str, str | None]],
 ) -> Any:
@@ -1839,7 +1841,7 @@ def _patch_destination_server_docs(
             self,
             skill_id: str,
             section: str | None = None,
-        ) -> AgentSkillDocs:
+        ) -> DirectAccessGuidance:
             calls.append((skill_id, section))
             return server_docs.model_copy(update={"section_id": section})
 
@@ -1867,7 +1869,7 @@ def _patch_destination_server_docs(
 
         def _read_guidance(
             self, skill_id: str, *, section: str | None = None
-        ) -> AgentSkillDocs:
+        ) -> DirectAccessGuidance:
             calls.append((skill_id, section))
             return server_docs.model_copy(update={"section_id": section})
 
@@ -1894,15 +1896,15 @@ def _patch_destination_server_docs(
 
 def _server_destination_docs(
     outline_ids: list[str] | None = None,
-) -> AgentSkillDocs:
-    return AgentSkillDocs(
-        metadata=AgentSkillInfo(
+) -> DirectAccessGuidance:
+    return DirectAccessGuidance(
+        metadata=DirectAccessGuidanceInfo(
             id="connector-destination:dest-snowflake",
             kind="connector_destination",
             title="Server destination docs",
         ),
         outline=[
-            AgentSkillSection(id=section_id, title=f"Server {section_id}")
+            DirectAccessGuidanceSection(id=section_id, title=f"Server {section_id}")
             for section_id in (
                 outline_ids
                 or ["overview", "actions.record.sql_select", "sources.src-1"]

@@ -44,8 +44,8 @@ from airbyte._direct_connectors.docs_markdown import render_docs_content_markdow
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-    AgentSkillDocs,
-    AgentSkillInfo,
+    DirectAccessGuidance,
+    DirectAccessGuidanceInfo,
 )
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
@@ -638,8 +638,8 @@ def _or_none(items: list[str]) -> list[str] | None:
     return items or None
 
 
-def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
-    """Shape an `AgentSkillDocs` into an `AgentSkillDocsResult`."""
+def _skill_docs_result(docs: DirectAccessGuidance) -> AgentSkillDocsResult:
+    """Shape an `DirectAccessGuidance` into an `AgentSkillDocsResult`."""
     return AgentSkillDocsResult(
         skill_id=docs.metadata.id,
         title=docs.metadata.title,
@@ -750,7 +750,7 @@ def _read_destination_skill_docs(
     workspace: AgentWorkspace,
     destination: CloudDestination,
     section: str | None,
-) -> AgentSkillDocs:
+) -> DirectAccessGuidance:
     """Read a SQL passthrough destination's docs, merging server docs with local guidance.
 
     Local-only sections are built without calling the Agents API; otherwise server
@@ -1488,8 +1488,8 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     )
 
 
-def _agent_skill_result(skill: AgentSkillInfo) -> AgentSkillResult:
-    """Shape an `AgentSkillInfo` into an `AgentSkillResult`."""
+def _agent_skill_result(skill: DirectAccessGuidanceInfo) -> AgentSkillResult:
+    """Shape an `DirectAccessGuidanceInfo` into an `AgentSkillResult`."""
     return AgentSkillResult(
         skill_id=skill.id,
         kind=skill.kind,
