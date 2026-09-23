@@ -3,8 +3,9 @@
 # On a schedule (and on demand), this workflow fast-forwards the release-candidate
 # branch to `main` when possible, falls back to a clean merge commit when the
 # branches have diverged, and — when the merge conflicts — pushes `main` to a
-# dedicated sync branch and opens (or refreshes) a PR into the release-candidate
-# branch so a human can resolve the conflicts.
+# dedicated sync branch and opens a PR into the release-candidate branch so a
+# human can resolve the conflicts. While that PR is open the sync branch is left
+# untouched; it is recreated only after the PR is merged or closed.
 
 name: "RC Branch: Update from `main`"
 
@@ -78,8 +79,10 @@ jobs:
             && echo "::error::Source and target branches must differ." \
             && exit 1
 
-          # Slashes in each name become hyphens, so the single `/from-` separator is unambiguous.
-          sync_branch="auto-sync/${target//\//-}/from-${source//\//-}"
+          # Human-readable slugs plus a short hash of the exact (target, source) pair,
+          # so distinct pairs can never map to the same branch.
+          pair_hash="$(printf '%s\n%s\n' "$target" "$source" | sha256sum | cut -c1-8)"
+          sync_branch="auto-sync/${target//\//-}/from-${source//\//-}-${pair_hash}"
           {
             printf "target=%s\n" "$target"
             printf "source=%s\n" "$source"
@@ -196,7 +199,7 @@ jobs:
 
           \`${TARGET}\` is **${BEHIND}** commit(s) behind \`${SOURCE}\`. Please resolve the merge conflicts on \`${SYNC_BRANCH}\` and merge this PR.
 
-          The sync branch is force-updated to \`${SOURCE}\` on every run until this PR is merged or closed.
+          While this PR is open, the sync branch is left untouched so your conflict-resolution commits are preserved. Once it is merged or closed, the next run recreates the branch from \`${SOURCE}\` if conflicts remain.
 
           Workflow run: ${RUN_URL}
           EOF
