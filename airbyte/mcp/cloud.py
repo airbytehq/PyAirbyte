@@ -1197,7 +1197,7 @@ def list_deployed_cloud_connectors(
 class CloudConnectorDocsResult(BaseModel):
     """Connector docs rendered for agent consumption by the Cloud MCP tools.
 
-    Returned by `describe_cloud_*` and `get_cloud_direct_access_guidance`.
+    Returned by `describe_cloud_*` and `get_agent_direct_access_guidance`.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -1554,7 +1554,7 @@ def _docs_result(docs: DirectAccessGuidance) -> CloudConnectorDocsResult:
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def get_cloud_direct_access_guidance(
+def get_agent_direct_access_guidance(
     ctx: Context,
     *,
     docs_skill_id: Annotated[

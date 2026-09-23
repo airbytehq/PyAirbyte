@@ -943,7 +943,7 @@ def test_list_deployed_cloud_connectors_filters(
     ]
 
 
-def test_get_cloud_direct_access_guidance_tool(
+def test_get_agent_direct_access_guidance_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool forwards `docs_skill_id`/`section` and renders the docs result."""
@@ -966,7 +966,7 @@ def test_get_cloud_direct_access_guidance_tool(
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    result = cloud_mcp.get_cloud_direct_access_guidance(
+    result = cloud_mcp.get_agent_direct_access_guidance(
         None,
         docs_skill_id="connector-source:source-1",
         section="setup",
