@@ -1,8 +1,12 @@
 # Deploys the cloud-mcp Cloud Run services, which run the PyAirbyte MCP server.
 #
-# The services themselves live in airbytehq/airbyte-ops-mcp, so this workflow
-# only resolves which PyAirbyte build should ship and hands it to that repo's
-# `Deploy MCP Server` workflow via `repository_dispatch`.
+# The services themselves live in other repos, so this workflow only resolves
+# which PyAirbyte build should ship and hands it off:
+# - airbytehq/airbyte-ops-mcp - every deploy, preview and production, goes to
+#   that repo's `Deploy MCP Server` workflow via `repository_dispatch`.
+# - airbytehq/airbyte-platform-internal - a production deploy additionally goes
+#   to that repo's `Deploy Cloud MCP` workflow, also via `repository_dispatch`.
+#   That repo has only a production service, so the preview path skips it.
 #
 # Triggers:
 # - push (main) - Every merge refreshes cloud-mcp-preview with that commit,
@@ -38,10 +42,11 @@ on:
 permissions:
   contents: read
 
-# Serialize the dispatch requests per target service. The Cloud Run rollout
-# itself happens in airbyte-ops-mcp, which does not guard concurrency, so this
-# narrows the race rather than removing it. Preview only ever wants the newest
-# commit, so supersede in-flight preview runs; production runs to completion.
+# Serialize the dispatch requests per target service. The airbyte-ops-mcp
+# rollout does not guard concurrency, so for that target this narrows the race
+# rather than removing it; airbyte-platform-internal serializes its own deploys
+# under its `deploy-cloud-mcp` group. Preview only ever wants the newest commit,
+# so supersede in-flight preview runs; production runs to completion.
 concurrency:
   group: deploy-cloud-mcp-${{ inputs.preview || 'true' }}
   cancel-in-progress: ${{ inputs.preview != 'false' }}
@@ -166,13 +171,80 @@ jobs:
           event-type: deploy-cloud-mcp
           client-payload: ${{ steps.build-client-payload.outputs.payload }}
 
+      # ---------- Second target: airbyte-platform-internal ----------
+      # Its `Deploy Cloud MCP` workflow builds the image from a vendored copy
+      # of the cloud-mcp build context and rolls out the Cloud Run service it
+      # owns. Gated on the production path: that repo has only a production
+      # service, so a preview deploy has nothing to target there.
+
+      - name: Build platform-internal dispatch payload
+        id: build-internal-payload
+        if: steps.resolve-vars.outputs.preview == 'false'
+        env:
+          PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
+        run: |
+          set -euo pipefail
+
+          # Reaching here means `preview=false`, which only a caller can set and
+          # which the guards above pair with a non-empty version, so the
+          # requirement is always the pinned `airbyte==<version>` form.
+          version="${PYAIRBYTE_REQUIREMENT#airbyte==}"
+
+          # The target defaults `image_tag` to `manual-<its own short sha>`,
+          # which names nothing about the PyAirbyte build and repeats across
+          # releases whenever that repo's HEAD has not moved. Name the tag after
+          # the version instead. PEP 440 allows `+` and `!`, which are not legal
+          # in a Docker tag and which the target rejects outright, so map every
+          # disallowed character to `-`.
+          image_tag="pyairbyte-$(printf '%s' "$version" | sed 's/[^a-zA-Z0-9._-]/-/g')"
+
+          # `deploy` is a string because `client_payload` is untyped JSON; the
+          # target validates it against exactly `true`/`false`.
+          payload="$(jq -cn \
+            --arg requirement "$PYAIRBYTE_REQUIREMENT" \
+            --arg image_tag "$image_tag" \
+            '{"pyairbyte_requirement": $requirement, "image_tag": $image_tag, "deploy": "true"}')"
+
+          {
+            printf 'payload=%s\n' "$payload"
+            printf 'image_tag=%s\n' "$image_tag"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Authenticate as GitHub App for platform-internal
+        id: get-internal-app-token
+        if: steps.resolve-vars.outputs.preview == 'false'
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          owner: airbytehq
+          repositories: airbyte-platform-internal
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+          # `repository_dispatch` needs contents:write and nothing else.
+          permission-contents: write
+
+      - name: Trigger platform-internal cloud-mcp deploy
+        if: steps.resolve-vars.outputs.preview == 'false'
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ steps.get-internal-app-token.outputs.token }}
+          repository: airbytehq/airbyte-platform-internal
+          event-type: deploy-cloud-mcp
+          client-payload: ${{ steps.build-internal-payload.outputs.payload }}
+
       - name: Summarize dispatch
         env:
           PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
           PREVIEW: ${{ steps.resolve-vars.outputs.preview }}
+          # Empty whenever the platform-internal dispatch was skipped.
+          INTERNAL_IMAGE_TAG: ${{ steps.build-internal-payload.outputs.image_tag }}
         run: |
           {
             printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-ops-mcp.\n'
             printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
             printf 'Preview: %s\n' "$PREVIEW"
+            if [ -n "$INTERNAL_IMAGE_TAG" ]; then
+              printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-platform-internal (image tag: %s).\n' "$INTERNAL_IMAGE_TAG"
+            else
+              printf 'Skipped airbytehq/airbyte-platform-internal, which has no preview service.\n'
+            fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
