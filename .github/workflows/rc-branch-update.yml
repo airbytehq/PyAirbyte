@@ -75,7 +75,8 @@ jobs:
             && echo "::error::Source and target branches must differ." \
             && exit 1
 
-          sync_branch="auto-sync/${source}-into-${target//\//-}"
+          # Slashes in each name become hyphens, so the single `/from-` separator is unambiguous.
+          sync_branch="auto-sync/${target//\//-}/from-${source//\//-}"
           {
             printf "target=%s\n" "$target"
             printf "source=%s\n" "$source"
@@ -148,13 +149,6 @@ jobs:
         run: git push origin "HEAD:refs/heads/${TARGET}"
 
       # ---------- Conflict fallback: sync branch + PR ----------
-      - name: Push source to sync branch
-        if: steps.merge.outcome == 'failure' && steps.resolve-vars.outputs.dry_run != 'true'
-        env:
-          SOURCE: ${{ steps.resolve-vars.outputs.source }}
-          SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
-        run: git push --force origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
-
       - name: Find existing sync PR
         id: find-pr
         if: steps.merge.outcome == 'failure' && steps.resolve-vars.outputs.dry_run != 'true'
@@ -166,6 +160,18 @@ jobs:
           set -e
           pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$TARGET" --head "$SYNC_BRANCH" --json url --jq '.[0].url // empty')"
           echo "pr_url=$pr_url" | tee -a "$GITHUB_OUTPUT"
+
+      # Only (re)create the sync branch when no PR is open, so human conflict
+      # resolutions pushed to an existing PR's head are never overwritten.
+      - name: Push source to sync branch
+        if: >
+          steps.merge.outcome == 'failure' &&
+          steps.resolve-vars.outputs.dry_run != 'true' &&
+          steps.find-pr.outputs.pr_url == ''
+        env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+          SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
+        run: git push --force origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
 
       - name: Open sync PR
         id: create-pr
