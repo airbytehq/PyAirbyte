@@ -455,6 +455,11 @@ def test_enabled_features_sql_passthrough_destination(
     """A SQL passthrough destination reports `direct_access` and `direct_sql_query`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: SKILL_DOCS_RESPONSE,
+    )
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
 
     assert destination.enabled_features == frozenset({

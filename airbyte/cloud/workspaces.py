@@ -364,7 +364,7 @@ class CloudWorkspace:
     ) -> frozenset[ConnectorFeature]:
         """Resolve the enabled features for one connector in this workspace.
 
-        For sources, a docs probe against the Context layer reports whether the connector
+        A docs probe against the Context layer reports whether the connector
         is enabled for agent access. Search indexing has not launched yet, so it is never
         reported as enabled.
         """
@@ -372,14 +372,11 @@ class CloudWorkspace:
             return frozenset()
 
         if connector.connector_type == ConnectorType.DESTINATION:
-            if (
-                connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-                and self.is_feature_enabled(OrganizationFeature.DIRECT_ACCESS)
-            ):
-                return frozenset(
-                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY}
-                )
-            return frozenset()
+            if connector.definition_id not in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
+                return frozenset()
+            if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
+                return frozenset()
+            return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY})
 
         if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
             return frozenset()

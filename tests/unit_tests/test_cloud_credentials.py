@@ -1658,14 +1658,20 @@ def _patch_workspace_connectors(
     *,
     context_layer: bool = True,
     external_access_source_ids: list[str] | None = None,
+    enabled_destination_ids: list[str] | None = None,
 ) -> dict[str, int]:
     """Stub the Cloud listings and Context layer docs probes for `workspace`.
 
-    Sources in `external_access_source_ids` get a successful docs probe; other sources
+    Sources in `external_access_source_ids` and destinations in
+    `enabled_destination_ids` get a successful docs probe; other connectors
     get a 404. Returns a counter of docs-probe calls so tests can assert on lookups.
     """
     calls = {"list": 0}
-    source_ids = external_access_source_ids or []
+    enabled_ids = set(external_access_source_ids or []) | (
+        {"snowflake"}
+        if enabled_destination_ids is None
+        else set(enabled_destination_ids)
+    )
 
     monkeypatch.setattr(
         workspace,
@@ -1694,7 +1700,7 @@ def _patch_workspace_connectors(
         calls["list"] += 1
         skill_id = str(kwargs["skill_id"])
         connector_id = skill_id.rsplit(":", 1)[-1]
-        if connector_id not in source_ids:
+        if connector_id not in enabled_ids:
             raise AirbyteError(context={"status_code": 404})
         return {
             "metadata": {
@@ -1892,8 +1898,9 @@ def test_cloud_workspace_list_connectors(
         isinstance(c, CloudSource if c.connector_type == "source" else CloudDestination)
         for c in connectors
     )
-    # One Context layer docs probe per listed source at most.
-    assert calls["list"] <= 3
+    # One Context layer docs probe per listed connector at most; the non-passthrough
+    # destination is never probed.
+    assert calls["list"] <= 4
 
 
 def test_cloud_workspace_list_connectors_rejects_non_positive_limit(
@@ -1952,8 +1959,8 @@ def test_cloud_connector_features_resolve_lazily_and_cache(
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_SQL_QUERY,
     })
-    # SQL passthrough destinations resolve features without a docs probe.
-    assert calls["list"] == 1
+    # SQL passthrough destinations resolve features through a docs probe, like sources.
+    assert calls["list"] == 2
 
 
 def test_cloud_destination_external_access_requires_context_layer(
@@ -1967,6 +1974,36 @@ def test_cloud_destination_external_access_requires_context_layer(
     assert workspace.enabled_features == frozenset()
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
     assert not destination.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+
+
+def test_cloud_destination_features_empty_when_docs_probe_404s(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace, enabled_destination_ids=[])
+
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    assert destination.enabled_features == frozenset()
+
+
+def test_cloud_destination_features_raise_on_probe_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace)
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
+    )
+
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    with pytest.raises(AirbyteError):
+        _ = destination.enabled_features
 
 
 @pytest.mark.parametrize(
