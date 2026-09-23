@@ -45,6 +45,8 @@ if TYPE_CHECKING:
         DestinationConfiguration,
     )
 
+    from airbyte.cloud.connectors import ConnectorType
+
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
@@ -1938,7 +1940,7 @@ def _make_config_api_request(
 def check_connector(
     *,
     actor_id: str,
-    connector_type: str,
+    connector_type: ConnectorType,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
@@ -1956,9 +1958,9 @@ def check_connector(
     _ = workspace_id  # Not used (yet)
 
     json_result = _make_config_api_request(
-        path=f"/{connector_type}s/check_connection",
+        path=f"/{connector_type.value}s/check_connection",
         json={
-            f"{connector_type}Id": actor_id,
+            f"{connector_type.value}Id": actor_id,
         },
         api_root=api_root,
         config_api_root=config_api_root,
@@ -1977,7 +1979,7 @@ def check_connector(
     raise AirbyteError(
         context={
             "actor_id": actor_id,
-            "connector_type": connector_type,
+            "connector_type": connector_type.value,
             "response": json_result,
         },
     )

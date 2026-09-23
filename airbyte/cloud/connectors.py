@@ -293,7 +293,12 @@ class CloudConnector:
         if self._connector_info is not None:
             return self._connector_info
 
-        if self.connector_type == ConnectorType.SOURCE:
+        # `connector_type` may resolve the kind lazily and cache the fetched info.
+        connector_type = self.connector_type
+        if self._connector_info is not None:
+            return self._connector_info
+
+        if connector_type == ConnectorType.SOURCE:
             return CloudSourceInfo.from_api_response(
                 api_util.get_source(
                     source_id=self.connector_id,
@@ -349,7 +354,7 @@ class CloudConnector:
         """
         result = api_util.check_connector(
             workspace_id=self.workspace.workspace_id,
-            connector_type=self.connector_type.value,
+            connector_type=self.connector_type,
             actor_id=self.connector_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
