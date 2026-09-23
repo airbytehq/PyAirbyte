@@ -118,6 +118,20 @@ class CheckResult:
         )
 
 
+def _is_not_enabled_error(error: exc.AirbyteError) -> bool:
+    """Return whether `error` reports the connector is not enabled for agent access.
+
+    Only 403 and 404 responses mean that: a 404 says no docs skill exists for the
+    connector, and a 403 says the workspace or connector lacks Context layer access.
+    Auth, server, and malformed-response failures carry other statuses and must not be
+    read as "not enabled".
+    """
+    return (error.context or {}).get("status_code") in {
+        HTTPStatus.FORBIDDEN,
+        HTTPStatus.NOT_FOUND,
+    }
+
+
 class CloudConnector:
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
@@ -498,11 +512,11 @@ class CloudConnector:
         intent: str | None = None,
         read_only: bool,
     ) -> ExternalApiExecuteResult:
-        """Execute a single entity/action operation through the Agents API.
+        """Execute a single entity/action operation through the Cloud Config API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API. When the Agents API reports the
-        connector as forbidden or not found, the error is re-raised as
+        workspace's API roots have no Context layer API. When the Cloud Config API
+        reports the connector as forbidden or not found, the error is re-raised as
         `AirbyteExternalAccessNotEnabledError` only when external access is actually
         disabled for the connector; the original `AirbyteError` propagates otherwise,
         including when the enablement lookup itself fails.
@@ -539,18 +553,17 @@ class CloudConnector:
             request_body["intent"] = intent
 
         try:
-            response = agents_api_util.execute_agent_connector_action(
+            response = agents_api_util.execute_cloud_connector_action(
                 connector_id=self.connector_id,
+                connector_type=self.connector_type,
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
-                organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
             )
         except exc.AirbyteError as error:
-            status_code = (error.context or {}).get("status_code")
-            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+            if _is_not_enabled_error(error):
                 try:
                     enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-                except exc.AirbyteError:
+                except (exc.AirbyteError, requests.RequestException, ValueError):
                     raise error from None
                 if not enabled:
                     raise exc.AirbyteExternalAccessNotEnabledError(
@@ -570,25 +583,45 @@ class CloudConnector:
         warnings: list[str],
         force_refresh: bool = False,
     ) -> _DirectConnectorInspectResult | None:
-        """Fetch and cache the Context Layer `inspect` result, without raising.
+        """Fetch and cache the Context layer connector details.
 
-        An `AirbyteError` from `inspect` (for example a 404 or 403 for connectors the
-        Agents API does not know) is converted into a warning on `warnings` and `None`
-        is returned.
+        The connector's docs skill is probed: a skill doc exists only for connectors the
+        Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
+        connector is not enabled for agent access, so a warning is appended to
+        `warnings` and `None` is returned. Any other failure (auth, server, malformed
+        response, transport) is raised to the caller.
         """
         if self._context_layer_details is not None and not force_refresh:
             return self._context_layer_details
+        skill_id = (
+            connector_docs.source_skill_id(self.connector_id)
+            if self.connector_type == ConnectorType.SOURCE
+            else connector_docs.destination_skill_id(self.connector_id)
+        )
         try:
-            parsed = _DirectConnectorInspectResult.model_validate(
-                agents_api_util.inspect_agent_connector(
-                    connector_id=self.connector_id,
+            docs = DirectAccessGuidance.model_validate(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
+                    skill_id=skill_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001
-                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
                 )
             )
-        except (exc.AirbyteError, requests.RequestException) as error:
-            warnings.append(f"Connector inspect failed: {error}")
+        except exc.AirbyteError as error:
+            if not _is_not_enabled_error(error):
+                raise
+            warnings.append(f"Connector direct-access docs lookup failed: {error}")
             return None
+        parsed = _DirectConnectorInspectResult(
+            connector_id=self.connector_id,
+            name=self.name,
+            workspace_id=self.workspace.workspace_id,
+            source_definition_id=(
+                self.definition_id if self.connector_type == ConnectorType.SOURCE else None
+            ),
+            integration_name=docs.metadata.title,
+            docs_skill_id=skill_id,
+            warnings=list(docs.metadata.warnings),
+        )
         self._context_layer_details = parsed
         return parsed
 
@@ -653,11 +686,10 @@ class CloudConnector:
                     connector_id=self.connector_id,
                 )
             return DirectAccessGuidance.model_validate(
-                agents_api_util.read_agent_skill_docs(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
                     skill_id=skill_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001
-                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
-                    workspace_id=self.workspace.workspace_id,
                     section=section,
                 )
             )
@@ -672,7 +704,14 @@ class CloudConnector:
             if self.workspace._has_context_layer_api():  # noqa: SLF001
                 skill_id = connector_docs.destination_skill_id(self.connector_id)
                 try:
-                    server_docs = self.workspace.get_agent_skill_docs(skill_id, section=section)
+                    server_docs = DirectAccessGuidance.model_validate(
+                        agents_api_util.read_cloud_skill_docs(
+                            workspace_id=self.workspace.workspace_id,
+                            skill_id=skill_id,
+                            credentials=self.workspace._credentials,  # noqa: SLF001
+                            section=section,
+                        )
+                    )
                 except exc.AirbyteError as error:
                     if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
                         raise
