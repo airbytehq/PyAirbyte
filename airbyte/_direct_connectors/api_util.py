@@ -16,6 +16,10 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
 
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidanceIndexEntry,
+    _DirectAccessGuidanceIndexPage,
+)
 from airbyte._util import deployment
 from airbyte._util.api_util import get_bearer_token, status_ok
 from airbyte.constants import CLOUD_API_ROOT
@@ -316,6 +320,36 @@ def list_agent_skills(
         credentials=credentials,
         organization_id=organization_id,
     )
+
+
+def list_all_agent_skills(
+    *,
+    credentials: _AirbyteCredentials,
+    organization_id: str | None = None,
+    workspace_id: str | None = None,
+) -> list[DirectAccessGuidanceIndexEntry]:
+    """List every skill available to an organization or workspace.
+
+    Follows the API's `next_cursor` so the full index is returned regardless of the
+    server's page size.
+    """
+    entries: list[DirectAccessGuidanceIndexEntry] = []
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = _DirectAccessGuidanceIndexPage.model_validate(
+            list_agent_skills(
+                credentials=credentials,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                cursor=cursor,
+            )
+        )
+        entries.extend(page.data)
+        cursor = page.next_cursor
+        if cursor is None or not cursor.strip() or cursor in seen_cursors:
+            return entries
+        seen_cursors.add(cursor)
 
 
 def read_agent_skill_docs(

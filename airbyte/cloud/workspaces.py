@@ -51,7 +51,6 @@ from airbyte._direct_connectors.models import (
     CloudDirectConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
-    _DirectAccessGuidanceIndexPage,
 )
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
@@ -571,24 +570,11 @@ class CloudWorkspace:
         server's page size. Requires a Context Layer API for the workspace's API roots
         (public Airbyte Cloud, or `AIRBYTE_AGENTS_API_URL` for custom deployments).
         """
-        organization_id = self._resolve_agents_organization_id()
-        infos: list[DirectAccessGuidanceIndexEntry] = []
-        cursor: str | None = None
-        seen_cursors: set[str] = set()
-        while True:
-            page = _DirectAccessGuidanceIndexPage.model_validate(
-                agents_api_util.list_agent_skills(
-                    credentials=self._credentials,
-                    organization_id=organization_id,
-                    workspace_id=self.workspace_id,
-                    cursor=cursor,
-                )
-            )
-            infos.extend(page.data)
-            cursor = page.next_cursor
-            if cursor is None or not cursor.strip() or cursor in seen_cursors:
-                return infos
-            seen_cursors.add(cursor)
+        return agents_api_util.list_all_agent_skills(
+            credentials=self._credentials,
+            organization_id=self._resolve_agents_organization_id(),
+            workspace_id=self.workspace_id,
+        )
 
     def _get_guidance(self, skill_id: str) -> DirectAccessGuidance:
         """Get direct-access guidance by skill ID."""

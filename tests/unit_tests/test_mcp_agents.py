@@ -1403,7 +1403,7 @@ def test_workspace_api_roots_come_from_mcp_config(
 
 
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify the skills tools shape `_DirectAccessGuidanceIndexPage`/`DirectAccessGuidance` into results."""
+    """Verify the skills tools shape `DirectAccessGuidanceIndexEntry`/`DirectAccessGuidance` into results."""
 
     class _SkilledWorkspace:
         def _list_guidance(self) -> list[Any]:

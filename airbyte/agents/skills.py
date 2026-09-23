@@ -16,7 +16,6 @@ from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
-    _DirectAccessGuidanceIndexPage,
 )
 
 
@@ -88,20 +87,10 @@ def list_skills(
     *,
     credentials: _AirbyteCredentials,
     workspace_id: str | None = None,
-    limit: int | None = None,
-    cursor: str | None = None,
-) -> _DirectAccessGuidanceIndexPage:
-    """List the skills available to a workspace or organization.
-
-    Pass `limit` to cap the page size and the `next_cursor` of a previous result as
-    `cursor` to fetch the next page.
-    """
-    return _DirectAccessGuidanceIndexPage.model_validate(
-        _api_util.list_agent_skills(
-            credentials=credentials,
-            organization_id=credentials.organization_id,
-            workspace_id=workspace_id,
-            limit=limit,
-            cursor=cursor,
-        )
+) -> list[DirectAccessGuidanceIndexEntry]:
+    """List all skills available to a workspace or organization, following pagination."""
+    return _api_util.list_all_agent_skills(
+        credentials=credentials,
+        organization_id=credentials.organization_id,
+        workspace_id=workspace_id,
     )
