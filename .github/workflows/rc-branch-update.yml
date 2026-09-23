@@ -1,0 +1,240 @@
+# Keeps the release-candidate trunk current with `main`.
+#
+# On a schedule (and on demand), this workflow fast-forwards the release-candidate
+# branch to `main` when possible, falls back to a clean merge commit when the
+# branches have diverged, and — when the merge conflicts — pushes `main` to a
+# dedicated sync branch and opens a PR into the release-candidate branch so a
+# human can resolve the conflicts. While that PR is open the sync branch is left
+# untouched; it is recreated only after the PR is merged or closed.
+
+name: "RC Branch: Update from `main`"
+
+on:
+  schedule:
+    # Run every weekday at 06:00 Pacific Time
+    - cron: "0 6 * * 1-5"
+      timezone: "America/Los_Angeles"
+  workflow_dispatch:
+    inputs:
+      target-branch:
+        description: "Target branch. The release-candidate trunk that receives updates from the source branch. Must start with `release-candidate/`."
+        required: false
+        default: "release-candidate/v1"
+        type: string
+      source-branch:
+        description: "Source branch. The branch whose commits are fast-forwarded or merged into the target branch."
+        required: false
+        default: "main"
+        type: string
+      dry-run:
+        description: "Dry run. Report what would happen without pushing or opening a PR."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.target-branch || 'release-candidate/v1' }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Fast-forward, merge, or open PR
+    runs-on: ubuntu-latest
+    steps:
+      # ---------- Setup ----------
+      - name: Authenticate as GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          owner: "airbytehq"
+          repositories: "PyAirbyte"
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+
+      - name: Resolve Variables
+        id: resolve-vars
+        env:
+          INPUT_TARGET: ${{ inputs.target-branch }}
+          INPUT_SOURCE: ${{ inputs.source-branch }}
+          INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -e
+          target="${INPUT_TARGET:-release-candidate/v1}"
+          source="${INPUT_SOURCE:-main}"
+          dry_run="${INPUT_DRY_RUN:-false}"
+
+          [[ ! "$target" =~ ^[A-Za-z0-9._/-]+$ ]] \
+            && echo "::error::Invalid target branch name: $target" \
+            && exit 1
+          [[ ! "$source" =~ ^[A-Za-z0-9._/-]+$ ]] \
+            && echo "::error::Invalid source branch name: $source" \
+            && exit 1
+          [[ "$target" != release-candidate/* ]] \
+            && echo "::error::Target branch must be under release-candidate/ (got: $target)" \
+            && exit 1
+          [[ "$target" == "$source" ]] \
+            && echo "::error::Source and target branches must differ." \
+            && exit 1
+
+          # Human-readable slugs plus a short hash of the exact (target, source) pair,
+          # so distinct pairs can never map to the same branch.
+          pair_hash="$(printf '%s\n%s\n' "$target" "$source" | sha256sum | cut -c1-8)"
+          sync_branch="auto-sync/${target//\//-}/from-${source//\//-}-${pair_hash}"
+          {
+            printf "target=%s\n" "$target"
+            printf "source=%s\n" "$source"
+            printf "dry_run=%s\n" "$dry_run"
+            printf "sync_branch=%s\n" "$sync_branch"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check out target branch
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: ${{ steps.resolve-vars.outputs.target }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name "octavia-bot[bot]"
+          git config user.email "octavia-bot[bot]@users.noreply.github.com"
+
+      - name: Compare branches
+        id: compare
+        env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+          TARGET: ${{ steps.resolve-vars.outputs.target }}
+        run: |
+          set -e
+          behind="$(git rev-list --count "origin/${TARGET}..origin/${SOURCE}")"
+          ahead="$(git rev-list --count "origin/${SOURCE}..origin/${TARGET}")"
+          can_ff="false"
+          git merge-base --is-ancestor "origin/${TARGET}" "origin/${SOURCE}" && can_ff="true"
+          {
+            printf "behind=%s\n" "$behind"
+            printf "ahead=%s\n" "$ahead"
+            printf "can_ff=%s\n" "$can_ff"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      # ---------- Fast-forward ----------
+      - name: Fast-forward target to source
+        id: fast-forward
+        if: steps.compare.outputs.behind != '0' && steps.compare.outputs.can_ff == 'true'
+        env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+        run: git merge --ff-only "origin/${SOURCE}"
+
+      # ---------- Merge ----------
+      - name: Merge source into target
+        id: merge
+        if: steps.compare.outputs.behind != '0' && steps.compare.outputs.can_ff == 'false'
+        continue-on-error: true
+        env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+          TARGET: ${{ steps.resolve-vars.outputs.target }}
+        run: >
+          git merge --no-ff --no-edit
+          -m "chore: merge \`${SOURCE}\` into \`${TARGET}\`"
+          "origin/${SOURCE}"
+
+      - name: Abort conflicted merge
+        if: steps.merge.outcome == 'failure'
+        run: git merge --abort
+
+      # ---------- Push (fast-forward or clean merge) ----------
+      - name: Push updated target branch
+        if: >
+          steps.resolve-vars.outputs.dry_run != 'true' &&
+          (steps.fast-forward.outcome == 'success' || steps.merge.outcome == 'success')
+        env:
+          TARGET: ${{ steps.resolve-vars.outputs.target }}
+        run: git push origin "HEAD:refs/heads/${TARGET}"
+
+      # ---------- Conflict fallback: sync branch + PR ----------
+      - name: Find existing sync PR
+        id: find-pr
+        if: steps.merge.outcome == 'failure' && steps.resolve-vars.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET: ${{ steps.resolve-vars.outputs.target }}
+          SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
+        run: |
+          set -e
+          pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$TARGET" --head "$SYNC_BRANCH" --json url --jq '.[0].url // empty')"
+          echo "pr_url=$pr_url" | tee -a "$GITHUB_OUTPUT"
+
+      # Only (re)create the sync branch when no PR is open, so human conflict
+      # resolutions pushed to an existing PR's head are never overwritten.
+      - name: Push source to sync branch
+        if: >
+          steps.merge.outcome == 'failure' &&
+          steps.resolve-vars.outputs.dry_run != 'true' &&
+          steps.find-pr.outputs.pr_url == ''
+        env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+          SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
+        run: git push --force origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
+
+      - name: Open sync PR
+        id: create-pr
+        if: >
+          steps.merge.outcome == 'failure' &&
+          steps.resolve-vars.outputs.dry_run != 'true' &&
+          steps.find-pr.outputs.pr_url == ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+          TARGET: ${{ steps.resolve-vars.outputs.target }}
+          SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
+          BEHIND: ${{ steps.compare.outputs.behind }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -e
+          cat > /tmp/pr-body.md <<EOF
+          Automated sync of \`${SOURCE}\` into \`${TARGET}\` could not fast-forward or merge cleanly.
+
+          \`${TARGET}\` is **${BEHIND}** commit(s) behind \`${SOURCE}\`. Please resolve the merge conflicts on \`${SYNC_BRANCH}\` and merge this PR.
+
+          While this PR is open, the sync branch is left untouched so your conflict-resolution commits are preserved. Once it is merged or closed, the next run recreates the branch from \`${SOURCE}\` if conflicts remain.
+
+          Workflow run: ${RUN_URL}
+          EOF
+          pr_url="$(gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base "$TARGET" \
+            --head "$SYNC_BRANCH" \
+            --title "chore: merge \`${SOURCE}\` into \`${TARGET}\` (conflicts)" \
+            --body-file /tmp/pr-body.md)"
+          echo "pr_url=$pr_url" | tee -a "$GITHUB_OUTPUT"
+
+      # ---------- Summary ----------
+      - name: Write summary
+        if: always()
+        env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
+          TARGET: ${{ steps.resolve-vars.outputs.target }}
+          DRY_RUN: ${{ steps.resolve-vars.outputs.dry_run }}
+          BEHIND: ${{ steps.compare.outputs.behind }}
+          AHEAD: ${{ steps.compare.outputs.ahead }}
+          CAN_FF: ${{ steps.compare.outputs.can_ff }}
+          FF_OUTCOME: ${{ steps.fast-forward.outcome }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+          PR_URL: ${{ steps.find-pr.outputs.pr_url || steps.create-pr.outputs.pr_url }}
+        run: |
+          {
+            echo "## Sync \`${SOURCE}\` -> \`${TARGET}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Dry run | ${DRY_RUN} |"
+            echo "| Commits behind source | ${BEHIND} |"
+            echo "| Commits ahead of source | ${AHEAD} |"
+            echo "| Fast-forward possible | ${CAN_FF} |"
+            echo "| Fast-forward outcome | ${FF_OUTCOME} |"
+            echo "| Merge outcome | ${MERGE_OUTCOME} |"
+            echo "| Sync PR | ${PR_URL:-n/a} |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

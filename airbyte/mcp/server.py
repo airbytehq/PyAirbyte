@@ -14,6 +14,10 @@ Supports two transport modes:
       `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and `AIRBYTE_MCP_OIDC_CONFIG_URL` (the
       OIDC discovery URL) are supplied. Consent is collected on the IdP's own
       branded login page; `OIDCProxy`'s generic consent screen is skipped.
+      Setting `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` as well puts an
+      identifier-entry page in front of that flow, so SSO customers can type
+      their company identifier and authenticate against that Keycloak realm
+      with the same OIDC client (see `airbyte.mcp._sso_auth`).
     - **Headless** (agents, CI): the client mints its own short-lived bearer
       token via the OAuth 2.0 client credentials grant and sends it as
       `Authorization: Bearer <token>`. The server verifies it with a
@@ -82,6 +86,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     format_user_facing_error,
 )
+from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -196,6 +201,20 @@ JWT_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_ALGORITHM"
 # config) lives in the deployment's own package, keeping PyAirbyte generic.
 OIDC_CLIENT_STORAGE_FACTORY_ENV = "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
 
+# SSO realm login. Setting the discovery-URL template activates the
+# identifier-entry page in front of the interactive OIDC flow; the template is
+# the default realm's discovery URL with the realm name replaced by a `{realm}`
+# path segment that the user's company identifier is substituted into. The IdP
+# hint, when set, is forwarded as Keycloak's `kc_idp_hint` so the realm hands
+# straight off to the customer's identity provider.
+SSO_OIDC_CONFIG_URL_TEMPLATE_ENV = "AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE"
+SSO_IDP_HINT_ENV = "AIRBYTE_MCP_SSO_IDP_HINT"
+
+# Realm names that can never be a customer's SSO realm. Airbyte's internal realms
+# all start with `_`, which the identifier pattern already rejects, so only
+# Keycloak's own admin realm needs listing. `airbyte` is a regular customer realm.
+AIRBYTE_CLOUD_RESERVED_SSO_REALMS: frozenset[str] = frozenset({"master"})
+
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
 DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
@@ -257,6 +276,41 @@ def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue
     return factory(encryption_source_material=encryption_source_material)
 
 
+def _resolve_sso_config(*, interactive_oidc_configured: bool) -> SsoRealmConfig | None:
+    """Resolve the SSO realm-login settings, if a deployment enabled them.
+
+    `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` activates the feature. It is the
+    default realm's discovery URL with the realm name replaced by `{realm}`, e.g.
+    `https://cloud.airbyte.com/auth/realms/{realm}/.well-known/openid-configuration`.
+    `AIRBYTE_MCP_SSO_IDP_HINT` optionally names the realm's identity-provider
+    alias (`default` on Airbyte Cloud) so Keycloak hands straight off to the
+    customer IdP instead of showing its own login form. Returns `None` when the
+    template is unset or blank, leaving the interactive path exactly as before.
+
+    Raises `ValueError` naming the env var when the template is malformed, or
+    when it is set without the interactive OIDC client credentials it extends.
+    """
+    template = os.getenv(SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, "").strip()
+    if not template:
+        return None
+    if not interactive_oidc_configured:
+        msg = (
+            f"{SSO_OIDC_CONFIG_URL_TEMPLATE_ENV} is set but the interactive OIDC path "
+            f"is not configured; SSO login extends it, so also set {OIDC_CLIENT_ID_ENV}, "
+            f"{OIDC_CLIENT_SECRET_ENV}, and {OIDC_CONFIG_URL_ENV}."
+        )
+        raise ValueError(msg)
+    try:
+        return SsoRealmConfig(
+            discovery_url_template=template,
+            idp_hint=os.getenv(SSO_IDP_HINT_ENV, "").strip() or None,
+            reserved_realms=AIRBYTE_CLOUD_RESERVED_SSO_REALMS,
+        )
+    except ValueError as exc:
+        msg = f"{SSO_OIDC_CONFIG_URL_TEMPLATE_ENV}={template!r} is invalid: {exc}"
+        raise ValueError(msg) from exc
+
+
 def _create_auth() -> AuthProvider | None:
     """Assemble the transport auth provider from this server's env configuration.
 
@@ -267,9 +321,11 @@ def _create_auth() -> AuthProvider | None:
     The headless verifier activates once a signing-key source
     (`AIRBYTE_MCP_AUTH_JWKS_URI` or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is
     configured; the interactive path activates once the OIDC client credentials
-    are supplied. Returns `None` when neither is configured, so the server falls
-    back to unauthenticated local behavior. The `stdio` transport ignores the
-    provider entirely.
+    are supplied, and gains the SSO identifier-entry page (an `OIDCProxy`
+    subclass supplied through `OIDCAuthConfig.proxy_factory`) once
+    `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set too. Returns `None` when
+    neither path is configured, so the server falls back to unauthenticated
+    local behavior. The `stdio` transport ignores the provider entirely.
 
     This server declares only the env var *names*; the concrete values (e.g. a
     deployment's realm endpoints, issuer, audience, and discovery URL) are
@@ -305,6 +361,9 @@ def _create_auth() -> AuthProvider | None:
             "needs both client credentials. Set both, or neither."
         )
         raise ValueError(msg)
+    sso_config = _resolve_sso_config(
+        interactive_oidc_configured=bool(oidc_client_id and oidc_client_secret)
+    )
     if oidc_client_id and oidc_client_secret:
         config_url = os.getenv(OIDC_CONFIG_URL_ENV, "").strip()
         if not config_url:
@@ -327,6 +386,9 @@ def _create_auth() -> AuthProvider | None:
             # "consent disabled" warning that `False` logs on every startup.
             require_authorization_consent="external",
             extra_authorize_params=AIRBYTE_CLOUD_EXTRA_AUTHORIZE_PARAMS,
+            # Swaps in the realm-per-login proxy only when SSO is configured;
+            # the stock `OIDCProxy` is built otherwise.
+            proxy_factory=make_sso_proxy_factory(sso_config) if sso_config else None,
         )
 
     return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=base_url)

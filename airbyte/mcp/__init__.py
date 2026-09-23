@@ -165,6 +165,17 @@ Set `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and
 a browser (Keycloak Authorization Code + PKCE) and the resulting token is
 verified by the server. No bearer token to manage by hand.
 
+**SSO customers.** Airbyte Cloud SSO customers sign in through their own Keycloak
+realm, named after their company identifier. When the deployment also sets
+`AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE`, every interactive login first shows a
+small page served by the MCP server at `/auth/login` with two choices: continue
+with a regular Airbyte Cloud account, or type the company identifier (the same
+one used on the Cloud webapp's `/sso` page) to sign in with SSO. The server then
+runs the same Authorization Code + PKCE flow against that realm, and the token it
+verifies and forwards to the Cloud API is an SSO-realm token. This requires the
+deployment's OIDC client to exist, with the same client id, secret, and callback
+URL, in every SSO realm; Airbyte Cloud provisions that automatically.
+
 ### Machines / agents → headless bearer token
 
 There is **no** transport mode that accepts a raw `client_id` + `client_secret`
@@ -224,6 +235,13 @@ set; the interactive path activates once the OIDC client credentials are set.
 - `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY` — optional `"package.module:callable"`
   naming a durable OAuth-state store factory for the interactive proxy (defaults
   to in-memory).
+- `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` — optional; enables SSO realm login.
+  The default realm's discovery URL with the realm name replaced by `{realm}`,
+  e.g. `https://cloud.airbyte.com/auth/realms/{realm}/.well-known/openid-configuration`.
+  Requires the interactive OIDC vars above.
+- `AIRBYTE_MCP_SSO_IDP_HINT` — optional identity-provider alias forwarded as
+  Keycloak's `kc_idp_hint` on SSO logins (`default` on Airbyte Cloud), so the
+  realm hands straight off to the customer IdP.
 - `AIRBYTE_MCP_AUTH_JWKS_URI` / `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or
   static public key for verifying headless tokens (one activates the verifier).
 - `AIRBYTE_MCP_AUTH_ISSUER` / `AIRBYTE_MCP_AUTH_AUDIENCE` /
@@ -251,6 +269,41 @@ behavior. This server maps the `AIRBYTE_MCP_*` variables into the typed config
 objects consumed by
 [`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
 assembles the verifier(s) and reads no environment variables itself.
+
+## Optional Hosted Tool Intent Observability
+
+A hosted HTTP deployment may advertise an optional top-level `intent` argument
+when its operator sets `AIRBYTE_MCP_INTENT_CAPTURE=1`. If provided, use one
+sentence explaining why the tool is being called; never include credentials,
+identifiers or data values. Calls without intent continue to work. The Agents
+tools' existing `intent` parameter serves the same purpose and passes through
+unchanged to the Agents API; only the trace copy is trimmed and capped.
+Advertisement and model guidance do not require an export endpoint.
+
+Export is enabled only when an OTLP traces endpoint is configured. The server
+exports the supplied intent (capped at 4096 characters), tool name, outcome class,
+validated workspace/organization UUIDs, tool annotations and outbound HTTP
+methods, recognized public Airbyte API routes with validated UUID/numeric IDs,
+and statuses. URL queries, unknown routes and custom origins are redacted.
+Tool arguments and results,
+error messages/stacks, HTTP header values, request/response bodies, JWTs and
+caller identity are not exported. Calls to unregistered tool names are dropped.
+Session grouping uses a SHA-256 digest of the unsigned, client-echoed
+`Mcp-Session-Id`, not the raw token or a verified identity. Intent itself is free
+text and may contain customer information, so keep it free of sensitive data.
+
+Any OTLP backend can receive these spans. With `AIRBYTE_MCP_OTEL_VENDOR=datadog`,
+intent is also supplied as Datadog metadata. Export is best effort and does not
+determine whether a tool call succeeds; the backend controls retention and
+access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
+export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.
+Segment requests are excluded from traces. Local stdio is unchanged. Hosted
+clients with cached `intent` schemas remain compatible after export is
+disabled by unsetting both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Legacy synthetic `telemetry.intent` is accepted
+without advertising it, with top-level `intent` taking precedence when supplied.
+Real tool parameters named `intent` or `telemetry` retain their normal validation
+and dispatch behavior.
 
 ## Troubleshooting
 

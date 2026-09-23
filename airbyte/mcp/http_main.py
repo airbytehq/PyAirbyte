@@ -49,6 +49,12 @@ credentials are set:
   credentials are set)
 - `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY`: optional `"package.module:callable"`
   naming a durable OAuth-state store factory (defaults to in-memory)
+- `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE`: optional; enables SSO realm login.
+  The default realm's discovery URL with the realm name replaced by `{realm}`.
+  Adds an identifier-entry page at `/auth/login` (beside the `/auth/callback`
+  OAuth callback) where SSO users type their company identifier
+- `AIRBYTE_MCP_SSO_IDP_HINT`: optional identity-provider alias forwarded as
+  Keycloak's `kc_idp_hint` on SSO logins
 
 Headless bearer-token verification (for agents/CI that mint their own
 short-lived token via the client credentials grant). The verifier activates
@@ -71,6 +77,54 @@ Opt-in static client credentials:
   claims and requests with no credentials are not checked.
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
+
+Optional OpenTelemetry observability. Nothing is exported unless a traces endpoint
+is configured. The hosted entrypoint installs tracing after hosted mode is set;
+no launcher or agent is needed. The exporter uses OTLP/HTTP protobuf.
+Hosted startup refuses a preinstalled global tracer provider or requests
+instrumentation even without an endpoint, because its exporters could bypass the
+hosted redaction boundary and continue exporting after rollback.
+
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: full traces URL; for example,
+  `https://otlp.datadoghq.com/v1/traces` for Datadog direct intake (confirm the
+  hostname for your Datadog site).
+  `OTEL_EXPORTER_OTLP_ENDPOINT` is the standard fallback base URL.
+- `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: exporter credentials and routing; for
+  Datadog, `dd-api-key=<key>,dd-otlp-source=llmobs`. Supply through the deployment's
+  secret mechanism. `OTEL_EXPORTER_OTLP_HEADERS` is the standard fallback.
+- `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=5`: bound each export attempt in seconds.
+- `OTEL_SERVICE_NAME`: deployment-supplied service name.
+- `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource attributes such as
+  `deployment.environment.name=preview`. An explicit `service.version` takes
+  precedence over the installed PyAirbyte version.
+- `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
+- `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
+  intent available as Datadog metadata. Leave unset for other OTLP backends.
+- `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
+  guidance to omit credentials, identifiers and data values, even without an
+  export endpoint. Removing this flag stops synthetic advertisement; declared
+  parameters remain visible and intent supplied by cached clients is still
+  recorded when export is enabled.
+
+Each tool call is a fresh trace, with outbound `requests` calls nested beneath
+it. Client-supplied MCP trace context is stripped. Export removes exception
+messages and stacks, status descriptions, URL queries, user agents and caller
+identity. Outbound URLs retain recognized public Airbyte API routes with valid
+UUID/numeric IDs; unknown routes and custom origins are redacted. Tool arguments,
+results and HTTP headers are not recorded. Unregistered
+tool names are dropped. Segment requests are excluded from instrumentation.
+Session tokens are hashed before FastMCP sees them, while their extension
+declarations are preserved. Intent is free text capped at 4096 characters.
+
+Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
+to disable export. The hosted entrypoint still strips
+synthetic `intent` arguments for cached clients and hashes session tokens.
+Declared `intent` parameters pass through unchanged; only the trace copy is
+trimmed and capped. Legacy synthetic `telemetry.intent` is accepted but never
+advertised, and top-level `intent` takes precedence. Real `telemetry` parameters
+are left untouched.
+Export is best effort; backend retention and access control apply. Local stdio
+is unchanged.
 """
 
 from __future__ import annotations
@@ -213,8 +267,11 @@ def _log_auth_status() -> None:
 
 def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
+    from airbyte.mcp._otel import SessionIdHeaderDigest, install  # noqa: PLC0415
+
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
+    install(app)
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the
@@ -265,7 +322,7 @@ def main() -> None:
 
     def wrap_http_app(http_app: ASGIApp) -> ASGIApp:
         return HostOriginGuardMiddleware(
-            wrap_if_enabled(http_app),
+            wrap_if_enabled(SessionIdHeaderDigest(http_app)),
             allowed_hosts,
         )
 
