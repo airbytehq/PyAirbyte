@@ -398,8 +398,8 @@ def _overview(
             "items": [
                 *_DIALECT_NOTES[dialect],
                 (
-                    "Do not guess column names: run `SELECT * FROM <table> LIMIT 1` to see "
-                    "column names before selecting."
+                    "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
+                    "`dry_run=True` returns the real columns without scanning data."
                 ),
                 (
                     "Results are capped by the server; the tool's `page_size` argument "
@@ -445,8 +445,8 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
         {
             "type": "paragraph",
             "text": (
-                "Do not guess column names: run `SELECT * FROM <table> LIMIT 1` to see "
-                "column names before selecting:"
+                "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
+                "`dry_run=True` returns the real columns without scanning data:"
             ),
         },
         _sql_select_call(destination, dialect, "SELECT * FROM <table> LIMIT 1"),

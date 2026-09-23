@@ -1172,6 +1172,13 @@ def test_execute_external_sql_query_forwards_args(
         cursor="cursor-2",
         workspace_id=None,
     )
+    cloud_mcp.execute_external_sql_query(
+        None,
+        connector_id="destination-1",
+        sql="SELECT * FROM users LIMIT 1",
+        dry_run=True,
+        workspace_id=None,
+    )
 
     (kind, kwargs) = connector.calls[0]
     assert kind == "sql"
@@ -1180,7 +1187,11 @@ def test_execute_external_sql_query_forwards_args(
         "sql_dialect": "snowflake",
         "page_size": 10,
         "cursor": "cursor-2",
+        "dry_run": False,
     }
+    (kind, kwargs) = connector.calls[1]
+    assert kind == "sql"
+    assert kwargs["dry_run"] is True
 
 
 def _describe_details() -> CloudConnectorDetailsResult:

@@ -406,11 +406,26 @@ def test_execute_sql_query_dialect(
     assert body["action"] == "sql_select"
     assert body["params"]["sql"] == "SELECT 1"
     assert body["params"]["sql_dialect"] == expected_dialect
+    assert body["params"]["dry_run"] is False
     assert body["params"]["limit"] == 5
     assert body["params"]["workspace_id"] == "workspace-id"
     assert calls[0]["connector_id"] == "connector-1"
     if probes is not None:
         assert probes == ["source", "destination"]
+
+
+def test_execute_sql_query_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`dry_run=True` is forwarded in the request params."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    connector = _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
+
+    connector.execute_sql_query("SELECT 1", dry_run=True)
+
+    assert calls[0]["request_body"]["params"]["dry_run"] is True
 
 
 def test_execute_api_query_works_on_destinations(

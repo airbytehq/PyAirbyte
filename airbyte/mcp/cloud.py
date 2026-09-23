@@ -1820,6 +1820,16 @@ def execute_external_sql_query(
             default=None,
         ),
     ] = None,
+    dry_run: Annotated[
+        bool,
+        Field(
+            description=(
+                "Validate the SQL and return only the result columns without "
+                "executing a scan. Cannot be combined with `cursor`."
+            ),
+            default=False,
+        ),
+    ] = False,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -1833,7 +1843,8 @@ def execute_external_sql_query(
     Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
 
     Run `SHOW TABLES` first to discover tables; `sql_dialect` defaults to the
-    destination's registered dialect.
+    destination's registered dialect. Use `dry_run=True` with
+    `SELECT * FROM <table> LIMIT 1` to discover a table's columns.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_sql_query(
@@ -1841,6 +1852,7 @@ def execute_external_sql_query(
         sql_dialect=sql_dialect,
         page_size=page_size,
         cursor=cursor,
+        dry_run=dry_run,
     )
 
 

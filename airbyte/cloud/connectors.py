@@ -443,13 +443,15 @@ class CloudConnector:
         sql_dialect: str | None = None,
         page_size: int | None = None,
         cursor: str | None = None,
+        dry_run: bool = False,
     ) -> ExternalApiExecuteResult:
         """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
 
         `sql_dialect` defaults to the dialect registered for this connector's definition.
-        Requires external access to be enabled for this connector in its organization's
-        Context Layer settings. Connectors without SQL passthrough fail with the Agents
-        API's own error.
+        `dry_run=True` validates the statement and returns the result columns without
+        scanning rows. Requires external access to be enabled for this connector in its
+        organization's Context Layer settings. Connectors without SQL passthrough fail
+        with the Agents API's own error.
         """
         self._require_context_layer_api()
         if sql_dialect is None:
@@ -477,7 +479,7 @@ class CloudConnector:
         return self._execute_direct_action(
             entity_type="sql",
             action=AgentReadAction.SQL_SELECT,
-            api_args={"sql": sql, "sql_dialect": sql_dialect},
+            api_args={"sql": sql, "sql_dialect": sql_dialect, "dry_run": dry_run},
             page_size=page_size,
             cursor=cursor,
             read_only=True,
