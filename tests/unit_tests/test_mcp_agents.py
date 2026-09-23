@@ -19,8 +19,8 @@ from airbyte._direct_connectors.models import (
     AgentSkillSection,
 )
 from airbyte.cloud.models import (
-    BIGQUERY_DESTINATION_DEFINITION_ID,
-    SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    _BIGQUERY_DESTINATION_DEFINITION_ID,
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID,
 )
 from airbyte.agents.connectors import AgentConnector, AgentReadAction, AgentWriteAction
 from airbyte.cloud.client import CloudClient
@@ -1803,8 +1803,8 @@ def _read_docs(
 @pytest.mark.parametrize(
     ("definition_id", "expected_integration_name"),
     [
-        (SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
-        (BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
+        (_SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
+        (_BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
     ],
 )
 def test_inspect_destination_fallback_reports_docs_skill(
@@ -1840,7 +1840,7 @@ def test_inspect_destination_fallback_docs_failure_yields_warning(
     destination = _FakeDestinationForDocs(
         connector_id="dest-snowflake",
         name="Snowflake dev",
-        definition_id=SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        definition_id=_SNOWFLAKE_DESTINATION_DEFINITION_ID,
         connections_error=AirbyteError(message="boom"),
     )
     _patch_destination_404(monkeypatch, [destination])

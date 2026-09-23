@@ -21,7 +21,7 @@ from airbyte.cloud.connectors import (
     ConnectorType,
 )
 from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     CloudDestinationInfo,
     CloudSourceInfo,
     CloudWorkspaceInfo,
@@ -1647,7 +1647,7 @@ def _seed_destination(
     return destination
 
 
-SNOWFLAKE_DEFINITION_ID = next(iter(SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS))
+SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS))
 
 
 def _patch_workspace_connectors(

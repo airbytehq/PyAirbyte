@@ -62,7 +62,7 @@ from airbyte.cloud.connectors import (
     CustomCloudSourceDefinition,
 )
 from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     CloudWorkspaceInfo,
 )
 from airbyte.destinations.base import Destination
@@ -453,7 +453,7 @@ class CloudWorkspace:
 
         if connector.connector_type == ConnectorType.DESTINATION:
             if (
-                connector.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+                connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
                 and self.external_access_enabled
             ):
                 return frozenset({ConnectorFeature.EXTERNAL_ACCESS})
