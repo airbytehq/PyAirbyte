@@ -49,6 +49,7 @@ from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import skills as agents_skills
 from airbyte._direct_connectors.models import (
+    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     AgentConnectorDetails,
     AgentConnectorInfo,
     CloudSkillDocs,
@@ -67,10 +68,7 @@ from airbyte.cloud.connectors import (
     ConnectorType,
     CustomCloudSourceDefinition,
 )
-from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    CloudWorkspaceInfo,
-)
+from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.skills import CloudSkill
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
@@ -611,7 +609,7 @@ class CloudWorkspace:
             )
         return matches[0]
 
-    def list_skills(self) -> list[CloudSkill]:
+    def _list_skills(self) -> list[CloudSkill]:
         """List all skills available to this workspace, following pagination.
 
         Requires a Context Layer API for the workspace's API roots (public Airbyte Cloud,
@@ -625,11 +623,11 @@ class CloudWorkspace:
             )
         ]
 
-    def get_skill(self, skill_id: str) -> CloudSkill:
+    def _get_skill(self, skill_id: str) -> CloudSkill:
         """Get a skill by ID, without calling the Agents API."""
         return CloudSkill(workspace=self, skill_id=skill_id)
 
-    def read_skill_docs(
+    def _read_skill_docs(
         self,
         skill_id: str,
         *,
@@ -641,7 +639,7 @@ class CloudWorkspace:
         pass an exact section `id` from the outline to read that section. Connector usage
         docs use the `docs_skill_id` reported by `CloudConnector.describe()`.
         """
-        return self.get_skill(skill_id).read_docs(section=section)
+        return self._get_skill(skill_id).read_docs(section=section, format="blocks")
 
     # Deploy sources and destinations
 

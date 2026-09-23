@@ -13,7 +13,7 @@ payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -21,6 +21,10 @@ from airbyte.exceptions import PyAirbyteInputError
 from airbyte.registry import (
     ApiDocsUrl,  # noqa: TC001  # Needed at runtime for Pydantic field types.
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class AgentWorkspaceInfo(BaseModel):
@@ -83,7 +87,7 @@ class CloudSkillInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str
-    """The skill ID. Pass it to `read_skill_docs` to read this skill's docs."""
+    """The skill ID. Pass it to `CloudWorkspace._read_skill_docs` to read this skill's docs."""
 
     kind: str | None = None
     """The skill category, for example `static` or `connector_source`."""
@@ -398,8 +402,8 @@ class CloudConnectorDetails(BaseModel):
     Secret values are redacted by the Cloud API. Always `None` for sources, which the
     API does not expose configuration for."""
 
-    connections: list[CloudConnectorConnectionInfo] | None = None
-    """Connections touching this connector, populated only by `with_connections`."""
+    replication_details: list[CloudConnectorConnectionInfo] | None = None
+    """Connections touching this connector, populated only by `with_replication_details`."""
 
     direct_access_docs: CloudConnectorDocs | None = None
     """Direct-access docs rendered as Markdown, populated only by `with_direct_access_docs`."""
@@ -428,3 +432,22 @@ AgentConnectorMetadata = CloudApiConnectorMetadata
 AgentExecuteResult = CloudApiExecuteResult
 AgentConnectorInfo = CloudAgentConnectorInfo
 AgentConnectorDetails = CloudContextLayerConnectorDetails
+
+
+SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
+BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
+
+SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
+    SNOWFLAKE_DESTINATION_DEFINITION_ID: "snowflake",
+    BIGQUERY_DESTINATION_DEFINITION_ID: "bigquery",
+}
+"""Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
+
+SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
+    SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
+    BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
+}
+"""Destination definition ID -> display name of the destination integration."""
+
+SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
+"""Destination definitions AI agents can query through SQL passthrough."""

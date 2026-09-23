@@ -20,8 +20,10 @@ from airbyte.cloud.connectors import (
     ConnectorFeature,
     ConnectorType,
 )
-from airbyte.cloud.models import (
+from airbyte._direct_connectors.models import (
     SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+)
+from airbyte.cloud.models import (
     CloudDestinationInfo,
     CloudSourceInfo,
     CloudWorkspaceInfo,

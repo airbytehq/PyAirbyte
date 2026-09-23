@@ -14,13 +14,15 @@ from airbyte._util import api_util
 from airbyte.agents.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
-    CloudApiQueryAction,
+    ApiQueryAction,
     CloudConnector,
     CloudDestination,
     CloudSource,
 )
-from airbyte.cloud.models import (
+from airbyte._direct_connectors.models import (
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+)
+from airbyte.cloud.models import (
     CloudDestinationInfo,
     CloudSourceInfo,
 )
@@ -174,7 +176,7 @@ def test_execute_api_query_accepts_enum_action(
     calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    source.execute_api_query("issues", CloudApiQueryAction.SEARCH, {"query": "bug"})
+    source.execute_api_query("issues", ApiQueryAction.SEARCH, {"query": "bug"})
 
     assert calls[0]["request_body"]["action"] == "search"
 

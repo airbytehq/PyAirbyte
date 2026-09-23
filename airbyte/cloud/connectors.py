@@ -56,6 +56,8 @@ from airbyte._direct_connectors.actions import (
 )
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 from airbyte._direct_connectors.models import (
+    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudApiExecuteResult,
     CloudConnectorDetails,
     CloudConnectorDocs,
@@ -64,8 +66,6 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, text_util
 from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-    SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -119,7 +119,7 @@ class CheckResult:
         )
 
 
-class CloudApiQueryAction(str, Enum):
+class ApiQueryAction(str, Enum):
     """Read actions accepted by `CloudConnector.execute_api_query`."""
 
     LIST = "list"
@@ -127,7 +127,7 @@ class CloudApiQueryAction(str, Enum):
     SEARCH = "search"
 
 
-class CloudApiWriteAction(str, Enum):
+class ApiAction(str, Enum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
 
     CREATE = "create"
@@ -140,6 +140,17 @@ class ConnectorType(str, Enum):
 
     SOURCE = "source"
     DESTINATION = "destination"
+
+    @classmethod
+    def parse(cls, value: str) -> ConnectorType:
+        """Parse a connector type value, raising `ValueError` on anything unrecognized."""
+        try:
+            return cls(value)
+        except ValueError:
+            valid = ", ".join(f"`{member.value}`" for member in cls)
+            raise ValueError(
+                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
+            ) from None
 
 
 class ConnectorFeature(str, Enum):
@@ -409,7 +420,7 @@ class CloudConnector:
     def execute_api_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
         self,
         entity_type: str,
-        action: CloudApiQueryAction | Literal["list", "get", "search"] = CloudApiQueryAction.LIST,
+        action: ApiQueryAction | Literal["list", "get", "search"] = ApiQueryAction.LIST,
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -426,7 +437,7 @@ class CloudConnector:
         API's own error.
         """
         try:
-            resolved_action = CloudApiQueryAction(action)
+            resolved_action = ApiQueryAction(action)
         except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid read action.",
@@ -450,7 +461,7 @@ class CloudConnector:
     def execute_api_action(
         self,
         entity_type: str,
-        action: CloudApiWriteAction | Literal["create", "update", "delete"],
+        action: ApiAction | Literal["create", "update", "delete"],
         api_args: dict[str, Any] | None = None,
         *,
         select_fields: list[str] | None = None,
@@ -465,7 +476,7 @@ class CloudConnector:
         API's own error.
         """
         try:
-            resolved_action = CloudApiWriteAction(action)
+            resolved_action = ApiAction(action)
         except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid write action.",
@@ -555,7 +566,7 @@ class CloudConnector:
         including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
-        if read_only and action in {write_action.value for write_action in CloudApiWriteAction}:
+        if read_only and action in {write_action.value for write_action in ApiAction}:
             raise exc.PyAirbyteInputError(
                 message=(
                     f"The {action!r} action is a write action but was requested as read-only."
@@ -669,7 +680,7 @@ class CloudConnector:
         self,
         *,
         with_config: bool = False,
-        with_connections: bool = False,
+        with_replication_details: bool = False,
         with_direct_access_docs: bool = False,
         with_data_replication_docs: bool = False,
         force_refresh: bool = False,
@@ -683,7 +694,7 @@ class CloudConnector:
         and an `inspect` failure is reported in `warnings` rather than raised.
 
         Pass `with_config` for the connector definition name and configuration (secrets are
-        redacted by the Cloud API), `with_connections` for the connections touching this
+        redacted by the Cloud API), `with_replication_details` for the connections touching this
         connector, `with_direct_access_docs` for its direct-access docs rendered as
         Markdown, and `with_data_replication_docs` for links to the connector's upstream
         API documentation. Failures in the optional lookups are collected in `warnings`.
@@ -727,9 +738,9 @@ class CloudConnector:
             if connector_type == "destination":
                 details.config = self.as_cloud_destination().configuration
 
-        if with_connections:
+        if with_replication_details:
             try:
-                details.connections = connector_docs.build_connection_infos(self)
+                details.replication_details = connector_docs.build_connection_infos(self)
             except exc.AirbyteError as error:
                 warnings.append(f"Connection listing failed: {error}")
 
@@ -794,7 +805,9 @@ class CloudConnector:
             if self.workspace._has_context_layer_api():  # noqa: SLF001
                 skill_id = connector_docs.destination_skill_id(self.connector_id)
                 try:
-                    server_docs = self.workspace.read_skill_docs(skill_id, section=section)
+                    server_docs = self.workspace._read_skill_docs(  # noqa: SLF001
+                        skill_id, section=section
+                    )
                 except exc.AirbyteError as error:
                     if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
                         raise

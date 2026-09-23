@@ -8,7 +8,7 @@ them without going through the `airbyte.agents` interface.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, overload
 
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
@@ -23,8 +23,9 @@ if TYPE_CHECKING:
 class CloudSkill:
     """A skill available to a Cloud workspace through the Agents API.
 
-    Get one from `CloudWorkspace.get_skill()` or `CloudWorkspace.list_skills()` rather than
-    constructing it directly.
+    Get one from `CloudWorkspace._get_skill()` or `CloudWorkspace._list_skills()` rather than
+    constructing it directly. These workspace methods are private: skills are surfaced
+    through `CloudConnector.get_direct_access_docs()` and the MCP agents tools.
     """
 
     def __init__(
@@ -34,7 +35,7 @@ class CloudSkill:
         *,
         info: CloudSkillInfo | None = None,
     ) -> None:
-        """Initialize a `CloudSkill`. Prefer `CloudWorkspace.get_skill()`."""
+        """Initialize a `CloudSkill`. Prefer `CloudWorkspace._get_skill()`."""
         self.workspace = workspace
         """The workspace the skill is read through."""
 
@@ -47,7 +48,7 @@ class CloudSkill:
     def info(self) -> CloudSkillInfo:
         """The skill's metadata, fetched from the Agents API if not already known."""
         if self._info is None:
-            self._info = self.read_docs().metadata
+            self._info = self.read_docs(format="blocks").metadata
         return self._info
 
     @property
@@ -60,11 +61,34 @@ class CloudSkill:
         """The skill category, for example `static` or `connector_source`."""
         return self.info.kind
 
-    def read_docs(self, *, section: str | None = None) -> CloudSkillDocs:
+    @overload
+    def read_docs(
+        self,
+        *,
+        section: str | None = None,
+        format: Literal["markdown"] = "markdown",  # Specified public name.
+    ) -> str: ...
+
+    @overload
+    def read_docs(
+        self,
+        *,
+        section: str | None = None,
+        format: Literal["blocks"],  # Specified public name.
+    ) -> CloudSkillDocs: ...
+
+    def read_docs(
+        self,
+        *,
+        section: str | None = None,
+        format: Literal["markdown", "blocks"] = "markdown",  # noqa: A002  # Specified name.
+    ) -> str | CloudSkillDocs:
         """Read this skill's docs, optionally scoped to a single section.
 
         Omit `section` for metadata, guidance, and the outline of available sections, or
-        pass an exact section `id` from the outline to read that section.
+        pass an exact section `id` from the outline to read that section. By default the
+        docs are returned rendered as a single Markdown document; pass `format="blocks"`
+        for the `CloudSkillDocs` model.
         """
         docs = CloudSkillDocs.model_validate(
             _api_util.read_agent_skill_docs(
@@ -77,8 +101,6 @@ class CloudSkill:
         )
         if self._info is None:
             self._info = docs.metadata
-        return docs
-
-    def read_docs_markdown(self, *, section: str | None = None) -> str:
-        """Read this skill's docs rendered as a single Markdown document."""
-        return render_docs_content_markdown(self.read_docs(section=section).content)
+        if format == "blocks":
+            return docs
+        return render_docs_content_markdown(docs.content)

@@ -14,17 +14,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from airbyte._direct_connectors.models import (
+    BIGQUERY_DESTINATION_DEFINITION_ID,
+    SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudConnectorConnectionInfo,
     CloudContextLayerConnectorDetails,
     CloudSkillDocs,
     CloudSkillInfo,
     CloudSkillSection,
-)
-from airbyte.cloud.models import (
-    BIGQUERY_DESTINATION_DEFINITION_ID,
-    SNOWFLAKE_DESTINATION_DEFINITION_ID,
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-    SQL_PASSTHROUGH_DESTINATION_NAMES,
 )
 from airbyte.exceptions import PyAirbyteInputError
 

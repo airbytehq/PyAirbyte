@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from airbyte._direct_connectors import api_util as agents_api_util
-from airbyte.cloud import CloudSkill
+from airbyte.cloud.skills import CloudSkill
 from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -54,7 +54,7 @@ def _make_workspace(monkeypatch: pytest.MonkeyPatch) -> CloudWorkspace:
 
 
 def test_list_skills_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`list_skills` returns `CloudSkill` objects across all result pages."""
+    """`_list_skills` returns `CloudSkill` objects across all result pages."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
     pages = [
@@ -68,7 +68,7 @@ def test_list_skills_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(agents_api_util, "list_agent_skills", fake_list_skills)
 
-    skills = workspace.list_skills()
+    skills = workspace._list_skills()
 
     assert [skill.skill_id for skill in skills] == [
         "connector:github",
@@ -82,22 +82,22 @@ def test_list_skills_follows_pagination(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_get_skill_returns_lazy_skill(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`get_skill` makes no API call until docs or info are read."""
+    """`_get_skill` makes no API call until docs or info are read."""
     workspace = _make_workspace(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
         "list_agent_skills",
-        lambda **_: pytest.fail("get_skill must not call the API"),
+        lambda **_: pytest.fail("_get_skill must not call the API"),
     )
 
-    skill = workspace.get_skill("connector:github")
+    skill = workspace._get_skill("connector:github")
 
     assert isinstance(skill, CloudSkill)
     assert skill.skill_id == "connector:github"
 
 
 def test_read_skill_docs(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`read_skill_docs` and `CloudSkill.read_docs` return parsed docs."""
+    """`_read_skill_docs` and `CloudSkill.read_docs` return parsed docs."""
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
@@ -107,7 +107,7 @@ def test_read_skill_docs(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(agents_api_util, "read_agent_skill_docs", fake_read_docs)
 
-    docs = workspace.read_skill_docs("connector:github", section="setup")
+    docs = workspace._read_skill_docs("connector:github", section="setup")
 
     assert docs.metadata.id == "connector:github"
     assert docs.metadata.title == "GitHub"
@@ -115,13 +115,14 @@ def test_read_skill_docs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0]["skill_id"] == "connector:github"
     assert calls[0]["section"] == "setup"
 
-    skill = workspace.get_skill("connector:github")
-    assert skill.read_docs().metadata.title == "GitHub"
+    skill = workspace._get_skill("connector:github")
+    assert skill.read_docs(format="blocks").metadata.title == "GitHub"
     # `info` is populated from the docs response without a second call pattern change.
     assert skill.info.id == "connector:github"
 
 
-def test_read_docs_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_docs_markdown_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`read_docs` returns rendered Markdown unless `format="blocks"` is passed."""
     workspace = _make_workspace(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
@@ -129,6 +130,7 @@ def test_read_docs_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda **_: SKILL_DOCS_RESPONSE,
     )
 
-    markdown = workspace.get_skill("connector:github").read_docs_markdown()
+    markdown = workspace._get_skill("connector:github").read_docs()
 
+    assert isinstance(markdown, str)
     assert "Hello" in markdown

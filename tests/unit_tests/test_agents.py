@@ -10,7 +10,6 @@ import pytest
 import requests
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import connector_docs as destination_docs
-from airbyte.cloud import models as cloud_models
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte.agents.models import (
@@ -1396,7 +1395,7 @@ def _snowflake_destination(**kwargs: Any) -> _FakeDestination:
     return _FakeDestination(
         connector_id="dest-1",
         name="Snowflake dev",
-        definition_id=cloud_models.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        definition_id=destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
         **kwargs,
     )
 
@@ -1582,12 +1581,12 @@ def test_connection_namespace_note(
     ("definition_id", "dialect"),
     [
         pytest.param(
-            cloud_models.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
             "snowflake",
             id="snowflake",
         ),
         pytest.param(
-            cloud_models.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
             "bigquery",
             id="bigquery",
         ),

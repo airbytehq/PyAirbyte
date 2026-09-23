@@ -19,8 +19,10 @@ from airbyte.cloud.connectors import (
     CloudSource,
     ConnectorFeature,
 )
-from airbyte.cloud.models import (
+from airbyte._direct_connectors.models import (
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+)
+from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -244,15 +246,15 @@ def test_describe_sql_passthrough_destination(
         lambda _self: [destination],
     )
 
-    details = destination.describe(with_connections=True)
+    details = destination.describe(with_replication_details=True)
 
     assert details.connector_type == "destination"
     assert details.integration_name == "Snowflake"
     assert details.docs_skill_id is not None
     assert details.docs_skill_id.startswith("connector-destination:")
-    assert details.connections is not None
-    assert len(details.connections) == 1
-    info = details.connections[0]
+    assert details.replication_details is not None
+    assert len(details.replication_details) == 1
+    info = details.replication_details[0]
     assert info.connection_id == "conn-1"
     assert info.source_name == "GitHub"
     assert info.destination_name == "Warehouse"
