@@ -78,6 +78,17 @@ class _DeclarativeSourceDefinitionResponseLike(Protocol):
     version: object
 
 
+class ConnectorType(str, Enum):
+    """The kind of a deployed Cloud connector."""
+
+    SOURCE = "source"
+    DESTINATION = "destination"
+
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
+
+
 class JobStatusEnum(str, Enum):
     """Status values for an Airbyte Cloud job."""
 

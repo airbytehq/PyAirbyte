@@ -61,6 +61,7 @@ from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
+    ConnectorType,
     _DeclarativeSourceDefinitionResponseLike,
     _DestinationResponseLike,
     _SourceResponseLike,
@@ -118,17 +119,6 @@ class ExternalApiWriteAction(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
-
-
-class ConnectorType(str, Enum):
-    """The kind of a deployed Cloud connector."""
-
-    SOURCE = "source"
-    DESTINATION = "destination"
 
     def __str__(self) -> str:
         """Return the string representation of the enum value."""
