@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from typing import NoReturn
+from unittest.mock import MagicMock
 
 import pytest
 import requests
@@ -1901,6 +1902,42 @@ def test_cloud_workspace_list_connectors(
     # One Context layer docs probe per listed connector at most; the non-passthrough
     # destination is never probed.
     assert calls["list"] <= 4
+
+
+def test_cloud_workspace_list_connectors_stops_probing_at_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    connectors = [
+        _seed_source(workspace, "source-1", "GitHub Issues"),
+        _seed_source(workspace, "source-2", "Salesforce"),
+        _seed_source(workspace, "source-3", "Jira"),
+    ]
+    monkeypatch.setattr(workspace, "list_sources", lambda **_: connectors)
+    monkeypatch.setattr(workspace, "list_destinations", lambda **_: [])
+
+    get_features = MagicMock(return_value=frozenset())
+    monkeypatch.setattr(workspace, "_get_connector_features", get_features)
+
+    assert len(workspace.list_connectors(limit=1)) == 1
+    assert get_features.call_count == 1
+
+    get_features.reset_mock()
+    get_features.side_effect = [
+        frozenset(),
+        frozenset({ConnectorFeature.DIRECT_ACCESS}),
+        frozenset({ConnectorFeature.DIRECT_ACCESS}),
+    ]
+
+    results = workspace.list_connectors(
+        with_feature=ConnectorFeature.DIRECT_ACCESS,
+        limit=1,
+    )
+
+    assert [connector.connector_id for connector in results] == ["source-2"]
+    assert get_features.call_count == 2
 
 
 def test_cloud_workspace_list_connectors_rejects_non_positive_limit(

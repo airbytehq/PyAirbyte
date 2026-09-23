@@ -1020,16 +1020,17 @@ class CloudWorkspace:
                 if connector.name is not None and needle in connector.name.casefold()
             ]
 
+        matches: list[cloud_connectors.CloudConnector] = []
         for connector in connectors:
             connector._enabled_features = self._get_connector_features(connector)  # noqa: SLF001
-
-        if with_feature is not None:
-            connectors = [
-                connector
-                for connector in connectors
-                if with_feature in connector._get_enabled_features()  # noqa: SLF001
-            ]
-        return connectors if limit is None else connectors[:limit]
+            if (
+                with_feature is not None and with_feature not in connector._get_enabled_features()  # noqa: SLF001
+            ):
+                continue
+            matches.append(connector)
+            if limit is not None and len(matches) >= limit:
+                break
+        return matches
 
     def publish_custom_source_definition(
         self,
