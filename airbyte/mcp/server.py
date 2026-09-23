@@ -74,6 +74,7 @@ if TYPE_CHECKING:
     from key_value.aio.protocols.key_value import AsyncKeyValue
     from starlette.requests import Request
 
+from airbyte._util.deployment import get_deployment_mode
 from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
@@ -401,7 +402,10 @@ app = mcp_server(
         package_name="airbyte",
         segment_write_key=segment_write_key,
         segment_user_id=SEGMENT_USER_ID,
-        extra_properties=lambda: {"is_hosted_mcp": is_hosted_mcp_mode()},
+        extra_properties=lambda: {
+            "is_hosted_mcp": is_hosted_mcp_mode(),
+            "deployment_mode": get_deployment_mode(),
+        },
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,

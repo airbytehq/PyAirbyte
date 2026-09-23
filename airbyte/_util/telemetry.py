@@ -26,6 +26,7 @@ Here is what is tracked:
 - The number of records processed.
 - The application hash, which is a hash of either the notebook name or Python script name.
 - Flags to help us understand if PyAirbyte is running on CI, Google Colab, or another environment.
+- Whether the configured Airbyte API is Airbyte Cloud or a self-managed (OSS) instance.
 
 """
 
@@ -188,8 +189,13 @@ class EventType(str, Enum):
 
 @lru_cache
 def get_env_flags() -> dict[str, Any]:
+    # Imported lazily to avoid a circular import: airbyte._util.deployment pulls in
+    # airbyte.cloud.auth, while this module is imported during airbyte package init.
+    from airbyte._util.deployment import get_deployment_mode  # noqa: PLC0415
+
     flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
+        "DEPLOYMENT": get_deployment_mode(),
         "LANGCHAIN": meta.is_langchain(),
         "MCP": meta.is_mcp_mode(),
         "NOTEBOOK_RUNTIME": (
