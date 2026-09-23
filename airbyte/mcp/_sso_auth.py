@@ -27,18 +27,14 @@ startup. This module makes those per-login instead, mirroring the Cloud webapp's
    token's `iss` to a per-realm `JWTVerifier` whose JWKS URI comes only from the
    template-fetched discovery document, never from the token itself.
 
-FastMCP seams relied on (inventoried against fastmcp 3.2.0; `assert_fastmcp_sso_seams`
-checks they still exist at startup): `OIDCProxy.get_token_verifier`,
-`OAuthProxy.authorize`, `get_routes`, `_handle_idp_callback`,
-`_try_transparent_refresh`, `exchange_refresh_token`, `revoke_token`, the instance
-attributes `_upstream_authorization_endpoint` / `_upstream_token_endpoint` /
-`_upstream_revocation_endpoint` / `_extra_authorize_params` (shadowed here by
-context-aware properties), and the `ConsentMixin` cookie, CSRF, and consent-binding
-helpers.
+This works by subclassing `OIDCProxy` and overriding a handful of its methods and
+private attributes (listed in `_OVERRIDDEN_FASTMCP_METHODS`). Those are FastMCP
+internals with no compatibility promise, checked against fastmcp 3.2.0, so
+`check_fastmcp_compatibility()` runs at startup and fails with a clear error if a
+FastMCP upgrade removed one.
 
-Platform prerequisites: the deployment's OIDC client must exist, with the same
-client id and secret and this server's callback URL, in every SSO realm, and each
-realm's discovery URL must follow the configured template.
+Prerequisite on the platform side: the deployment's OIDC client must exist, with the
+same client id, secret, and callback URL, in every SSO realm.
 """
 
 from __future__ import annotations
@@ -67,6 +63,7 @@ from fastmcp.server.auth.oauth_proxy.ui import create_error_html
 from fastmcp.server.auth.oidc_proxy import OIDCConfiguration, OIDCProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp.utilities.ui import create_secure_html_response
+from mcp.server.auth.provider import TokenError
 from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from starlette.routing import Route
@@ -150,6 +147,9 @@ def _validate_discovery_url_template(template: str) -> None:
         msg = f"expected exactly one {REALM_PLACEHOLDER} placeholder"
         raise ValueError(msg)
     parts = urlsplit(template)
+    if not parts.hostname:
+        msg = "must include a host"
+        raise ValueError(msg)
     if parts.query or parts.fragment:
         msg = "must not contain a query string or fragment"
         raise ValueError(msg)
@@ -222,6 +222,11 @@ class SsoRealmConfig:
         folded = realm.casefold()
         return any(folded == reserved.casefold() for reserved in self.reserved_realms)
 
+    @property
+    def allows_http_endpoints(self) -> bool:
+        """True only for a local `http://` template; realms may then use `http://localhost` URLs."""
+        return urlsplit(self.discovery_url_template).scheme == "http"
+
 
 @dataclass(frozen=True, kw_only=True)
 class RealmEndpoints:
@@ -233,6 +238,16 @@ class RealmEndpoints:
     token_endpoint: str
     jwks_uri: str
     revocation_endpoint: str | None = None
+
+
+_UPSTREAM_UNAVAILABLE = RealmEndpoints(
+    realm="", issuer="", authorization_endpoint="", token_endpoint="", jwks_uri=""
+)
+"""Active realm meaning "a known SSO realm whose discovery is down right now".
+
+It has no endpoints at all, so FastMCP code running under it cannot reach the default
+realm by mistake; revocation uses it to keep local cleanup while skipping the upstream call.
+"""
 
 
 def validate_realm_identifier(raw: str, *, config: SsoRealmConfig, default_issuer: str) -> str:
@@ -286,12 +301,11 @@ class _CacheEntry:
 class SsoRealmRegistry:
     """Resolves company identifiers to realm endpoints via the discovery template.
 
-    Discovery documents are fetched at most once per realm per
-    `discovery_cache_ttl_seconds`; a 404 (realm does not exist) is remembered for
-    `negative_cache_ttl_seconds` so an attacker enumerating identifiers cannot turn
-    every guess into an upstream request. Anything else (timeout, 5xx, malformed
-    document, issuer mismatch) raises `RealmDiscoveryUnavailableError` and is not
-    cached. The cache is LRU-bounded by `max_cached_realms`.
+    Successful lookups are cached for `discovery_cache_ttl_seconds`. A 404 (no such
+    realm) is cached for `negative_cache_ttl_seconds`, so guessing identifiers does
+    not turn into one upstream request per guess. Timeouts, 5xx responses, malformed
+    documents, and issuer mismatches raise `RealmDiscoveryUnavailableError` and are
+    not cached. The cache is LRU-bounded by `max_cached_realms`.
     """
 
     def __init__(
@@ -306,7 +320,7 @@ class SsoRealmRegistry:
         self._fetch: DiscoveryFetch = fetch or self._default_fetch
         self._clock = clock
         self._cache: OrderedDict[str, _CacheEntry] = OrderedDict()
-        self._lock: asyncio.Lock | None = None
+        self._locks: dict[str, asyncio.Lock] = {}
 
     @property
     def config(self) -> SsoRealmConfig:
@@ -350,20 +364,26 @@ class SsoRealmRegistry:
         cached = self._cached(realm)
         if cached is not None:
             return cached.endpoints
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        async with self._lock:
-            cached = self._cached(realm)
-            if cached is not None:
-                return cached.endpoints
-            endpoints = await self._discover(realm)
-            ttl = (
-                self._config.discovery_cache_ttl_seconds
-                if endpoints is not None
-                else self._config.negative_cache_ttl_seconds
-            )
-            self._store(realm, endpoints, ttl)
-            return endpoints
+        # One lock per realm, so a slow or failing realm never blocks lookups for
+        # other realms. The lock is dropped once nobody holds it; a task that was
+        # still waiting keeps its reference, so at worst two fetches overlap.
+        lock = self._locks.setdefault(realm, asyncio.Lock())
+        try:
+            async with lock:
+                cached = self._cached(realm)
+                if cached is not None:
+                    return cached.endpoints
+                endpoints = await self._discover(realm)
+                ttl = (
+                    self._config.discovery_cache_ttl_seconds
+                    if endpoints is not None
+                    else self._config.negative_cache_ttl_seconds
+                )
+                self._store(realm, endpoints, ttl)
+                return endpoints
+        finally:
+            if not lock.locked():
+                self._locks.pop(realm, None)
 
     def _cached(self, realm: str) -> _CacheEntry | None:
         entry = self._cache.get(realm)
@@ -430,10 +450,11 @@ class SsoRealmRegistry:
             ),
         )
 
-    @staticmethod
-    def _secure_url(realm: str, url: str) -> str:
+    def _secure_url(self, realm: str, url: str) -> str:
         scheme = urlsplit(url).scheme
-        if scheme == "https" or (scheme == "http" and _is_loopback_url(url)):
+        if scheme == "https":
+            return url
+        if scheme == "http" and self._config.allows_http_endpoints and _is_loopback_url(url):
             return url
         msg = f"Discovery document for SSO realm {realm!r} lists a non-https endpoint: {url}"
         raise RealmDiscoveryUnavailableError(msg)
@@ -444,14 +465,12 @@ class SsoRealmRegistry:
 
 
 class MultiRealmTokenVerifier(TokenVerifier):
-    """Verifies upstream tokens from the default realm or any resolvable SSO realm.
+    """Verifies upstream tokens from the default realm or any known SSO realm.
 
-    Routing uses the token's unverified `iss` claim only to pick which verifier
-    runs; the chosen verifier then fully validates signature, issuer, audience,
-    expiry, and scopes. A per-realm `JWTVerifier` is built from the realm's
-    template-fetched discovery document, so the JWKS URI is never derived from the
-    token. Tokens whose `iss` is neither the default issuer nor a resolvable realm
-    are rejected.
+    The token's unverified `iss` only picks which verifier runs; that verifier then
+    checks signature, issuer, audience, expiry, and scopes in full. Each realm's
+    `JWTVerifier` is built from the realm's discovery document, so the JWKS URI never
+    comes from the token. Tokens from any other issuer are rejected.
     """
 
     def __init__(
@@ -538,10 +557,9 @@ class SsoRealmChoice(BaseModel):
 class _SsoChoiceStore:
     """`SsoRealmChoice` rows in the proxy's `client_storage`, keyed by transaction id.
 
-    Talks to the `AsyncKeyValue` protocol directly rather than through `key_value`'s
-    `PydanticAdapter`, so this module has no runtime import from that transitive
-    package. In production the storage is the encrypted, shared backend the
-    deployment injects, so choices live alongside the rest of the OAuth state.
+    Uses the `AsyncKeyValue` protocol directly, so the choice lives in the same
+    (encrypted, shared) store as the rest of the OAuth state without importing the
+    `key_value` package at runtime.
     """
 
     def __init__(self, storage: AsyncKeyValue) -> None:
@@ -598,7 +616,7 @@ class _LoginFlowError(Exception):
         )
 
 
-_REQUIRED_CLASS_SEAMS = (
+_OVERRIDDEN_FASTMCP_METHODS = (
     "authorize",
     "get_routes",
     "get_client",
@@ -624,14 +642,13 @@ _REQUIRED_TRANSACTION_FIELDS = (
 )
 
 
-def assert_fastmcp_sso_seams() -> None:
-    """Fail fast if the installed FastMCP lacks an internal this module overrides.
+def check_fastmcp_compatibility() -> None:
+    """Fail at startup if FastMCP no longer has a method or field this module relies on.
 
-    The SSO proxy reaches into `OIDCProxy` internals that carry no compatibility
-    promise. Checking them at startup turns a silent behavior change after a FastMCP
-    upgrade into a clear error naming the missing seam.
+    Everything overridden here is FastMCP-internal. A FastMCP upgrade that renames
+    one would otherwise change behavior silently; this turns it into a clear error.
     """
-    missing = [name for name in _REQUIRED_CLASS_SEAMS if not hasattr(OIDCProxy, name)]
+    missing = [name for name in _OVERRIDDEN_FASTMCP_METHODS if not hasattr(OIDCProxy, name)]
     missing.extend(
         f"OAuthTransaction.{field}"
         for field in _REQUIRED_TRANSACTION_FIELDS
@@ -639,9 +656,9 @@ def assert_fastmcp_sso_seams() -> None:
     )
     if missing:
         msg = (
-            "The installed fastmcp is missing internals that SSO login relies on: "
-            f"{', '.join(missing)}. Pin fastmcp to a version that provides them or "
-            "update airbyte.mcp._sso_auth."
+            "The installed fastmcp is missing methods or fields that SSO login depends "
+            f"on: {', '.join(missing)}. Pin fastmcp to a version that has them or update "
+            "airbyte.mcp._sso_auth."
         )
         raise RuntimeError(msg)
 
@@ -649,11 +666,9 @@ def assert_fastmcp_sso_seams() -> None:
 class AirbyteSsoOidcProxy(OIDCProxy):
     """`OIDCProxy` whose upstream realm is chosen per login on an identifier-entry page.
 
-    Construction is identical to `OIDCProxy` plus `sso_config`; `build_mcp_auth`
-    supplies the rest via `OIDCAuthConfig(proxy_factory=make_sso_proxy_factory(...))`.
-    The default realm (the `config_url` realm) keeps behaving exactly as before;
-    SSO realms are reached through `SsoRealmConfig.discovery_url_template` with the
-    same client id and secret.
+    Constructed like `OIDCProxy` plus `sso_config`. The default realm (the one from
+    `config_url`) behaves exactly as before; SSO realms are reached through
+    `SsoRealmConfig.discovery_url_template` with the same client id and secret.
     """
 
     def __init__(
@@ -670,7 +685,7 @@ class AirbyteSsoOidcProxy(OIDCProxy):
                 "do not pass token_verifier."
             )
             raise ValueError(msg)
-        assert_fastmcp_sso_seams()
+        check_fastmcp_compatibility()
         self._sso = sso_config
         self._registry = SsoRealmRegistry(sso_config, fetch=discovery_fetch)
         self._default_issuer = ""
@@ -695,9 +710,9 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         self._sso_choice_store = _SsoChoiceStore(self._client_storage)
 
     # -- Realm-aware views of the upstream configuration ---------------------------------
-    # `OAuthProxy.__init__` assigns these four as plain instance attributes. Shadowing
-    # them with properties (each with a setter so that assignment still works) is the
-    # seam that lets stock FastMCP code read the realm chosen for the current request.
+    # `OAuthProxy.__init__` sets these four as plain attributes. Replacing them with
+    # properties (with setters, so that assignment still works) makes FastMCP's own
+    # code use the realm chosen for the current request without any other changes.
 
     @property
     # pyrefly: ignore[bad-override]  # Deliberate: property shadows a base instance attribute.
@@ -1055,16 +1070,22 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         return response
 
     async def _endpoints_for_issuer(self, issuer: str | None) -> RealmEndpoints | None:
+        """Endpoints for the realm named by `issuer`, or `None` for the default realm.
+
+        Issuers that are not one of our realms also return `None`; the default realm
+        then rejects them on its own. For a known SSO realm, discovery trouble raises
+        `RealmDiscoveryUnavailableError` so nothing is ever sent to the wrong realm.
+        """
         if issuer is None or _same_issuer(issuer, self._default_issuer):
             return None
         realm = self._registry.realm_from_issuer(issuer)
         if realm is None:
             return None
-        try:
-            return await self._registry.get_endpoints(realm)
-        except RealmDiscoveryUnavailableError as exc:
-            logger.warning("Falling back to the default realm for %r: %s", realm, exc)
-            return None
+        endpoints = await self._registry.get_endpoints(realm)
+        if endpoints is None:
+            msg = f"SSO realm {realm!r} no longer exists"
+            raise RealmDiscoveryUnavailableError(msg)
+        return endpoints
 
     async def _endpoints_for_upstream_token(
         self, upstream_token_set: UpstreamTokenSet
@@ -1093,6 +1114,8 @@ class AirbyteSsoOidcProxy(OIDCProxy):
     async def _try_transparent_refresh(
         self, upstream_token_set: UpstreamTokenSet
     ) -> UpstreamTokenSet:
+        # A discovery failure raises here. `load_access_token` treats that like any
+        # other failed refresh and rejects the token, so the client signs in again.
         endpoints = await self._endpoints_for_upstream_token(upstream_token_set)
         with realm_context(endpoints):
             return await super()._try_transparent_refresh(upstream_token_set)
@@ -1103,8 +1126,19 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
-        """Refresh against the realm that issued the upstream token."""
-        endpoints = await self._endpoints_for_proxy_token(refresh_token.token, token_use="refresh")
+        """Refresh against the realm that issued the upstream token.
+
+        If that realm's discovery is down the refresh is refused (the same
+        `invalid_grant` FastMCP uses for a failed upstream refresh) rather than
+        attempted against the default realm.
+        """
+        try:
+            endpoints = await self._endpoints_for_proxy_token(
+                refresh_token.token, token_use="refresh"
+            )
+        except RealmDiscoveryUnavailableError as exc:
+            logger.warning("Refusing token refresh: %s", exc)
+            raise TokenError("invalid_grant", f"Upstream refresh failed: {exc}") from exc
         with realm_context(endpoints):
             return await super().exchange_refresh_token(client, refresh_token, scopes)
 
@@ -1115,9 +1149,15 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         refresh token is FastMCP's own reference JWT, resolved through its JTI
         mapping instead; the first lookup simply finds no realm for it.
         """
-        endpoints = await self._endpoints_for_issuer(_peek_issuer(token.token))
-        if endpoints is None:
-            endpoints = await self._endpoints_for_proxy_token(token.token, token_use="refresh")
+        try:
+            endpoints = await self._endpoints_for_issuer(_peek_issuer(token.token))
+            if endpoints is None:
+                endpoints = await self._endpoints_for_proxy_token(token.token, token_use="refresh")
+        except RealmDiscoveryUnavailableError as exc:
+            # Keep FastMCP's local cleanup, skip the upstream call, and never aim
+            # it at the default realm.
+            logger.warning("Skipping upstream revocation: %s", exc)
+            endpoints = _UPSTREAM_UNAVAILABLE
         with realm_context(endpoints):
             await super().revoke_token(token)
 

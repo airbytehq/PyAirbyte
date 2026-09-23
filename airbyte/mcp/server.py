@@ -210,17 +210,10 @@ OIDC_CLIENT_STORAGE_FACTORY_ENV = "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
 SSO_OIDC_CONFIG_URL_TEMPLATE_ENV = "AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE"
 SSO_IDP_HINT_ENV = "AIRBYTE_MCP_SSO_IDP_HINT"
 
-# Realm names on Airbyte Cloud's Keycloak that are never customer SSO realms.
-# The identifier pattern already excludes `_`-prefixed internal realms; listing
-# them keeps the rule explicit. `airbyte` is an ordinary SSO realm, not reserved.
-AIRBYTE_CLOUD_RESERVED_SSO_REALMS: frozenset[str] = frozenset(
-    {
-        "_airbyte-cloud-users",
-        "_airbyte-application-clients",
-        "_airbyte-internal",
-        "master",
-    }
-)
+# Realm names that can never be a customer's SSO realm. Airbyte's internal realms
+# all start with `_`, which the identifier pattern already rejects, so only
+# Keycloak's own admin realm needs listing. `airbyte` is a regular customer realm.
+AIRBYTE_CLOUD_RESERVED_SSO_REALMS: frozenset[str] = frozenset({"master"})
 
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080

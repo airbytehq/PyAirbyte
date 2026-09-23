@@ -30,7 +30,7 @@ from fastmcp.server.auth.oauth_proxy.models import JTIMapping, UpstreamTokenSet
 from fastmcp.server.auth.oidc_proxy import OIDCConfiguration
 from fastmcp_extensions import OIDCAuthConfig, build_mcp_auth
 from key_value.aio.stores.memory import MemoryStore
-from mcp.server.auth.provider import AuthorizationParams, RefreshToken
+from mcp.server.auth.provider import AuthorizationParams, RefreshToken, TokenError
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 from starlette.applications import Starlette
@@ -53,12 +53,7 @@ DEFAULT_REALM = "_airbyte-cloud-users"
 DEFAULT_ISSUER = f"{KEYCLOAK}/{DEFAULT_REALM}"
 DEFAULT_CONFIG_URL = f"{DEFAULT_ISSUER}/.well-known/openid-configuration"
 TEMPLATE = f"{KEYCLOAK}/{{realm}}/.well-known/openid-configuration"
-RESERVED = frozenset({
-    "_airbyte-cloud-users",
-    "_airbyte-application-clients",
-    "_airbyte-internal",
-    "master",
-})
+RESERVED = frozenset({"master"})
 CLIENT_ID = "cloud-mcp"
 CLIENT_SECRET = "s3cret"
 SCOPES = ["openid", "email", "profile"]
@@ -206,6 +201,11 @@ class _FakeUpstreamOAuthClient:
             f"{KEYCLOAK}/{{realm}}/.well-known/openid-configuration?x=1",
             "query",
             id="query-string",
+        ),
+        pytest.param(
+            "https:///auth/realms/{realm}/.well-known/openid-configuration",
+            "host",
+            id="missing-host",
         ),
     ],
 )
@@ -392,6 +392,60 @@ def test_registry_failures_raise_and_are_not_cached(
 
     asyncio.run(scenario())
     assert len(fetch.calls) == 2
+
+
+def test_registry_rejects_http_endpoints_for_an_https_template() -> None:
+    """A production template never accepts `http://localhost` endpoints from a realm."""
+    doc = {**_discovery_doc(_issuer("acme")), "jwks_uri": "http://localhost:8180/certs"}
+    registry = sso.SsoRealmRegistry(
+        _config(), fetch=_FakeFetch({"acme": httpx.Response(200, json=doc)})
+    )
+    with pytest.raises(sso.RealmDiscoveryUnavailableError, match="non-https"):
+        asyncio.run(registry.get_endpoints("acme"))
+
+
+def test_registry_accepts_http_endpoints_for_a_local_http_template() -> None:
+    local = "http://localhost:8180/realms"
+    config = _config(
+        discovery_url_template=f"{local}/{{realm}}/.well-known/openid-configuration"
+    )
+    doc = _discovery_doc(f"{local}/acme")
+    registry = sso.SsoRealmRegistry(
+        config, fetch=_FakeFetch({"acme": httpx.Response(200, json=doc)})
+    )
+    endpoints = asyncio.run(registry.get_endpoints("acme"))
+    assert endpoints is not None
+    assert endpoints.token_endpoint == f"{local}/acme/protocol/openid-connect/token"
+
+
+def test_registry_serializes_only_same_realm_lookups() -> None:
+    """A slow realm must not block lookups for other realms."""
+    order: list[str] = []
+    gate: asyncio.Event | None = None
+
+    class _GatedFetch(_FakeFetch):
+        async def __call__(self, url: str) -> httpx.Response:
+            assert gate is not None
+            if "/realms/slow/" in url:
+                await gate.wait()
+            order.append(url.split("/realms/")[1].split("/")[0])
+            return await super().__call__(url)
+
+    fetch = _GatedFetch({"slow": _realm_ok("slow"), "fast": _realm_ok("fast")})
+    registry = sso.SsoRealmRegistry(_config(), fetch=fetch)
+
+    async def scenario() -> None:
+        nonlocal gate
+        gate = asyncio.Event()
+        slow = asyncio.create_task(registry.get_endpoints("slow"))
+        await asyncio.sleep(0.01)
+        fast = await registry.get_endpoints("fast")
+        assert fast is not None
+        gate.set()
+        assert await slow is not None
+
+    asyncio.run(scenario())
+    assert order == ["fast", "slow"]
 
 
 def test_registry_is_lru_bounded() -> None:
@@ -757,10 +811,12 @@ def test_sso_branch_sends_no_idp_hint_when_unconfigured(
         assert proxy._extra_authorize_params == {}  # noqa: SLF001
 
 
-def test_assert_seams_names_missing_internals(monkeypatch: MonkeyPatch) -> None:
-    sso.assert_fastmcp_sso_seams()
+def test_compatibility_check_names_missing_fastmcp_members(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    sso.check_fastmcp_compatibility()
     monkeypatch.setattr(
-        sso, "_REQUIRED_CLASS_SEAMS", (*sso._REQUIRED_CLASS_SEAMS, "_gone")
+        sso, "_OVERRIDDEN_FASTMCP_METHODS", (*sso._OVERRIDDEN_FASTMCP_METHODS, "_gone")
     )  # noqa: SLF001
     monkeypatch.setattr(
         sso,
@@ -768,7 +824,7 @@ def test_assert_seams_names_missing_internals(monkeypatch: MonkeyPatch) -> None:
         (*sso._REQUIRED_TRANSACTION_FIELDS, "vanished"),  # noqa: SLF001
     )
     with pytest.raises(RuntimeError, match=r"_gone.*OAuthTransaction\.vanished"):
-        sso.assert_fastmcp_sso_seams()
+        sso.check_fastmcp_compatibility()
 
 
 # ---------------------------------------------------------------------------
@@ -1172,6 +1228,70 @@ def test_refresh_token_exchange_uses_the_issuing_realm(
     assert calls[0]["url"] == f"{_issuer('acme')}/protocol/openid-connect/token"
 
 
+def test_transparent_refresh_fails_closed_when_realm_discovery_is_down(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    proxy = _make_proxy(
+        monkeypatch, fetch=_FakeFetch({"acme": httpx.ConnectTimeout("down")})
+    )
+    fake = _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    with pytest.raises(sso.RealmDiscoveryUnavailableError):
+        asyncio.run(
+            proxy._try_transparent_refresh(_upstream_token_set(_issuer("acme")))
+        )  # noqa: SLF001
+    assert fake.refresh_calls == []
+
+
+def test_refresh_token_exchange_fails_closed_when_realm_discovery_is_down(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A refresh for an SSO token must not be retried against the default realm."""
+    proxy = _make_proxy(
+        monkeypatch, fetch=_FakeFetch({"acme": httpx.ConnectTimeout("down")})
+    )
+    proxy.get_routes("/mcp")
+    fake = _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+
+    async def scenario() -> None:
+        await proxy.register_client(
+            OAuthClientInformationFull(
+                client_id=MCP_CLIENT_ID, redirect_uris=[AnyUrl(MCP_REDIRECT_URI)]
+            )
+        )
+        client = await proxy.get_client(MCP_CLIENT_ID)
+        assert client is not None
+        await proxy._upstream_token_store.put(  # noqa: SLF001
+            key="upstream-1", value=_upstream_token_set(_issuer("acme")), ttl=3600
+        )
+        await proxy._jti_mapping_store.put(  # noqa: SLF001
+            key="refresh-jti",
+            value=JTIMapping(
+                jti="refresh-jti",
+                upstream_token_id="upstream-1",
+                created_at=time.time(),
+            ),
+            ttl=3600,
+        )
+        proxy_refresh = proxy.jwt_issuer.issue_refresh_token(
+            client_id=MCP_CLIENT_ID, scopes=SCOPES, jti="refresh-jti", expires_in=3600
+        )
+        with pytest.raises(TokenError) as excinfo:
+            await proxy.exchange_refresh_token(
+                client,
+                RefreshToken(
+                    token=proxy_refresh,
+                    client_id=MCP_CLIENT_ID,
+                    scopes=SCOPES,
+                    expires_at=None,
+                ),
+                SCOPES,
+            )
+        assert excinfo.value.error == "invalid_grant"
+
+    asyncio.run(scenario())
+    assert fake.refresh_calls == []
+
+
 def _capture_upstream_posts(monkeypatch: MonkeyPatch) -> list[str]:
     """Replace `httpx.AsyncClient` inside FastMCP's proxy with a stub that records POST URLs."""
     posts: list[str] = []
@@ -1207,6 +1327,24 @@ def test_revocation_of_upstream_access_token_posts_to_the_issuing_realm(
     )
     asyncio.run(proxy.revoke_token(upstream_access))
     assert posts == [f"{_issuer('acme')}/protocol/openid-connect/revoke"]
+
+
+def test_revocation_skips_upstream_when_realm_discovery_is_down(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Revocation never falls back to the default realm; it just skips the upstream call."""
+    proxy = _make_proxy(
+        monkeypatch, fetch=_FakeFetch({"acme": httpx.ConnectTimeout("down")})
+    )
+    _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    posts = _capture_upstream_posts(monkeypatch)
+    upstream_access = AccessToken(
+        token=_unsigned_jwt({"iss": _issuer("acme")}),
+        client_id=MCP_CLIENT_ID,
+        scopes=SCOPES,
+    )
+    asyncio.run(proxy.revoke_token(upstream_access))
+    assert posts == []
 
 
 def test_revocation_of_proxy_refresh_token_posts_to_the_issuing_realm(

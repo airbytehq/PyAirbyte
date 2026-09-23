@@ -26,6 +26,7 @@ from airbyte.mcp import http_main
 from airbyte.mcp import server
 from airbyte.mcp._sso_auth import (
     AirbyteSsoOidcProxy,
+    InvalidRealmIdentifierError,
     SsoRealmConfig,
     validate_realm_identifier,
 )
@@ -577,12 +578,7 @@ def test_create_auth_sso_template_requires_interactive_oidc(
 def test_reserved_sso_realms_exclude_airbyte() -> None:
     """`airbyte` is an ordinary customer realm; only internal realms and `master` are reserved."""
     assert "airbyte" not in server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS
-    assert server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS == {
-        "_airbyte-cloud-users",
-        "_airbyte-application-clients",
-        "_airbyte-internal",
-        "master",
-    }
+    assert server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS == {"master"}
     config = SsoRealmConfig(
         discovery_url_template=_SSO_TEMPLATE,
         reserved_realms=server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS,
@@ -594,3 +590,8 @@ def test_reserved_sso_realms_exclude_airbyte() -> None:
         )
         == "airbyte"
     )
+    # Internal realms are excluded by their `_` prefix, not by the reserved list.
+    with pytest.raises(InvalidRealmIdentifierError):
+        validate_realm_identifier(
+            "_airbyte-internal", config=config, default_issuer=default_issuer
+        )
