@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       target-branch:
-        description: "Target branch. The release-candidate trunk that receives updates from the source branch."
+        description: "Target branch. The release-candidate trunk that receives updates from the source branch. Must start with `release-candidate/`."
         required: false
         default: "release-candidate/v1"
         type: string
@@ -70,6 +70,9 @@ jobs:
             && exit 1
           [[ ! "$source" =~ ^[A-Za-z0-9._/-]+$ ]] \
             && echo "::error::Invalid source branch name: $source" \
+            && exit 1
+          [[ "$target" != release-candidate/* ]] \
+            && echo "::error::Target branch must be under release-candidate/ (got: $target)" \
             && exit 1
           [[ "$target" == "$source" ]] \
             && echo "::error::Source and target branches must differ." \
