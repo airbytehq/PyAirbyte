@@ -300,17 +300,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.namespace_definition
 
     @property
-    def schedule_description(self) -> str | None:
-        """The sync schedule: `manual`, a cron expression, or `every <units> <time_unit>`.
-
-        `None` when the schedule is unknown.
-        """
-        if not self._connection_info:
-            self._connection_info = self._fetch_connection_info()
-
-        return self._connection_info.schedule_description
-
-    @property
     def namespace_format(self) -> str | None:
         """The namespace format template, when `namespace_definition` is `custom_format`."""
         if not self._connection_info:

@@ -11,6 +11,7 @@ import pytest
 import requests
 
 from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import CloudConnectorDetails
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connections import CloudConnection
@@ -110,7 +111,6 @@ def _fake_connection(
     destination_id: str,
     *,
     name: str = "sync",
-    schedule: str = "every 24 hours",
 ) -> CloudConnection:
     connection = CloudConnection(workspace=workspace, connection_id=connection_id)
     connection._connection_info = CloudConnectionInfo(  # noqa: SLF001
@@ -124,7 +124,6 @@ def _fake_connection(
         ),
         prefix="raw_",
         namespace_definition="destination",
-        schedule_description=schedule,
         status="active",
     )
     return connection
@@ -233,8 +232,17 @@ def test_describe_sql_passthrough_destination(
     )
     destination._enabled_features = frozenset({ConnectorFeature.EXTERNAL_ACCESS})  # noqa: SLF001
 
-    connection = _fake_connection(
-        workspace, "conn-1", "source-1", "dest-1", schedule="manual"
+    connection = _fake_connection(workspace, "conn-1", "source-1", "dest-1")
+    monkeypatch.setattr(
+        connector_docs.api_util,
+        "get_connection",
+        lambda **_kwargs: SimpleNamespace(
+            schedule=SimpleNamespace(
+                schedule_type=SimpleNamespace(value="manual"),
+                cron_expression=None,
+                basic_timing=None,
+            )
+        ),
     )
     other_connection = _fake_connection(workspace, "conn-2", "source-1", "dest-2")
     monkeypatch.setattr(
@@ -578,3 +586,40 @@ def test_describe_data_replication_docs_registry_error_warns(
         "Data replication docs are unavailable" in warning
         for warning in details.warnings
     )
+
+
+@pytest.mark.parametrize(
+    ("schedule", "expected"),
+    [
+        pytest.param(None, None, id="none"),
+        pytest.param(
+            SimpleNamespace(schedule_type=SimpleNamespace(value="manual")),
+            "manual",
+            id="manual",
+        ),
+        pytest.param(
+            SimpleNamespace(
+                schedule_type=SimpleNamespace(value="cron"),
+                cron_expression="0 8 * * *",
+            ),
+            "0 8 * * *",
+            id="cron_expression",
+        ),
+        pytest.param(
+            SimpleNamespace(
+                schedule_type=SimpleNamespace(value="basic"),
+                basic_timing="every_24_hours",
+            ),
+            "every 24 hours",
+            id="basic_every_24_hours",
+        ),
+        pytest.param(
+            SimpleNamespace(schedule_type=SimpleNamespace(value="unknown")),
+            "unknown",
+            id="unknown_type",
+        ),
+    ],
+)
+def test_schedule_description(schedule: Any, expected: str | None) -> None:
+    """`_schedule_description` formats each schedule shape into a display string."""
+    assert connector_docs._schedule_description(schedule) == expected  # noqa: SLF001
