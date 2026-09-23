@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 import requests
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorDetails,
     AgentConnectorMetadata,
     AgentExecuteResult,
@@ -18,7 +18,7 @@ from airbyte.agents.models import (
     AgentSkillInfo,
     AgentSkillSection,
 )
-from airbyte.agents._destination_docs import (
+from airbyte._direct_connectors.connector_docs import (
     BIGQUERY_DESTINATION_DEFINITION_ID,
     SNOWFLAKE_DESTINATION_DEFINITION_ID,
 )

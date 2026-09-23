@@ -11,10 +11,17 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any
 
-from airbyte.agents import _api_util
-from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
+from airbyte._direct_connectors import api_util as _api_util
+from airbyte._direct_connectors.actions import (
+    UNSUPPORTED_ACTIONS,
+    AgentAction,
+    AgentReadAction,
+    AgentWriteAction,
+    _build_params,
+)
+from airbyte._direct_connectors.models import AgentConnectorDetails, AgentExecuteResult
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -22,130 +29,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from airbyte.cloud._credentials import _AirbyteCredentials
-
-
-UNSUPPORTED_ACTIONS: set[str] = {"download"}
-"""Actions PyAirbyte rejects before sending them to the Agents API.
-
-`download` returns a binary stream rather than JSON, and PyAirbyte does not yet support
-streaming responses, so it is rejected with actionable guidance instead of failing later
-inside the transport layer.
-"""
-
-
-class AgentReadAction(str, Enum):
-    """Connector actions that only read data.
-
-    The `search` action is the connector's native API search, parallel to `get` and `list`.
-    The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
-    engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
-    `dry_run`) in `api_args`; `entity_type` is ignored for this action.
-
-    The `download` action is deliberately absent even though it reads: it returns a binary
-    stream rather than JSON, which PyAirbyte does not yet support.
-    """
-
-    LIST = "list"
-    GET = "get"
-    SEARCH = "search"
-    SQL_SELECT = "sql_select"
-
-
-class AgentWriteAction(str, Enum):
-    """Connector actions that create, update, or delete data."""
-
-    CREATE = "create"
-    UPDATE = "update"
-    DELETE = "delete"
-
-
-AgentAction = AgentReadAction | AgentWriteAction
-"""Every connector action accepted by `AgentConnector.execute()`."""
-
-
-_PAGINATION_ARGS: dict[str, str] = {"page_size": "limit", "cursor": "cursor"}
-"""Pagination conveniences PyAirbyte merges into the connector's `params`.
-
-Maps the PyAirbyte argument name to the connector's own `params` key: the Agents API calls
-page size `limit`, which PyAirbyte does not expose under that name because `limit` reads as
-a cap on the whole result set rather than on one page.
-"""
-
-
-class _ConnectorLookup(NamedTuple):
-    """What to look a connector up by, once the lookup arguments have been validated.
-
-    Both fields are set when the caller passed a positional value that could be either an
-    ID or a name, in which case an ID match takes precedence over a name match.
-    """
-
-    connector_id: str | None
-    name: str | None
-
-
-def _resolve_connector_lookup(
-    id_or_name: str | None,
-    /,
-    *,
-    id: str | None,  # noqa: A002  # Mirrors the public `id` alias it validates.
-    connector_id: str | None,
-    name: str | None,
-) -> _ConnectorLookup:
-    """Validate connector lookup arguments and return what to look the connector up by.
-
-    `id` and `connector_id` are synonyms, so exactly one of them, `name`, or the positional
-    `id_or_name` is required. Conflicting synonym values are rejected, as is a blank value,
-    which would otherwise be treated as an omitted argument.
-    """
-    all_args = {
-        "id_or_name": id_or_name,
-        "id": id,
-        "connector_id": connector_id,
-        "name": name,
-    }
-
-    blank_args = sorted(
-        key for key, value in all_args.items() if value is not None and not value.strip()
-    )
-    if blank_args:
-        raise PyAirbyteInputError(
-            message="Connector lookup arguments cannot be blank.",
-            guidance="Omit the argument entirely, or pass a non-blank value.",
-            context={"blank_args": blank_args},
-        )
-
-    if id_or_name:
-        keyword_args = sorted(
-            key for key, value in all_args.items() if value and key != "id_or_name"
-        )
-        if keyword_args:
-            raise PyAirbyteInputError(
-                message="A positional connector lookup cannot be combined with keyword arguments.",
-                guidance="Pass the value positionally, or pass `id`, `connector_id`, or `name`.",
-                context={"keyword_args": keyword_args},
-            )
-        return _ConnectorLookup(connector_id=id_or_name, name=id_or_name)
-
-    provided = {
-        key: value for key, value in {"id": id, "connector_id": connector_id}.items() if value
-    }
-    if len(set(provided.values())) > 1:
-        raise PyAirbyteInputError(
-            message="`id` and `connector_id` were given conflicting values.",
-            guidance="These arguments are synonyms, so pass only one of them.",
-            context={"provided": sorted(provided)},
-        )
-
-    if bool(provided) == bool(name):
-        raise PyAirbyteInputError(
-            message="Exactly one connector lookup argument is required.",
-            guidance=(
-                "Pass a connector ID or name positionally, or as `id`, `connector_id`, "
-                "or `name`."
-            ),
-        )
-
-    return _ConnectorLookup(connector_id=next(iter(provided.values()), None), name=name)
 
 
 class AgentConnector:
@@ -334,21 +217,16 @@ class AgentConnector:
         `status`, `warning`, or `execution_metadata` are needed.
         """
         cursor: str | None = kwargs.pop("cursor", None)
-        seen_cursors: set[str] = set()
-        yielded = 0
-
-        while True:
-            result = self.list_entities(entity_type, api_args, cursor=cursor, **kwargs)
-            for agent_entity in result.entities:
-                yield agent_entity
-                yielded += 1
-                if limit is not None and yielded >= limit:
-                    return
-
-            cursor = result.end_cursor
-            if not result.has_next_page or cursor is None or cursor in seen_cursors:
-                return
-            seen_cursors.add(cursor)
+        yield from _api_util.iter_paged_entities(
+            lambda page_cursor: self.list_entities(
+                entity_type,
+                api_args,
+                cursor=page_cursor,
+                **kwargs,
+            ),
+            limit=limit,
+            cursor=cursor,
+        )
 
     def search_entities(
         self,
@@ -394,39 +272,3 @@ class AgentConnector:
     ) -> AgentExecuteResult:
         """Run the `delete` action, which deletes an entity of `entity_type`."""
         return self.execute(entity_type, "delete", api_args, **kwargs)
-
-
-def _build_params(
-    *,
-    api_args: dict[str, Any] | None,
-    page_size: int | None,
-    cursor: str | None,
-) -> dict[str, Any]:
-    """Merge the pagination conveniences into the connector-specific `api_args`."""
-    params: dict[str, Any] = dict(api_args or {})
-    pagination: dict[str, Any] = {"page_size": page_size, "cursor": cursor}
-
-    conflicts = sorted(
-        name
-        for name, param_key in _PAGINATION_ARGS.items()
-        if pagination[name] is not None and param_key in params
-    )
-    if conflicts:
-        raise PyAirbyteInputError(
-            message="Pagination arguments were provided twice.",
-            guidance=(
-                "Pass each of `page_size` and `cursor` either as a keyword argument or "
-                "within `api_args`, but not both. Note that `page_size` is sent to the "
-                "connector as `limit`."
-            ),
-            context={"duplicated_args": conflicts},
-        )
-
-    params.update(
-        {
-            param_key: pagination[name]
-            for name, param_key in _PAGINATION_ARGS.items()
-            if pagination[name] is not None
-        }
-    )
-    return params

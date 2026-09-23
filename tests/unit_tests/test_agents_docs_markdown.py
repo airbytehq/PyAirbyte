@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Unit tests for `airbyte.agents._docs_markdown`."""
+"""Unit tests for `airbyte._direct_connectors.docs_markdown`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from airbyte.agents._docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
 
 
 @pytest.mark.parametrize(
