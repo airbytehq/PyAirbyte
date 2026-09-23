@@ -29,8 +29,6 @@ from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
@@ -191,45 +189,6 @@ class AgentConnector:
     ) -> ExternalApiExecuteResult:
         """Run the `list` action, which returns a page of entities of `entity_type`."""
         return self.execute(entity_type, "list", api_args, **kwargs)
-
-    def iter_entities(
-        self,
-        entity_type: str,
-        api_args: dict[str, Any] | None = None,
-        *,
-        limit: int | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `list_entities()`.
-    ) -> Iterator[dict[str, Any]]:
-        """Yield entities of `entity_type`, following the connector's pagination cursor.
-
-        This is the pagination-free way to read entities: each page is fetched lazily as
-        the caller iterates, so no cursor bookkeeping is needed.
-
-        ```python
-        for issue in connector.iter_entities("issues", {"repository": "airbytehq/PyAirbyte"}):
-            print(issue["title"])
-        ```
-
-        `limit` caps how many entities are yielded in total, which matters for entity types
-        with no natural end. Pass `page_size` to control how many are fetched per request.
-
-        Iteration stops early if the connector reports another page without advancing its
-        cursor, rather than requesting the same page forever.
-
-        Use `list_entities()` instead when a single page is enough, or when the result's
-        `status`, `warning`, or `execution_metadata` are needed.
-        """
-        cursor: str | None = kwargs.pop("cursor", None)
-        yield from _api_util.iter_paged_entities(
-            lambda page_cursor: self.list_entities(
-                entity_type,
-                api_args,
-                cursor=page_cursor,
-                **kwargs,
-            ),
-            limit=limit,
-            cursor=cursor,
-        )
 
     def search_entities(
         self,

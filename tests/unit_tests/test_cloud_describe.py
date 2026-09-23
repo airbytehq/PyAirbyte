@@ -27,7 +27,6 @@ from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
-    ExternalApiExecuteResult,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
@@ -579,48 +578,3 @@ def test_describe_data_replication_docs_registry_error_warns(
         "Data replication docs are unavailable" in warning
         for warning in details.warnings
     )
-
-
-@pytest.mark.parametrize(
-    ("limit", "expected_ids", "expected_calls", "expected_error"),
-    [
-        pytest.param(None, [1, 2, 3], 2, None, id="follows_cursors_to_last_page"),
-        pytest.param(2, [1, 2], 1, None, id="limit_stops_within_first_page"),
-        pytest.param(0, [], 0, None, id="limit_zero_makes_no_calls"),
-        pytest.param(-1, [], 0, PyAirbyteInputError, id="negative_limit_raises"),
-    ],
-)
-def test_iter_paged_entities_limit(
-    limit: int | None,
-    expected_ids: list[int],
-    expected_calls: int,
-    expected_error: type[Exception] | None,
-) -> None:
-    """`iter_paged_entities` caps yielded entities by `limit` and validates it."""
-    pages = {
-        None: {
-            "status": "success",
-            "result": [{"id": 1}, {"id": 2}],
-            "connector_metadata": {"has_next_page": True, "end_cursor": "cursor-1"},
-        },
-        "cursor-1": {
-            "status": "success",
-            "result": [{"id": 3}],
-            "connector_metadata": {"has_next_page": False, "end_cursor": None},
-        },
-    }
-    calls: list[str | None] = []
-
-    def fetch_page(cursor: str | None) -> ExternalApiExecuteResult:
-        calls.append(cursor)
-        return ExternalApiExecuteResult.model_validate(pages[cursor])
-
-    if expected_error is not None:
-        with pytest.raises(expected_error, match="limit"):
-            list(agents_api_util.iter_paged_entities(fetch_page, limit=limit))
-        return
-
-    records = list(agents_api_util.iter_paged_entities(fetch_page, limit=limit))
-
-    assert [record["id"] for record in records] == expected_ids
-    assert len(calls) == expected_calls

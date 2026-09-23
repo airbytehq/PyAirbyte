@@ -27,9 +27,6 @@ from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAi
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-
-    from airbyte._direct_connectors.models import ExternalApiExecuteResult
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
@@ -454,44 +451,6 @@ def _resolve_connector_lookup(
         )
 
     return _ConnectorLookup(connector_id=next(iter(provided.values()), None), name=name)
-
-
-def iter_paged_entities(
-    fetch_page: Callable[[str | None], ExternalApiExecuteResult],
-    *,
-    limit: int | None = None,
-    cursor: str | None = None,
-) -> Iterator[dict[str, Any]]:
-    """Yield entities across pages, following each page's `end_cursor`.
-
-    `fetch_page` is called with the cursor to request and must return the parsed page.
-    Iteration stops when the page reports no next page, when the cursor does not advance,
-    or once `limit` entities have been yielded.
-    """
-    if limit is not None:
-        if limit < 0:
-            raise PyAirbyteInputError(
-                message="`limit` must be zero or a positive integer.",
-                context={"limit": limit},
-            )
-        if limit == 0:
-            return
-
-    seen_cursors: set[str] = set()
-    yielded = 0
-
-    while True:
-        result = fetch_page(cursor)
-        for entity in result.entities:
-            yield entity
-            yielded += 1
-            if limit is not None and yielded >= limit:
-                return
-
-        cursor = result.end_cursor
-        if not result.has_next_page or cursor is None or cursor in seen_cursors:
-            return
-        seen_cursors.add(cursor)
 
 
 def _records_from_response(*, response: dict[str, Any], path: str) -> list[dict[str, Any]]:
