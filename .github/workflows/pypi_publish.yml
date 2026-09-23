@@ -87,7 +87,10 @@ jobs:
   deploy_cloud_mcp_preview:
     name: Deploy Cloud MCP Preview
     needs: publish_to_pypi
+    # RC period: only RC releases deploy. To return to stable-driven deploys,
+    # swap back to the commented condition below.
     if: (github.event_name == 'release' && contains(github.event.release.tag_name, '-rc.')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    # if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
     permissions:
       contents: read
     uses: ./.github/workflows/deploy_cloud_mcp.yml
@@ -102,7 +105,10 @@ jobs:
   deploy_cloud_mcp:
     name: Deploy Cloud MCP
     needs: publish_to_pypi
+    # RC period: only RC releases promote to production. To return to
+    # stable-driven deploys, swap back to the commented condition below.
     if: github.event_name == 'release' && contains(github.event.release.tag_name, '-rc.')
+    # if: github.event_name == 'release' && github.event.release.prerelease != true
     # The dispatch to airbyte-ops-mcp is authenticated with a GitHub App token,
     # not `GITHUB_TOKEN`, so this job needs nothing beyond reading the workflow.
     permissions:

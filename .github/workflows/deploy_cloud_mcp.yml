@@ -21,7 +21,10 @@ name: Deploy Cloud MCP
 on:
   push:
     branches:
+      # RC period: preview tracks the release-candidate branch. To return to
+      # tracking `main`, swap back to the commented branch below.
       - 'release-candidate/**'
+      # - main
   workflow_call:
     inputs:
       pyairbyte-version:
