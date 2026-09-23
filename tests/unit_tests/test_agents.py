@@ -1412,8 +1412,8 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
             destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             {"database": "DB", "schema": "S"},
             destination_docs._DestinationLocation(
-                container=destination_docs._LocationPart("database", "DB"),
-                namespace=destination_docs._LocationPart("schema", "S"),
+                database_name="DB",
+                schema_name="S",
             ),
             id="snowflake",
         ),
@@ -1421,8 +1421,8 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
             destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             {"project_id": "P", "dataset_id": "D"},
             destination_docs._DestinationLocation(
-                container=destination_docs._LocationPart("project", "P"),
-                namespace=destination_docs._LocationPart("dataset", "D"),
+                database_name="P",
+                schema_name="D",
             ),
             id="bigquery",
         ),
@@ -1468,8 +1468,8 @@ def test_destination_location(
             None,
             "",
             destination_docs._DestinationLocation(
-                container=destination_docs._LocationPart("database", "DB"),
-                namespace=destination_docs._LocationPart("schema", "S"),
+                database_name="DB",
+                schema_name="S",
             ),
             "Streams land in the destination's default namespace, schema `S`, "
             "with no table prefix.",
@@ -1497,10 +1497,10 @@ def test_destination_location(
             None,
             "raw_",
             destination_docs._DestinationLocation(
-                container=destination_docs._LocationPart("database", "DB"),
-                namespace=destination_docs._LocationPart("dataset", "D"),
+                database_name="DB",
+                schema_name="D",
             ),
-            "Streams land in the destination's default namespace, dataset `D`, "
+            "Streams land in the destination's default namespace, schema `D`, "
             "with table prefix 'raw_'.",
             id="with_prefix",
         ),
