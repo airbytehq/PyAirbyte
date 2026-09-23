@@ -7,6 +7,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from airbyte.registry import ConnectorType
+
 
 class SupportLevel(str, Enum):
     """Connector support levels ordered by precedence."""
@@ -41,24 +43,6 @@ class SupportLevel(str, Enum):
             raise ValueError(
                 f"Unrecognized support level: {value!r}. "
                 f"Expected keyword ({valid_kw}) or integer ({valid_int})."
-            ) from None
-
-
-class ConnectorType(str, Enum):
-    """Connector type: `source` or `destination`."""
-
-    SOURCE = "source"
-    DESTINATION = "destination"
-
-    @classmethod
-    def parse(cls, value: str) -> ConnectorType:
-        """Parse a connector type value."""
-        try:
-            return cls(value)
-        except ValueError:
-            valid = ", ".join(f"`{member.value}`" for member in cls)
-            raise ValueError(
-                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
             ) from None
 
 
@@ -125,3 +109,12 @@ class PublicConnectorListResult(BaseModel):
     connector_count: int = Field(description="Number of matching connectors.")
     filters: PublicConnectorFilters = Field(description="Applied filters.")
     connectors: list[PublicConnectorSummary] = Field(description="Matching connectors.")
+
+
+__all__ = [
+    "ConnectorType",
+    "PublicConnectorFilters",
+    "PublicConnectorListResult",
+    "PublicConnectorSummary",
+    "SupportLevel",
+]

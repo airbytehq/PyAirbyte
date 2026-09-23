@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.callbacks import ConfigChangeCallback
     from airbyte.progress import ProgressTracker
+    from airbyte.registry import ConnectorType
 
 
 MAX_LOG_LINES = 20
@@ -54,7 +55,7 @@ MAX_LOG_LINES = 20
 class ConnectorBase(abc.ABC):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination", "source"]
+    connector_type: ConnectorType
 
     def __init__(
         self,

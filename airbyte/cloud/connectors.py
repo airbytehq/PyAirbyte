@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -53,6 +52,8 @@ from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
+    ConnectorFeature,
+    ConnectorType,
     _DeclarativeSourceDefinitionResponseLike,
     _DestinationResponseLike,
     _SourceResponseLike,
@@ -90,27 +91,6 @@ class CheckResult:
             f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
-
-
-class ConnectorType(str, Enum):
-    """The kind of a deployed Cloud connector."""
-
-    SOURCE = "source"
-    DESTINATION = "destination"
-
-
-class ConnectorFeature(str, Enum):
-    """Optional capabilities a deployed Cloud connector may have enabled."""
-
-    EXTERNAL_ACCESS = "external_access"
-    """The connector can be used by AI agents through the Airbyte Context layer."""
-
-    SEARCH_INDEXING = "search_indexing"
-    """Airbyte indexes the connector's data for fast search.
-
-    Distinct from any native search the connector itself may offer as a passthrough
-    operation.
-    """
 
 
 class CloudConnector(abc.ABC):
@@ -980,3 +960,14 @@ class CustomCloudSourceDefinition:
         )
 
         return self
+
+
+__all__ = [
+    "CheckResult",
+    "CloudConnector",
+    "CloudDestination",
+    "CloudSource",
+    "ConnectorFeature",
+    "ConnectorType",
+    "CustomCloudSourceDefinition",
+]
