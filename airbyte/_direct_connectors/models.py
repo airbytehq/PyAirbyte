@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from airbyte._util.compat import StrEnum
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.registry import (
     ApiDocsUrl,  # noqa: TC001  # Needed at runtime for Pydantic field types.
@@ -205,6 +206,30 @@ class CloudContextLayerConnectorDetails(BaseModel):
             entity.entity
             for entity in self.context_store_readiness.supported_context_store_entities
         ]
+
+
+class ExternalApiReadOnlyAction(StrEnum):
+    """Read actions accepted by `CloudConnector.execute_api_query`."""
+
+    LIST = "list"
+    GET = "get"
+    SEARCH = "search"
+
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
+
+
+class ExternalApiWriteAction(StrEnum):
+    """Write actions accepted by `CloudConnector.execute_api_action`."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
 
 
 class ExternalApiExecutionMetadata(BaseModel):

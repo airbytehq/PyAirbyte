@@ -24,6 +24,8 @@ from airbyte._direct_connectors.models import (
     ExternalApiConnectorMetadata,
     ExternalApiExecuteResult,
     ExternalApiExecutionMetadata,
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
 )
 from airbyte._util.compat import StrEnum
 from airbyte.registry import ConnectorType
@@ -522,6 +524,8 @@ __all__ = [
     "ExternalApiConnectorMetadata",
     "ExternalApiExecuteResult",
     "ExternalApiExecutionMetadata",
+    "ExternalApiReadOnlyAction",
+    "ExternalApiWriteAction",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

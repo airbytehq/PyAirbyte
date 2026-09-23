@@ -84,10 +84,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from airbyte._direct_connectors.models import (
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
+)
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import ExternalApiReadOnlyAction, ExternalApiWriteAction
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudWorkspaceInfo,

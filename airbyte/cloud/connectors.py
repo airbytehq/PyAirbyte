@@ -64,9 +64,10 @@ from airbyte._direct_connectors.models import (
     CloudContextLayerConnectorDetails,
     DirectAccessGuidance,
     ExternalApiExecuteResult,
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
 )
 from airbyte._util import api_util, text_util
-from airbyte._util.compat import StrEnum
 from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
@@ -121,30 +122,6 @@ class CheckResult:
             f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
-
-
-class ExternalApiReadOnlyAction(StrEnum):
-    """Read actions accepted by `CloudConnector.execute_api_query`."""
-
-    LIST = "list"
-    GET = "get"
-    SEARCH = "search"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
-
-
-class ExternalApiWriteAction(StrEnum):
-    """Write actions accepted by `CloudConnector.execute_api_action`."""
-
-    CREATE = "create"
-    UPDATE = "update"
-    DELETE = "delete"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
 
 
 class CloudConnector:
