@@ -387,6 +387,10 @@ _ = (
 """Destination definitions AI agents can query through SQL passthrough."""
 
 
+_PROTOCOL_STUB: Any = ...
+"""Placeholder return value for `Protocol` member declarations (never invoked)."""
+
+
 # Structural typing helpers. The `airbyte.cloud` classes conform to these protocols,
 # letting this package type its helpers without importing `airbyte.cloud.*` (which
 # would create an import cycle, as `airbyte.cloud` imports this package).
@@ -396,7 +400,9 @@ class _EnumValueLike(Protocol):
     """Any enum member exposing a string `value`."""
 
     @property
-    def value(self) -> str: ...
+    def value(self) -> str:
+        """The enum member's string value."""
+        return _PROTOCOL_STUB
 
 
 class _ConnectionLike(Protocol):
@@ -405,25 +411,39 @@ class _ConnectionLike(Protocol):
     connection_id: str
 
     @property
-    def name(self) -> str | None: ...
+    def name(self) -> str | None:
+        """The connection's display name."""
+        return _PROTOCOL_STUB
 
     @property
-    def source_id(self) -> str: ...
+    def source_id(self) -> str:
+        """The source connector ID."""
+        return _PROTOCOL_STUB
 
     @property
-    def destination_id(self) -> str: ...
+    def destination_id(self) -> str:
+        """The destination connector ID."""
+        return _PROTOCOL_STUB
 
     @property
-    def stream_names(self) -> list[str]: ...
+    def stream_names(self) -> list[str]:
+        """The enabled stream names."""
+        return _PROTOCOL_STUB
 
     @property
-    def table_prefix(self) -> str: ...
+    def table_prefix(self) -> str:
+        """The prefix applied to synced table names."""
+        return _PROTOCOL_STUB
 
     @property
-    def namespace_definition(self) -> str | None: ...
+    def namespace_definition(self) -> str | None:
+        """The connection's namespace definition mode."""
+        return _PROTOCOL_STUB
 
     @property
-    def namespace_format(self) -> str | None: ...
+    def namespace_format(self) -> str | None:
+        """The connection's custom namespace format."""
+        return _PROTOCOL_STUB
 
 
 class _ConnectorLike(Protocol):
@@ -436,20 +456,28 @@ class _ConnectorLike(Protocol):
     workspace: Any
 
     @property
-    def name(self) -> str | None: ...
+    def name(self) -> str | None:
+        """The connector's display name."""
+        return _PROTOCOL_STUB
 
     @property
-    def connector_type(self) -> _EnumValueLike: ...
+    def connector_type(self) -> _EnumValueLike:
+        """The connector type (`source` or `destination`)."""
+        return _PROTOCOL_STUB
 
 
 class _DestinationLike(_ConnectorLike, Protocol):
     """`airbyte.cloud.connectors.CloudDestination` additions used by `connector_docs`."""
 
     @property
-    def definition_id(self) -> str: ...
+    def definition_id(self) -> str:
+        """The connector definition ID."""
+        return _PROTOCOL_STUB
 
     @property
-    def configuration(self) -> dict[str, Any] | None: ...
+    def configuration(self) -> dict[str, Any] | None:
+        """The destination configuration, secrets redacted."""
+        return _PROTOCOL_STUB
 
 
 class _WorkspaceLike(Protocol):
@@ -467,7 +495,10 @@ class _WorkspaceLike(Protocol):
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> Sequence[_ConnectionLike]: ...
+    ) -> Sequence[_ConnectionLike]:
+        """List the workspace's connections."""
+        del name, name_filter, limit
+        return _PROTOCOL_STUB
 
     def list_sources(
         self,
@@ -475,7 +506,10 @@ class _WorkspaceLike(Protocol):
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> Sequence[_ConnectorLike]: ...
+    ) -> Sequence[_ConnectorLike]:
+        """List the workspace's source connectors."""
+        del name, name_filter, limit
+        return _PROTOCOL_STUB
 
     def list_destinations(
         self,
@@ -483,7 +517,10 @@ class _WorkspaceLike(Protocol):
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> Sequence[_DestinationLike]: ...
+    ) -> Sequence[_DestinationLike]:
+        """List the workspace's destination connectors."""
+        del name, name_filter, limit
+        return _PROTOCOL_STUB
 
 
 # Referenced here so unused-global linters don't flag `_WorkspaceLike`, which is
