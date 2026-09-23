@@ -43,17 +43,25 @@ from dataclasses import dataclass
 from enum import Enum
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
 import yaml
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.actions import (
     AgentReadAction,
     _build_params,
 )
-from airbyte._direct_connectors.models import AgentExecuteResult
+from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.models import (
+    CloudApiExecuteResult,
+    CloudConnectorDetails,
+    CloudConnectorDocs,
+    CloudContextLayerConnectorDetails,
+    CloudSkillDocs,
+)
 from airbyte._util import api_util, text_util
 from airbyte.cloud.models import (
     SQL_PASSTHROUGH_DESTINATION_DIALECTS,
@@ -65,10 +73,21 @@ from airbyte.cloud.models import (
     _DestinationResponseLike,
     _SourceResponseLike,
 )
+from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
+
+
+class _ConnectorDefinitionLike(Protocol):
+    """The connector definition fields PyAirbyte reads from the Cloud public API."""
+
+    name: str
+    docker_repository: str
 
 
 @dataclass
@@ -164,6 +183,12 @@ class CloudConnector:
 
         self._enabled_features: frozenset[ConnectorFeature] | None = None
         """Features enabled for this connector. (Cached; `None` until resolved.)"""
+
+        self._context_layer_details: CloudContextLayerConnectorDetails | None = None
+        """Context Layer `inspect` result. (Cached; `None` until fetched.)"""
+
+        self._connector_definition: _ConnectorDefinitionLike | None = None
+        """The connector definition lookup result. (Cached; `None` until fetched.)"""
 
     def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
         """Return the enabled features, resolving them through the workspace on first use."""
@@ -393,7 +418,7 @@ class CloudConnector:
         cursor: str | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
-    ) -> AgentExecuteResult:
+    ) -> CloudApiExecuteResult:
         """Run a read action (`list`, `get`, or `search`) on one entity type.
 
         Requires external access to be enabled for this connector in its organization's
@@ -432,7 +457,7 @@ class CloudConnector:
         exclude_fields: list[str] | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
-    ) -> AgentExecuteResult:
+    ) -> CloudApiExecuteResult:
         """Run a write action (`create`, `update`, or `delete`) on one entity type.
 
         Requires external access to be enabled for this connector in its organization's
@@ -466,7 +491,7 @@ class CloudConnector:
         sql_dialect: str | None = None,
         page_size: int | None = None,
         cursor: str | None = None,
-    ) -> AgentExecuteResult:
+    ) -> CloudApiExecuteResult:
         """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
 
         `sql_dialect` defaults to the dialect registered for this connector's definition.
@@ -519,7 +544,7 @@ class CloudConnector:
         skip_truncation: bool = True,
         intent: str | None = None,
         read_only: bool,
-    ) -> AgentExecuteResult:
+    ) -> CloudApiExecuteResult:
         """Execute a single entity/action operation through the Agents API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
@@ -584,7 +609,254 @@ class CloudConnector:
 
             raise
 
-        return AgentExecuteResult.model_validate(response)
+        return CloudApiExecuteResult.model_validate(response)
+
+    def _context_layer_inspect(
+        self,
+        *,
+        warnings: list[str],
+        force_refresh: bool = False,
+    ) -> CloudContextLayerConnectorDetails | None:
+        """Fetch and cache the Context Layer `inspect` result, without raising.
+
+        An `AirbyteError` from `inspect` (for example a 404 or 403 for connectors the
+        Agents API does not know) is converted into a warning on `warnings` and `None`
+        is returned.
+        """
+        if self._context_layer_details is not None and not force_refresh:
+            return self._context_layer_details
+        try:
+            parsed = CloudContextLayerConnectorDetails.model_validate(
+                agents_api_util.inspect_agent_connector(
+                    connector_id=self.connector_id,
+                    credentials=self.workspace._credentials,  # noqa: SLF001
+                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
+                )
+            )
+        except exc.AirbyteError as error:
+            warnings.append(f"Connector inspect failed: {error}")
+            return None
+        self._context_layer_details = parsed
+        return parsed
+
+    def _fetch_connector_definition(self) -> _ConnectorDefinitionLike:
+        """Fetch and cache this connector's definition from the Cloud public API."""
+        if self._connector_definition is not None:
+            return self._connector_definition
+
+        if self.connector_type == "source":
+            definition: _ConnectorDefinitionLike = api_util.get_source_definition(
+                definition_id=self.definition_id,
+                workspace_id=self.workspace.workspace_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        else:
+            definition = api_util.get_destination_definition(
+                definition_id=self.definition_id,
+                workspace_id=self.workspace.workspace_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        self._connector_definition = definition
+        return definition
+
+    def describe(  # Explicit args are the point of this public API.
+        self,
+        *,
+        with_config: bool = False,
+        with_connections: bool = False,
+        with_direct_access_docs: bool = False,
+        with_data_replication_docs: bool = False,
+        force_refresh: bool = False,
+    ) -> CloudConnectorDetails:
+        """Describe this connector: identity, Context Layer status, and optional details.
+
+        Always populates the identity fields, `external_access_enabled`, and
+        `search_indexing_enabled`. SQL passthrough destinations (Snowflake, BigQuery) are
+        described locally because the Context Layer `inspect` endpoint does not know them;
+        other connectors with external access enabled are inspected through the Agents API,
+        and an `inspect` failure is reported in `warnings` rather than raised.
+
+        Pass `with_config` for the connector definition name and configuration (secrets are
+        redacted by the Cloud API), `with_connections` for the connections touching this
+        connector, `with_direct_access_docs` for its direct-access docs rendered as
+        Markdown, and `with_data_replication_docs` for links to the connector's upstream
+        API documentation. Failures in the optional lookups are collected in `warnings`.
+        """
+        connector_type = self.connector_type
+        warnings: list[str] = []
+        details = CloudConnectorDetails(
+            connector_id=self.connector_id,
+            connector_type=connector_type,
+            connector_name=self.name or "",
+            connector_url=self.connector_url,
+            connector_definition_id=self.definition_id,
+            external_access_enabled=self.external_access_enabled,
+            search_indexing_enabled=self.search_indexing_enabled,
+        )
+
+        if (
+            connector_type == "destination"
+            and self.definition_id in connector_docs.SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        ):
+            details.docs_skill_id = connector_docs.destination_skill_id(self.connector_id)
+            details.integration_name = SQL_PASSTHROUGH_DESTINATION_NAMES.get(self.definition_id)
+        elif details.external_access_enabled and self.workspace._has_context_layer_api():  # noqa: SLF001
+            context_layer = self._context_layer_inspect(
+                warnings=warnings,
+                force_refresh=force_refresh,
+            )
+            if context_layer is not None:
+                details.integration_name = context_layer.integration_name
+                details.context_store_readiness = context_layer.context_store_readiness
+                details.docs_skill_id = context_layer.docs_skill_id
+                warnings.extend(str(warning) for warning in context_layer.warnings)
+
+        if with_config:
+            try:
+                definition = self._fetch_connector_definition()
+            except exc.AirbyteError as error:
+                warnings.append(f"Connector definition lookup failed: {error}")
+            else:
+                details.connector_definition_name = definition.name
+            if connector_type == "destination":
+                details.config = self.as_cloud_destination().configuration
+
+        if with_connections:
+            try:
+                details.connections = connector_docs.build_connection_infos(self)
+            except exc.AirbyteError as error:
+                warnings.append(f"Connection listing failed: {error}")
+
+        if with_direct_access_docs:
+            try:
+                docs = self.get_direct_access_docs()
+            except exc.AirbyteError as error:
+                warnings.append(f"Direct access docs are unavailable: {error}")
+            else:
+                details.direct_access_docs = CloudConnectorDocs(
+                    skill_id=docs.metadata.id,
+                    title=docs.metadata.title,
+                    content=render_docs_content_markdown(docs.content),
+                    outline=docs.outline,
+                    section_id=docs.section_id,
+                    warnings=[str(warning) for warning in docs.metadata.warnings],
+                )
+
+        if with_data_replication_docs:
+            try:
+                details.data_replication_docs = self.get_data_replication_docs()
+            except exc.AirbyteError as error:
+                warnings.append(f"Data replication docs are unavailable: {error}")
+
+        details.warnings = warnings
+        return details
+
+    def get_direct_access_docs(self, *, section: str | None = None) -> CloudSkillDocs:
+        """Read this connector's direct-access docs, optionally scoped to a section.
+
+        Sources are documented by the Agents API skills endpoint, addressed by the
+        `docs_skill_id` reported by Context Layer `inspect` or by the conventional
+        `connector-source:<id>` skill ID. SQL passthrough destinations (Snowflake,
+        BigQuery) get built-in docs generated locally. Other destinations do not support
+        direct access.
+        """
+        if self.connector_type == "source":
+            docs_skill_id: str | None = None
+            if self.workspace._has_context_layer_api():  # noqa: SLF001
+                sink: list[str] = []
+                context_layer = self._context_layer_inspect(warnings=sink)
+                if context_layer is not None:
+                    docs_skill_id = context_layer.docs_skill_id
+            skill_id = docs_skill_id or f"{connector_docs.SOURCE_SKILL_PREFIX}{self.connector_id}"
+            return CloudSkillDocs.model_validate(
+                agents_api_util.read_agent_skill_docs(
+                    skill_id=skill_id,
+                    credentials=self.workspace._credentials,  # noqa: SLF001
+                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
+                    workspace_id=self.workspace.workspace_id,
+                    section=section,
+                )
+            )
+
+        if self.definition_id in SQL_PASSTHROUGH_DESTINATION_DIALECTS:
+            return connector_docs.build_destination_skill_docs(
+                self.as_cloud_destination(),
+                section=section,
+            )
+
+        raise exc.PyAirbyteInputError(
+            message="Destination does not support direct access docs.",
+            guidance=(
+                "Direct access docs are available for SQL passthrough destinations "
+                "(Snowflake, BigQuery) and for sources enabled for external access."
+            ),
+            context={
+                "connector_id": self.connector_id,
+                "definition_id": self.definition_id,
+            },
+        )
+
+    def get_data_replication_docs(self) -> list[ApiDocsUrl]:
+        """Return links to this connector's upstream API documentation.
+
+        The connector's canonical name (for example `source-github`) is resolved from the
+        connector definition's Docker repository, then looked up in the connector registry.
+        """
+        definition = self._fetch_connector_definition()
+        connector_name = definition.docker_repository.split("/")[-1]
+        return get_connector_api_docs_urls(connector_name)
+
+    def list_connections(self) -> list[CloudConnection]:
+        """List the connections that read from or write to this connector."""
+        if self.connector_type == "source":
+            return [
+                connection
+                for connection in self.workspace.list_connections()
+                if connection.source_id == self.connector_id
+            ]
+        return [
+            connection
+            for connection in self.workspace.list_connections()
+            if connection.destination_id == self.connector_id
+        ]
+
+    def iter_api_entities(  # Explicit args are the point of this public API.
+        self,
+        entity_type: str,
+        api_args: dict[str, Any] | None = None,
+        *,
+        limit: int | None = None,
+        page_size: int | None = None,
+        select_fields: list[str] | None = None,
+        exclude_fields: list[str] | None = None,
+        intent: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield entities of `entity_type`, following the connector's pagination cursor.
+
+        Runs the `list` action repeatedly via `execute_api_query`. `limit` caps how many
+        entities are yielded in total; `page_size` controls how many are fetched per
+        request. Iteration stops early if the connector reports another page without
+        advancing its cursor, rather than requesting the same page forever.
+        """
+        yield from agents_api_util.iter_paged_entities(
+            lambda cursor: self.execute_api_query(
+                entity_type,
+                "list",
+                api_args,
+                select_fields=select_fields,
+                exclude_fields=exclude_fields,
+                page_size=page_size,
+                cursor=cursor,
+                intent=intent,
+            ),
+            limit=limit,
+        )
 
 
 class CloudSource(CloudConnector):

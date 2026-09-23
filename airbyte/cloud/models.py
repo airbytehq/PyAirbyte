@@ -10,6 +10,23 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from airbyte._direct_connectors.models import (
+    CloudAgentConnectorInfo,
+    CloudApiConnectorMetadata,
+    CloudApiExecuteResult,
+    CloudApiExecutionMetadata,
+    CloudConnectorConnectionInfo,
+    CloudConnectorDetails,
+    CloudConnectorDocs,
+    CloudContextLayerConnectorDetails,
+    CloudContextStoreEntity,
+    CloudContextStoreReadiness,
+    CloudSkillDocs,
+    CloudSkillInfo,
+    CloudSkillList,
+    CloudSkillSection,
+)
+
 
 SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
 BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
@@ -47,6 +64,7 @@ class _ConnectionResponseLike(Protocol):
     prefix: str | None
     namespace_definition: object | None
     namespace_format: str | None
+    schedule: object | None
     status: object
 
 
@@ -288,6 +306,9 @@ class CloudConnectionInfo(BaseModel):
     namespace_format: str | None = None
     """The namespace format template, when `namespace_definition` is `custom_format`."""
 
+    schedule_description: str | None = None
+    """The sync schedule: `manual`, a cron expression, or `every <units> <time_unit>`."""
+
     status: str
     """The connection status."""
 
@@ -308,6 +329,7 @@ class CloudConnectionInfo(BaseModel):
                 else None
             ),
             namespace_format=connection.namespace_format,
+            schedule_description=_schedule_description(connection.schedule),
             status=_enum_value(connection.status),
         )
 
@@ -445,8 +467,70 @@ def _notifications_to_dict(notifications: object) -> dict[str, object | None]:
     return {}
 
 
+def _schedule_description(schedule: object) -> str | None:
+    """Describe a connection's sync schedule as a single human-readable string.
+
+    Returns `manual` for manual connections, the cron expression for cron-scheduled
+    connections, and `every <units> <time_unit>` for basic schedules (for example,
+    `every 24 hours`). Returns `None` when the schedule is unknown.
+    """
+    if schedule is None:
+        return None
+
+    schedule_type = getattr(schedule, "schedule_type", None)
+    schedule_type_value = _enum_value(schedule_type) if schedule_type is not None else None
+    if schedule_type_value == "manual":
+        return "manual"
+    if schedule_type_value == "cron":
+        cron_expression = getattr(schedule, "cron_expression", None)
+        return str(cron_expression) if cron_expression else "cron"
+    if schedule_type_value == "basic":
+        basic_timing = getattr(schedule, "basic_timing", None)
+        if isinstance(basic_timing, str) and basic_timing.strip():
+            text = basic_timing.replace("_", " ").strip()
+            return text if text.lower().startswith("every") else f"every {text}"
+        return "basic"
+    return schedule_type_value
+
+
 def _enum_value(value: object) -> str:
     """Return the string value for an enum-like object."""
     if isinstance(value, Enum):
         return str(value.value)
     return str(value)
+
+
+__all__ = [
+    "BIGQUERY_DESTINATION_DEFINITION_ID",
+    "SNOWFLAKE_DESTINATION_DEFINITION_ID",
+    "SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS",
+    "SQL_PASSTHROUGH_DESTINATION_DIALECTS",
+    "SQL_PASSTHROUGH_DESTINATION_NAMES",
+    "CloudAgentConnectorInfo",
+    "CloudApiConnectorMetadata",
+    "CloudApiExecuteResult",
+    "CloudApiExecutionMetadata",
+    "CloudConnectionInfo",
+    "CloudConnectorConnectionInfo",
+    "CloudConnectorDetails",
+    "CloudConnectorDocs",
+    "CloudContextLayerConnectorDetails",
+    "CloudContextStoreEntity",
+    "CloudContextStoreReadiness",
+    "CloudCustomSourceDefinitionInfo",
+    "CloudDefaultContextInfo",
+    "CloudDefaultWorkspaceUpdateInfo",
+    "CloudDestinationInfo",
+    "CloudJobInfo",
+    "CloudOrganizationBillingInfo",
+    "CloudOrganizationInfo",
+    "CloudSkillDocs",
+    "CloudSkillInfo",
+    "CloudSkillList",
+    "CloudSkillSection",
+    "CloudSourceInfo",
+    "CloudWorkspaceInfo",
+    "JobStatusEnum",
+    "JobTypeEnum",
+    "WorkspacePrivilegeScope",
+]

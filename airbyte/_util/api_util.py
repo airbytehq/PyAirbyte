@@ -1413,6 +1413,78 @@ def get_destination(
     )
 
 
+def get_source_definition(
+    definition_id: str,
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> models.DefinitionResponse:
+    """Get a source connector definition, including its `docker_repository` name."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    response = airbyte_instance.source_definitions.get_source_definition(
+        api.GetSourceDefinitionRequest(
+            definition_id=definition_id,
+            workspace_id=workspace_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.definition_response:
+        return response.definition_response
+
+    raise AirbyteMissingResourceError(
+        resource_name_or_id=definition_id,
+        resource_type="source definition",
+        log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+    )
+
+
+def get_destination_definition(
+    definition_id: str,
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> models.DefinitionResponse:
+    """Get a destination connector definition, including its `docker_repository` name."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    response = airbyte_instance.destination_definitions.get_destination_definition(
+        api.GetDestinationDefinitionRequest(
+            definition_id=definition_id,
+            workspace_id=workspace_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.definition_response:
+        return response.definition_response
+
+    raise AirbyteMissingResourceError(
+        resource_name_or_id=definition_id,
+        resource_type="destination definition",
+        log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+    )
+
+
 def delete_destination(
     destination_id: str,
     *,

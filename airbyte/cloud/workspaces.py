@@ -35,6 +35,7 @@ workspace.permanently_delete_source(deployed_source)
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import cached_property
 from http import HTTPStatus
@@ -46,7 +47,12 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
-from airbyte._direct_connectors.models import AgentConnectorDetails, AgentConnectorInfo
+from airbyte._direct_connectors import skills as agents_skills
+from airbyte._direct_connectors.models import (
+    AgentConnectorDetails,
+    AgentConnectorInfo,
+    CloudSkillDocs,
+)
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud import organizations as cloud_organizations
@@ -65,6 +71,7 @@ from airbyte.cloud.models import (
     SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
     CloudWorkspaceInfo,
 )
+from airbyte.cloud.skills import CloudSkill
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
 
@@ -75,6 +82,12 @@ if TYPE_CHECKING:
     from airbyte.cloud.organizations import CloudOrganization
     from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
+
+
+_UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+"""Matches Airbyte connector IDs, which are UUIDs."""
 
 
 @dataclass(init=False, kw_only=True)  # noqa: PLR0904  # Core cloud API facade.
@@ -533,13 +546,102 @@ class CloudWorkspace:
 
     def get_connector(
         self,
-        connector_id: str,
+        id_or_name: str | None = None,
+        /,
+        *,
+        connector_id: str | None = None,
+        name: str | None = None,
     ) -> CloudConnector:
-        """Get an untyped connector by ID without any API call. Kind is resolved lazily."""
-        return CloudConnector(
-            workspace=self,
+        """Get a connector by ID or by name.
+
+        An explicit ID (`connector_id="..."`) returns an untyped `CloudConnector` without
+        any API call; its kind is resolved lazily on first use. A positional value that
+        looks like an Airbyte UUID does the same. Any other value — a positional name, or
+        `name=...` — lists the workspace's connectors and matches on ID first, then on an
+        exact name (case-insensitive), then on a unique substring, returning the matched
+        `CloudSource` or `CloudDestination`.
+        """
+        lookup = agents_api_util._resolve_connector_lookup(  # noqa: SLF001
+            id_or_name,
+            id=None,
             connector_id=connector_id,
+            name=name,
         )
+
+        if lookup.connector_id and not lookup.name:
+            return CloudConnector(workspace=self, connector_id=lookup.connector_id)
+        if lookup.connector_id and lookup.name and _UUID_PATTERN.match(lookup.connector_id):
+            # A positional UUID is treated as an ID and never lists the workspace.
+            return CloudConnector(workspace=self, connector_id=lookup.connector_id)
+
+        connectors = self.list_connectors()
+        if lookup.connector_id:
+            id_matches = [
+                connector
+                for connector in connectors
+                if connector.connector_id == lookup.connector_id
+            ]
+            if id_matches:
+                return id_matches[0]
+
+        name_lower = (lookup.name or "").lower()
+        matches = [
+            connector
+            for connector in connectors
+            if connector.name and connector.name.lower() == name_lower
+        ] or [
+            connector
+            for connector in connectors
+            if connector.name and name_lower in connector.name.lower()
+        ]
+        if not matches:
+            raise exc.AirbyteError(
+                message="No connector found with the given ID or name.",
+                guidance="Use `list_connectors()` to see the available connectors.",
+                context={"lookup": lookup.name, "workspace_id": self.workspace_id},
+            )
+        if len(matches) > 1:
+            raise exc.AirbyteError(
+                message="Multiple connectors matched the given name.",
+                guidance="Pass `connector_id`, or a name that matches only one connector.",
+                context={
+                    "name": lookup.name,
+                    "matched_names": [connector.name for connector in matches],
+                },
+            )
+        return matches[0]
+
+    def list_skills(self) -> list[CloudSkill]:
+        """List all skills available to this workspace, following pagination.
+
+        Requires a Context Layer API for the workspace's API roots (public Airbyte Cloud,
+        or `AIRBYTE_AGENTS_API_URL` for custom deployments).
+        """
+        return [
+            CloudSkill(workspace=self, skill_id=info.id, info=info)
+            for info in agents_skills.iter_skill_infos(
+                credentials=self._credentials,
+                workspace_id=self.workspace_id,
+            )
+        ]
+
+    def get_skill(self, skill_id: str) -> CloudSkill:
+        """Get a skill by ID, without calling the Agents API."""
+        return CloudSkill(workspace=self, skill_id=skill_id)
+
+    def read_skill_docs(
+        self,
+        skill_id: str,
+        *,
+        section: str | None = None,
+    ) -> CloudSkillDocs:
+        """Read a skill's docs, optionally scoped to a single section.
+
+        Omit `section` for metadata, guidance, and the outline of available sections, or
+        pass an exact section `id` from the outline to read that section. Connector usage
+        docs use the `docs_skill_id` reported by `CloudConnector.describe()`.
+        """
+        return self.get_skill(skill_id).read_docs(section=section)
 
     # Deploy sources and destinations
 

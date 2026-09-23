@@ -96,6 +96,7 @@ from airbyte.cloud.models import (
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.organizations import CloudOrganization
+from airbyte.cloud.skills import CloudSkill
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -130,6 +131,7 @@ __all__ = [
     "CloudConnection",
     "CloudClientConfig",
     "CloudDefaultContextInfo",
+    "CloudSkill",
     "CloudWorkspaceInfo",
     "SyncResult",
     # Enums

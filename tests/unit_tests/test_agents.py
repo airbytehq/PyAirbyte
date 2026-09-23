@@ -9,7 +9,7 @@ from typing import Any, cast
 import pytest
 import requests
 from airbyte._direct_connectors import api_util as _api_util
-from airbyte.agents import _destination_docs as destination_docs
+from airbyte._direct_connectors import connector_docs as destination_docs
 from airbyte.cloud import models as cloud_models
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
@@ -1499,7 +1499,12 @@ def test_destination_location(
         configuration=configuration,
     )
 
-    assert destination_docs._destination_location(cast(Any, destination)) == expected
+    assert (
+        destination_docs._destination_location(  # noqa: SLF001
+            destination.definition_id, destination.configuration
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -1693,3 +1698,29 @@ def test_build_destination_skill_docs_rejects_unknown_section() -> None:
             cast(Any, destination),
             section="bogus",
         )
+
+
+def test_agent_model_aliases_match_cloud_models() -> None:
+    """The `Agent*` model names alias the renamed `Cloud*` models."""
+    from airbyte._direct_connectors import models as dc_models
+    from airbyte.agents import models as agent_models
+    from airbyte.cloud import models as cloud_models_module
+
+    aliases = {
+        "AgentContextStoreEntity": "CloudContextStoreEntity",
+        "AgentContextStoreReadiness": "CloudContextStoreReadiness",
+        "AgentSkillInfo": "CloudSkillInfo",
+        "AgentSkillList": "CloudSkillList",
+        "AgentSkillSection": "CloudSkillSection",
+        "AgentSkillDocs": "CloudSkillDocs",
+        "AgentExecutionMetadata": "CloudApiExecutionMetadata",
+        "AgentConnectorMetadata": "CloudApiConnectorMetadata",
+        "AgentExecuteResult": "CloudApiExecuteResult",
+        "AgentConnectorInfo": "CloudAgentConnectorInfo",
+        "AgentConnectorDetails": "CloudContextLayerConnectorDetails",
+    }
+    for agent_name, cloud_name in aliases.items():
+        cloud_model = getattr(dc_models, cloud_name)
+        assert getattr(agent_models, agent_name) is cloud_model
+        assert getattr(dc_models, agent_name) is cloud_model
+        assert getattr(cloud_models_module, cloud_name) is cloud_model

@@ -497,7 +497,7 @@ def test_untyped_connector_resolves_as_source(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     probes = _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     assert isinstance(connector, CloudConnector)
     assert connector.connector_type == "source"
@@ -515,7 +515,7 @@ def test_untyped_connector_resolves_as_destination(
         monkeypatch,
         destination=_destination_payload("connector-1"),
     )
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     assert connector.connector_type == "destination"
     assert connector.connector_type == "destination"
@@ -528,7 +528,7 @@ def test_untyped_connector_raises_when_neither_probe_matches(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     probes = _patch_connector_probes(monkeypatch)
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     with pytest.raises(AirbyteMissingResourceError):
         connector.connector_type
@@ -541,7 +541,7 @@ def test_as_cloud_source_and_destination_casts(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     source = connector.as_cloud_source()
 
@@ -561,7 +561,7 @@ def test_as_cloud_destination_on_destination(
         monkeypatch,
         destination=_destination_payload("connector-1"),
     )
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     destination = connector.as_cloud_destination()
 
@@ -588,7 +588,7 @@ def test_untyped_connector_executes_without_kind_probe(
         "get_destination",
         lambda **_: pytest.fail("execute must not probe the connector kind"),
     )
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     result = connector.execute_api_query("issues", "list")
 
@@ -610,7 +610,7 @@ def test_execute_sql_query_infers_dialect_via_untyped_probe(
             definition_id=SNOWFLAKE_DEFINITION_ID,
         ),
     )
-    connector = workspace.get_connector("connector-1")
+    connector = workspace.get_connector(connector_id="connector-1")
 
     connector.execute_sql_query("SELECT 1")
 
