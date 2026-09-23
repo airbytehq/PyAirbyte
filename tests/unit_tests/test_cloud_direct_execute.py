@@ -553,6 +553,31 @@ def test_untyped_connector_resolves_kind(
     assert probes == expected_probes
 
 
+def test_untyped_connector_resolves_kind_from_cached_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `CloudDestinationInfo` cached on an untyped connector resolves kind without API."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        api_util,
+        "get_source",
+        lambda **_: pytest.fail("get_source must not be called"),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_destination",
+        lambda **_: pytest.fail("get_destination must not be called"),
+    )
+    connector = workspace.get_connector(connector_id="connector-1")
+    connector._connector_info = CloudDestinationInfo(  # noqa: SLF001
+        destination_id="connector-1",
+        name="Warehouse",
+        definition_id="destination-snowflake",
+    )
+
+    assert connector.connector_type == ConnectorType.DESTINATION
+
+
 def test_untyped_connector_raises_when_neither_probe_matches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
