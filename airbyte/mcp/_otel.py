@@ -69,8 +69,6 @@ _INTENT_SCHEMA = {
 }
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _UUID_RE = re.compile(rf"\A{_UUID_PATTERN}\Z")
-# JSON-RPC ids are client-controlled; export only bounded, opaque-safe values verbatim.
-_SAFE_CALL_ID_RE = re.compile(r"\A[A-Za-z0-9_.\-]{1,64}\Z")
 # Only literal routes and validated IDs may survive export. Keep these aligned with
 # _util/api_util.py, agents/_api_util.py and their Public API SDK calls. Unknown
 # routes (including registry and custom API roots) retain status, but redact the URL.
@@ -297,7 +295,7 @@ class IntentCaptureMiddleware(Middleware):
         if digest:
             attrs["gen_ai.conversation.id"] = digest
         if context.fastmcp_context is not None:
-            attrs["gen_ai.tool.call.id"] = _safe_call_id(context.fastmcp_context.request_id)
+            attrs["gen_ai.tool.call.id"] = _call_id_digest(context.fastmcp_context.request_id)
             for attribute, config in (
                 ("airbyte.mcp.workspace_id", MCP_CONFIG_WORKSPACE_ID),
                 ("airbyte.mcp.organization_id", MCP_CONFIG_ORGANIZATION_ID),
@@ -311,12 +309,9 @@ class IntentCaptureMiddleware(Middleware):
         return attrs
 
 
-def _safe_call_id(request_id: object) -> str:
-    """Keep ints and short opaque strings; digest anything else so correlation survives."""
-    text = str(request_id)
-    if isinstance(request_id, int) or _SAFE_CALL_ID_RE.fullmatch(text):
-        return text
-    return hashlib.sha256(text.encode()).hexdigest()
+def _call_id_digest(request_id: object) -> str:
+    """JSON-RPC ids are client-controlled; export a digest so correlation survives."""
+    return hashlib.sha256(str(request_id).encode()).hexdigest()
 
 
 class IntentStampProcessor(SpanProcessor):

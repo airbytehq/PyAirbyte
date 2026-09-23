@@ -562,7 +562,7 @@ def test_tool_span_carries_intent_over_http(app, otel_provider):
     assert not response.json()["result"].get("isError")
     span = _tool_span(otel_provider)
     assert span.attributes["airbyte.mcp.intent"] == "Inspect HTTP"
-    assert span.attributes["gen_ai.tool.call.id"] == "42"
+    assert span.attributes["gen_ai.tool.call.id"] == hashlib.sha256(b"42").hexdigest()
     assert span.parent is None
     assert "SENTINEL" not in _export_text(otel_provider)
 
@@ -1348,18 +1348,18 @@ def test_exporter_drops_captured_http_header_attributes(
 
 
 @pytest.mark.parametrize(
-    "request_id,verbatim",
+    "request_id",
     [
-        (42, True),
-        ("call_abc-1.2_XYZ", True),
-        ("user@example-SENTINEL.com", False),
-        ("x" * 65, False),
+        7,
+        10**40,
+        "call_abc-1.2_XYZ",
+        "customer_123-SENTINEL",
+        "user@example-SENTINEL.com",
+        "x" * 65,
     ],
 )
-def test_tool_call_id_is_validated_or_digested(
-    app, otel_provider, request_id, verbatim
-):
-    """Only ints and short opaque strings export verbatim; others become a digest."""
+def test_tool_call_id_is_always_digested(app, otel_provider, request_id):
+    """Client-chosen JSON-RPC ids never export verbatim, whatever their shape."""
     response = asyncio.run(
         _http_rpc(
             app,
@@ -1369,12 +1369,11 @@ def test_tool_call_id_is_validated_or_digested(
         )
     )
     assert not response.json()["result"].get("isError")
-    call_id = _tool_span(otel_provider).attributes["gen_ai.tool.call.id"]
-    if verbatim:
-        assert call_id == str(request_id)
-    else:
-        assert call_id == hashlib.sha256(request_id.encode()).hexdigest()
-        assert request_id not in _export_text(otel_provider)
+    attributes = _tool_span(otel_provider).attributes
+    assert attributes["gen_ai.tool.call.id"] == (
+        hashlib.sha256(str(request_id).encode()).hexdigest()
+    )
+    assert str(request_id) not in attributes.values()
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
