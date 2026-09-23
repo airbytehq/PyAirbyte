@@ -1477,19 +1477,25 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
         pytest.param(
             destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             {"database": "DB", "schema": "S"},
-            [("database", "DB"), ("schema", "S")],
+            destination_docs._DestinationLocation(
+                container=destination_docs._LocationPart("database", "DB"),
+                namespace=destination_docs._LocationPart("schema", "S"),
+            ),
             id="snowflake",
         ),
         pytest.param(
             destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             {"project_id": "P", "dataset_id": "D"},
-            [("project", "P"), ("dataset", "D")],
+            destination_docs._DestinationLocation(
+                container=destination_docs._LocationPart("project", "P"),
+                namespace=destination_docs._LocationPart("dataset", "D"),
+            ),
             id="bigquery",
         ),
         pytest.param(
             destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             None,
-            [],
+            destination_docs._DestinationLocation(),
             id="missing_config",
         ),
     ],
@@ -1497,7 +1503,7 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
 def test_destination_location(
     definition_id: str,
     configuration: dict[str, Any] | None,
-    expected: list[tuple[str, str]],
+    expected: Any,
 ) -> None:
     destination = _FakeDestination(
         connector_id="dest-1",
@@ -1527,7 +1533,10 @@ def test_destination_location(
             "destination",
             None,
             "",
-            [("database", "DB"), ("schema", "S")],
+            destination_docs._DestinationLocation(
+                container=destination_docs._LocationPart("database", "DB"),
+                namespace=destination_docs._LocationPart("schema", "S"),
+            ),
             "Streams land in the destination's default namespace, schema `S`, "
             "with no table prefix.",
             id="destination_default",
@@ -1536,7 +1545,7 @@ def test_destination_location(
             "source",
             None,
             "",
-            [],
+            destination_docs._DestinationLocation(),
             "Streams land in a namespace mirroring the source's own namespace "
             "(e.g. its schema), with no table prefix.",
             id="source",
@@ -1545,7 +1554,7 @@ def test_destination_location(
             "custom_format",
             "{namespace}_raw",
             "",
-            [],
+            destination_docs._DestinationLocation(),
             "Streams land in namespace format `{namespace}_raw`, with no table prefix.",
             id="custom_format",
         ),
@@ -1553,7 +1562,10 @@ def test_destination_location(
             None,
             None,
             "raw_",
-            [("database", "DB"), ("dataset", "D")],
+            destination_docs._DestinationLocation(
+                container=destination_docs._LocationPart("database", "DB"),
+                namespace=destination_docs._LocationPart("dataset", "D"),
+            ),
             "Streams land in the destination's default namespace, dataset `D`, "
             "with table prefix 'raw_'.",
             id="with_prefix",
@@ -1564,7 +1576,7 @@ def test_connection_namespace_note(
     namespace_definition: str | None,
     namespace_format: str | None,
     table_prefix: str,
-    location: list[tuple[str, str]],
+    location: Any,
     expected: str,
 ) -> None:
     connection = _FakeConnection(
@@ -1576,7 +1588,12 @@ def test_connection_namespace_note(
         namespace_format=namespace_format,
     )
 
-    assert destination_docs._connection_namespace_note(connection, location) == expected
+    assert (
+        destination_docs._connection_namespace_note(  # noqa: SLF001
+            connection, location
+        )
+        == expected
+    )
 
 
 @pytest.mark.parametrize(
