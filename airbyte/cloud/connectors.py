@@ -107,6 +107,10 @@ class ExternalApiReadOnlyAction(str, Enum):
     GET = "get"
     SEARCH = "search"
 
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
+
 
 class ExternalApiWriteAction(str, Enum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
@@ -115,12 +119,20 @@ class ExternalApiWriteAction(str, Enum):
     UPDATE = "update"
     DELETE = "delete"
 
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
+
 
 class ConnectorType(str, Enum):
     """The kind of a deployed Cloud connector."""
 
     SOURCE = "source"
     DESTINATION = "destination"
+
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
 
 
 class ConnectorFeature(str, Enum):
@@ -263,7 +275,7 @@ class CloudConnector:
         if self.connector_type != ConnectorType.SOURCE:
             raise exc.PyAirbyteInputError(
                 message=(
-                    f"Connector {self.connector_id} is a {self.connector_type.value}, not a source."
+                    f"Connector {self.connector_id} is a {self.connector_type}, not a source."
                 ),
             )
 
@@ -279,7 +291,7 @@ class CloudConnector:
         if self.connector_type != ConnectorType.DESTINATION:
             raise exc.PyAirbyteInputError(
                 message=(
-                    f"Connector {self.connector_id} is a {self.connector_type.value}, "
+                    f"Connector {self.connector_id} is a {self.connector_type}, "
                     "not a destination."
                 ),
             )
@@ -322,12 +334,12 @@ class CloudConnector:
     @property
     def connector_url(self) -> str:
         """Get the web URL of the source connector."""
-        return f"{self.workspace.workspace_url}/{self.connector_type.value}/{self.connector_id}"
+        return f"{self.workspace.workspace_url}/{self.connector_type}/{self.connector_id}"
 
     def __repr__(self) -> str:
         """String representation of the connector."""
         return (
-            f"CloudConnector(type={self.connector_type.value}, "
+            f"CloudConnector(type={self.connector_type}, "
             f"workspace_id={self.workspace.workspace_id}, "
             f"connector_id={self.connector_id}, "
             f"connector_url={self.connector_url})"
@@ -1061,7 +1073,7 @@ class CustomCloudSourceDefinition:
         """
         return (
             self.connector_builder_project_url
-            or f"{self.workspace.workspace_url}/settings/{self.connector_type.value}"
+            or f"{self.workspace.workspace_url}/settings/{self.connector_type}"
         )
 
     def permanently_delete(
