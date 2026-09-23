@@ -16,19 +16,17 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
 
-from airbyte._util.api_util import get_bearer_token, status_ok
-from airbyte._util.deployment import (
-    get_agents_api_root_override,
-    is_agents_api_available,
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidanceIndexEntry,
+    _DirectAccessGuidanceIndexPage,
 )
+from airbyte._util import deployment
+from airbyte._util.api_util import get_bearer_token, status_ok
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-
-    from airbyte._direct_connectors.models import AgentExecuteResult
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
@@ -57,7 +55,7 @@ def check_public_cloud_api_roots(credentials: _AirbyteCredentials) -> None:
     Cloud would therefore silently discard those roots, so the conversion is refused unless
     `AIRBYTE_AGENTS_API_URL` explicitly configures the Agents API root.
     """
-    if not is_agents_api_available(
+    if not deployment.is_agents_api_available(
         public_api_root=credentials.public_api_root,
         config_api_root=credentials.config_api_root,
     ):
@@ -78,7 +76,7 @@ def get_agents_api_root(credentials: _AirbyteCredentials) -> str:
     2. The hosted Agents API root, if the Cloud API roots are the public Airbyte Cloud roots.
     3. Otherwise raise `AirbyteAgentsUnavailableError`: a non-Cloud deployment has no Agents API.
     """
-    override = get_agents_api_root_override()
+    override = deployment.get_agents_api_root_override()
     if override:
         return override
     check_public_cloud_api_roots(credentials)
@@ -321,6 +319,36 @@ def list_agent_skills(
     )
 
 
+def list_all_agent_skills(
+    *,
+    credentials: _AirbyteCredentials,
+    organization_id: str | None = None,
+    workspace_id: str | None = None,
+) -> list[DirectAccessGuidanceIndexEntry]:
+    """List every skill available to an organization or workspace.
+
+    Follows the API's `next_cursor` so the full index is returned regardless of the
+    server's page size.
+    """
+    entries: list[DirectAccessGuidanceIndexEntry] = []
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = _DirectAccessGuidanceIndexPage.model_validate(
+            list_agent_skills(
+                credentials=credentials,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                cursor=cursor,
+            )
+        )
+        entries.extend(page.data)
+        cursor = page.next_cursor
+        if cursor is None or not cursor.strip() or cursor in seen_cursors:
+            return entries
+        seen_cursors.add(cursor)
+
+
 def read_agent_skill_docs(
     *,
     skill_id: str,
@@ -423,35 +451,6 @@ def _resolve_connector_lookup(
         )
 
     return _ConnectorLookup(connector_id=next(iter(provided.values()), None), name=name)
-
-
-def iter_paged_entities(
-    fetch_page: Callable[[str | None], AgentExecuteResult],
-    *,
-    limit: int | None = None,
-    cursor: str | None = None,
-) -> Iterator[dict[str, Any]]:
-    """Yield entities across pages, following each page's `end_cursor`.
-
-    `fetch_page` is called with the cursor to request and must return the parsed page.
-    Iteration stops when the page reports no next page, when the cursor does not advance,
-    or once `limit` entities have been yielded.
-    """
-    seen_cursors: set[str] = set()
-    yielded = 0
-
-    while True:
-        result = fetch_page(cursor)
-        for entity in result.entities:
-            yield entity
-            yielded += 1
-            if limit is not None and yielded >= limit:
-                return
-
-        cursor = result.end_cursor
-        if not result.has_next_page or cursor is None or cursor in seen_cursors:
-            return
-        seen_cursors.add(cursor)
 
 
 def _records_from_response(*, response: dict[str, Any], path: str) -> list[dict[str, Any]]:

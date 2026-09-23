@@ -13,11 +13,18 @@ payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from airbyte._util.compat import StrEnum
 from airbyte.exceptions import PyAirbyteInputError
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    from airbyte.secrets.base import SecretString
 
 
 class AgentWorkspaceInfo(BaseModel):
@@ -38,7 +45,7 @@ class AgentWorkspaceInfo(BaseModel):
     """The workspace status, for example `active`."""
 
 
-class AgentConnectorInfo(BaseModel):
+class CloudDirectConnectorInfo(BaseModel):
     """Summary information about a connector, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
@@ -50,7 +57,7 @@ class AgentConnectorInfo(BaseModel):
     """The connector name, for example `GitHub - <workspace_id>`."""
 
 
-class AgentContextStoreEntity(BaseModel):
+class CloudContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
 
     model_config = ConfigDict(extra="allow")
@@ -62,56 +69,61 @@ class AgentContextStoreEntity(BaseModel):
     """Whether Airbyte suggests caching this entity."""
 
 
-class AgentContextStoreReadiness(BaseModel):
+class CloudContextStoreReadiness(BaseModel):
     """Context Store readiness information for a connector."""
 
     model_config = ConfigDict(extra="allow")
 
-    supported_context_store_entities: list[AgentContextStoreEntity] = Field(default_factory=list)
+    supported_context_store_entities: list[CloudContextStoreEntity] = Field(default_factory=list)
     """The entities this connector can cache in the Context Store."""
 
     configured_cache_entities: list[dict[str, Any]] = Field(default_factory=list)
     """The entities currently configured for caching, with their sync status."""
 
 
-class AgentSkillInfo(BaseModel):
-    """Summary information about a skill, as returned by the Agents API."""
+class DirectAccessGuidanceIndexEntry(BaseModel):
+    """One entry in the direct-access guidance index.
+
+    The catalog record advertising a guidance doc (`id`, `kind`, `title`, `summary`,
+    `tags`) so a caller can pick one and read it by `id`. The same record is returned as
+    `DirectAccessGuidance.metadata`.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     id: str
-    """The skill ID. Pass it to `read_skill_docs` to read this skill's docs."""
+    """The skill ID. Pass it to `CloudWorkspace.get_agent_skill_docs` to read it."""
 
     kind: str | None = None
-    """The skill category, for example `static` or `connector_source`."""
+    """The guidance category, for example `static` or `connector_source`."""
 
     title: str | None = None
-    """The human-readable skill title."""
+    """The human-readable guidance title."""
 
     summary: str | None = None
-    """A short summary of what the skill documents."""
+    """A short summary of what the guidance documents."""
 
     tags: list[str] = Field(default_factory=list)
-    """Search and categorization tags for the skill."""
+    """Search and categorization tags for the guidance."""
 
     warnings: list[Any] = Field(default_factory=list)
-    """Non-fatal issues reported while building or reading the skill's docs."""
+    """Non-fatal issues reported while building or reading the guidance's docs."""
 
 
-class AgentSkillList(BaseModel):
-    """A page of skills, as returned by the Agents API."""
+class _DirectAccessGuidanceIndexPage(BaseModel):
+    """One page of the direct-access guidance index, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    data: list[AgentSkillInfo]
-    """The skills on this page."""
+    data: list[DirectAccessGuidanceIndexEntry]
+    """The guidance index entries on this page."""
 
     next_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
 
 
-class AgentSkillSection(BaseModel):
-    """A section of a skill's docs, as listed in the docs outline."""
+class DirectAccessGuidanceSection(BaseModel):
+    """A section of direct-access guidance, as listed in the guidance outline."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -128,16 +140,16 @@ class AgentSkillSection(BaseModel):
     """Whether this section can currently be read."""
 
 
-class AgentSkillDocs(BaseModel):
-    """Documentation for a single skill, as returned by the Agents API."""
+class DirectAccessGuidance(BaseModel):
+    """Direct-access guidance for a connector: static docs plus dynamic context."""
 
     model_config = ConfigDict(extra="allow")
 
-    metadata: AgentSkillInfo
-    """Metadata for the requested skill."""
+    metadata: DirectAccessGuidanceIndexEntry
+    """The index entry for the requested guidance."""
 
-    outline: list[AgentSkillSection] = Field(default_factory=list)
-    """The sections available for this skill."""
+    outline: list[DirectAccessGuidanceSection] = Field(default_factory=list)
+    """The sections available for this guidance."""
 
     section_id: str | None = None
     """The requested section ID, or `None` for the default docs response."""
@@ -146,8 +158,8 @@ class AgentSkillDocs(BaseModel):
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
 
-class AgentConnectorDetails(BaseModel):
-    """Connector metadata returned by the Agents API `inspect` endpoint."""
+class _DirectConnectorInspectResult(BaseModel):
+    """Result of the Agents API `inspect` endpoint for a direct connector."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -173,7 +185,7 @@ class AgentConnectorDetails(BaseModel):
     """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
     `read_agent_skill_docs`) for this connector's usage docs."""
 
-    context_store_readiness: AgentContextStoreReadiness | None = None
+    context_store_readiness: CloudContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
 
     warnings: list[Any] = Field(default_factory=list)
@@ -195,7 +207,23 @@ class AgentConnectorDetails(BaseModel):
         ]
 
 
-class AgentExecutionMetadata(BaseModel):
+class ExternalApiReadOnlyAction(StrEnum):
+    """Read actions accepted by `CloudConnector.execute_api_query`."""
+
+    LIST = "list"
+    GET = "get"
+    SEARCH = "search"
+
+
+class ExternalApiWriteAction(StrEnum):
+    """Write actions accepted by `CloudConnector.execute_api_action`."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class ExternalApiExecutionMetadata(BaseModel):
     """Metadata describing how an Agents connector action was executed."""
 
     model_config = ConfigDict(extra="allow")
@@ -207,7 +235,7 @@ class AgentExecutionMetadata(BaseModel):
     """The server-side execution time, in milliseconds."""
 
 
-class AgentConnectorMetadata(BaseModel):
+class ExternalApiConnectorMetadata(BaseModel):
     """Connector-reported metadata about a single action's result, including pagination."""
 
     model_config = ConfigDict(extra="allow")
@@ -221,7 +249,7 @@ class AgentConnectorMetadata(BaseModel):
     actions."""
 
 
-class AgentExecuteResult(BaseModel):
+class ExternalApiExecuteResult(BaseModel):
     """The result of executing a single action against an Airbyte Agents connector."""
 
     model_config = ConfigDict(extra="allow")
@@ -232,10 +260,14 @@ class AgentExecuteResult(BaseModel):
     result: Any = None
     """The action's payload. Entity-returning actions put a list of entities here."""
 
-    connector_metadata: AgentConnectorMetadata = Field(default_factory=AgentConnectorMetadata)
+    connector_metadata: ExternalApiConnectorMetadata = Field(
+        default_factory=ExternalApiConnectorMetadata
+    )
     """Connector-reported metadata about the result, including pagination cursors."""
 
-    execution_metadata: AgentExecutionMetadata = Field(default_factory=AgentExecutionMetadata)
+    execution_metadata: ExternalApiExecutionMetadata = Field(
+        default_factory=ExternalApiExecutionMetadata
+    )
     """Metadata describing how the action was executed."""
 
     warning: dict[str, Any] | None = None
@@ -280,3 +312,210 @@ class AgentExecuteResult(BaseModel):
     def end_cursor(self) -> str | None:
         """The cursor for the next page, or `None` when there is no next page."""
         return self.connector_metadata.end_cursor
+
+
+class CloudConnectorConnectionInfo(BaseModel):
+    """Summary of a single connection touching a connector."""
+
+    model_config = ConfigDict(extra="allow")
+
+    connection_id: str
+    """The connection ID."""
+
+    name: str
+    """The connection name."""
+
+    source_id: str
+    """The source connector ID."""
+
+    source_name: str
+    """The source connector name."""
+
+    destination_id: str
+    """The destination connector ID."""
+
+    destination_name: str
+    """The destination connector name."""
+
+    schedule: str | None = None
+    """The sync schedule: `manual`, a cron expression, or `every <units> <time_unit>`."""
+
+    stream_names: list[str] = Field(default_factory=list)
+    """The streams enabled on the connection."""
+
+    namespace_definition: str | None = None
+    """How destination namespaces are chosen: `source`, `destination`, or `custom_format`."""
+
+    namespace_format: str | None = None
+    """The namespace format template, when `namespace_definition` is `custom_format`."""
+
+    table_prefix: str = ""
+    """The destination table prefix."""
+
+    destination_database: str | None = None
+    """The database-level location tables land in (Snowflake database, BigQuery project)."""
+
+    destination_schema: str | None = None
+    """The schema-level location tables land in, resolved from the destination config and
+    the connection's namespace setting (Snowflake schema, BigQuery dataset)."""
+
+
+_SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
+_BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
+
+_SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID: "snowflake",
+    _BIGQUERY_DESTINATION_DEFINITION_ID: "bigquery",
+}
+"""Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
+
+_SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
+    _BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
+}
+"""Destination definition ID -> display name of the destination integration."""
+
+_SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(_SQL_PASSTHROUGH_DESTINATION_DIALECTS)
+
+# Referenced here so unused-global linters (CodeQL) don't flag these package-private
+# constants, which are consumed from sibling modules.
+_ = (
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+)
+"""Destination definitions AI agents can query through SQL passthrough."""
+
+
+# Structural typing helpers. The `airbyte.cloud` classes conform to these protocols,
+# letting this package type its helpers without importing `airbyte.cloud.*` (which
+# would create an import cycle, as `airbyte.cloud` imports this package).
+
+
+class _EnumValueLike(Protocol):
+    """Any enum member exposing a string `value`."""
+
+    @property
+    def value(self) -> str:
+        """The enum member's string value."""
+        raise NotImplementedError
+
+
+class _ConnectionLike(Protocol):
+    """Attributes `connector_docs` reads off `airbyte.cloud.connections.CloudConnection`."""
+
+    connection_id: str
+
+    @property
+    def name(self) -> str | None:
+        """The connection's display name."""
+        raise NotImplementedError
+
+    @property
+    def source_id(self) -> str:
+        """The source connector ID."""
+        raise NotImplementedError
+
+    @property
+    def destination_id(self) -> str:
+        """The destination connector ID."""
+        raise NotImplementedError
+
+    @property
+    def stream_names(self) -> list[str]:
+        """The enabled stream names."""
+        raise NotImplementedError
+
+    @property
+    def table_prefix(self) -> str:
+        """The prefix applied to synced table names."""
+        raise NotImplementedError
+
+    @property
+    def namespace_definition(self) -> str | None:
+        """The connection's namespace definition mode."""
+        raise NotImplementedError
+
+    @property
+    def namespace_format(self) -> str | None:
+        """The connection's custom namespace format."""
+        raise NotImplementedError
+
+
+class _ConnectorLike(Protocol):
+    """Attributes `connector_docs` reads off `airbyte.cloud.connectors.CloudConnector`."""
+
+    connector_id: str
+    # Typed `Any` here: `CloudConnector.workspace` is a read-write attribute, so an
+    # invariance check would reject the `CloudWorkspace`/`_WorkspaceLike` pairing.
+    # Functions in `connector_docs` re-narrow it to `_WorkspaceLike` locally.
+    workspace: Any
+
+    @property
+    def name(self) -> str | None:
+        """The connector's display name."""
+        raise NotImplementedError
+
+    @property
+    def connector_type(self) -> _EnumValueLike:
+        """The connector type (`source` or `destination`)."""
+        raise NotImplementedError
+
+
+class _DestinationLike(_ConnectorLike, Protocol):
+    """`airbyte.cloud.connectors.CloudDestination` additions used by `connector_docs`."""
+
+    @property
+    def definition_id(self) -> str:
+        """The connector definition ID."""
+        raise NotImplementedError
+
+    @property
+    def configuration(self) -> dict[str, Any] | None:
+        """The destination configuration, secrets redacted."""
+        raise NotImplementedError
+
+
+class _WorkspaceLike(Protocol):
+    """Attributes `connector_docs` reads off `airbyte.cloud.workspaces.CloudWorkspace`."""
+
+    workspace_id: str
+    api_root: str
+    client_id: SecretString | None
+    client_secret: SecretString | None
+    bearer_token: SecretString | None
+
+    def list_connections(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+        limit: int | None = None,
+    ) -> Sequence[_ConnectionLike]:
+        """List the workspace's connections."""
+        raise NotImplementedError
+
+    def list_sources(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+        limit: int | None = None,
+    ) -> Sequence[_ConnectorLike]:
+        """List the workspace's source connectors."""
+        raise NotImplementedError
+
+    def list_destinations(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+        limit: int | None = None,
+    ) -> Sequence[_DestinationLike]:
+        """List the workspace's destination connectors."""
+        raise NotImplementedError
+
+
+# Referenced here so unused-global linters don't flag `_WorkspaceLike`, which is
+# consumed from `connector_docs`.
+_ = _WorkspaceLike

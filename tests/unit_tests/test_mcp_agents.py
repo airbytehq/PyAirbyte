@@ -4,26 +4,28 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 import pytest
 import requests
 from airbyte._direct_connectors.models import (
-    AgentConnectorDetails,
-    AgentConnectorMetadata,
-    AgentExecuteResult,
-    AgentExecutionMetadata,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    ExternalApiExecutionMetadata,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+    DirectAccessGuidanceSection,
 )
-from airbyte._direct_connectors.connector_docs import (
-    BIGQUERY_DESTINATION_DEFINITION_ID,
-    SNOWFLAKE_DESTINATION_DEFINITION_ID,
+from airbyte._direct_connectors.connector_docs import destination_skill_id
+from airbyte._direct_connectors.models import (
+    _BIGQUERY_DESTINATION_DEFINITION_ID,
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
 )
-from airbyte.agents.connectors import AgentConnector, AgentReadAction, AgentWriteAction
 from airbyte.cloud.client import CloudClient
+from airbyte.cloud.models import ConnectorFeature
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
@@ -31,24 +33,32 @@ from airbyte.constants import (
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteError,
+    AirbyteExternalAccessNotEnabledError,
+    AirbyteMissingResourceError,
+    PyAirbyteError,
+    PyAirbyteInputError,
+)
 from airbyte.mcp import agents as agents_mcp
 from fastmcp import Context
 
 
-class _AgentConnectorLike:
-    """Records the arguments the MCP layer forwards to `AgentConnector.execute`."""
+class _CloudConnectorLike:
+    """Records the arguments the MCP layer forwards to `CloudConnector.execute_*`."""
+
+    connector_id = "connector-id"
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def execute(
+    def _record(
         self,
-        entity_type: str,
+        entity_type: str | None,
         action: str,
-        api_args: dict[str, Any] | None = None,
-        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
-    ) -> AgentExecuteResult:
+        api_args: dict[str, Any] | None,
+        kwargs: dict[str, Any],
+    ) -> ExternalApiExecuteResult:
         """Record the call and return a fixed successful result."""
         self.calls.append({
             "entity": entity_type,
@@ -56,17 +66,53 @@ class _AgentConnectorLike:
             "api_args": api_args,
             **kwargs,
         })
-        return AgentExecuteResult(
+        return ExternalApiExecuteResult(
             status="success",
             result=[{"id": "1"}],
-            connector_metadata=AgentConnectorMetadata(
+            connector_metadata=ExternalApiConnectorMetadata(
                 has_next_page=True,
                 end_cursor="cursor-2",
             ),
-            execution_metadata=AgentExecutionMetadata(
+            execution_metadata=ExternalApiExecutionMetadata(
                 connector_instance_id="connector-id",
                 execution_time_ms=42,
             ),
+        )
+
+    def execute_api_query(
+        self,
+        entity_type: str,
+        action: str = "list",
+        api_args: dict[str, Any] | None = None,
+        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
+    ) -> ExternalApiExecuteResult:
+        """Record the read call."""
+        return self._record(entity_type, action, api_args, kwargs)
+
+    def execute_api_action(
+        self,
+        entity_type: str,
+        action: str,
+        api_args: dict[str, Any] | None = None,
+        **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to the recorded call.
+    ) -> ExternalApiExecuteResult:
+        """Record the write call."""
+        return self._record(entity_type, action, api_args, kwargs)
+
+    def execute_sql_query(
+        self,
+        sql: str,
+        *,
+        sql_dialect: str | None = None,
+        page_size: int | None = None,
+        cursor: str | None = None,
+    ) -> ExternalApiExecuteResult:
+        """Record the `sql_select` call."""
+        return self._record(
+            "sql",
+            "sql_select",
+            {"sql": sql, "sql_dialect": sql_dialect},
+            {"page_size": page_size, "cursor": cursor},
         )
 
 
@@ -111,14 +157,32 @@ class _RaisingWorkspace:
         """Raise the configured error."""
         raise self._error
 
+    def _list_guidance(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def get_agent_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
 
 class _RaisingConnector:
-    """Stands in for `AgentConnector` and fails the way the Agents API does."""
+    """Stands in for a connector and fails the way the Agents API does."""
 
-    def __init__(self, error: AirbyteError) -> None:
+    connector_id = "connector-id"
+
+    def __init__(self, error: PyAirbyteError) -> None:
         self._error = error
 
-    def execute(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    def execute_api_query(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def execute_api_action(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def execute_sql_query(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
@@ -128,13 +192,13 @@ class _RaisingConnector:
 
 
 @pytest.fixture
-def connector(monkeypatch: pytest.MonkeyPatch) -> _AgentConnectorLike:
+def connector(monkeypatch: pytest.MonkeyPatch) -> _CloudConnectorLike:
     """Patch the MCP connector resolver to return a recording stub."""
-    stub = _AgentConnectorLike()
+    stub = _CloudConnectorLike()
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
-        lambda ctx, connector_id, workspace_id=None, organization_id=None: stub,
+        "_resolve_cloud_connector",
+        lambda ctx, connector_id, workspace_id: stub,
     )
     return stub
 
@@ -176,7 +240,7 @@ def _execute(**kwargs: Any) -> agents_mcp.AgentExecuteToolResult:  # noqa: ANN40
     )
 
 
-def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> None:
+def test_execute_result_is_shaped_for_agents(connector: _CloudConnectorLike) -> None:
     """Verify the tool result exposes pagination and timing without the raw envelope."""
     result = _execute_ro()
 
@@ -187,29 +251,22 @@ def test_execute_result_is_shaped_for_agents(connector: _AgentConnectorLike) -> 
     assert result.execution_time_ms == 42
 
 
-def test_execute_sql_select_falls_back_to_cloud_destinations(
+def test_execute_sql_select_resolves_cloud_connector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `sql_select` falls back to Cloud destinations when Agents listing omits one."""
+    """Verify `sql_select` resolves the connector and forwards `sql`/`sql_dialect`."""
     _patch_mcp_config(monkeypatch)
-    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
-
-    class _CloudDestination:
-        connector_id = "connector-id"
+    connector = _CloudConnectorLike()
 
     class _CloudWorkspace:
-        def list_destinations(self) -> list[_CloudDestination]:
-            return [_CloudDestination()]
+        def get_connector(self, connector_id: str) -> _CloudConnectorLike:
+            assert connector_id == "connector-id"
+            return connector
 
     monkeypatch.setattr(
         agents_mcp,
         "_get_cloud_workspace",
         lambda ctx, workspace_id: _CloudWorkspace(),
-    )
-    monkeypatch.setattr(
-        agents_mcp.AgentConnector,
-        "execute",
-        lambda self, *args, **kwargs: AgentExecuteResult(status="success", result=[]),
     )
 
     result = _execute(
@@ -218,105 +275,98 @@ def test_execute_sql_select_falls_back_to_cloud_destinations(
     )
 
     assert result.status == "success"
+    assert connector.calls[0]["action"] == "sql_select"
+    assert connector.calls[0]["api_args"] == {
+        "sql": "SELECT 1",
+        "sql_dialect": "snowflake",
+    }
 
 
-def test_execute_unknown_connector_raises_when_not_a_cloud_destination(
+def test_execute_sql_select_requires_sql_argument(
+    connector: _CloudConnectorLike,
+) -> None:
+    """Verify `sql_select` without a `sql` api_arg fails before executing."""
+    with pytest.raises(PyAirbyteInputError, match="requires a `sql` argument"):
+        _execute(action="sql_select", api_args={"sql_dialect": "snowflake"})
+
+    assert connector.calls == []
+
+
+def test_execute_reports_external_access_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify an unknown connector still raises after the Cloud destination fallback."""
+    """A connector without external access reports how to enable the Context layer."""
     _patch_mcp_config(monkeypatch)
-    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
-
-    class _CloudWorkspace:
-        def list_destinations(self) -> list[Any]:
-            return []
-
-        def list_sources(self) -> list[Any]:
-            return []
-
     monkeypatch.setattr(
         agents_mcp,
-        "_get_cloud_workspace",
-        lambda ctx, workspace_id: _CloudWorkspace(),
-    )
-
-    with pytest.raises(
-        AirbyteError, match="No connector found with the given ID or name"
-    ) as excinfo:
-        _execute(action="sql_select")
-
-    assert "list_agent_connectors" in str(excinfo.value)
-
-
-def test_execute_reports_cloud_source_not_enabled_for_agents(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A Cloud source the Agents API does not list is reported as disabled, not missing."""
-    _patch_mcp_config(monkeypatch)
-    monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
-
-    class _CloudWorkspace:
-        def list_destinations(self) -> list[Any]:
-            return []
-
-        def list_sources(self) -> list[Any]:
-            return [_FakeSource(connector_id="connector-id", name="GitHub prod")]
-
-    monkeypatch.setattr(
-        agents_mcp,
-        "_get_cloud_workspace",
-        lambda ctx, workspace_id: _CloudWorkspace(),
+        "_resolve_cloud_connector",
+        lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
+            AirbyteExternalAccessNotEnabledError(
+                connector_name="GitHub prod",
+                connector_id="connector-id",
+            )
+        ),
     )
 
     result = _execute(action="list")
 
     assert result.status == agents_mcp.AGENTS_ACCESS_DENIED_STATUS
     assert result.message is not None
-    assert "'GitHub prod' (connector-id)" in result.message
-    assert "not enabled for Agents access" in result.message
     assert "Context layer" in result.message
-    assert "cannot be enabled from this tool" in result.message
 
 
-def test_execute_connector_lookup_error_is_not_treated_as_missing_connector(
+def test_execute_connector_lookup_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify unrelated connector lookup errors do not trigger Cloud destination fallback."""
+    """Verify connector lookup errors propagate instead of being swallowed."""
     _patch_mcp_config(monkeypatch)
 
-    def raise_lookup_error(self: Any) -> list[Any]:
-        raise AirbyteError(message="Connector listing failed.")
+    class _CloudWorkspace:
+        def get_connector(self, connector_id: str) -> Any:  # noqa: ANN401, ARG002
+            raise AirbyteError(message="Connector lookup failed.")
 
-    monkeypatch.setattr(
-        agents_mcp.AgentWorkspace, "list_connectors", raise_lookup_error
-    )
     monkeypatch.setattr(
         agents_mcp,
         "_get_cloud_workspace",
-        lambda ctx, workspace_id: pytest.fail("Cloud fallback should not run"),
+        lambda ctx, workspace_id: _CloudWorkspace(),
     )
 
-    with pytest.raises(AirbyteError, match="Connector listing failed"):
+    with pytest.raises(AirbyteError, match="Connector lookup failed"):
         _execute(action="sql_select")
 
 
-def test_execute_list_uses_positional_connector_lookup(
+def test_execute_resolves_connector_via_cloud_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify non-SQL actions keep the workspace-validating connector lookup."""
+    """Verify execute resolves the connector through `CloudWorkspace.get_connector`.
+
+    Resolution must not scan the workspace's source/destination listings.
+    """
     _patch_mcp_config(monkeypatch)
-    connector = _AgentConnectorLike()
-    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    connector = _CloudConnectorLike()
+    lookups: list[str] = []
 
-    def get_connector(self, *args: Any, **kwargs: Any) -> _AgentConnectorLike:
-        calls.append((args, kwargs))
-        return connector
+    class _CloudWorkspace:
+        def get_connector(self, connector_id: str) -> _CloudConnectorLike:
+            lookups.append(connector_id)
+            return connector
 
-    monkeypatch.setattr(agents_mcp.AgentWorkspace, "get_connector", get_connector)
+        def list_sources(self) -> list[Any]:
+            pytest.fail("execute must not list sources to resolve a connector")
+
+        def list_destinations(self) -> list[Any]:
+            pytest.fail("execute must not list destinations to resolve a connector")
+
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_cloud_workspace",
+        lambda ctx, workspace_id: _CloudWorkspace(),
+    )
 
     _execute(action="list")
 
-    assert calls == [(("connector-id",), {})]
+    assert lookups == ["connector-id"]
+    assert connector.calls[0]["action"] == "list"
 
 
 @pytest.mark.parametrize(
@@ -350,7 +400,7 @@ def test_execute_list_uses_positional_connector_lookup(
     ],
 )
 def test_argument_coercion(
-    connector: _AgentConnectorLike,
+    connector: _CloudConnectorLike,
     tool_kwargs: dict[str, Any],
     expected_forwarded: dict[str, Any] | None,
 ) -> None:
@@ -377,7 +427,7 @@ def test_argument_coercion(
     ],
 )
 def test_write_tool_read_only_enforcement(
-    connector: _AgentConnectorLike,
+    connector: _CloudConnectorLike,
     action: str,
     read_only: bool | None,
     is_rejected: bool,
@@ -395,21 +445,22 @@ def test_write_tool_read_only_enforcement(
 
 def test_read_only_tool_action_type_excludes_writes() -> None:
     """Verify the read-only tool's action type offers no write or download actions."""
-    assert {member.value for member in AgentReadAction} == {
+    assert set(get_args(agents_mcp._ReadAction)) == {  # noqa: SLF001
         "list",
         "get",
         "search",
         "sql_select",
     }
-    assert {member.value for member in AgentWriteAction} == {
+    write_actions = set(get_args(agents_mcp._Action)) - set(
+        get_args(agents_mcp._ReadAction)
+    )  # noqa: SLF001
+    assert write_actions == {
         "create",
         "update",
         "delete",
     }
-    assert "api_search" not in {member.value for member in AgentReadAction}
-    assert "api_search" not in {member.value for member in AgentWriteAction}
-    assert "download" not in {member.value for member in AgentReadAction}
-    assert "download" not in {member.value for member in AgentWriteAction}
+    assert "api_search" not in get_args(agents_mcp._Action)  # noqa: SLF001
+    assert "download" not in get_args(agents_mcp._Action)  # noqa: SLF001
 
 
 def test_inspect_tool_reports_connector_details(
@@ -418,27 +469,32 @@ def test_inspect_tool_reports_connector_details(
     """Verify `inspect_agent_connector` surfaces connector metadata, docs, and warnings."""
 
     class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
-                connector_id="connector-id",
-                name="GitHub",
-                workspace_id="workspace-id",
-                integration_name="GitHub",
-                docs_skill_id="connector:github",
-                warnings=["Context Store is still syncing."],
-            )
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
 
-    class _InspectableWorkspace:
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise PyAirbyteError(message="Context Store is still syncing.")
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return "connector:github"
+
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
+
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _InspectableConnector()
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return AgentSkillDocs(metadata=AgentSkillInfo(id="connector:github"))
-
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
 
     result = agents_mcp.inspect_agent_connector(
@@ -450,43 +506,56 @@ def test_inspect_tool_reports_connector_details(
 
     assert result.integration_name == "GitHub"
     assert result.docs.skill_id == "connector:github"
-    assert result.warnings == ["Context Store is still syncing."]
+    assert result.docs.content == ""
+    assert len(result.warnings) == 1
+    assert result.warnings[0].startswith(
+        "Direct access docs are unavailable: Context Store is still syncing."
+    )
 
 
 def _inspect_workspace_with_docs(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    docs: AgentSkillDocs | None,
+    docs: DirectAccessGuidance | None,
     docs_skill_id: str | None = "connector:github",
 ) -> Any:  # noqa: ANN401
-    """Stub a workspace whose connector inspects cleanly and docs read as configured."""
+    """Stub a workspace whose connector describes cleanly and docs read as configured."""
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
     class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
-                connector_id="connector-id",
-                name="GitHub",
-                docs_skill_id=docs_skill_id,
-                warnings=["Context Store is still syncing."],
-            )
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
 
-    class _InspectableWorkspace:
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
+        @property
+        def integration_name(self) -> str:
+            raise AirbyteError(message="Context Store is still syncing.")
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            if not docs_skill_id:
+                raise PyAirbyteInputError(message="No docs skill ID.")
+            calls.append(((docs_skill_id,), {}))
+            if docs is None:
+                raise PyAirbyteError(message="Skill docs failed")
+            return docs
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return docs_skill_id
+
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
+
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _InspectableConnector()
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            calls.append((args, kwargs))
-            if docs is None:
-                raise AirbyteError(
-                    message="Skill docs failed", context={"status_code": 500}
-                )
-            return docs
-
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
     return calls
 
@@ -504,10 +573,10 @@ def test_inspect_tool_includes_docs_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `inspect_agent_connector` embeds the docs summary and guidance."""
-    docs = AgentSkillDocs(
-        metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+    docs = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(id="connector:github", title="GitHub"),
         outline=[
-            AgentSkillSection(
+            DirectAccessGuidanceSection(
                 id="actions.issues.get",
                 title="issues.get",
                 summary="4 parameters; Get a specific issue",
@@ -528,7 +597,9 @@ def test_inspect_tool_includes_docs_summary(
     assert "connector:github" in result.docs.guidance
     assert "actions.issues.get" in result.docs.guidance
     assert "read_agent_skill_docs" in result.docs.guidance
-    assert result.warnings == ["Context Store is still syncing."]
+    assert result.warnings is not None
+    assert result.warnings[0].startswith("Integration name lookup failed")
+    assert "Context Store is still syncing." in result.warnings[0]
 
 
 def test_inspect_tool_warns_when_docs_unavailable(
@@ -542,11 +613,17 @@ def test_inspect_tool_warns_when_docs_unavailable(
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
     assert "outline" not in result.docs.model_dump()
-    assert result.docs.warnings == ["Connector docs are unavailable: Skill docs failed"]
-    assert result.warnings == [
-        "Context Store is still syncing.",
-        "Connector docs are unavailable: Skill docs failed",
-    ]
+    assert result.docs.warnings is not None
+    assert len(result.docs.warnings) == 1
+    assert result.docs.warnings[0].startswith(
+        "Direct access docs are unavailable: Skill docs failed"
+    )
+    assert len(result.warnings) == 2
+    assert result.warnings[0].startswith("Integration name lookup failed")
+    assert "Context Store is still syncing." in result.warnings[0]
+    assert result.warnings[1].startswith(
+        "Direct access docs are unavailable: Skill docs failed"
+    )
 
 
 def test_inspect_tool_skips_docs_read_without_docs_skill_id(
@@ -555,41 +632,56 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
     """No `docs_skill_id` means no docs read and no extra warning."""
 
     class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
-                connector_id="connector-id",
-                name="GitHub",
-                docs_skill_id=None,
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="destination")
+        name = "GitHub"
+        enabled_features = frozenset()
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise PyAirbyteInputError(
+                message="Destination does not support direct access docs."
             )
 
-    class _InspectableWorkspace:
+        def _direct_access_guidance_id(self) -> str | None:
+            return None
+
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
+
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _InspectableConnector()
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            raise AssertionError("must not run")
-
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
 
     result = _inspect_connector_result()
 
     assert result.docs is None
-    assert result.warnings is None
+    assert result.warnings == [
+        "Direct access docs are unavailable: Destination does not support direct access "
+        "docs. (PyAirbyteInputError)"
+        "\n------------------------------------------------------------"
+        "\nPyAirbyteInputError: Destination does not support direct access docs."
+    ]
 
 
 def test_inspect_tool_docs_guidance_uses_first_available_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The guidance example picks the first available outline section."""
-    docs = AgentSkillDocs(
-        metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+    docs = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(id="connector:github", title="GitHub"),
         outline=[
-            AgentSkillSection(id="actions.a", title="a", available=False),
-            AgentSkillSection(id="actions.b", title="b"),
+            DirectAccessGuidanceSection(id="actions.a", title="a", available=False),
+            DirectAccessGuidanceSection(id="actions.b", title="b"),
         ],
     )
     _inspect_workspace_with_docs(monkeypatch, docs=docs)
@@ -606,10 +698,12 @@ def test_inspect_tool_docs_guidance_omits_example_without_outline(
     """An empty or fully unavailable outline yields guidance with no section example."""
     for outline in (
         [],
-        [AgentSkillSection(id="actions.a", title="a", available=False)],
+        [DirectAccessGuidanceSection(id="actions.a", title="a", available=False)],
     ):
-        docs = AgentSkillDocs(
-            metadata=AgentSkillInfo(id="connector:github", title="GitHub"),
+        docs = DirectAccessGuidance(
+            metadata=DirectAccessGuidanceIndexEntry(
+                id="connector:github", title="GitHub"
+            ),
             outline=outline,
         )
         _inspect_workspace_with_docs(monkeypatch, docs=docs)
@@ -630,24 +724,32 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     """A transport error reading docs degrades to a `docs` message plus a warning."""
 
     class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
-                connector_id="connector-id",
-                name="GitHub",
-                docs_skill_id="connector:github",
-            )
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
 
-    class _InspectableWorkspace:
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise requests.Timeout("docs timed out")
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return "connector:github"
+
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
+
         def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             return _InspectableConnector()
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            raise requests.exceptions.Timeout("docs timed out")
-
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
 
     result = _inspect_connector_result()
@@ -656,8 +758,10 @@ def test_inspect_tool_warns_when_docs_read_times_out(
     assert result.docs is not None
     assert result.docs.skill_id == "connector:github"
     assert "outline" not in result.docs.model_dump()
-    assert result.docs.warnings == ["Connector docs are unavailable: docs timed out"]
-    assert result.warnings == ["Connector docs are unavailable: docs timed out"]
+    assert result.docs.warnings == [
+        "Direct access docs are unavailable: docs timed out"
+    ]
+    assert result.warnings == ["Direct access docs are unavailable: docs timed out"]
 
 
 def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
@@ -681,28 +785,18 @@ def test_agents_tools_are_registered_with_expected_read_only_hints() -> None:
 
 
 @pytest.mark.parametrize(
-    ("workspace_connector_ids", "requested_workspace_id", "expect_error"),
+    ("requested_workspace_id", "expect_error"),
     [
-        pytest.param(
-            ["connector-id"], "workspace-1", False, id="connector_in_workspace"
-        ),
-        pytest.param(
-            ["other-connector-id"],
-            "workspace-1",
-            True,
-            id="connector_in_other_workspace",
-        ),
-        pytest.param([], "workspace-1", True, id="empty_workspace"),
-        pytest.param(["connector-id"], None, True, id="missing_workspace_rejected"),
+        pytest.param("workspace-1", False, id="connector_in_workspace"),
+        pytest.param(None, True, id="missing_workspace_rejected"),
     ],
 )
 def test_connector_resolution_validates_workspace_scope(
     monkeypatch: pytest.MonkeyPatch,
-    workspace_connector_ids: list[str],
     requested_workspace_id: str | None,
     expect_error: bool,
 ) -> None:
-    """Verify a connector outside the requested workspace is rejected before it is used."""
+    """Verify resolution never scans listings; only a missing workspace is rejected."""
     monkeypatch.setattr(
         agents_mcp,
         "get_mcp_config",
@@ -720,34 +814,39 @@ def test_connector_resolution_validates_workspace_scope(
             },
         )(),
     )
-    monkeypatch.setattr(
-        agents_mcp.AgentWorkspace,
-        "list_connectors",
-        lambda self: [
-            AgentConnector(connector_id=connector_id, credentials=self._credentials)  # noqa: SLF001
-            for connector_id in workspace_connector_ids
-        ],
-    )
-    monkeypatch.setattr(
-        agents_mcp,
-        "_get_cloud_workspace",
-        lambda ctx, workspace_id: type(
+
+    def _cloud_workspace(ctx: Context, workspace_id: str | None) -> Any:  # noqa: ANN401, ARG001
+        if workspace_id is None:
+            raise AirbyteError(message="No workspace context.")
+        return type(
             "_CloudWorkspace",
             (),
-            {"list_destinations": lambda self: [], "list_sources": lambda self: []},
-        )(),
-    )
+            {
+                "workspace_id": workspace_id,
+                "get_connector": lambda self, connector_id: _FakeSource(
+                    connector_id=connector_id, name=connector_id
+                ),
+                "list_sources": lambda self: pytest.fail(
+                    "resolution must not scan listings"
+                ),
+                "list_destinations": lambda self: pytest.fail(
+                    "resolution must not scan listings"
+                ),
+            },
+        )()
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_workspace", _cloud_workspace)
 
     if expect_error:
-        with pytest.raises((PyAirbyteInputError, AirbyteError)):
-            agents_mcp._get_agent_connector(  # noqa: SLF001
+        with pytest.raises(AirbyteError):
+            agents_mcp._resolve_cloud_connector(  # noqa: SLF001
                 cast(Context, object()),
                 "connector-id",
                 requested_workspace_id,
             )
         return
 
-    connector = agents_mcp._get_agent_connector(  # noqa: SLF001
+    connector = agents_mcp._resolve_cloud_connector(  # noqa: SLF001
         cast(Context, object()),
         "connector-id",
         requested_workspace_id,
@@ -880,13 +979,13 @@ def test_execute_sql_error_returns_guidance(
     )
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(400, response_text)
         ),
     )
 
-    result = _execute_ro(action="sql_select")
+    result = _execute_ro(action="sql_select", api_args={"sql": "SELECT 1"})
 
     assert result.status == agents_mcp.AGENTS_EXECUTION_FAILED_STATUS
     assert result.message is not None
@@ -900,26 +999,26 @@ def test_execute_non_json_execution_error_is_reraised(
     """Verify an unreadable execution error keeps the original exception."""
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(400, "<html>bad request</html>")
         ),
     )
 
     with pytest.raises(AirbyteError):
-        _execute_ro(action="sql_select")
+        _execute_ro(action="sql_select", api_args={"sql": "SELECT 1"})
 
 
 def test_execute_server_error_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify server errors keep the original exception."""
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(_agents_error(500)),  # noqa: ARG005
     )
 
     with pytest.raises(AirbyteError):
-        _execute_ro(action="sql_select")
+        _execute_ro(action="sql_select", api_args={"sql": "SELECT 1"})
 
 
 def test_execute_non_sql_error_returns_bare_detail(
@@ -929,7 +1028,7 @@ def test_execute_non_sql_error_returns_bare_detail(
     detail = "The list action could not be executed."
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(400, f'{{"message":"{detail}"}}')
         ),
@@ -947,7 +1046,7 @@ def test_sql_select_forbidden_reports_actor_not_enabled(
     """Verify `sql_select` on a not-enabled destination tells the agent how to fix it."""
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         lambda *args, **kwargs: _RaisingConnector(  # noqa: ARG005
             _agents_error(403, _ACTOR_NOT_ENABLED_BODY)
         ),
@@ -1000,14 +1099,14 @@ _ACCESS_FAILURE_CASES = [
         id="list_connectors",
     ),
     pytest.param(
-        "_get_agent_connector",
+        "_resolve_cloud_connector",
         _RaisingConnector,
         _execute_ro,
         {"result": None, "status": agents_mcp.AGENTS_ACCESS_DENIED_STATUS},
         id="execute",
     ),
     pytest.param(
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         _RaisingWorkspace,
         lambda: agents_mcp.list_agent_skills(
             ctx=cast(Context, object()),
@@ -1017,7 +1116,7 @@ _ACCESS_FAILURE_CASES = [
         id="list_skills",
     ),
     pytest.param(
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         _RaisingWorkspace,
         lambda: agents_mcp.read_agent_skill_docs(
             ctx=cast(Context, object()),
@@ -1029,7 +1128,7 @@ _ACCESS_FAILURE_CASES = [
         id="read_skill_docs",
     ),
     pytest.param(
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         _RaisingWorkspace,
         lambda: agents_mcp.inspect_agent_connector(
             ctx=cast(Context, object()),
@@ -1316,43 +1415,38 @@ def test_workspace_api_roots_come_from_mcp_config(
 
 
 def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify the skills tools shape `AgentSkillList`/`AgentSkillDocs` into results."""
-
-    class _SkillLike:
-        def __init__(self, info: AgentSkillInfo) -> None:
-            self.info = info
+    """Verify the skills tools shape `DirectAccessGuidanceIndexEntry`/`DirectAccessGuidance` into results."""
 
     class _SkilledWorkspace:
-        def list_skills(self) -> list[Any]:
+        def _list_guidance(self) -> list[Any]:
             # Two skills spanning two pages; pagination is internal to the workspace.
             return [
-                _SkillLike(
-                    AgentSkillInfo(
-                        id="connector:github",
-                        kind="connector_source",
-                        title="GitHub",
-                        summary="GitHub usage docs.",
-                        tags=["github"],
-                    )
+                DirectAccessGuidanceIndexEntry(
+                    id="connector:github",
+                    kind="connector_source",
+                    title="GitHub",
+                    summary="GitHub usage docs.",
+                    tags=["github"],
                 ),
-                _SkillLike(AgentSkillInfo(id="context-store", title="Context Store")),
+                DirectAccessGuidanceIndexEntry(
+                    id="context-store", title="Context Store"
+                ),
             ]
 
-        def read_skill_docs(
-            self,
-            skill_id: str,
-            *,
-            section: str | None = None,
-        ) -> AgentSkillDocs:
-            return AgentSkillDocs(
-                metadata=AgentSkillInfo(
+        def get_agent_skill_docs(
+            self, skill_id: str, *, section: str | None = None
+        ) -> DirectAccessGuidance:
+            return DirectAccessGuidance(
+                metadata=DirectAccessGuidanceIndexEntry(
                     id=skill_id,
                     title="GitHub",
                     warnings=["Partial runtime metadata."],
                 ),
                 outline=[
-                    AgentSkillSection(id="setup", title="Setup", available=True),
-                    AgentSkillSection(id="faq", title="FAQ", available=False),
+                    DirectAccessGuidanceSection(
+                        id="setup", title="Setup", available=True
+                    ),
+                    DirectAccessGuidanceSection(id="faq", title="FAQ", available=False),
                 ],
                 section_id=section,
                 content=[{"type": "paragraph", "text": "Hello"}],
@@ -1360,7 +1454,7 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         lambda ctx, workspace_id=None: _SkilledWorkspace(),  # noqa: ARG005
     )
 
@@ -1608,6 +1702,14 @@ class _FakeDestinationForDocs:
             raise self._connections_error
         return list(self._connections)
 
+    def get_direct_access_guidance(self, *, section: str | None = None) -> Any:
+        """Mirror `CloudConnector.get_direct_access_guidance` over the patched workspace."""
+        return agents_mcp._read_destination_skill_docs(  # noqa: SLF001
+            agents_mcp._get_agent_workspace(None, "workspace-1"),  # noqa: SLF001
+            self,
+            section,
+        )
+
 
 class _FakeConnectionForDocs:
     """Stand-in for `CloudConnection` in the skill-docs fallback tests."""
@@ -1645,7 +1747,8 @@ def _patch_destination_404(
     not_found = _agents_error(404)
 
     class _NotFoundConnector:
-        def inspect(self) -> Any:
+        @property
+        def connector_type(self) -> Any:  # noqa: ANN401
             raise not_found
 
     class _NotFoundWorkspace:
@@ -1659,8 +1762,16 @@ def _patch_destination_404(
             raise not_found
 
     class _CloudWorkspaceWithDestinations:
+        workspace_id = "workspace-1"
+
         def __init__(self) -> None:
             self.list_destinations_calls = 0
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _NotFoundConnector()
+
+        def get_agent_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise not_found
 
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1
@@ -1669,11 +1780,6 @@ def _patch_destination_404(
         def list_sources(self) -> list[Any]:
             return list(sources or [])
 
-    monkeypatch.setattr(
-        agents_mcp,
-        "_get_agent_connector",
-        lambda *args, **kwargs: _NotFoundConnector(),  # noqa: ARG005
-    )
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_workspace",
@@ -1691,7 +1797,7 @@ def _patch_destination_404(
 def _patch_destination_server_docs(
     monkeypatch: pytest.MonkeyPatch,
     destinations: list[_FakeDestinationForDocs],
-    server_docs: AgentSkillDocs,
+    server_docs: DirectAccessGuidance,
     *,
     calls: list[tuple[str, str | None]],
 ) -> Any:
@@ -1699,8 +1805,32 @@ def _patch_destination_server_docs(
     not_found = _agents_error(404)
 
     class _NotFoundConnector:
-        def inspect(self) -> Any:
+        @property
+        def connector_type(self) -> Any:  # noqa: ANN401
             raise not_found
+
+    class _DescribableConnector:
+        """Exposes the `CloudConnector` seams `inspect_agent_connector` reads."""
+
+        def __init__(self, destination: _FakeDestinationForDocs) -> None:
+            self._destination = destination
+            self.connector_id = destination.connector_id
+            self.connector_type = SimpleNamespace(value="destination")
+            self.name = destination.name
+            self.definition_id = destination.definition_id
+            self.enabled_features = frozenset()
+            self.integration_name = _SQL_PASSTHROUGH_DESTINATION_NAMES.get(
+                destination.definition_id
+            )
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
+        def get_direct_access_guidance(self, **kwargs: Any) -> Any:  # noqa: ANN401
+            return self._destination.get_direct_access_guidance(**kwargs)
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return destination_skill_id(self._destination.connector_id)
 
     class _DocsWorkspace:
         workspace_id = "workspace-1"
@@ -1713,13 +1843,37 @@ def _patch_destination_server_docs(
             self,
             skill_id: str,
             section: str | None = None,
-        ) -> AgentSkillDocs:
+        ) -> DirectAccessGuidance:
             calls.append((skill_id, section))
             return server_docs.model_copy(update={"section_id": section})
 
     class _CloudWorkspaceWithDestinations:
+        workspace_id = "workspace-1"
+
         def __init__(self) -> None:
             self.list_destinations_calls = 0
+
+        def get_connector(
+            self, *args: Any, connector_id: str | None = None, **kwargs: Any
+        ) -> Any:  # noqa: ANN401
+            target = connector_id or (args[0] if args else None)
+            match = next(
+                (
+                    destination
+                    for destination in destinations
+                    if destination.connector_id == target
+                ),
+                None,
+            )
+            if match is None:
+                return _NotFoundConnector()
+            return _DescribableConnector(match)
+
+        def get_agent_skill_docs(
+            self, skill_id: str, *, section: str | None = None
+        ) -> DirectAccessGuidance:
+            calls.append((skill_id, section))
+            return server_docs.model_copy(update={"section_id": section})
 
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1
@@ -1728,11 +1882,6 @@ def _patch_destination_server_docs(
         def list_sources(self) -> list[Any]:
             return []
 
-    monkeypatch.setattr(
-        agents_mcp,
-        "_get_agent_connector",
-        lambda *args, **kwargs: _NotFoundConnector(),  # noqa: ARG005
-    )
     monkeypatch.setattr(
         agents_mcp,
         "_get_agent_workspace",
@@ -1749,15 +1898,15 @@ def _patch_destination_server_docs(
 
 def _server_destination_docs(
     outline_ids: list[str] | None = None,
-) -> AgentSkillDocs:
-    return AgentSkillDocs(
-        metadata=AgentSkillInfo(
+) -> DirectAccessGuidance:
+    return DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(
             id="connector-destination:dest-snowflake",
             kind="connector_destination",
             title="Server destination docs",
         ),
         outline=[
-            AgentSkillSection(id=section_id, title=f"Server {section_id}")
+            DirectAccessGuidanceSection(id=section_id, title=f"Server {section_id}")
             for section_id in (
                 outline_ids
                 or ["overview", "actions.record.sql_select", "sources.src-1"]
@@ -1803,8 +1952,8 @@ def _read_docs(
 @pytest.mark.parametrize(
     ("definition_id", "expected_integration_name"),
     [
-        (SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
-        (BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
+        (_SNOWFLAKE_DESTINATION_DEFINITION_ID, "Snowflake"),
+        (_BIGQUERY_DESTINATION_DEFINITION_ID, "BigQuery"),
     ],
 )
 def test_inspect_destination_fallback_reports_docs_skill(
@@ -1840,7 +1989,7 @@ def test_inspect_destination_fallback_docs_failure_yields_warning(
     destination = _FakeDestinationForDocs(
         connector_id="dest-snowflake",
         name="Snowflake dev",
-        definition_id=SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        definition_id=_SNOWFLAKE_DESTINATION_DEFINITION_ID,
         connections_error=AirbyteError(message="boom"),
     )
     _patch_destination_404(monkeypatch, [destination])
@@ -1908,6 +2057,8 @@ def test_list_agent_connectors_empty_explains_how_to_enable(
     monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
 
     class _CloudWorkspace:
+        workspace_id = "workspace-id"
+
         def list_destinations(self) -> list[Any]:
             return []
 
@@ -1944,6 +2095,8 @@ def test_list_agent_connectors_empty_cloud_workspace_says_no_sources_exist(
     monkeypatch.setattr(agents_mcp.AgentWorkspace, "list_connectors", lambda self: [])
 
     class _CloudWorkspace:
+        workspace_id = "workspace-id"
+
         def list_destinations(self) -> list[Any]:
             return []
 
@@ -2348,3 +2501,83 @@ def test_read_docs_destination_cloud_error_propagates(
 
     with pytest.raises(AirbyteError):
         _read_docs("connector-destination:dest-snowflake")
+
+
+def test_inspect_forwards_organization_id_to_cloud_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`inspect_agent_connector` forwards the explicit organization to the workspace."""
+    seen: dict[str, Any] = {}
+
+    class _DescribableConnector:
+        connector_id = "connector-id"
+        connector_type = SimpleNamespace(value="source")
+        name = "GitHub"
+        enabled_features = frozenset({ConnectorFeature.DIRECT_ACCESS})
+
+        def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
+            return feature in self.enabled_features
+
+        integration_name = "GitHub"
+
+        def get_direct_access_guidance(self) -> Any:  # noqa: ANN401
+            raise PyAirbyteInputError(message="No docs skill ID.")
+
+        def _direct_access_guidance_id(self) -> str | None:
+            return None
+
+    class _Workspace:
+        workspace_id = "workspace-1"
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _DescribableConnector()
+
+    def _workspace(
+        ctx: Any,
+        workspace_id: str | None = None,
+        organization_id: str | None = None,
+    ) -> Any:  # noqa: ANN401
+        seen["workspace_id"] = workspace_id
+        seen["organization_id"] = organization_id
+        return _Workspace()
+
+    monkeypatch.setattr(agents_mcp, "_get_cloud_workspace", _workspace)
+
+    agents_mcp.inspect_agent_connector(
+        ctx=cast(Context, object()),
+        connector_id="connector-id",
+        workspace_id="workspace-1",
+        organization_id="org-42",
+    )
+
+    assert seen["organization_id"] == "org-42"
+
+
+def test_inspect_missing_resource_falls_back_to_destination_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing-resource error from `describe` takes the destination fallback."""
+    cloud_workspace = _patch_destination_404(monkeypatch, [_SNOWFLAKE_DESTINATION])
+
+    missing = AirbyteMissingResourceError(
+        message="Connector not found.",
+        resource_type="connector",
+        resource_name_or_id="dest-snowflake",
+    )
+
+    class _MissingConnector:
+        @property
+        def connector_type(self) -> Any:  # noqa: ANN401
+            raise missing
+
+    monkeypatch.setattr(
+        cloud_workspace,
+        "get_connector",
+        lambda *args, **kwargs: _MissingConnector(),  # noqa: ARG005
+    )
+
+    result = _inspect("dest-snowflake")
+
+    assert result.errors is None
+    assert result.docs is not None
+    assert result.docs.skill_id == "connector-destination:dest-snowflake"

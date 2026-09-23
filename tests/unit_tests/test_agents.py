@@ -10,14 +10,13 @@ import pytest
 import requests
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import connector_docs as destination_docs
-from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte._direct_connectors.models import (
-    AgentConnectorMetadata,
-    AgentExecuteResult,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+    DirectAccessGuidanceSection,
 )
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.skills import AgentSkill
@@ -567,7 +566,7 @@ def test_entities(
     result_payload: Any, expectation: list[dict[str, Any]] | None
 ) -> None:
     """`entities` returns entity lists and raises on any other payload shape."""
-    result = AgentExecuteResult(status="success", result=result_payload)
+    result = ExternalApiExecuteResult(status="success", result=result_payload)
     if expectation is None:
         with pytest.raises(PyAirbyteInputError):
             _ = result.entities
@@ -576,8 +575,8 @@ def test_entities(
 
 
 def test_execute_result_accepts_null_metadata() -> None:
-    """`AgentExecuteResult` accepts null metadata from the Agents API."""
-    result = AgentExecuteResult.model_validate({
+    """`ExternalApiExecuteResult` accepts null metadata from the Agents API."""
+    result = ExternalApiExecuteResult.model_validate({
         "status": "success",
         "result": {"data": [], "meta": {}},
         "connector_metadata": None,
@@ -585,7 +584,7 @@ def test_execute_result_accepts_null_metadata() -> None:
         "bundle": None,
     })
 
-    assert result.connector_metadata == AgentConnectorMetadata()
+    assert result.connector_metadata == ExternalApiConnectorMetadata()
     assert result.has_next_page is False
     assert result.end_cursor is None
 
@@ -686,84 +685,6 @@ def test_connectors_preserve_workspace_id(
 
     assert len(connectors) == expected_count
     assert {connector.workspace_id for connector in connectors} == {"workspace-id"}
-
-
-@pytest.mark.parametrize(
-    ("pages", "limit", "expected_titles", "expected_request_count"),
-    [
-        pytest.param(
-            [
-                ("one", True, "cursor-1"),
-                ("two", True, "cursor-2"),
-                ("three", False, None),
-            ],
-            None,
-            ["one", "two", "three"],
-            3,
-            id="follows_cursor_to_last_page",
-        ),
-        pytest.param(
-            [("one", False, None)],
-            None,
-            ["one"],
-            1,
-            id="single_page",
-        ),
-        pytest.param(
-            [("one", True, "cursor-1"), ("two", True, "cursor-2")],
-            2,
-            ["one", "two"],
-            2,
-            id="stops_at_limit",
-        ),
-        pytest.param(
-            [("one", True, "cursor-1"), ("two", True, "cursor-1")],
-            None,
-            ["one", "two"],
-            2,
-            id="stops_when_cursor_does_not_advance",
-        ),
-        pytest.param(
-            [("one", True, None)],
-            None,
-            ["one"],
-            1,
-            id="stops_when_next_page_has_no_cursor",
-        ),
-    ],
-)
-def test_iter_entities(
-    monkeypatch: pytest.MonkeyPatch,
-    pages: list[tuple[str, bool, str | None]],
-    limit: int | None,
-    expected_titles: list[str],
-    expected_request_count: int,
-) -> None:
-    """`iter_entities()` follows the connector's cursor and stops without looping."""
-    calls: list[dict[str, Any]] = []
-
-    def _fake_request(**kwargs: Any) -> _FakeResponse:
-        calls.append(kwargs)
-        title, has_next_page, end_cursor = pages[min(len(calls) - 1, len(pages) - 1)]
-        return _FakeResponse({
-            "status": "success",
-            "result": [{"title": title}],
-            "connector_metadata": {
-                "has_next_page": has_next_page,
-                "end_cursor": end_cursor,
-            },
-        })
-
-    monkeypatch.setattr(requests, "request", _fake_request)
-
-    entities = list(_connector().iter_entities("issues", limit=limit))
-
-    assert [entity["title"] for entity in entities] == expected_titles
-    assert len(calls) == expected_request_count
-    assert [call["json"]["params"].get("cursor") for call in calls] == [
-        None,
-        *[page[2] for page in pages[: expected_request_count - 1]],
-    ]
 
 
 @pytest.mark.parametrize(
@@ -1152,8 +1073,12 @@ def test_skill_requests_omit_none_params(
     assert captured_requests[1]["params"] == {"id": "connector:github"}
 
 
-def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> None:
+def test_workspace_skill_methods(
+    captured_requests: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`AgentWorkspace` skill methods scope requests to the workspace and parse results."""
+    monkeypatch.setattr(CloudWorkspace, "_organization_info", {})
     workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
 
     skills = workspace.list_skills()
@@ -1177,75 +1102,6 @@ def test_workspace_skill_methods(captured_requests: list[dict[str, Any]]) -> Non
     assert docs.outline[0].id == "setup"
     assert docs.outline[1].available is False
     assert docs.content == [{"type": "paragraph", "text": "Hello"}]
-
-
-@pytest.mark.parametrize(
-    ("pages", "expected_ids", "expected_request_count"),
-    [
-        pytest.param(
-            [
-                (["s1", "s2"], "cursor-1"),
-                (["s3"], None),
-            ],
-            ["s1", "s2", "s3"],
-            2,
-            id="follows_cursor_to_last_page",
-        ),
-        pytest.param(
-            [(["s1"], None)],
-            ["s1"],
-            1,
-            id="single_page",
-        ),
-        pytest.param(
-            [
-                (["s1"], "cursor-1"),
-                (["s2"], "cursor-1"),
-            ],
-            ["s1", "s2"],
-            2,
-            id="stops_when_cursor_does_not_advance",
-        ),
-        pytest.param(
-            [(["s1"], "  ")],
-            ["s1"],
-            1,
-            id="stops_on_blank_cursor",
-        ),
-    ],
-)
-def test_iter_skills(
-    monkeypatch: pytest.MonkeyPatch,
-    pages: list[tuple[list[str], str | None]],
-    expected_ids: list[str],
-    expected_request_count: int,
-) -> None:
-    """`iter_skills()` follows the API's cursor and stops without looping."""
-    calls: list[dict[str, Any]] = []
-
-    def _fake_request(**kwargs: Any) -> _FakeResponse:
-        calls.append(kwargs)
-        ids, next_cursor = pages[min(len(calls) - 1, len(pages) - 1)]
-        return _FakeResponse({
-            "data": [{"id": skill_id} for skill_id in ids],
-            "next_cursor": next_cursor,
-        })
-
-    monkeypatch.setattr(requests, "request", _fake_request)
-
-    skills = list(
-        skills_module.iter_skills(
-            credentials=_credentials(),
-            workspace_id="workspace-id",
-        )
-    )
-
-    assert [skill.id for skill in skills] == expected_ids
-    assert len(calls) == expected_request_count
-    assert [call["params"].get("cursor") for call in calls] == [
-        None,
-        *[page[1] for page in pages[: expected_request_count - 1]],
-    ]
 
 
 def test_get_skill(captured_requests: list[dict[str, Any]]) -> None:
@@ -1304,7 +1160,7 @@ def test_agent_skill_read_docs_keeps_listed_info(
     captured_requests: list[dict[str, Any]],
 ) -> None:
     """`read_docs()` does not replace richer metadata supplied at construction."""
-    listed_info = AgentSkillInfo(
+    listed_info = DirectAccessGuidanceIndexEntry(
         id="connector:github",
         kind="connector_source",
         title="GitHub",
@@ -1395,7 +1251,7 @@ def _snowflake_destination(**kwargs: Any) -> _FakeDestination:
     return _FakeDestination(
         connector_id="dest-1",
         name="Snowflake dev",
-        definition_id=destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        definition_id=destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
         **kwargs,
     )
 
@@ -1427,7 +1283,9 @@ def test_build_destination_connector_details() -> None:
     assert details.warnings == []
 
 
-def test_build_destination_skill_docs_index_includes_connections_and_streams() -> None:
+def test_build_direct_access_sql_guidance_index_includes_connections_and_streams() -> (
+    None
+):
     """The no-section response embeds connections and their enabled streams inline."""
     matching = _FakeConnection(
         connection_id="conn-1",
@@ -1445,7 +1303,7 @@ def test_build_destination_skill_docs_index_includes_connections_and_streams() -
         configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
     )
 
-    docs = destination_docs.build_destination_skill_docs(cast(Any, destination))
+    docs = destination_docs.build_direct_access_sql_guidance(cast(Any, destination))
 
     assert docs.metadata.id == "connector-destination:dest-1"
     assert docs.metadata.kind == "connector_destination"
@@ -1473,29 +1331,35 @@ def test_build_destination_skill_docs_index_includes_connections_and_streams() -
     ("definition_id", "configuration", "expected"),
     [
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             {"database": "DB", "schema": "S"},
-            [("database", "DB"), ("schema", "S")],
+            destination_docs._DestinationLoadContext(
+                database_name="DB",
+                schema_name="S",
+            ),
             id="snowflake",
         ),
         pytest.param(
-            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             {"project_id": "P", "dataset_id": "D"},
-            [("project", "P"), ("dataset", "D")],
+            destination_docs._DestinationLoadContext(
+                database_name="P",
+                schema_name="D",
+            ),
             id="bigquery",
         ),
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             None,
-            [],
+            destination_docs._DestinationLoadContext(),
             id="missing_config",
         ),
     ],
 )
-def test_destination_location(
+def test_destination_load_context(
     definition_id: str,
     configuration: dict[str, Any] | None,
-    expected: list[tuple[str, str]],
+    expected: destination_docs._DestinationLoadContext,
 ) -> None:
     destination = _FakeDestination(
         connector_id="dest-1",
@@ -1504,7 +1368,62 @@ def test_destination_location(
         configuration=configuration,
     )
 
-    assert destination_docs._destination_location(cast(Any, destination)) == expected
+    assert (
+        destination_docs._destination_load_context(  # noqa: SLF001
+            cast(Any, destination)
+        )
+        == expected
+    )
+
+
+def test_destination_load_context_with_connection() -> None:
+    """A connection's namespace setting overrides the destination's configured schema."""
+    destination = _FakeDestination(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        configuration={"database": "DB", "schema": "S"},
+    )
+
+    custom = _FakeConnection(
+        connection_id="conn-1",
+        name="conn",
+        destination_id="dest-1",
+        table_prefix="raw_",
+        namespace_definition="custom_format",
+        namespace_format="{namespace}_raw",
+    )
+    ctx = destination_docs._destination_load_context(  # noqa: SLF001
+        cast(Any, destination), custom
+    )
+    assert ctx.database_name == "DB"
+    assert ctx.schema_name == "{namespace}_raw"
+    assert ctx.table_prefix == "raw_"
+
+    sourced = _FakeConnection(
+        connection_id="conn-2",
+        name="conn",
+        destination_id="dest-1",
+        namespace_definition="source",
+    )
+    ctx = destination_docs._destination_load_context(  # noqa: SLF001
+        cast(Any, destination), sourced
+    )
+    assert ctx.schema_name is None
+
+    default = _FakeConnection(
+        connection_id="conn-3",
+        name="conn",
+        destination_id="dest-1",
+    )
+    ctx = destination_docs._destination_load_context(  # noqa: SLF001
+        cast(Any, destination), default
+    )
+    assert ctx.schema_name == "S"
+
+    ctx = destination_docs._destination_load_context(cast(Any, destination))  # noqa: SLF001
+    assert ctx.table_prefix is None
+    assert ctx.schema_name == "S"
 
 
 @pytest.mark.parametrize(
@@ -1520,7 +1439,10 @@ def test_destination_location(
             "destination",
             None,
             "",
-            [("database", "DB"), ("schema", "S")],
+            destination_docs._DestinationLoadContext(
+                database_name="DB",
+                schema_name="S",
+            ),
             "Streams land in the destination's default namespace, schema `S`, "
             "with no table prefix.",
             id="destination_default",
@@ -1529,7 +1451,7 @@ def test_destination_location(
             "source",
             None,
             "",
-            [],
+            destination_docs._DestinationLoadContext(),
             "Streams land in a namespace mirroring the source's own namespace "
             "(e.g. its schema), with no table prefix.",
             id="source",
@@ -1538,7 +1460,7 @@ def test_destination_location(
             "custom_format",
             "{namespace}_raw",
             "",
-            [],
+            destination_docs._DestinationLoadContext(),
             "Streams land in namespace format `{namespace}_raw`, with no table prefix.",
             id="custom_format",
         ),
@@ -1546,8 +1468,12 @@ def test_destination_location(
             None,
             None,
             "raw_",
-            [("database", "DB"), ("dataset", "D")],
-            "Streams land in the destination's default namespace, dataset `D`, "
+            destination_docs._DestinationLoadContext(
+                database_name="DB",
+                schema_name="D",
+                table_prefix="raw_",
+            ),
+            "Streams land in the destination's default namespace, schema `D`, "
             "with table prefix 'raw_'.",
             id="with_prefix",
         ),
@@ -1557,7 +1483,7 @@ def test_connection_namespace_note(
     namespace_definition: str | None,
     namespace_format: str | None,
     table_prefix: str,
-    location: list[tuple[str, str]],
+    location: destination_docs._DestinationLoadContext,
     expected: str,
 ) -> None:
     connection = _FakeConnection(
@@ -1576,18 +1502,18 @@ def test_connection_namespace_note(
     ("definition_id", "dialect"),
     [
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             "snowflake",
             id="snowflake",
         ),
         pytest.param(
-            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             "bigquery",
             id="bigquery",
         ),
     ],
 )
-def test_build_destination_skill_docs_sql_passthrough_section(
+def test_build_direct_access_sql_guidance_sql_passthrough_section(
     definition_id: str,
     dialect: str,
 ) -> None:
@@ -1597,7 +1523,7 @@ def test_build_destination_skill_docs_sql_passthrough_section(
         definition_id=definition_id,
     )
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_SQL_PASSTHROUGH,
     )
@@ -1615,7 +1541,9 @@ def test_build_destination_skill_docs_sql_passthrough_section(
         assert "double-quot" in rendered
 
 
-def test_build_destination_skill_docs_connections_section_filters_destination() -> None:
+def test_build_direct_access_sql_guidance_connections_section_filters_destination() -> (
+    None
+):
     matching = _FakeConnection(
         connection_id="conn-1",
         name="GitHub to Snowflake",
@@ -1636,7 +1564,7 @@ def test_build_destination_skill_docs_connections_section_filters_destination() 
         ],
     )
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_CONNECTIONS,
     )
@@ -1650,10 +1578,10 @@ def test_build_destination_skill_docs_connections_section_filters_destination() 
     assert "Slack elsewhere" not in rendered
 
 
-def test_build_destination_skill_docs_connections_section_empty() -> None:
+def test_build_direct_access_sql_guidance_connections_section_empty() -> None:
     destination = _snowflake_destination()
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_CONNECTIONS,
     )
@@ -1666,18 +1594,18 @@ def test_build_destination_skill_docs_connections_section_empty() -> None:
     ("definition_id", "expected_tables"),
     [
         pytest.param(
-            destination_docs.SNOWFLAKE_DESTINATION_DEFINITION_ID,
+            destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             ["`RAW_ISSUES`", "`RAW_PULL_REQUESTS`"],
             id="snowflake-upper-cases",
         ),
         pytest.param(
-            destination_docs.BIGQUERY_DESTINATION_DEFINITION_ID,
+            destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             ["`raw_issues`", "`raw_pull_requests`"],
             id="bigquery-preserves-case",
         ),
     ],
 )
-def test_build_destination_skill_docs_streams_section(
+def test_build_direct_access_sql_guidance_streams_section(
     definition_id: str,
     expected_tables: list[str],
 ) -> None:
@@ -1695,7 +1623,7 @@ def test_build_destination_skill_docs_streams_section(
         connections=[connection],
     )
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_STREAMS,
     )
@@ -1711,10 +1639,10 @@ def test_build_destination_skill_docs_streams_section(
     assert "'raw_'" in rendered
 
 
-def test_build_destination_skill_docs_streams_section_empty() -> None:
+def test_build_direct_access_sql_guidance_streams_section_empty() -> None:
     destination = _snowflake_destination()
 
-    docs = destination_docs.build_destination_skill_docs(
+    docs = destination_docs.build_direct_access_sql_guidance(
         cast(Any, destination),
         section=destination_docs.SECTION_STREAMS,
     )
@@ -1722,11 +1650,11 @@ def test_build_destination_skill_docs_streams_section_empty() -> None:
     assert "No connections" in str(docs.content)
 
 
-def test_build_destination_skill_docs_rejects_unknown_section() -> None:
+def test_build_direct_access_sql_guidance_rejects_unknown_section() -> None:
     destination = _snowflake_destination()
 
     with pytest.raises(PyAirbyteInputError, match="sql-passthrough"):
-        destination_docs.build_destination_skill_docs(
+        destination_docs.build_direct_access_sql_guidance(
             cast(Any, destination),
             section="bogus",
         )
@@ -1738,15 +1666,15 @@ def test_merge_destination_skill_docs() -> None:
         fail_on_connections=True,
         configuration={"database": "ANALYTICS_DB", "schema": "RAW_SCHEMA"},
     )
-    server_docs = AgentSkillDocs(
-        metadata=AgentSkillInfo(
+    server_docs = DirectAccessGuidance(
+        metadata=DirectAccessGuidanceIndexEntry(
             id="connector-destination:dest-1",
             kind="connector_destination",
             title="Server title",
         ),
         outline=[
-            AgentSkillSection(id="overview", title="Server overview"),
-            AgentSkillSection(
+            DirectAccessGuidanceSection(id="overview", title="Server overview"),
+            DirectAccessGuidanceSection(
                 id=destination_docs.SECTION_SQL_PASSTHROUGH,
                 title="Server sql-passthrough",
             ),

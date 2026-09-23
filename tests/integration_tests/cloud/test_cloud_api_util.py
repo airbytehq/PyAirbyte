@@ -8,7 +8,6 @@ These tests are designed to be run against a running instance of the Airbyte API
 from __future__ import annotations
 
 import re
-from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -20,6 +19,7 @@ from airbyte._util.api_util import (
     check_connector,
     get_bearer_token,
 )
+from airbyte.cloud.connectors import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte_api.models import (
     DestinationDuckdb,
@@ -284,15 +284,15 @@ def test_get_bearer_token(
 @pytest.mark.parametrize(
     "connector_id, connector_type, expect_success",
     [
-        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", "source", True),
-        # ("......-....-....-............", "destination", True),
+        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", ConnectorType.SOURCE, True),
+        # ("......-....-....-............", ConnectorType.DESTINATION, True),
     ],
 )
 def test_check_connector(
     airbyte_cloud_client_id: SecretString,
     airbyte_cloud_client_secret: SecretString,
     connector_id: str,
-    connector_type: Literal["source", "destination"],
+    connector_type: ConnectorType,
     expect_success: bool,
 ) -> None:
     try:

@@ -17,7 +17,7 @@ connecting through a proxy or local development endpoint.
 
 ## Usage Examples
 
-Read entities from a connector, paging automatically as you iterate:
+Read a page of entities from a connector:
 
 ```python
 from airbyte import agents
@@ -25,16 +25,6 @@ from airbyte import agents
 workspace = agents.AgentWorkspace.from_env()
 connector = workspace.get_connector("GitHub")  # by ID or name (case insensitive)
 
-for issue in connector.iter_entities(
-    "issues",
-    api_args={"repository": "airbytehq/PyAirbyte"},  # Passthrough API args
-):
-    print(issue["title"])
-```
-
-Fetch a single page instead, when the result's status and metadata are needed:
-
-```python
 result = connector.list_entities(
     "issues",
     api_args={"repository": "airbytehq/PyAirbyte"},
@@ -87,18 +77,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors.models import (
-    AgentConnectorDetails,
-    AgentConnectorInfo,
-    AgentConnectorMetadata,
-    AgentContextStoreEntity,
-    AgentContextStoreReadiness,
-    AgentExecuteResult,
-    AgentExecutionMetadata,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillList,
-    AgentSkillSection,
     AgentWorkspaceInfo,
+    CloudContextStoreEntity,
+    CloudContextStoreReadiness,
+    CloudDirectConnectorInfo,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+    DirectAccessGuidanceSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    ExternalApiExecutionMetadata,
 )
 from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.organizations import AgentOrganization
@@ -125,19 +113,17 @@ __all__ = [
     "workspaces",
     # Classes
     "AgentConnector",
-    "AgentConnectorDetails",
-    "AgentConnectorInfo",
-    "AgentConnectorMetadata",
-    "AgentContextStoreEntity",
-    "AgentContextStoreReadiness",
-    "AgentExecuteResult",
-    "AgentExecutionMetadata",
     "AgentOrganization",
     "AgentSkill",
-    "AgentSkillDocs",
-    "AgentSkillInfo",
-    "AgentSkillList",
-    "AgentSkillSection",
     "AgentWorkspace",
     "AgentWorkspaceInfo",
+    "CloudContextStoreEntity",
+    "CloudContextStoreReadiness",
+    "CloudDirectConnectorInfo",
+    "DirectAccessGuidance",
+    "DirectAccessGuidanceIndexEntry",
+    "DirectAccessGuidanceSection",
+    "ExternalApiConnectorMetadata",
+    "ExternalApiExecuteResult",
+    "ExternalApiExecutionMetadata",
 ]

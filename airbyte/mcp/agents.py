@@ -34,20 +34,23 @@ from pydantic import BaseModel, Field
 from airbyte._direct_connectors.connector_docs import (
     DESTINATION_SKILL_PREFIX,
     LOCAL_DESTINATION_SECTION_IDS,
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     build_destination_connector_details,
-    build_destination_skill_docs,
+    build_direct_access_sql_guidance,
     connector_id_from_skill_id,
     destination_skill_id,
     merge_destination_skill_docs,
 )
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
-from airbyte._direct_connectors.models import AgentSkillDocs, AgentSkillInfo
-from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
+from airbyte._direct_connectors.models import (
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+)
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
-from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.connectors import CloudConnector, CloudDestination, CloudSource
+from airbyte.cloud.models import ConnectorFeature
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
@@ -65,8 +68,14 @@ from airbyte.constants import (
     MCP_ORGANIZATION_ID_HEADER,
     MCP_WORKSPACE_ID_HEADER,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
-from airbyte.mcp._arg_resolvers import resolve_list_of_strings
+from airbyte.exceptions import (
+    AirbyteError,
+    AirbyteExternalAccessNotEnabledError,
+    AirbyteMissingResourceError,
+    PyAirbyteError,
+    PyAirbyteInputError,
+)
+from airbyte.mcp._arg_resolvers import resolve_api_args, resolve_list_of_strings
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
@@ -420,28 +429,6 @@ class AgentExecuteToolResult(BaseModel):
     """Why the action did not run, when the Agents API denied or rejected the request."""
 
 
-def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
-    """Resolve `api_args` from a dictionary or a JSON object string."""
-    if api_args is None or isinstance(api_args, dict):
-        return api_args
-
-    try:
-        parsed: Any = json.loads(api_args)
-    except json.JSONDecodeError as ex:
-        raise PyAirbyteInputError(
-            message="The `api_args` string is not valid JSON.",
-            guidance="Pass `api_args` as an object, or as a JSON object string.",
-        ) from ex
-
-    if not isinstance(parsed, dict):
-        raise PyAirbyteInputError(
-            message="The `api_args` string is not a JSON object.",
-            guidance="Pass `api_args` as an object, or as a JSON object string.",
-            context={"parsed_type": type(parsed).__name__},
-        )
-    return parsed
-
-
 def _agents_access_message(error: AirbyteError) -> str | None:
     """Return a concise explanation of an Agents API authorization failure.
 
@@ -491,6 +478,13 @@ def _agents_error_detail(response_text: object) -> str | None:
     return None
 
 
+_WRITE_ACTIONS: frozenset[str] = frozenset({"create", "update", "delete"})
+"""Write actions the read-only tool and `read_only` flag reject."""
+
+_ReadAction = Literal["list", "get", "search", "sql_select"]
+_Action = Literal["list", "get", "search", "sql_select", "create", "update", "delete"]
+
+
 def _sql_error_guidance(detail: str) -> str | None:
     """Return actionable guidance for a known SQL execution error."""
     normalized_detail = detail.casefold()
@@ -520,7 +514,7 @@ def _sql_error_guidance(detail: str) -> str | None:
 
 def _agents_execution_failure_message(
     error: AirbyteError,
-    action: AgentAction,
+    action: _Action,
 ) -> str | None:
     """Return a concise explanation for a rejected Agents API action request."""
     context = error.context or {}
@@ -532,13 +526,16 @@ def _agents_execution_failure_message(
     detail = _agents_error_detail(context.get("response_text"))
     if detail is None:
         return None
-    guidance = _sql_error_guidance(detail) if action == AgentReadAction.SQL_SELECT else None
+    guidance = _sql_error_guidance(detail) if action == "sql_select" else None
     return f"{detail} {guidance}" if guidance is not None else detail
 
 
 def _is_not_found(error: AirbyteError) -> bool:
     """Return whether the Agents API reported the connector or skill as not found."""
-    return (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND
+    return (
+        isinstance(error, AirbyteMissingResourceError)
+        or (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND
+    )
 
 
 def _resolve_cloud_destination(
@@ -621,8 +618,8 @@ def _or_none(items: list[str]) -> list[str] | None:
     return items or None
 
 
-def _skill_docs_result(docs: AgentSkillDocs) -> AgentSkillDocsResult:
-    """Shape an `AgentSkillDocs` into an `AgentSkillDocsResult`."""
+def _skill_docs_result(docs: DirectAccessGuidance) -> AgentSkillDocsResult:
+    """Shape an `DirectAccessGuidance` into an `AgentSkillDocsResult`."""
     return AgentSkillDocsResult(
         skill_id=docs.metadata.id,
         title=docs.metadata.title,
@@ -679,7 +676,7 @@ def _inspect_destination_fallback(
     destination = _resolve_cloud_destination(ctx, connector_id, workspace_id, organization_id)
     if (
         destination is not None
-        and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
         details = build_destination_connector_details(destination)
         warnings: list[str] = []
@@ -733,20 +730,20 @@ def _read_destination_skill_docs(
     workspace: AgentWorkspace,
     destination: CloudDestination,
     section: str | None,
-) -> AgentSkillDocs:
+) -> DirectAccessGuidance:
     """Read a SQL passthrough destination's docs, merging server docs with local guidance.
 
     Local-only sections are built without calling the Agents API; otherwise server
     docs are augmented with local guidance, and a 404 falls back to local docs.
     """
     if section in LOCAL_DESTINATION_SECTION_IDS:
-        return build_destination_skill_docs(destination, section=section)
+        return build_direct_access_sql_guidance(destination, section=section)
     skill_id = destination_skill_id(destination.connector_id)
     try:
         server_docs = workspace.read_skill_docs(skill_id, section=section)
     except AirbyteError as error:
         if _is_not_found(error):
-            return build_destination_skill_docs(destination, section=section)
+            return build_direct_access_sql_guidance(destination, section=section)
         raise
     return merge_destination_skill_docs(server_docs, destination)
 
@@ -767,9 +764,9 @@ def _destination_skill_docs_fallback(
         destination = _resolve_cloud_destination(ctx, connector_id, workspace_id)
     if (
         destination is not None
-        and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ):
-        docs = build_destination_skill_docs(destination, section=section)
+        docs = build_direct_access_sql_guidance(destination, section=section)
         return _skill_docs_result(docs)
     if destination is not None:
         message = (
@@ -830,38 +827,18 @@ def _get_agent_workspace(
     )
 
 
-def _get_agent_connector(
+def _resolve_cloud_connector(
     ctx: Context,
     connector_id: str,
-    workspace_id: str | None = None,
-    organization_id: str | None = None,
-) -> AgentConnector:
-    """Get an `AgentConnector` from its workspace, using MCP config.
+    workspace_id: str | None,
+) -> CloudConnector:
+    """Resolve a connector ID to its deployed `CloudConnector` in the workspace.
 
-    The Agents API addresses a connector by ID alone, but the connector is fetched through
-    its workspace anyway, so a connector ID belonging to another workspace raises before
-    any action runs.
-
-    Destination connectors (targets of `sql_select`) are not listed by the Agents API, so IDs it
-    does not know are verified against the Cloud workspace's destinations instead. An ID that
-    is a Cloud source the Agents API does not list is reported as not enabled for Agents
-    access, rather than as missing.
+    The connector is returned untyped; its kind is resolved lazily if needed. An ID that
+    matches nothing surfaces a not-found error from the lazy probe, only where kind is
+    required.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
-    try:
-        return workspace.get_connector(connector_id)
-    except AirbyteError as error:
-        if error.get_message() != CONNECTOR_NOT_FOUND_MESSAGE:
-            raise
-        cloud_destination_ids = {
-            destination.connector_id
-            for destination in _get_cloud_workspace(ctx, workspace.workspace_id).list_destinations()
-        }
-        if connector_id not in cloud_destination_ids:
-            raise _connector_unavailable_error(
-                ctx, connector_id, workspace.workspace_id, workspace.organization_id
-            ) from error
-        return workspace.get_connector(connector_id=connector_id)
+    return _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
 
 
 def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
@@ -871,7 +848,7 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     workspace_id: str | None,
     organization_id: str | None,
     entity_type: str,
-    action: AgentAction,
+    action: _Action,
     api_args: dict[str, Any] | str | None,
     select_fields: list[str] | str | None,
     exclude_fields: list[str] | str | None,
@@ -884,32 +861,54 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
 
     When `read_only` is `True`, write actions are rejected before any request is sent.
     """
-    if read_only and action not in set(AgentReadAction):
+    if read_only and action in _WRITE_ACTIONS:
         raise PyAirbyteInputError(
             message="This action writes data and cannot run in read-only mode.",
-            guidance=(
-                "Read-only actions are: "
-                f"{', '.join(member.value for member in AgentReadAction)}."
-            ),
+            guidance="Read-only actions are: list, get, search, sql_select.",
             context={"action": action},
         )
 
+    resolved_api_args = resolve_api_args(api_args)
     try:
-        result = _get_agent_connector(
-            ctx=ctx,
-            connector_id=connector_id,
-            workspace_id=workspace_id,
-            organization_id=organization_id,
-        ).execute(
-            entity_type=entity_type,
-            action=action,
-            api_args=_resolve_api_args(api_args),
-            select_fields=resolve_list_of_strings(select_fields),
-            exclude_fields=resolve_list_of_strings(exclude_fields),
-            page_size=page_size,
-            cursor=cursor,
-            workspace_id=workspace_id,
-            intent=intent,
+        connector = _resolve_cloud_connector(ctx, connector_id, workspace_id)
+        if action == "sql_select":
+            sql = (resolved_api_args or {}).get("sql")
+            if not isinstance(sql, str):
+                raise PyAirbyteInputError(
+                    message="The `sql_select` action requires a `sql` argument.",
+                    guidance=("Pass `sql` (and optionally `sql_dialect`) in `api_args`."),
+                    context={"action": action},
+                )
+            result = connector.execute_sql_query(
+                sql=sql,
+                sql_dialect=(resolved_api_args or {}).get("sql_dialect"),
+                page_size=page_size,
+                cursor=cursor,
+            )
+        elif action in _WRITE_ACTIONS:
+            result = connector.execute_api_action(
+                entity_type,
+                action,  # type: ignore[arg-type]  # Narrowed by the `in _WRITE_ACTIONS` check.
+                resolved_api_args,
+                select_fields=resolve_list_of_strings(select_fields),
+                exclude_fields=resolve_list_of_strings(exclude_fields),
+                intent=intent,
+            )
+        else:
+            result = connector.execute_api_query(
+                entity_type,
+                action,  # type: ignore[arg-type]  # `Literal` membership is not narrowed.
+                resolved_api_args,
+                select_fields=resolve_list_of_strings(select_fields),
+                exclude_fields=resolve_list_of_strings(exclude_fields),
+                page_size=page_size,
+                cursor=cursor,
+                intent=intent,
+            )
+    except AirbyteExternalAccessNotEnabledError as error:
+        return AgentExecuteToolResult(
+            status=AGENTS_ACCESS_DENIED_STATUS,
+            message=(f"{error.get_message()} " f"{context_layer_enable_guidance(organization_id)}"),
         )
     except AirbyteError as error:
         message = _agents_access_message(error)
@@ -1061,7 +1060,7 @@ def _list_sql_passthrough_destinations(
     return [
         destination
         for destination in _get_cloud_workspace(ctx, workspace_id).list_destinations()
-        if destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        if destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
     ]
 
 
@@ -1072,7 +1071,7 @@ def _destination_connector_result(destination: CloudDestination) -> AgentConnect
         connector_name=destination.name,
         connector_kind="destination",
         supported_actions=["sql_select"],
-        sql_dialect=SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id],
+        sql_dialect=_SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id],
         note=AGENTS_DESTINATION_ACCESS_NOTE,
     )
 
@@ -1119,8 +1118,22 @@ def inspect_agent_connector(
     built-in docs under `connector-destination:<id>`.
     """
     try:
-        workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
-        details = workspace.get_connector(connector_id).inspect()
+        cloud_workspace = _get_cloud_workspace(ctx, workspace_id, organization_id=organization_id)
+        connector = cloud_workspace.get_connector(connector_id=connector_id)
+        if connector.connector_type.value == "source" and not connector.is_feature_enabled(
+            ConnectorFeature.DIRECT_ACCESS
+        ):
+            source = _resolve_cloud_source(ctx, connector_id, cloud_workspace.workspace_id)
+            if source is not None:
+                raise _ConnectorNotEnabledError(
+                    message=_source_not_enabled_message(
+                        source, cloud_workspace.workspace_id, organization_id
+                    ),
+                    context={
+                        "connector_id": connector_id,
+                        "workspace_id": cloud_workspace.workspace_id,
+                    },
+                )
     except AirbyteError as error:
         if _is_not_found(error) or error.get_message() == CONNECTOR_NOT_FOUND_MESSAGE:
             return _inspect_destination_fallback(ctx, connector_id, workspace_id, organization_id)
@@ -1132,28 +1145,49 @@ def inspect_agent_connector(
             errors=[message],
         )
 
-    warnings = [str(warning) for warning in details.warnings]
+    warnings: list[str] = []
+    try:
+        integration_name = connector.integration_name
+    except AirbyteError as error:
+        warnings.append(f"Integration name lookup failed: {error}")
+        integration_name = None
+
     docs_result: AgentConnectorDocsResult | None = None
-    if details.docs_skill_id:
-        try:
-            connector_docs = workspace.read_skill_docs(details.docs_skill_id)
-        except (AirbyteError, requests.RequestException) as error:
-            detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
-            docs_unavailable = f"Connector docs are unavailable: {detail}"
-            warnings.append(docs_unavailable)
+    try:
+        docs = connector.get_direct_access_guidance()
+    except (PyAirbyteError, requests.RequestException) as error:
+        warnings.append(f"Direct access docs are unavailable: {error}")
+        docs_skill_id = connector._direct_access_guidance_id()  # noqa: SLF001
+        if docs_skill_id:
+            docs_warnings = [warning for warning in warnings if "docs" in warning.lower()] or None
             docs_result = AgentConnectorDocsResult(
-                skill_id=details.docs_skill_id,
+                skill_id=docs_skill_id,
                 content="",
-                warnings=[docs_unavailable],
+                warnings=docs_warnings,
             )
-        else:
-            docs_result = _connector_docs_result(_skill_docs_result(connector_docs))
+    else:
+        outline = [
+            AgentSkillSectionResult(
+                section_id=docs_section.id,
+                title=docs_section.title,
+                summary=docs_section.summary,
+                available=docs_section.available,
+            )
+            for docs_section in docs.outline
+        ]
+        docs_result = AgentConnectorDocsResult(
+            skill_id=docs.metadata.id or "",
+            title=docs.metadata.title,
+            content=render_docs_content_markdown(docs.content),
+            guidance=_inspect_docs_guidance(docs.metadata.id or "", outline),
+            warnings=_or_none([str(warning) for warning in docs.metadata.warnings]),
+        )
 
     return AgentConnectorDetailsResult(
-        connector_id=details.connector_id,
-        connector_name=details.name,
-        workspace_id=details.workspace_id,
-        integration_name=details.integration_name,
+        connector_id=connector.connector_id,
+        connector_name=connector.name or None,
+        workspace_id=cloud_workspace.workspace_id,
+        integration_name=integration_name,
         docs=docs_result,
         warnings=_or_none(warnings),
     )
@@ -1187,7 +1221,7 @@ def execute_agent_connector_ro(  # noqa: PLR0913  # Explicit args are the point 
         ),
     ],
     action: Annotated[
-        AgentReadAction,
+        _ReadAction,
         Field(
             description=(
                 "The read action to run against the entity type. "
@@ -1329,7 +1363,7 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
         ),
     ],
     action: Annotated[
-        AgentAction,
+        _Action,
         Field(
             description=(
                 "The action to run against the entity type. "
@@ -1444,8 +1478,8 @@ def execute_agent_connector(  # noqa: PLR0913  # Explicit args are the point of 
     )
 
 
-def _agent_skill_result(skill: AgentSkillInfo) -> AgentSkillResult:
-    """Shape an `AgentSkillInfo` into an `AgentSkillResult`."""
+def _agent_skill_result(skill: DirectAccessGuidanceIndexEntry) -> AgentSkillResult:
+    """Shape an `DirectAccessGuidanceIndexEntry` into an `AgentSkillResult`."""
     return AgentSkillResult(
         skill_id=skill.id,
         kind=skill.kind,
@@ -1478,9 +1512,9 @@ def list_agent_skills(
     docs. All pages are fetched, so no pagination arguments are needed. Pass a listed
     skill's `skill_id` to `read_agent_skill_docs` to read it.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id)
+    workspace = _get_cloud_workspace(ctx, workspace_id)
     try:
-        skills = workspace.list_skills()
+        skills = workspace._list_guidance()  # noqa: SLF001
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:
@@ -1488,7 +1522,7 @@ def list_agent_skills(
         return AgentSkillListResult(skills=[], message=message)
 
     return AgentSkillListResult(
-        skills=[_agent_skill_result(skill.info) for skill in skills],
+        skills=[_agent_skill_result(info) for info in skills],
     )
 
 
@@ -1538,7 +1572,7 @@ def read_agent_skill_docs(
     Without `section`, this returns the skill's metadata, guidance, and the outline of
     sections, which is the cheapest way to orient before reading a specific section.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id)
+    workspace = _get_cloud_workspace(ctx, workspace_id)
     destination: CloudDestination | None = None
     destination_resolved = False
     if skill_id.startswith(DESTINATION_SKILL_PREFIX):
@@ -1548,10 +1582,10 @@ def read_agent_skill_docs(
         )
         if (
             destination is not None
-            and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+            and destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
         ):
             try:
-                docs = _read_destination_skill_docs(workspace, destination, section)
+                docs = destination.get_direct_access_guidance(section=section)
             except AirbyteError as error:
                 message = _agents_access_message(error)
                 if message is None:
@@ -1565,7 +1599,7 @@ def read_agent_skill_docs(
                 )
             return _skill_docs_result(docs)
     try:
-        docs = workspace.read_skill_docs(skill_id, section=section)
+        docs = workspace.get_agent_skill_docs(skill_id, section=section)
     except AirbyteError as error:
         if _is_not_found(error):
             return _destination_skill_docs_fallback(

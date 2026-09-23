@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
+from http import HTTPStatus
 from typing import Any
 
 import requests
 
-from airbyte._util import api_util
+from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._util import api_util, deployment
 from airbyte.cloud._credentials import _AirbyteCredentials
-from airbyte.cloud.models import CloudOrganizationBillingInfo
+from airbyte.cloud.models import CloudOrganizationBillingInfo, OrganizationFeature
 from airbyte.exceptions import AirbyteError
 from airbyte.secrets.base import SecretString
 
@@ -150,3 +153,43 @@ class CloudOrganization:
     def is_account_locked(self) -> bool:
         """Whether the account is locked due to billing issues."""
         return api_util.is_account_locked(self.payment_status, self.subscription_status)
+
+    @cached_property
+    def enabled_features(self) -> frozenset[OrganizationFeature]:
+        """The features enabled for this organization. Resolved on first access and cached.
+
+        `DIRECT_ACCESS` is reported when AI agents can access this organization's connectors
+        through the Airbyte Context layer. It is absent without any API call when the API root
+        has no Context layer (for example, self-managed deployments), and absent when the
+        Context layer API reports the organization as forbidden or not found, which is how it
+        answers for organizations that have not enabled it. Any other failure raises.
+        """
+        if not deployment.is_agents_api_available(
+            public_api_root=self._credentials.public_api_root,
+            config_api_root=self._credentials.config_api_root,
+        ):
+            return frozenset()
+
+        try:
+            agents_api_util.list_agent_workspaces(
+                credentials=self._credentials,
+                organization_id=self.organization_id,
+            )
+        except AirbyteError as error:
+            status_code = (error.context or {}).get("status_code")
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                return frozenset()
+
+            raise
+
+        return frozenset({OrganizationFeature.DIRECT_ACCESS})
+
+    def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
+        """Whether `feature` is enabled for this organization.
+
+        Uses the cached feature set when available; search indexing has not launched yet,
+        so it always returns `False` without an API call.
+        """
+        if feature == OrganizationFeature.SEARCH_INDEXING:
+            return False
+        return feature in self.enabled_features

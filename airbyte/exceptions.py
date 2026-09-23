@@ -586,6 +586,19 @@ class AirbyteAgentsUnavailableError(AirbyteError):
 
 
 @dataclass
+class AirbyteExternalAccessNotEnabledError(PyAirbyteError):
+    """The connector is not enabled for external access, so it cannot execute direct actions."""
+
+    connector_name: str | None = None
+    connector_id: str | None = None
+    guidance: str | None = (
+        "Direct actions require external access to be enabled for this connector in its "
+        "organization's Context Layer settings. Check `enabled_features` on the connector "
+        "and organization."
+    )
+
+
+@dataclass
 class AirbyteConnectionError(AirbyteError):
     """An connection error occurred while communicating with the hosted Airbyte instance."""
 
