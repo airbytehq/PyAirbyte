@@ -16,6 +16,8 @@ from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
+    ExternalApiExecuteResult,
+    ExternalApiWriteAction,
 )
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
@@ -1022,6 +1024,163 @@ def test_get_agent_skill_docs_tool_connector_id(
     assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
     assert calls == [{"skill_id": None, "connector_id": "source-1", "section": None}]
     assert result.skill_id == "connector-source:source-1"
+
+
+class _RecordingExecuteConnector:
+    """Fake connector recording `execute_api_*`/`execute_sql_query` calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+        self.result = ExternalApiExecuteResult(status="success", result={"ok": True})
+
+    def execute_api_query(
+        self, entity_type: str, action: object, api_args: object, **kwargs: object
+    ) -> object:
+        self.calls.append((
+            "query",
+            {
+                "entity_type": entity_type,
+                "action": action,
+                "api_args": api_args,
+                **kwargs,
+            },
+        ))
+        return self.result
+
+    def execute_api_action(
+        self, entity_type: str, action: object, api_args: object, **kwargs: object
+    ) -> object:
+        self.calls.append((
+            "action",
+            {
+                "entity_type": entity_type,
+                "action": action,
+                "api_args": api_args,
+                **kwargs,
+            },
+        ))
+        return self.result
+
+    def execute_sql_query(self, sql: str, **kwargs: object) -> object:
+        self.calls.append(("sql", {"sql": sql, **kwargs}))
+        return self.result
+
+
+def _execute_workspace(
+    monkeypatch: pytest.MonkeyPatch, connector: _RecordingExecuteConnector
+) -> SimpleNamespace:
+    """Patch `_get_cloud_workspace` to return a workspace serving `connector`."""
+    get_connector = MagicMock(return_value=connector)
+    workspace = SimpleNamespace(get_connector=get_connector)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    return workspace
+
+
+def test_execute_external_api_query_forwards_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tool forwards every kwarg, parsing JSON `api_args` and CSV field lists."""
+    connector = _RecordingExecuteConnector()
+    workspace = _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.execute_external_api_query(
+        None,
+        connector_id="source-1",
+        entity_type="issues",
+        action="list",
+        api_args='{"repository": "airbytehq/PyAirbyte"}',
+        select_fields="id,title",
+        exclude_fields=["body"],
+        page_size=5,
+        cursor="cursor-1",
+        skip_truncation=False,
+        intent="test",
+        workspace_id=None,
+    )
+
+    workspace.get_connector.assert_called_once_with("source-1")
+    (kind, kwargs) = connector.calls[0]
+    assert kind == "query"
+    assert kwargs == {
+        "entity_type": "issues",
+        "action": "list",
+        "api_args": {"repository": "airbytehq/PyAirbyte"},
+        "select_fields": ["id", "title"],
+        "exclude_fields": ["body"],
+        "page_size": 5,
+        "cursor": "cursor-1",
+        "skip_truncation": False,
+        "intent": "test",
+    }
+    assert result.status == "success"
+
+
+def test_execute_external_api_query_rejects_non_object_api_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-object `api_args` string raises `PyAirbyteInputError`."""
+    connector = _RecordingExecuteConnector()
+    _execute_workspace(monkeypatch, connector)
+
+    with pytest.raises(PyAirbyteInputError, match="JSON object"):
+        cloud_mcp.execute_external_api_query(
+            None,
+            connector_id="source-1",
+            entity_type="issues",
+            api_args='["not", "an", "object"]',
+            workspace_id=None,
+        )
+    assert connector.calls == []
+
+
+def test_execute_external_api_action_uses_write_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The write tool calls `execute_api_action`, not `execute_api_query`."""
+    connector = _RecordingExecuteConnector()
+    _execute_workspace(monkeypatch, connector)
+
+    cloud_mcp.execute_external_api_action(
+        None,
+        connector_id="source-1",
+        entity_type="issues",
+        action=ExternalApiWriteAction.CREATE,
+        api_args={"title": "Bug"},
+        workspace_id=None,
+    )
+
+    (kind, kwargs) = connector.calls[0]
+    assert kind == "action"
+    assert kwargs["entity_type"] == "issues"
+    assert kwargs["action"] is ExternalApiWriteAction.CREATE
+    assert kwargs["api_args"] == {"title": "Bug"}
+
+
+def test_execute_external_sql_query_forwards_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SQL tool forwards `sql`/`sql_dialect`/`page_size`/`cursor`."""
+    connector = _RecordingExecuteConnector()
+    _execute_workspace(monkeypatch, connector)
+
+    cloud_mcp.execute_external_sql_query(
+        None,
+        connector_id="destination-1",
+        sql="SHOW TABLES",
+        sql_dialect="snowflake",
+        page_size=10,
+        cursor="cursor-2",
+        workspace_id=None,
+    )
+
+    (kind, kwargs) = connector.calls[0]
+    assert kind == "sql"
+    assert kwargs == {
+        "sql": "SHOW TABLES",
+        "sql_dialect": "snowflake",
+        "page_size": 10,
+        "cursor": "cursor-2",
+    }
 
 
 def _describe_details() -> CloudConnectorDetailsResult:

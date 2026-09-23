@@ -10,6 +10,7 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import json
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
@@ -27,6 +28,9 @@ from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceSection,
+    ExternalApiExecuteResult,
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
 )
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
@@ -1642,6 +1646,292 @@ def get_agent_skill_docs(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     return _skill_docs_result(
         workspace.get_agent_skill_docs(docs_skill_id, connector_id=connector_id, section=section)
+    )
+
+
+def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
+    """Resolve `api_args` from a dictionary or a JSON object string."""
+    if api_args is None or isinstance(api_args, dict):
+        return api_args
+
+    try:
+        parsed: Any = json.loads(api_args)
+    except json.JSONDecodeError as ex:
+        raise PyAirbyteInputError(
+            message="The `api_args` string is not valid JSON.",
+            guidance="Pass `api_args` as an object, or as a JSON object string.",
+        ) from ex
+
+    if not isinstance(parsed, dict):
+        raise PyAirbyteInputError(
+            message="The `api_args` string is not a JSON object.",
+            guidance="Pass `api_args` as an object, or as a JSON object string.",
+            context={"parsed_type": type(parsed).__name__},
+        )
+    return parsed
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector to query."),
+    ],
+    entity_type: Annotated[
+        str,
+        Field(
+            description=(
+                "The type of entity to query, for example 'issues'. Call "
+                "`describe_cloud_*` or `get_agent_skill_docs` for supported entity types."
+            ),
+        ),
+    ],
+    action: Annotated[
+        ExternalApiReadOnlyAction,
+        Field(
+            description="The read action to run: `list`, `get`, or `search`.",
+            default=ExternalApiReadOnlyAction.LIST,
+        ),
+    ] = ExternalApiReadOnlyAction.LIST,
+    api_args: Annotated[
+        dict[str, Any] | str | None,
+        Field(
+            description=(
+                "Connector-specific arguments for the action, as an object or a JSON "
+                "object string. For example {'repository': 'airbytehq/PyAirbyte'}."
+            ),
+            default=None,
+        ),
+    ] = None,
+    select_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to keep in the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    exclude_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to drop from the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    page_size: Annotated[
+        int | None,
+        Field(
+            description="Maximum number of entities to return in this page.",
+            default=None,
+        ),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description="Pagination cursor from a previous response.",
+            default=None,
+        ),
+    ] = None,
+    skip_truncation: Annotated[
+        bool,
+        Field(
+            description="Skip truncating long field values in the response.",
+            default=True,
+        ),
+    ] = True,
+    intent: Annotated[
+        str | None,
+        Field(
+            description="Optional free-text intent recorded with the request.",
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Read data from an external system through a deployed Cloud connector's direct API.
+
+    Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
+    `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
+    connector supports.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_api_query(
+        entity_type,
+        action,
+        _resolve_api_args(api_args),
+        select_fields=resolve_list_of_strings(select_fields),
+        exclude_fields=resolve_list_of_strings(exclude_fields),
+        page_size=page_size,
+        cursor=cursor,
+        skip_truncation=skip_truncation,
+        intent=intent,
+    )
+
+
+@mcp_tool(
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector to act on."),
+    ],
+    entity_type: Annotated[
+        str,
+        Field(
+            description=(
+                "The type of entity to act on, for example 'issues'. Call "
+                "`describe_cloud_*` or `get_agent_skill_docs` for supported entity types."
+            ),
+        ),
+    ],
+    action: Annotated[
+        ExternalApiWriteAction,
+        Field(description="The write action to run: `create`, `update`, or `delete`."),
+    ],
+    api_args: Annotated[
+        dict[str, Any] | str | None,
+        Field(
+            description=(
+                "Connector-specific arguments for the action, as an object or a JSON "
+                "object string. For example {'repository': 'airbytehq/PyAirbyte'}."
+            ),
+            default=None,
+        ),
+    ] = None,
+    select_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to keep in the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    exclude_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to drop from the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    skip_truncation: Annotated[
+        bool,
+        Field(
+            description="Skip truncating long field values in the response.",
+            default=True,
+        ),
+    ] = True,
+    intent: Annotated[
+        str | None,
+        Field(
+            description="Optional free-text intent recorded with the request.",
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Run a write action through a deployed Cloud connector's direct API.
+
+    Creates, updates, or deletes data in the external system.
+
+    Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
+    `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
+    connector supports.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_api_action(
+        entity_type,
+        action,
+        _resolve_api_args(api_args),
+        select_fields=resolve_list_of_strings(select_fields),
+        exclude_fields=resolve_list_of_strings(exclude_fields),
+        skip_truncation=skip_truncation,
+        intent=intent,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_sql_query(
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed SQL-passthrough destination to query."),
+    ],
+    sql: Annotated[
+        str,
+        Field(description="The read-only SQL statement to run, for example `SHOW TABLES`."),
+    ],
+    sql_dialect: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The SQL dialect (`snowflake` or `bigquery`). Defaults to the "
+                "destination's registered dialect."
+            ),
+            default=None,
+        ),
+    ] = None,
+    page_size: Annotated[
+        int | None,
+        Field(
+            description="Maximum number of rows to return in this page.",
+            default=None,
+        ),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description="Pagination cursor from a previous response.",
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Run a read-only SQL query against a deployed SQL-passthrough destination.
+
+    Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
+
+    Run `SHOW TABLES` first to discover tables; `sql_dialect` defaults to the
+    destination's registered dialect.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_sql_query(
+        sql,
+        sql_dialect=sql_dialect,
+        page_size=page_size,
+        cursor=cursor,
     )
 
 

@@ -81,6 +81,7 @@ from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
     _get_cloud_client,
     _get_cloud_workspace,
+    _resolve_api_args,
 )
 
 
@@ -427,28 +428,6 @@ class AgentExecuteToolResult(BaseModel):
 
     message: str | None = None
     """Why the action did not run, when the Agents API denied or rejected the request."""
-
-
-def _resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
-    """Resolve `api_args` from a dictionary or a JSON object string."""
-    if api_args is None or isinstance(api_args, dict):
-        return api_args
-
-    try:
-        parsed: Any = json.loads(api_args)
-    except json.JSONDecodeError as ex:
-        raise PyAirbyteInputError(
-            message="The `api_args` string is not valid JSON.",
-            guidance="Pass `api_args` as an object, or as a JSON object string.",
-        ) from ex
-
-    if not isinstance(parsed, dict):
-        raise PyAirbyteInputError(
-            message="The `api_args` string is not a JSON object.",
-            guidance="Pass `api_args` as an object, or as a JSON object string.",
-            context={"parsed_type": type(parsed).__name__},
-        )
-    return parsed
 
 
 def _agents_access_message(error: AirbyteError) -> str | None:
