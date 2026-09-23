@@ -346,7 +346,7 @@ This allows per-request organization ID configuration when using HTTP transport,
 tools that scope a listing to an organization rather than a workspace.
 """
 
-MCP_INSIDERS_MODULES: frozenset[str] = frozenset({"agents"})
+MCP_INSIDERS_MODULES: frozenset[str] = frozenset()
 """MCP tool modules that are hidden unless insiders mode is enabled.
 
 Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the module in
