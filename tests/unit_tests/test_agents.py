@@ -10,8 +10,6 @@ import pytest
 import requests
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import connector_docs as destination_docs
-from airbyte._direct_connectors import models as dc_models
-from airbyte._direct_connectors import models as agent_models
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
 from airbyte._direct_connectors.models import (
@@ -1778,24 +1776,3 @@ def test_merge_destination_skill_docs() -> None:
         server_section_docs, cast(Any, destination)
     )
     assert merged_section.content == server_docs.content
-
-
-def test_agent_model_aliases_match_direct_connector_models() -> None:
-    """The `Agent*` model names alias the `Cloud*` models in `airbyte._direct_connectors`."""
-    aliases = {
-        "AgentContextStoreEntity": "CloudContextStoreEntity",
-        "AgentContextStoreReadiness": "CloudContextStoreReadiness",
-        "AgentSkillInfo": "CloudSkillInfo",
-        "AgentSkillList": "CloudSkillList",
-        "AgentSkillSection": "CloudSkillSection",
-        "AgentSkillDocs": "CloudSkillDocs",
-        "AgentExecutionMetadata": "CloudApiExecutionMetadata",
-        "AgentConnectorMetadata": "CloudApiConnectorMetadata",
-        "AgentExecuteResult": "CloudApiExecuteResult",
-        "AgentConnectorInfo": "CloudAgentConnectorInfo",
-        "AgentConnectorDetails": "CloudContextLayerConnectorDetails",
-    }
-    for agent_name, cloud_name in aliases.items():
-        cloud_model = getattr(dc_models, cloud_name)
-        assert getattr(agent_models, agent_name) is cloud_model
-        assert getattr(dc_models, agent_name) is cloud_model

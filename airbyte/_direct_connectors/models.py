@@ -38,7 +38,7 @@ class AgentWorkspaceInfo(BaseModel):
     """The workspace status, for example `active`."""
 
 
-class CloudAgentConnectorInfo(BaseModel):
+class AgentConnectorInfo(BaseModel):
     """Summary information about a connector, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
@@ -50,7 +50,7 @@ class CloudAgentConnectorInfo(BaseModel):
     """The connector name, for example `GitHub - <workspace_id>`."""
 
 
-class CloudContextStoreEntity(BaseModel):
+class AgentContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
 
     model_config = ConfigDict(extra="allow")
@@ -62,19 +62,19 @@ class CloudContextStoreEntity(BaseModel):
     """Whether Airbyte suggests caching this entity."""
 
 
-class CloudContextStoreReadiness(BaseModel):
+class AgentContextStoreReadiness(BaseModel):
     """Context Store readiness information for a connector."""
 
     model_config = ConfigDict(extra="allow")
 
-    supported_context_store_entities: list[CloudContextStoreEntity] = Field(default_factory=list)
+    supported_context_store_entities: list[AgentContextStoreEntity] = Field(default_factory=list)
     """The entities this connector can cache in the Context Store."""
 
     configured_cache_entities: list[dict[str, Any]] = Field(default_factory=list)
     """The entities currently configured for caching, with their sync status."""
 
 
-class CloudSkillInfo(BaseModel):
+class AgentSkillInfo(BaseModel):
     """Summary information about a skill, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
@@ -98,19 +98,19 @@ class CloudSkillInfo(BaseModel):
     """Non-fatal issues reported while building or reading the skill's docs."""
 
 
-class CloudSkillList(BaseModel):
+class AgentSkillList(BaseModel):
     """A page of skills, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    data: list[CloudSkillInfo]
+    data: list[AgentSkillInfo]
     """The skills on this page."""
 
     next_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
 
 
-class CloudSkillSection(BaseModel):
+class AgentSkillSection(BaseModel):
     """A section of a skill's docs, as listed in the docs outline."""
 
     model_config = ConfigDict(extra="allow")
@@ -128,15 +128,15 @@ class CloudSkillSection(BaseModel):
     """Whether this section can currently be read."""
 
 
-class CloudSkillDocs(BaseModel):
+class AgentSkillDocs(BaseModel):
     """Documentation for a single skill, as returned by the Agents API."""
 
     model_config = ConfigDict(extra="allow")
 
-    metadata: CloudSkillInfo
+    metadata: AgentSkillInfo
     """Metadata for the requested skill."""
 
-    outline: list[CloudSkillSection] = Field(default_factory=list)
+    outline: list[AgentSkillSection] = Field(default_factory=list)
     """The sections available for this skill."""
 
     section_id: str | None = None
@@ -146,7 +146,7 @@ class CloudSkillDocs(BaseModel):
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
 
-class CloudContextLayerConnectorDetails(BaseModel):
+class AgentConnectorDetails(BaseModel):
     """Connector metadata returned by the Agents API `inspect` endpoint."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
@@ -173,7 +173,7 @@ class CloudContextLayerConnectorDetails(BaseModel):
     """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
     `read_agent_skill_docs`) for this connector's usage docs."""
 
-    context_store_readiness: CloudContextStoreReadiness | None = None
+    context_store_readiness: AgentContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
 
     warnings: list[Any] = Field(default_factory=list)
@@ -195,7 +195,7 @@ class CloudContextLayerConnectorDetails(BaseModel):
         ]
 
 
-class CloudApiExecutionMetadata(BaseModel):
+class AgentExecutionMetadata(BaseModel):
     """Metadata describing how an Agents connector action was executed."""
 
     model_config = ConfigDict(extra="allow")
@@ -207,7 +207,7 @@ class CloudApiExecutionMetadata(BaseModel):
     """The server-side execution time, in milliseconds."""
 
 
-class CloudApiConnectorMetadata(BaseModel):
+class AgentConnectorMetadata(BaseModel):
     """Connector-reported metadata about a single action's result, including pagination."""
 
     model_config = ConfigDict(extra="allow")
@@ -221,7 +221,7 @@ class CloudApiConnectorMetadata(BaseModel):
     actions."""
 
 
-class CloudApiExecuteResult(BaseModel):
+class AgentExecuteResult(BaseModel):
     """The result of executing a single action against an Airbyte Agents connector."""
 
     model_config = ConfigDict(extra="allow")
@@ -232,10 +232,10 @@ class CloudApiExecuteResult(BaseModel):
     result: Any = None
     """The action's payload. Entity-returning actions put a list of entities here."""
 
-    connector_metadata: CloudApiConnectorMetadata = Field(default_factory=CloudApiConnectorMetadata)
+    connector_metadata: AgentConnectorMetadata = Field(default_factory=AgentConnectorMetadata)
     """Connector-reported metadata about the result, including pagination cursors."""
 
-    execution_metadata: CloudApiExecutionMetadata = Field(default_factory=CloudApiExecutionMetadata)
+    execution_metadata: AgentExecutionMetadata = Field(default_factory=AgentExecutionMetadata)
     """Metadata describing how the action was executed."""
 
     warning: dict[str, Any] | None = None
@@ -280,19 +280,3 @@ class CloudApiExecuteResult(BaseModel):
     def end_cursor(self) -> str | None:
         """The cursor for the next page, or `None` when there is no next page."""
         return self.connector_metadata.end_cursor
-
-
-# Backwards-compatible aliases for the previous `Agent*` model names. New code should
-# use the `Cloud*` names above.
-
-AgentContextStoreEntity = CloudContextStoreEntity
-AgentContextStoreReadiness = CloudContextStoreReadiness
-AgentSkillInfo = CloudSkillInfo
-AgentSkillList = CloudSkillList
-AgentSkillSection = CloudSkillSection
-AgentSkillDocs = CloudSkillDocs
-AgentExecutionMetadata = CloudApiExecutionMetadata
-AgentConnectorMetadata = CloudApiConnectorMetadata
-AgentExecuteResult = CloudApiExecuteResult
-AgentConnectorInfo = CloudAgentConnectorInfo
-AgentConnectorDetails = CloudContextLayerConnectorDetails
