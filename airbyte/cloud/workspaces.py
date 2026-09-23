@@ -45,10 +45,10 @@ import requests
 import yaml
 
 from airbyte import exceptions as exc
+from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._direct_connectors.models import AgentConnectorDetails, AgentConnectorInfo
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
-from airbyte.agents import _api_util as agents_api_util
-from airbyte.agents.models import AgentConnectorDetails, AgentConnectorInfo
 from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig

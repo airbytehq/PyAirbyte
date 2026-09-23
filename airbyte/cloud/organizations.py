@@ -10,8 +10,8 @@ from typing import Any
 
 import requests
 
+from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util, deployment
-from airbyte.agents import _api_util as agents_api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.models import CloudOrganizationBillingInfo
 from airbyte.exceptions import AirbyteError

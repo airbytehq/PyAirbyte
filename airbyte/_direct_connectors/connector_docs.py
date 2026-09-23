@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorDetails,
     AgentSkillDocs,
     AgentSkillInfo,
@@ -120,8 +120,10 @@ def destination_skill_id(connector_id: str) -> str:
     return f"{DESTINATION_SKILL_PREFIX}{connector_id}"
 
 
-def build_destination_connector_details(destination: CloudDestination) -> AgentConnectorDetails:
-    """Build `AgentConnectorDetails` for a Cloud destination the Agents API does not know."""
+def build_destination_connector_details(
+    destination: CloudDestination,
+) -> AgentConnectorDetails:
+    """Build connector details for a Cloud destination the Agents API does not know."""
     return AgentConnectorDetails(
         connector_id=destination.connector_id,
         name=destination.name,
