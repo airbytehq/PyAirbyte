@@ -340,7 +340,8 @@ class CloudConnectorConnectionInfo(BaseModel):
     """The database-level location tables land in (Snowflake database, BigQuery project)."""
 
     destination_schema: str | None = None
-    """The schema-level location tables land in (Snowflake schema, BigQuery dataset)."""
+    """The schema-level location tables land in, resolved from the destination config and
+    the connection's namespace setting (Snowflake schema, BigQuery dataset)."""
 
 
 class CloudConnectorDocs(BaseModel):

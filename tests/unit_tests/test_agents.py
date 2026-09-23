@@ -1411,7 +1411,7 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
         pytest.param(
             destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             {"database": "DB", "schema": "S"},
-            destination_docs._DestinationLocation(
+            destination_docs._DestinationLoadContext(
                 database_name="DB",
                 schema_name="S",
             ),
@@ -1420,7 +1420,7 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
         pytest.param(
             destination_docs._BIGQUERY_DESTINATION_DEFINITION_ID,
             {"project_id": "P", "dataset_id": "D"},
-            destination_docs._DestinationLocation(
+            destination_docs._DestinationLoadContext(
                 database_name="P",
                 schema_name="D",
             ),
@@ -1429,15 +1429,15 @@ def test_build_direct_access_sql_guidance_index_includes_connections_and_streams
         pytest.param(
             destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
             None,
-            destination_docs._DestinationLocation(),
+            destination_docs._DestinationLoadContext(),
             id="missing_config",
         ),
     ],
 )
-def test_destination_location(
+def test_destination_load_context(
     definition_id: str,
     configuration: dict[str, Any] | None,
-    expected: destination_docs._DestinationLocation,
+    expected: destination_docs._DestinationLoadContext,
 ) -> None:
     destination = _FakeDestination(
         connector_id="dest-1",
@@ -1447,11 +1447,61 @@ def test_destination_location(
     )
 
     assert (
-        destination_docs._destination_location(  # noqa: SLF001
-            destination.definition_id, destination.configuration
+        destination_docs._destination_load_context(  # noqa: SLF001
+            cast(Any, destination)
         )
         == expected
     )
+
+
+def test_destination_load_context_with_connection() -> None:
+    """A connection's namespace setting overrides the destination's configured schema."""
+    destination = _FakeDestination(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=destination_docs._SNOWFLAKE_DESTINATION_DEFINITION_ID,
+        configuration={"database": "DB", "schema": "S"},
+    )
+
+    custom = _FakeConnection(
+        connection_id="conn-1",
+        name="conn",
+        destination_id="dest-1",
+        table_prefix="raw_",
+        namespace_definition="custom_format",
+        namespace_format="{namespace}_raw",
+    )
+    ctx = destination_docs._destination_load_context(  # noqa: SLF001
+        cast(Any, destination), custom
+    )
+    assert ctx.database_name == "DB"
+    assert ctx.schema_name == "{namespace}_raw"
+    assert ctx.table_prefix == "raw_"
+
+    sourced = _FakeConnection(
+        connection_id="conn-2",
+        name="conn",
+        destination_id="dest-1",
+        namespace_definition="source",
+    )
+    ctx = destination_docs._destination_load_context(  # noqa: SLF001
+        cast(Any, destination), sourced
+    )
+    assert ctx.schema_name is None
+
+    default = _FakeConnection(
+        connection_id="conn-3",
+        name="conn",
+        destination_id="dest-1",
+    )
+    ctx = destination_docs._destination_load_context(  # noqa: SLF001
+        cast(Any, destination), default
+    )
+    assert ctx.schema_name == "S"
+
+    ctx = destination_docs._destination_load_context(cast(Any, destination))  # noqa: SLF001
+    assert ctx.table_prefix is None
+    assert ctx.schema_name == "S"
 
 
 @pytest.mark.parametrize(
@@ -1467,7 +1517,7 @@ def test_destination_location(
             "destination",
             None,
             "",
-            destination_docs._DestinationLocation(
+            destination_docs._DestinationLoadContext(
                 database_name="DB",
                 schema_name="S",
             ),
@@ -1479,7 +1529,7 @@ def test_destination_location(
             "source",
             None,
             "",
-            destination_docs._DestinationLocation(),
+            destination_docs._DestinationLoadContext(),
             "Streams land in a namespace mirroring the source's own namespace "
             "(e.g. its schema), with no table prefix.",
             id="source",
@@ -1488,7 +1538,7 @@ def test_destination_location(
             "custom_format",
             "{namespace}_raw",
             "",
-            destination_docs._DestinationLocation(),
+            destination_docs._DestinationLoadContext(),
             "Streams land in namespace format `{namespace}_raw`, with no table prefix.",
             id="custom_format",
         ),
@@ -1496,9 +1546,10 @@ def test_destination_location(
             None,
             None,
             "raw_",
-            destination_docs._DestinationLocation(
+            destination_docs._DestinationLoadContext(
                 database_name="DB",
                 schema_name="D",
+                table_prefix="raw_",
             ),
             "Streams land in the destination's default namespace, schema `D`, "
             "with table prefix 'raw_'.",
@@ -1510,7 +1561,7 @@ def test_connection_namespace_note(
     namespace_definition: str | None,
     namespace_format: str | None,
     table_prefix: str,
-    location: destination_docs._DestinationLocation,
+    location: destination_docs._DestinationLoadContext,
     expected: str,
 ) -> None:
     connection = _FakeConnection(

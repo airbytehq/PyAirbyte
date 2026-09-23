@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.connectors import CloudConnector, CloudDestination
 
-_DESTINATION_LOCATION_KEYS: Mapping[str, tuple[str, str]] = {
+_DESTINATION_LOAD_CONTEXT_KEYS: Mapping[str, tuple[str, str]] = {
     _SNOWFLAKE_DESTINATION_DEFINITION_ID: ("database", "schema"),
     _BIGQUERY_DESTINATION_DEFINITION_ID: ("project_id", "dataset_id"),
 }
@@ -131,40 +131,47 @@ def build_destination_connector_details(
     )
 
 
-class _DestinationLocation(NamedTuple):
-    """Where a destination writes synced tables, read from its connector configuration.
+class _DestinationLoadContext(NamedTuple):
+    """Where a destination writes synced tables.
 
-    `database_name` is the top-level grouping (Snowflake database, BigQuery project) and
-    `schema_name` is where unqualified table names resolve (Snowflake schema, BigQuery
-    dataset). Either is `None` when the destination is not a known SQL passthrough type or
-    the configuration omits it.
+    `database_name` and `schema_name` come from the destination configuration (Snowflake
+    database/schema, BigQuery project/dataset). When built for a specific connection,
+    `schema_name` reflects that connection's namespace setting and `table_prefix` is the
+    connection's prefix; without a connection, `table_prefix` is `None`. Fields are `None`
+    when the destination is not a known SQL passthrough type or the value is unknown.
     """
 
     database_name: str | None = None
     schema_name: str | None = None
+    table_prefix: str | None = None
 
 
-def _destination_location(
-    definition_id: str,
-    configuration: Mapping[str, Any] | None,
-) -> _DestinationLocation:
-    """Return where the destination writes synced tables, read from its configuration."""
-    keys = _DESTINATION_LOCATION_KEYS.get(definition_id)
+def _destination_load_context(
+    destination: CloudDestination,
+    connection: CloudConnection | None = None,
+) -> _DestinationLoadContext:
+    """Return where a destination writes synced tables for a connection, if given."""
+    keys = _DESTINATION_LOAD_CONTEXT_KEYS.get(destination.definition_id)
     if keys is None:
-        return _DestinationLocation()
-    config: dict[str, Any] = dict(configuration or {})
+        return _DestinationLoadContext()
+    config = dict(destination.configuration or {})
     database_key, schema_key = keys
     database_name = config.get(database_key)
     schema_name = config.get(schema_key)
-    return _DestinationLocation(
+
+    table_prefix: str | None = None
+    if connection is not None:
+        table_prefix = connection.table_prefix or None
+        if connection.namespace_definition == "custom_format":
+            schema_name = connection.namespace_format or None
+        elif connection.namespace_definition == "source":
+            schema_name = None
+
+    return _DestinationLoadContext(
         database_name=(database_name if isinstance(database_name, str) and database_name else None),
-        schema_name=schema_name if isinstance(schema_name, str) and schema_name else None,
+        schema_name=(schema_name if isinstance(schema_name, str) and schema_name else None),
+        table_prefix=table_prefix,
     )
-
-
-def _connector_location(connector: CloudDestination) -> _DestinationLocation:
-    """Return the table location for a deployed destination connector."""
-    return _destination_location(connector.definition_id, connector.configuration)
 
 
 def _destination_connections(destination: CloudDestination) -> list[Any]:
@@ -197,11 +204,10 @@ def build_direct_access_sql_guidance(
 
     if section is None:
         connections = _destination_connections(destination)
-        location = _connector_location(destination)
         content = _overview(
             destination=destination,
             dialect=dialect,
-            location=location,
+            load_context=_destination_load_context(destination),
         )
         content += _connections_section(
             destination=destination,
@@ -209,7 +215,7 @@ def build_direct_access_sql_guidance(
         )
         content += _streams_section(
             connections=connections,
-            location=location,
+            destination=destination,
             dialect=dialect,
         )
         return DirectAccessGuidance(
@@ -232,7 +238,7 @@ def build_direct_access_sql_guidance(
     elif section == SECTION_STREAMS:
         content = _streams_section(
             connections=_destination_connections(destination),
-            location=_connector_location(destination),
+            destination=destination,
             dialect=dialect,
         )
     else:
@@ -282,7 +288,7 @@ def merge_destination_skill_docs(
             _overview(
                 destination=destination,
                 dialect=dialect,
-                location=_connector_location(destination),
+                load_context=_destination_load_context(destination),
             )
             + content
         )
@@ -307,16 +313,16 @@ def _sql_select_call(destination: CloudDestination, dialect: str, sql: str) -> d
 def _overview(
     destination: CloudDestination,
     dialect: str,
-    location: _DestinationLocation,
+    load_context: _DestinationLoadContext,
 ) -> list[dict[str, Any]]:
     """Self-contained summary shown by `inspect_agent_connector`, without any Cloud lookups."""
     engine = _ENGINE_NAMES[dialect]
-    if location.database_name is not None or location.schema_name is not None:
+    if load_context.database_name is not None or load_context.schema_name is not None:
         location_text = ", ".join(
             f"{label} `{value}`"
             for label, value in (
-                ("database", location.database_name),
-                ("schema", location.schema_name),
+                ("database", load_context.database_name),
+                ("schema", load_context.schema_name),
             )
             if value is not None
         )
@@ -459,7 +465,7 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
 
 def _qualified_table_example(destination: CloudDestination) -> str:
     """Return an example `SELECT` qualifying the table with the destination's namespace."""
-    namespace = _connector_location(destination).schema_name
+    namespace = _destination_load_context(destination).schema_name
     if namespace is None:
         return "SELECT * FROM <table> LIMIT 10"
     if destination.definition_id == _BIGQUERY_DESTINATION_DEFINITION_ID:
@@ -517,12 +523,12 @@ def _stream_rows(connection: CloudConnection, dialect: str) -> list[list[str]]:
 
 def _connection_namespace_note(
     connection: CloudConnection,
-    location: _DestinationLocation,
+    load_context: _DestinationLoadContext,
 ) -> str:
     """Describe where a connection's tables land: namespace choice plus table prefix."""
     prefix_clause = (
-        f", with table prefix {connection.table_prefix!r}."
-        if connection.table_prefix
+        f", with table prefix {load_context.table_prefix!r}."
+        if load_context.table_prefix
         else ", with no table prefix."
     )
     namespace_definition = connection.namespace_definition
@@ -532,14 +538,14 @@ def _connection_namespace_note(
         note = f"Streams land in namespace format `{connection.namespace_format}`"
     else:
         note = "Streams land in the destination's default namespace"
-        if location.schema_name is not None:
-            note += f", schema `{location.schema_name}`"
+        if load_context.schema_name is not None:
+            note += f", schema `{load_context.schema_name}`"
     return note + prefix_clause
 
 
 def _streams_section(
     connections: list[Any],
-    location: _DestinationLocation,
+    destination: CloudDestination,
     dialect: str,
 ) -> list[dict[str, Any]]:
     if not connections:
@@ -570,7 +576,10 @@ def _streams_section(
                     "type": "paragraph",
                     "text": _connection_namespace_note(
                         connection=connection,
-                        location=location,
+                        load_context=_destination_load_context(
+                            destination,
+                            connection,
+                        ),
                     ),
                 },
                 {
@@ -612,13 +621,14 @@ def build_connection_infos(connector: CloudConnector) -> list[CloudConnectorConn
     infos: list[CloudConnectorConnectionInfo] = []
     for connection in connections:
         destination = destinations.get(connection.destination_id)
-        location = (
-            _destination_location(destination.definition_id, destination.configuration)
+        ctx = (
+            _destination_load_context(
+                destination,
+                connection,
+            )
             if destination is not None
-            else _DestinationLocation()
+            else _DestinationLoadContext()
         )
-        database = location.database_name
-        namespace_part = location.schema_name
         infos.append(
             CloudConnectorConnectionInfo(
                 connection_id=connection.connection_id,
@@ -634,8 +644,8 @@ def build_connection_infos(connector: CloudConnector) -> list[CloudConnectorConn
                 namespace_definition=connection.namespace_definition,
                 namespace_format=connection.namespace_format,
                 table_prefix=connection.table_prefix,
-                destination_database=database,
-                destination_schema=namespace_part,
+                destination_database=ctx.database_name,
+                destination_schema=ctx.schema_name,
             )
         )
     return infos

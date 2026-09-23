@@ -123,7 +123,7 @@ def _fake_connection(
             streams=[SimpleNamespace(name="issues"), SimpleNamespace(name="repos")]
         ),
         prefix="raw_",
-        namespace_definition="source",
+        namespace_definition="destination",
         schedule_description=schedule,
         status="active",
     )
