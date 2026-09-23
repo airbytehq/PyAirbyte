@@ -7,7 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from airbyte.cloud.connectors import ConnectorType  # noqa: TC001  # Re-exported for MCP importers.
+from airbyte.constants import ConnectorType  # noqa: TC001  # Resolved by Pydantic at model build.
 
 
 class SupportLevel(str, Enum):

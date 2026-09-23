@@ -67,6 +67,7 @@ from airbyte._direct_connectors.models import (
     CloudSkillDocs,
 )
 from airbyte._util import api_util, text_util
+from airbyte._util.compat import StrEnum
 from airbyte.cloud.models import (
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
@@ -75,6 +76,7 @@ from airbyte.cloud.models import (
     _DestinationResponseLike,
     _SourceResponseLike,
 )
+from airbyte.constants import ConnectorType
 from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
 
 
@@ -121,7 +123,7 @@ class CheckResult:
         )
 
 
-class ExternalApiReadOnlyAction(str, Enum):
+class ExternalApiReadOnlyAction(StrEnum):
     """Read actions accepted by `CloudConnector.execute_api_query`."""
 
     LIST = "list"
@@ -133,34 +135,12 @@ class ExternalApiReadOnlyAction(str, Enum):
         return self.value
 
 
-class ExternalApiWriteAction(str, Enum):
+class ExternalApiWriteAction(StrEnum):
     """Write actions accepted by `CloudConnector.execute_api_action`."""
 
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
-
-    def __str__(self) -> str:
-        """Return the string representation of the enum value."""
-        return self.value
-
-
-class ConnectorType(str, Enum):
-    """The kind of a deployed Cloud connector."""
-
-    SOURCE = "source"
-    DESTINATION = "destination"
-
-    @classmethod
-    def parse(cls, value: str) -> ConnectorType:
-        """Parse a connector type value, raising `ValueError` on anything unrecognized."""
-        try:
-            return cls(value)
-        except ValueError:
-            valid = ", ".join(f"`{member.value}`" for member in cls)
-            raise ValueError(
-                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
-            ) from None
 
     def __str__(self) -> str:
         """Return the string representation of the enum value."""
