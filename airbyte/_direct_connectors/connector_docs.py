@@ -22,7 +22,11 @@ from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
+    _ConnectionLike,
+    _ConnectorLike,
+    _DestinationLike,
     _DirectConnectorInspectResult,
+    _WorkspaceLike,
 )
 from airbyte._util import api_util
 from airbyte.exceptions import PyAirbyteInputError
@@ -32,9 +36,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from airbyte_api import models
-
-    from airbyte.cloud.connections import CloudConnection
-    from airbyte.cloud.connectors import CloudConnector, CloudDestination
 
 _DESTINATION_LOAD_CONTEXT_KEYS: Mapping[str, tuple[str, str]] = {
     _SNOWFLAKE_DESTINATION_DEFINITION_ID: ("database", "schema"),
@@ -121,13 +122,14 @@ def destination_skill_id(connector_id: str) -> str:
 
 
 def build_destination_connector_details(
-    destination: CloudDestination,
+    destination: _DestinationLike,
 ) -> _DirectConnectorInspectResult:
     """Build `_DirectConnectorInspectResult` for a destination the API does not know."""
+    workspace: _WorkspaceLike = destination.workspace
     return _DirectConnectorInspectResult(
         connector_id=destination.connector_id,
         name=destination.name,
-        workspace_id=destination.workspace.workspace_id,
+        workspace_id=workspace.workspace_id,
         docs_skill_id=destination_skill_id(destination.connector_id),
         integration_name=_SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
         warnings=[],
@@ -150,8 +152,8 @@ class _DestinationLoadContext(NamedTuple):
 
 
 def _destination_load_context(
-    destination: CloudDestination,
-    connection: CloudConnection | None = None,
+    destination: _DestinationLike,
+    connection: _ConnectionLike | None = None,
 ) -> _DestinationLoadContext:
     """Return where a destination writes synced tables for a connection, if given."""
     keys = _DESTINATION_LOAD_CONTEXT_KEYS.get(destination.definition_id)
@@ -177,16 +179,17 @@ def _destination_load_context(
     )
 
 
-def _destination_connections(destination: CloudDestination) -> list[Any]:
+def _destination_connections(destination: _DestinationLike) -> list[_ConnectionLike]:
+    workspace: _WorkspaceLike = destination.workspace
     return [
         connection
-        for connection in destination.workspace.list_connections()
+        for connection in workspace.list_connections()
         if connection.destination_id == destination.connector_id
     ]
 
 
 def build_direct_access_sql_guidance(
-    destination: CloudDestination,
+    destination: _DestinationLike,
     *,
     section: str | None = None,
 ) -> DirectAccessGuidance:
@@ -271,7 +274,7 @@ def _local_outline() -> list[DirectAccessGuidanceSection]:
 
 def merge_destination_skill_docs(
     server_docs: DirectAccessGuidance,
-    destination: CloudDestination,
+    destination: _DestinationLike,
 ) -> DirectAccessGuidance:
     """Augment server-provided destination docs with PyAirbyte's SQL guidance.
 
@@ -298,7 +301,7 @@ def merge_destination_skill_docs(
     return server_docs.model_copy(update={"outline": outline, "content": content})
 
 
-def _sql_select_call(destination: CloudDestination, dialect: str, sql: str) -> dict[str, Any]:
+def _sql_select_call(destination: _DestinationLike, dialect: str, sql: str) -> dict[str, Any]:
     return {
         "type": "code",
         "language": "python",
@@ -314,7 +317,7 @@ def _sql_select_call(destination: CloudDestination, dialect: str, sql: str) -> d
 
 
 def _overview(
-    destination: CloudDestination,
+    destination: _DestinationLike,
     dialect: str,
     load_context: _DestinationLoadContext,
 ) -> list[dict[str, Any]]:
@@ -386,7 +389,7 @@ def _overview(
     ]
 
 
-def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> list[dict[str, Any]]:
+def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> list[dict[str, Any]]:
     engine = _ENGINE_NAMES[dialect]
     return [
         {"type": "heading", "level": 2, "text": "Query the destination with sql_select"},
@@ -466,7 +469,7 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
     ]
 
 
-def _qualified_table_example(destination: CloudDestination) -> str:
+def _qualified_table_example(destination: _DestinationLike) -> str:
     """Return an example `SELECT` qualifying the table with the destination's namespace."""
     namespace = _destination_load_context(destination).schema_name
     if namespace is None:
@@ -477,8 +480,8 @@ def _qualified_table_example(destination: CloudDestination) -> str:
 
 
 def _connections_section(
-    destination: CloudDestination,
-    connections: list[Any],
+    destination: _DestinationLike,
+    connections: list[_ConnectionLike],
 ) -> list[dict[str, Any]]:
     if not connections:
         return [
@@ -487,9 +490,8 @@ def _connections_section(
                 "text": "No connections sync into this destination.",
             }
         ]
-    source_names = {
-        source.connector_id: source.name for source in destination.workspace.list_sources()
-    }
+    workspace: _WorkspaceLike = destination.workspace
+    source_names = {source.connector_id: source.name for source in workspace.list_sources()}
     items = []
     for connection in connections:
         source_name = source_names.get(connection.source_id, connection.source_id)
@@ -512,7 +514,7 @@ def _table_name(dialect: str, table_prefix: str, stream_name: str) -> str:
 
 
 def _connection_namespace_note(
-    connection: CloudConnection,
+    connection: _ConnectionLike,
     load_context: _DestinationLoadContext,
 ) -> str:
     """Describe where a connection's tables land: namespace choice plus table prefix."""
@@ -534,8 +536,8 @@ def _connection_namespace_note(
 
 
 def _streams_section(
-    connections: list[Any],
-    destination: CloudDestination,
+    connections: list[_ConnectionLike],
+    destination: _DestinationLike,
     dialect: str,
 ) -> list[dict[str, Any]]:
     if not connections:
@@ -614,14 +616,14 @@ def _schedule_description(schedule: models.AirbyteAPIConnectionSchedule | None) 
     return schedule_type_value
 
 
-def build_connection_details(connector: CloudConnector) -> list[CloudConnectorConnectionInfo]:
+def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorConnectionInfo]:
     """Summarize each connection that reads from or writes to `connector`.
 
     Counterpart connector names are resolved with one `list_sources()` and one
     `list_destinations()` call, and the destination's database/schema location is read
     from its configuration.
     """
-    workspace = connector.workspace
+    workspace: _WorkspaceLike = connector.workspace
     if connector.connector_type.value == "source":
         connections = [
             connection

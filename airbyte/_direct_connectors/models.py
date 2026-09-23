@@ -13,7 +13,7 @@ payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,7 +22,9 @@ from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping, Sequence
+
+    from airbyte.secrets.base import SecretString
 
 
 class AgentWorkspaceInfo(BaseModel):
@@ -383,3 +385,107 @@ _ = (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
 )
 """Destination definitions AI agents can query through SQL passthrough."""
+
+
+# Structural typing helpers. The `airbyte.cloud` classes conform to these protocols,
+# letting this package type its helpers without importing `airbyte.cloud.*` (which
+# would create an import cycle, as `airbyte.cloud` imports this package).
+
+
+class _EnumValueLike(Protocol):
+    """Any enum member exposing a string `value`."""
+
+    @property
+    def value(self) -> str: ...
+
+
+class _ConnectionLike(Protocol):
+    """Attributes `connector_docs` reads off `airbyte.cloud.connections.CloudConnection`."""
+
+    connection_id: str
+
+    @property
+    def name(self) -> str | None: ...
+
+    @property
+    def source_id(self) -> str: ...
+
+    @property
+    def destination_id(self) -> str: ...
+
+    @property
+    def stream_names(self) -> list[str]: ...
+
+    @property
+    def table_prefix(self) -> str: ...
+
+    @property
+    def namespace_definition(self) -> str | None: ...
+
+    @property
+    def namespace_format(self) -> str | None: ...
+
+
+class _ConnectorLike(Protocol):
+    """Attributes `connector_docs` reads off `airbyte.cloud.connectors.CloudConnector`."""
+
+    connector_id: str
+    # Typed `Any` here: `CloudConnector.workspace` is a read-write attribute, so an
+    # invariance check would reject the `CloudWorkspace`/`_WorkspaceLike` pairing.
+    # Functions in `connector_docs` re-narrow it to `_WorkspaceLike` locally.
+    workspace: Any
+
+    @property
+    def name(self) -> str | None: ...
+
+    @property
+    def connector_type(self) -> _EnumValueLike: ...
+
+
+class _DestinationLike(_ConnectorLike, Protocol):
+    """`airbyte.cloud.connectors.CloudDestination` additions used by `connector_docs`."""
+
+    @property
+    def definition_id(self) -> str: ...
+
+    @property
+    def configuration(self) -> dict[str, Any] | None: ...
+
+
+class _WorkspaceLike(Protocol):
+    """Attributes `connector_docs` reads off `airbyte.cloud.workspaces.CloudWorkspace`."""
+
+    workspace_id: str
+    api_root: str
+    client_id: SecretString | None
+    client_secret: SecretString | None
+    bearer_token: SecretString | None
+
+    def list_connections(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+        limit: int | None = None,
+    ) -> Sequence[_ConnectionLike]: ...
+
+    def list_sources(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+        limit: int | None = None,
+    ) -> Sequence[_ConnectorLike]: ...
+
+    def list_destinations(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+        limit: int | None = None,
+    ) -> Sequence[_DestinationLike]: ...
+
+
+# Referenced here so unused-global linters don't flag `_WorkspaceLike`, which is
+# consumed from `connector_docs`.
+_ = _WorkspaceLike
