@@ -61,11 +61,11 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudConnectorDetails,
     CloudConnectorDocs,
-    CloudContextLayerConnectorDetails,
     DirectAccessGuidance,
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
+    _DirectConnectorInspectResult,
 )
 from airbyte._util import api_util, text_util
 from airbyte.cloud.models import (
@@ -150,7 +150,7 @@ class CloudConnector:
         self._enabled_features: frozenset[ConnectorFeature] | None = None
         """Features enabled for this connector. (Cached; `None` until resolved.)"""
 
-        self._context_layer_details: CloudContextLayerConnectorDetails | None = None
+        self._context_layer_details: _DirectConnectorInspectResult | None = None
         """Context Layer `inspect` result. (Cached; `None` until fetched.)"""
 
         self._connector_definition: _ConnectorDefinitionLike | None = None
@@ -562,7 +562,7 @@ class CloudConnector:
         *,
         warnings: list[str],
         force_refresh: bool = False,
-    ) -> CloudContextLayerConnectorDetails | None:
+    ) -> _DirectConnectorInspectResult | None:
         """Fetch and cache the Context Layer `inspect` result, without raising.
 
         An `AirbyteError` from `inspect` (for example a 404 or 403 for connectors the
@@ -572,7 +572,7 @@ class CloudConnector:
         if self._context_layer_details is not None and not force_refresh:
             return self._context_layer_details
         try:
-            parsed = CloudContextLayerConnectorDetails.model_validate(
+            parsed = _DirectConnectorInspectResult.model_validate(
                 agents_api_util.inspect_agent_connector(
                     connector_id=self.connector_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001

@@ -3,7 +3,7 @@
 
 The Agents API may not know destination skills, so connector IDs that address Cloud
 destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs reads.
-This module builds the equivalent `CloudContextLayerConnectorDetails`/`DirectAccessGuidance`
+This module builds the equivalent `_DirectConnectorInspectResult`/`DirectAccessGuidance`
 payloads locally from the Cloud workspace objects, merges them into server-served
 destination docs so PyAirbyte's SQL guidance is not lost once the API serves them,
 and summarizes the connections touching a connector for `CloudConnector.describe()`.
@@ -19,10 +19,10 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
     CloudConnectorConnectionInfo,
-    CloudContextLayerConnectorDetails,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
+    _DirectConnectorInspectResult,
 )
 from airbyte._util import api_util
 from airbyte.exceptions import PyAirbyteInputError
@@ -122,9 +122,9 @@ def destination_skill_id(connector_id: str) -> str:
 
 def build_destination_connector_details(
     destination: CloudDestination,
-) -> CloudContextLayerConnectorDetails:
-    """Build `CloudContextLayerConnectorDetails` for a destination the API does not know."""
-    return CloudContextLayerConnectorDetails(
+) -> _DirectConnectorInspectResult:
+    """Build `_DirectConnectorInspectResult` for a destination the API does not know."""
+    return _DirectConnectorInspectResult(
         connector_id=destination.connector_id,
         name=destination.name,
         workspace_id=destination.workspace.workspace_id,

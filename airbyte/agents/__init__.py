@@ -78,7 +78,6 @@ from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors.models import (
     AgentWorkspaceInfo,
-    CloudContextLayerConnectorDetails,
     CloudContextStoreEntity,
     CloudContextStoreReadiness,
     CloudDirectConnectorInfo,
@@ -118,7 +117,6 @@ __all__ = [
     "AgentSkill",
     "AgentWorkspace",
     "AgentWorkspaceInfo",
-    "CloudContextLayerConnectorDetails",
     "CloudContextStoreEntity",
     "CloudContextStoreReadiness",
     "CloudDirectConnectorInfo",

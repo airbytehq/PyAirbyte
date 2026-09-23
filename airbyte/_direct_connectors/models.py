@@ -159,8 +159,8 @@ class DirectAccessGuidance(BaseModel):
     """Rendered docs content blocks, such as headings, paragraphs, and code blocks."""
 
 
-class CloudContextLayerConnectorDetails(BaseModel):
-    """Connector metadata returned by the Agents API `inspect` endpoint."""
+class _DirectConnectorInspectResult(BaseModel):
+    """Result of the Agents API `inspect` endpoint for a direct connector."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 

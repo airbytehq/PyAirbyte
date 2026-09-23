@@ -22,8 +22,8 @@ from airbyte._direct_connectors.actions import (
     _build_params,
 )
 from airbyte._direct_connectors.models import (
-    CloudContextLayerConnectorDetails,
     ExternalApiExecuteResult,
+    _DirectConnectorInspectResult,
 )
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -65,7 +65,7 @@ class AgentConnector:
 
         self._credentials = credentials
         self._name = name
-        self._details: CloudContextLayerConnectorDetails | None = None
+        self._details: _DirectConnectorInspectResult | None = None
 
     @property
     def name(self) -> str | None:
@@ -74,13 +74,13 @@ class AgentConnector:
             self._name = self.inspect().name
         return self._name
 
-    def inspect(self, *, force_refresh: bool = False) -> CloudContextLayerConnectorDetails:
+    def inspect(self, *, force_refresh: bool = False) -> _DirectConnectorInspectResult:
         """Return connector metadata from the Agents API `inspect` endpoint.
 
         The result is cached; pass `force_refresh=True` to fetch it again.
         """
         if self._details is None or force_refresh:
-            self._details = CloudContextLayerConnectorDetails.model_validate(
+            self._details = _DirectConnectorInspectResult.model_validate(
                 _api_util.inspect_agent_connector(
                     connector_id=self.connector_id,
                     credentials=self._credentials,
