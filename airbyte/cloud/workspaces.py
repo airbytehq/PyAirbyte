@@ -729,10 +729,10 @@ class CloudWorkspace:
             )
 
         api_util.delete_source(
-            source_id=source.connector_id
-            if isinstance(source, cloud_connectors.CloudSource)
-            else source,
-            source_name=source.name if isinstance(source, cloud_connectors.CloudSource) else None,
+            source_id=(
+                source.connector_id if isinstance(source, cloud_connectors.CloudSource) else source
+            ),
+            source_name=(source.name if isinstance(source, cloud_connectors.CloudSource) else None),
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
