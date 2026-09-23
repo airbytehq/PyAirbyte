@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import skills as _skills
-from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo, AgentSkillList
+from airbyte._direct_connectors.models import AgentSkillDocs, AgentSkillInfo, AgentSkillList
 
 
 if TYPE_CHECKING:

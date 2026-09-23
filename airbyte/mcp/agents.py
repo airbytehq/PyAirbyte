@@ -43,8 +43,8 @@ from airbyte._direct_connectors.connector_docs import (
     merge_destination_skill_docs,
 )
 from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.connectors import AgentAction, AgentConnector, AgentReadAction
-from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudDestination, CloudSource

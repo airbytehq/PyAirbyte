@@ -21,7 +21,7 @@ from airbyte._direct_connectors.actions import (
     AgentWriteAction,
     _build_params,
 )
-from airbyte.agents.models import AgentConnectorDetails, AgentExecuteResult
+from airbyte._direct_connectors.models import AgentConnectorDetails, AgentExecuteResult
 from airbyte.exceptions import PyAirbyteInputError
 
 

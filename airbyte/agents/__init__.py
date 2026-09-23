@@ -86,8 +86,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte.agents.connectors import AgentConnector
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorDetails,
     AgentConnectorInfo,
     AgentConnectorMetadata,
@@ -101,6 +100,7 @@ from airbyte.agents.models import (
     AgentSkillSection,
     AgentWorkspaceInfo,
 )
+from airbyte.agents.connectors import AgentConnector
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.skills import AgentSkill
 from airbyte.agents.workspaces import AgentWorkspace
@@ -111,7 +111,6 @@ if TYPE_CHECKING:
     # ruff: noqa: TC004
     from airbyte.agents import (
         connectors,
-        models,
         organizations,
         skills,
         workspaces,
@@ -121,7 +120,6 @@ if TYPE_CHECKING:
 __all__ = [
     # Submodules
     "connectors",
-    "models",
     "organizations",
     "skills",
     "workspaces",

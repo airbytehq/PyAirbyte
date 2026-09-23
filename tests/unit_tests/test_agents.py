@@ -11,10 +11,10 @@ import requests
 from airbyte._direct_connectors import api_util as _api_util
 from airbyte._direct_connectors import connector_docs as destination_docs
 from airbyte._direct_connectors import models as dc_models
-from airbyte.agents import models as agent_models
+from airbyte._direct_connectors import models as agent_models
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
     AgentSkillDocs,
