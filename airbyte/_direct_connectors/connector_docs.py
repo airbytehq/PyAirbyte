@@ -122,8 +122,10 @@ def destination_skill_id(connector_id: str) -> str:
     return f"{DESTINATION_SKILL_PREFIX}{connector_id}"
 
 
-def build_destination_connector_details(destination: CloudDestination) -> CloudContextLayerConnectorDetails:
-    """Build `CloudContextLayerConnectorDetails` for a Cloud destination the Agents API does not know."""
+def build_destination_connector_details(
+    destination: CloudDestination,
+) -> CloudContextLayerConnectorDetails:
+    """Build `CloudContextLayerConnectorDetails` for a destination the API does not know."""
     return CloudContextLayerConnectorDetails(
         connector_id=destination.connector_id,
         name=destination.name,

@@ -1736,6 +1736,8 @@ def test_build_destination_skill_docs_rejects_unknown_section() -> None:
             cast(Any, destination),
             section="bogus",
         )
+
+
 def test_agent_model_aliases_match_cloud_models() -> None:
     """The `Agent*` model names alias the renamed `Cloud*` models."""
     from airbyte._direct_connectors import models as dc_models

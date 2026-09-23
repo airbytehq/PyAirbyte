@@ -799,9 +799,7 @@ class CloudConnector:
                     if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
                         raise
                 else:
-                    return connector_docs.merge_destination_skill_docs(
-                        server_docs, destination
-                    )
+                    return connector_docs.merge_destination_skill_docs(server_docs, destination)
             return connector_docs.build_destination_skill_docs(
                 destination,
                 section=section,
