@@ -12,7 +12,7 @@ variables) used elsewhere in `airbyte.cloud`.
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
 
@@ -23,6 +23,9 @@ from airbyte.exceptions import AirbyteAgentsUnavailableError, AirbyteError, PyAi
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from airbyte._direct_connectors.models import AgentExecuteResult
     from airbyte.cloud._credentials import _AirbyteCredentials
 
 
@@ -341,6 +344,111 @@ def read_agent_skill_docs(
         credentials=credentials,
         organization_id=organization_id,
     )
+
+
+class _ConnectorLookup(NamedTuple):
+    """What to look a connector up by, once the lookup arguments have been validated.
+
+    Both fields are set when the caller passed a positional value that could be either an
+    ID or a name, in which case an ID match takes precedence over a name match.
+    """
+
+    connector_id: str | None
+    name: str | None
+
+
+def _resolve_connector_lookup(
+    id_or_name: str | None,
+    /,
+    *,
+    id: str | None,  # noqa: A002  # Mirrors the public `id` alias it validates.
+    connector_id: str | None,
+    name: str | None,
+) -> _ConnectorLookup:
+    """Validate connector lookup arguments and return what to look the connector up by.
+
+    `id` and `connector_id` are synonyms, so exactly one of them, `name`, or the positional
+    `id_or_name` is required. Conflicting synonym values are rejected, as is a blank value,
+    which would otherwise be treated as an omitted argument.
+    """
+    all_args = {
+        "id_or_name": id_or_name,
+        "id": id,
+        "connector_id": connector_id,
+        "name": name,
+    }
+
+    blank_args = sorted(
+        key for key, value in all_args.items() if value is not None and not value.strip()
+    )
+    if blank_args:
+        raise PyAirbyteInputError(
+            message="Connector lookup arguments cannot be blank.",
+            guidance="Omit the argument entirely, or pass a non-blank value.",
+            context={"blank_args": blank_args},
+        )
+
+    if id_or_name:
+        keyword_args = sorted(
+            key for key, value in all_args.items() if value and key != "id_or_name"
+        )
+        if keyword_args:
+            raise PyAirbyteInputError(
+                message="A positional connector lookup cannot be combined with keyword arguments.",
+                guidance="Pass the value positionally, or pass `id`, `connector_id`, or `name`.",
+                context={"keyword_args": keyword_args},
+            )
+        return _ConnectorLookup(connector_id=id_or_name, name=id_or_name)
+
+    provided = {
+        key: value for key, value in {"id": id, "connector_id": connector_id}.items() if value
+    }
+    if len(set(provided.values())) > 1:
+        raise PyAirbyteInputError(
+            message="`id` and `connector_id` were given conflicting values.",
+            guidance="These arguments are synonyms, so pass only one of them.",
+            context={"provided": sorted(provided)},
+        )
+
+    if bool(provided) == bool(name):
+        raise PyAirbyteInputError(
+            message="Exactly one connector lookup argument is required.",
+            guidance=(
+                "Pass a connector ID or name positionally, or as `id`, `connector_id`, "
+                "or `name`."
+            ),
+        )
+
+    return _ConnectorLookup(connector_id=next(iter(provided.values()), None), name=name)
+
+
+def iter_paged_entities(
+    fetch_page: Callable[[str | None], AgentExecuteResult],
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield entities across pages, following each page's `end_cursor`.
+
+    `fetch_page` is called with the cursor to request and must return the parsed page.
+    Iteration stops when the page reports no next page, when the cursor does not advance,
+    or once `limit` entities have been yielded.
+    """
+    seen_cursors: set[str] = set()
+    yielded = 0
+
+    while True:
+        result = fetch_page(cursor)
+        for entity in result.entities:
+            yield entity
+            yielded += 1
+            if limit is not None and yielded >= limit:
+                return
+
+        cursor = result.end_cursor
+        if not result.has_next_page or cursor is None or cursor in seen_cursors:
+            return
+        seen_cursors.add(cursor)
 
 
 def _records_from_response(*, response: dict[str, Any], path: str) -> list[dict[str, Any]]:

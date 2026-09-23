@@ -9,7 +9,7 @@ from typing import Any, cast, get_args
 
 import pytest
 import requests
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorDetails,
     AgentConnectorMetadata,
     AgentExecuteResult,

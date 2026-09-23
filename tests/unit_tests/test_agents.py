@@ -9,11 +9,11 @@ from typing import Any, cast
 import pytest
 import requests
 from airbyte._direct_connectors import api_util as _api_util
-from airbyte.agents import _destination_docs as destination_docs
+from airbyte._direct_connectors import connector_docs as destination_docs
 from airbyte.cloud import models as cloud_models
 from airbyte.agents import skills as skills_module
 from airbyte.agents.connectors import AgentConnector, AgentReadAction
-from airbyte.agents.models import (
+from airbyte._direct_connectors.models import (
     AgentConnectorMetadata,
     AgentExecuteResult,
     AgentSkillDocs,

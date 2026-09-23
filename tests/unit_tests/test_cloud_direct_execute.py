@@ -11,7 +11,7 @@ import pytest
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
-from airbyte.agents.models import AgentExecuteResult
+from airbyte._direct_connectors.models import AgentExecuteResult
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
     CloudApiQueryAction,
