@@ -687,6 +687,229 @@ def test_connectors_preserve_workspace_id(
     assert {connector.workspace_id for connector in connectors} == {"workspace-id"}
 
 
+@pytest.mark.parametrize(
+    ("args", "kwargs", "expected_id", "expected_error"),
+    [
+        pytest.param(
+            (),
+            {"connector_id": "explicit-id"},
+            "explicit-id",
+            None,
+            id="by_id",
+        ),
+        pytest.param((), {"id": "explicit-id"}, "explicit-id", None, id="by_id_alias"),
+        pytest.param(
+            (),
+            {"id": "explicit-id", "connector_id": "explicit-id"},
+            "explicit-id",
+            None,
+            id="by_id_alias_agreeing",
+        ),
+        pytest.param(
+            (),
+            {"id": "one-id", "connector_id": "other-id"},
+            None,
+            "conflicting values",
+            id="by_id_alias_conflicting",
+        ),
+        pytest.param(
+            (),
+            {"id": "", "name": "GitHub"},
+            None,
+            "cannot be blank",
+            id="blank_id",
+        ),
+        pytest.param(
+            (),
+            {"connector_id": "explicit-id", "name": " "},
+            None,
+            "cannot be blank",
+            id="blank_name",
+        ),
+        pytest.param((), {"name": "Slack"}, "connector-2", None, id="by_exact_name"),
+        pytest.param((), {"name": "GitHub"}, "connector-1", None, id="by_partial_name"),
+        pytest.param(
+            (), {"name": "slack"}, "connector-2", None, id="by_exact_name_other_case"
+        ),
+        pytest.param(
+            (),
+            {"name": "github"},
+            "connector-1",
+            None,
+            id="by_partial_name_other_case",
+        ),
+        pytest.param(("connector-2",), {}, "connector-2", None, id="positional_id"),
+        pytest.param(("Slack",), {}, "connector-2", None, id="positional_name"),
+        pytest.param(("github",), {}, "connector-1", None, id="positional_partial"),
+        pytest.param(
+            ("missing",), {}, None, "No connector found", id="positional_no_match"
+        ),
+        pytest.param((" ",), {}, None, "cannot be blank", id="positional_blank"),
+        pytest.param(
+            ("Slack",),
+            {"name": "Slack"},
+            None,
+            "cannot be combined with keyword arguments",
+            id="positional_and_keyword",
+        ),
+        pytest.param(
+            (), {"name": "Missing"}, None, "No connector found", id="no_match"
+        ),
+        pytest.param((), {}, None, "Exactly one", id="no_args"),
+        pytest.param(
+            (),
+            {"connector_id": "id", "name": "GitHub"},
+            None,
+            "Exactly one",
+            id="both_args",
+        ),
+    ],
+)
+def test_get_connector(
+    captured_requests: list[dict[str, Any]],
+    args: tuple[str, ...],
+    kwargs: dict[str, Any],
+    expected_id: str | None,
+    expected_error: str | None,
+) -> None:
+    """`get_connector()` resolves by ID without an API call, or by name via listing."""
+    workspace = AgentWorkspace(workspace_id="workspace-id", bearer_token="test-token")
+
+    if expected_error:
+        with pytest.raises((AirbyteError, PyAirbyteInputError), match=expected_error):
+            workspace.get_connector(*args, **kwargs)
+        return
+
+    connector = workspace.get_connector(*args, **kwargs)
+    assert connector.connector_id == expected_id
+    if "connector_id" in kwargs or "id" in kwargs:
+        assert captured_requests == []
+
+
+@pytest.mark.parametrize(
+    ("args", "kwargs", "expected_id", "expected_error"),
+    [
+        pytest.param(
+            (),
+            {"workspace_id": "explicit-id"},
+            "explicit-id",
+            None,
+            id="by_id",
+        ),
+        pytest.param((), {"name": "secondary"}, "workspace-2", None, id="by_name"),
+        pytest.param(
+            (), {"name": "SECONDARY"}, "workspace-2", None, id="by_name_other_case"
+        ),
+        pytest.param(("workspace-2",), {}, "workspace-2", None, id="positional_id"),
+        pytest.param(("secondary",), {}, "workspace-2", None, id="positional_name"),
+        pytest.param(
+            ("missing",), {}, None, "No workspace found", id="positional_no_match"
+        ),
+        pytest.param(("",), {}, None, "cannot be blank", id="positional_blank"),
+        pytest.param(
+            ("secondary",),
+            {"name": "secondary"},
+            None,
+            "Exactly one",
+            id="positional_and_keyword",
+        ),
+        pytest.param(
+            (), {"name": "missing"}, None, "No workspace found", id="no_match"
+        ),
+        pytest.param((), {}, None, "Exactly one", id="no_args"),
+    ],
+)
+def test_get_workspace(
+    captured_requests: list[dict[str, Any]],
+    args: tuple[str, ...],
+    kwargs: dict[str, Any],
+    expected_id: str | None,
+    expected_error: str | None,
+) -> None:
+    """`get_workspace()` resolves by ID without an API call, or by name via listing."""
+    organization = AgentOrganization(
+        organization_id="org-id", bearer_token="test-token"
+    )
+
+    if expected_error:
+        with pytest.raises((AirbyteError, PyAirbyteInputError), match=expected_error):
+            organization.get_workspace(*args, **kwargs)
+        return
+
+    workspace = organization.get_workspace(*args, **kwargs)
+    assert workspace.workspace_id == expected_id
+    if "workspace_id" in kwargs:
+        assert captured_requests == []
+
+
+@pytest.mark.parametrize(
+    ("convert", "expected_id", "expected_bearer_token", "expected_request_path"),
+    [
+        pytest.param(
+            lambda: AgentWorkspace(
+                workspace_id="workspace-id", bearer_token="test-token"
+            ).as_cloud_workspace(),
+            "workspace-id",
+            "test-token",
+            None,
+            id="agent_workspace_to_cloud",
+        ),
+        pytest.param(
+            lambda: AgentOrganization(
+                organization_id="org-id", bearer_token="test-token"
+            ).as_cloud_organization(),
+            "org-id",
+            None,
+            None,
+            id="agent_organization_to_cloud",
+        ),
+        pytest.param(
+            lambda: AgentWorkspace.from_cloud_workspace(
+                CloudWorkspace(workspace_id="workspace-id", bearer_token="test-token"),
+                verify=False,
+            ),
+            "workspace-id",
+            None,
+            None,
+            id="cloud_workspace_to_agent_unverified",
+        ),
+        pytest.param(
+            lambda: AgentWorkspace.from_cloud_workspace(
+                CloudWorkspace(workspace_id="workspace-id", bearer_token="test-token"),
+                organization_id="org-id",
+            ),
+            "workspace-id",
+            None,
+            "/workspaces/workspace-id",
+            id="cloud_workspace_to_agent_verified",
+        ),
+    ],
+)
+def test_cloud_conversions(
+    captured_requests: list[dict[str, Any]],
+    convert: Any,
+    expected_id: str,
+    expected_bearer_token: str | None,
+    expected_request_path: str | None,
+) -> None:
+    """Converting between Cloud and Agents objects reuses credentials and identifiers."""
+    converted = convert()
+
+    if isinstance(converted, CloudWorkspace | AgentWorkspace):
+        assert converted.workspace_id == expected_id
+    else:
+        assert converted.organization_id == expected_id
+
+    if expected_bearer_token is not None:
+        assert isinstance(converted, CloudWorkspace)
+        assert str(converted.bearer_token) == expected_bearer_token
+
+    if expected_request_path is None:
+        assert captured_requests == []
+    else:
+        assert captured_requests[0]["url"].endswith(expected_request_path)
+
+
 def test_agent_workspace_preserves_explicit_api_root() -> None:
     """Pass explicit API roots through Agent workspace credentials."""
     workspace = AgentWorkspace(
