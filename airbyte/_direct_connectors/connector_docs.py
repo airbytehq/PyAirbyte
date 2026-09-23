@@ -185,7 +185,10 @@ def build_direct_access_sql_guidance(
         content += _connections_section(destination, connections)
         content += _streams_section(connections, location, dialect)
         return DirectAccessGuidance(
-            metadata=metadata, outline=outline, section_id=None, content=content
+            metadata=metadata,
+            outline=outline,
+            section_id=None,
+            content=content,
         )
 
     if section == SECTION_SQL_PASSTHROUGH:
@@ -202,7 +205,10 @@ def build_direct_access_sql_guidance(
             guidance=f"Valid sections: {', '.join(_SECTION_TITLES)}.",
         )
     return DirectAccessGuidance(
-        metadata=metadata, outline=outline, section_id=section, content=content
+        metadata=metadata,
+        outline=outline,
+        section_id=section,
+        content=content,
     )
 
 
