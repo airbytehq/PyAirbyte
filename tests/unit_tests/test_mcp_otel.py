@@ -32,6 +32,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 
 from airbyte._direct_connectors import api_util as agents_api
 from airbyte.cloud.connectors import CloudConnector
+from airbyte.registry import ConnectorType
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import cloud
 from airbyte.version import get_version
@@ -362,14 +363,18 @@ def test_legacy_intent_is_receive_only_with_top_level_precedence(
 def test_agents_intent_reaches_api_unchanged_with_bounded_trace_copy(
     agents_app, monkeypatch, otel_provider, tracing, capture, intent
 ):
-    connector = CloudConnector(workspace=Mock(), connector_id="connector-SENTINEL")
+    connector = CloudConnector(
+        workspace=Mock(),
+        connector_id="connector-SENTINEL",
+        connector_type=ConnectorType.SOURCE,
+    )
     monkeypatch.setattr(
         cloud,
         "_get_cloud_workspace",
         lambda *args, **kwargs: Mock(get_connector=Mock(return_value=connector)),
     )
     execute = Mock(return_value={"status": "success", "result": ["result-SENTINEL"]})
-    monkeypatch.setattr(agents_api, "execute_agent_connector_action", execute)
+    monkeypatch.setattr(agents_api, "execute_cloud_connector_action", execute)
     for middleware in agents_app.middleware:
         if isinstance(middleware, observability.IntentCaptureMiddleware):
             monkeypatch.setattr(
@@ -421,7 +426,7 @@ def test_invalid_declared_intent_still_fails_validation(
     agents_app, monkeypatch, otel_provider, intent
 ):
     execute = Mock()
-    monkeypatch.setattr(agents_api, "execute_agent_connector_action", execute)
+    monkeypatch.setattr(agents_api, "execute_cloud_connector_action", execute)
     result = asyncio.run(
         _call(
             agents_app,

@@ -26,7 +26,6 @@ from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerPr
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, Status
 
-from airbyte._direct_connectors.api_util import _AGENTS_API_ROOT
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
@@ -84,9 +83,9 @@ _SAFE_HTTP_URL = re.compile(
     r"organizations/(?:list_by_user_id|get_organization_info)|"
     r"workspaces/(?:list_by_organization_id|get_organization_info|get)|"
     r"state/(?:get|create_or_update_safe)|web_backend/connections/(?:get|update)|"
-    r"users/(?:get_by_auth_id|update)|permissions/list_by_user|jobs/get)|"
-    rf"{re.escape(_AGENTS_API_ROOT)}/(?:workspaces(?:/{_UUID_PATTERN})?|"
-    rf"integrations/connectors(?:/{_UUID_PATTERN}/(?:inspect|execute))?|skills(?:/docs)?)"
+    r"users/(?:get_by_auth_id|update)|permissions/list_by_user|jobs/get|"
+    rf"(?:sources|destinations)/{_UUID_PATTERN}/execute|"
+    rf"workspaces/{_UUID_PATTERN}/skills/docs)"
 )
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
 _MAX_INTENT_LENGTH = 4096
