@@ -124,45 +124,6 @@ class CheckResult:
         )
 
 
-def _probe_connector_kind(
-    workspace: CloudWorkspace,
-    connector_id: str,
-) -> tuple[ConnectorType, CloudSourceInfo | CloudDestinationInfo]:
-    """Probe the API for a connector's kind, returning it with the fetched connector info.
-
-    Tries the source endpoint first, then the destination endpoint. Raises
-    `AirbyteMissingResourceError` when neither knows the ID.
-    """
-    try:
-        return ConnectorType.SOURCE, CloudSourceInfo.from_api_response(
-            api_util.get_source(
-                source_id=connector_id,
-                api_root=workspace.api_root,
-                client_id=workspace.client_id,
-                client_secret=workspace.client_secret,
-                bearer_token=workspace.bearer_token,
-            )
-        )
-    except exc.AirbyteMissingResourceError:
-        pass
-
-    try:
-        return ConnectorType.DESTINATION, CloudDestinationInfo.from_api_response(
-            api_util.get_destination(
-                destination_id=connector_id,
-                api_root=workspace.api_root,
-                client_id=workspace.client_id,
-                client_secret=workspace.client_secret,
-                bearer_token=workspace.bearer_token,
-            )
-        )
-    except exc.AirbyteMissingResourceError as error:
-        raise exc.AirbyteMissingResourceError(
-            resource_name_or_id=connector_id,
-            resource_type="connector",
-        ) from error
-
-
 class CloudConnector:
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
@@ -252,9 +213,17 @@ class CloudConnector:
             elif isinstance(self._connector_info, CloudDestinationInfo):
                 self._connector_type = ConnectorType.DESTINATION
             else:
-                self._connector_type, self._connector_info = _probe_connector_kind(
-                    self.workspace,
+                self._connector_type, response = api_util.get_connector(
                     self.connector_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+                self._connector_info = (
+                    CloudSourceInfo.from_api_response(response)
+                    if self._connector_type is ConnectorType.SOURCE
+                    else CloudDestinationInfo.from_api_response(response)
                 )
         return self._connector_type
 

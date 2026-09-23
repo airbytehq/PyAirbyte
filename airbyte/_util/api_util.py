@@ -34,6 +34,7 @@ from airbyte.exceptions import (
     AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
 )
+from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.util import try_get_secret
 
@@ -44,8 +45,6 @@ if TYPE_CHECKING:
     from airbyte_api.models import (
         DestinationConfiguration,
     )
-
-    from airbyte.registry import ConnectorType
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
@@ -1421,6 +1420,45 @@ def get_destination(
             "status_code": response.status_code,
         },
     )
+
+
+def get_connector(
+    connector_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> tuple[ConnectorType, models.SourceResponse | models.DestinationResponse]:
+    """Get a connector of unknown kind, returning its kind with the API response.
+
+    Tries the source endpoint first, then the destination endpoint. Raises
+    `AirbyteMissingResourceError` when neither knows the ID.
+    """
+    try:
+        return ConnectorType.SOURCE, get_source(
+            source_id=connector_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteMissingResourceError:
+        pass
+
+    try:
+        return ConnectorType.DESTINATION, get_destination(
+            destination_id=connector_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteMissingResourceError as error:
+        raise AirbyteMissingResourceError(
+            resource_name_or_id=connector_id,
+            resource_type="connector",
+        ) from error
 
 
 def get_source_definition(
