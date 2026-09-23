@@ -49,6 +49,12 @@ credentials are set:
   credentials are set)
 - `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY`: optional `"package.module:callable"`
   naming a durable OAuth-state store factory (defaults to in-memory)
+- `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE`: optional; enables SSO realm login.
+  The default realm's discovery URL with the realm name replaced by `{realm}`.
+  Adds an identifier-entry page at `/auth/login` (beside the `/auth/callback`
+  OAuth callback) where SSO users type their company identifier
+- `AIRBYTE_MCP_SSO_IDP_HINT`: optional identity-provider alias forwarded as
+  Keycloak's `kc_idp_hint` on SSO logins
 
 Headless bearer-token verification (for agents/CI that mint their own
 short-lived token via the client credentials grant). The verifier activates
