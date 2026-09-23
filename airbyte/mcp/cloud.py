@@ -13,7 +13,7 @@ __all__: list[str] = []
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
 from fastmcp import Context, FastMCP
@@ -150,8 +150,14 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
 FEATURE_FILTER_TIP_TEXT = (
     "Optional feature filter: `direct_access` returns only connectors AI agents can use "
     "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
-    "query. Omit to list every connector without resolving their features."
+    "query. `enabled_features` is only resolved and returned when this filter is set; "
+    "use `direct_access` to find every connector with any external-access feature "
+    "enabled and see its full feature list. Omit to list every connector with "
+    "`enabled_features='not_checked'` (no feature check performed)."
 )
+
+FEATURES_NOT_CHECKED: Final = "not_checked"
+FeaturesNotChecked = Literal["not_checked"]
 
 
 class CloudSourceResult(BaseModel):
@@ -163,9 +169,9 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
-    enabled_features: list[ConnectorFeature] | None = None
-    """Features enabled for this connector, or `None` when not resolved
-    (pass `with_enabled_features_list=True` or `feature_filter`)."""
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked = FEATURES_NOT_CHECKED
+    """Features enabled for this connector. `"not_checked"` means no feature check was
+    performed (no `feature_filter`); an empty list means checked with nothing enabled."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -177,9 +183,9 @@ class CloudDestinationResult(BaseModel):
     """Display name of the destination."""
     url: str
     """Web URL for managing this destination in Airbyte Cloud."""
-    enabled_features: list[ConnectorFeature] | None = None
-    """Features enabled for this connector, or `None` when not resolved
-    (pass `with_enabled_features_list=True` or `feature_filter`)."""
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked = FEATURES_NOT_CHECKED
+    """Features enabled for this connector. `"not_checked"` means no feature check was
+    performed (no `feature_filter`); an empty list means checked with nothing enabled."""
 
 
 class CloudConnectionResult(BaseModel):
@@ -1027,22 +1033,13 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ] = None,
-    with_enabled_features_list: Annotated[
-        bool,
-        Field(
-            description=(
-                "Populate `enabled_features` for each returned source. Costs one "
-                "Context layer request per source. Implied when `feature_filter` is set."
-            ),
-            default=False,
-        ),
-    ] = False,
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
-    Each source reports `enabled_features` when `feature_filter` is set or
-    `with_enabled_features_list=True`; pass `feature_filter` to return only sources
-    with a given feature (for example `direct_api_query` or `direct_access`).
+    Pass `feature_filter` (for example `direct_api_query` or `direct_access`) to return
+    only matching sources with their `enabled_features` resolved; without it,
+    `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
+    feature check was performed; `[]` means checked and no features enabled.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     sources = workspace.list_connectors(
@@ -1051,14 +1048,15 @@ def list_deployed_cloud_source_connectors(
         name_contains=name_contains,
         limit=limit,
     )
-    resolve_features = with_enabled_features_list or feature_filter is not None
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudSourceResult(
             id=source.connector_id,
             name=cast(str, source.name),
             url=source.connector_url,
-            enabled_features=sorted(source.enabled_features) if resolve_features else None,
+            enabled_features=sorted(source.enabled_features)
+            if feature_filter is not None
+            else FEATURES_NOT_CHECKED,
         )
         for source in sources
     ]
@@ -1100,30 +1098,23 @@ def list_deployed_cloud_destination_connectors(
             description=(
                 "Optional feature filter: `direct_sql_query` returns only destinations "
                 "that AI agents can query through `sql_select`; `direct_access` returns "
-                "those usable by AI agents. Omit to list every destination without "
-                "resolving their features."
+                "those usable by AI agents. `enabled_features` is only resolved and "
+                "returned when this filter is set; use `direct_access` to find every "
+                "destination with any external-access feature enabled and see its full "
+                "feature list. Omit to list every destination with "
+                "`enabled_features='not_checked'` (no feature check performed)."
             ),
             default=None,
         ),
     ] = None,
-    with_enabled_features_list: Annotated[
-        bool,
-        Field(
-            description=(
-                "Populate `enabled_features` for each returned destination. Costs one "
-                "Context layer request per destination. Implied when `feature_filter` is set."
-            ),
-            default=False,
-        ),
-    ] = False,
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
-    Each destination reports `enabled_features` when `feature_filter` is set or
-    `with_enabled_features_list=True`; pass `feature_filter` to return only
-    destinations with a given feature (for example `direct_sql_query` or
-    `direct_access`). SQL passthrough destinations are queryable by AI agents via
-    `sql_select`.
+    Pass `feature_filter` (for example `direct_sql_query` or `direct_access`) to return
+    only matching destinations with their `enabled_features` resolved; without it,
+    `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
+    feature check was performed; `[]` means checked and no features enabled. SQL
+    passthrough destinations are queryable by AI agents via `sql_select`.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destinations = workspace.list_connectors(
@@ -1132,14 +1123,15 @@ def list_deployed_cloud_destination_connectors(
         name_contains=name_contains,
         limit=limit,
     )
-    resolve_features = with_enabled_features_list or feature_filter is not None
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudDestinationResult(
             id=destination.connector_id,
             name=cast(str, destination.name),
             url=destination.connector_url,
-            enabled_features=(sorted(destination.enabled_features) if resolve_features else None),
+            enabled_features=sorted(destination.enabled_features)
+            if feature_filter is not None
+            else FEATURES_NOT_CHECKED,
         )
         for destination in destinations
     ]
@@ -1156,9 +1148,9 @@ class CloudConnectorResult(BaseModel):
     """The connector's display name."""
     url: str
     """The connector's page in the Airbyte Cloud UI."""
-    enabled_features: list[ConnectorFeature] | None = None
-    """Features enabled for this connector, or `None` when not resolved
-    (pass `with_enabled_features_list=True` or `feature_filter`)."""
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked = FEATURES_NOT_CHECKED
+    """Features enabled for this connector. `"not_checked"` means no feature check was
+    performed (no `feature_filter`); an empty list means checked with nothing enabled."""
 
 
 @mcp_tool(
@@ -1205,23 +1197,14 @@ def list_deployed_cloud_connectors(
             default=None,
         ),
     ] = None,
-    with_enabled_features_list: Annotated[
-        bool,
-        Field(
-            description=(
-                "Populate `enabled_features` for each returned connector. Costs one "
-                "Context layer request per connector. Implied when `feature_filter` is set."
-            ),
-            default=False,
-        ),
-    ] = False,
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
-    Each connector reports `enabled_features` when `feature_filter` is set or
-    `with_enabled_features_list=True`; pass `feature_filter` to return only
-    connectors with a given feature (for example `direct_api_query` for sources,
-    `direct_sql_query` for destinations, or `direct_access` for either).
+    Pass `feature_filter` (for example `direct_api_query` for sources,
+    `direct_sql_query` for destinations, or `direct_access` for either) to return only
+    matching connectors with their `enabled_features` resolved; without it,
+    `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
+    feature check was performed; `[]` means checked and no features enabled.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connectors = workspace.list_connectors(
@@ -1230,7 +1213,6 @@ def list_deployed_cloud_connectors(
         name_contains=name_contains,
         limit=limit,
     )
-    resolve_features = with_enabled_features_list or feature_filter is not None
     # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudConnectorResult(
@@ -1238,7 +1220,9 @@ def list_deployed_cloud_connectors(
             connector_type=connector.connector_type.value,
             name=cast(str, connector.name),
             url=connector.connector_url,
-            enabled_features=(sorted(connector.enabled_features) if resolve_features else None),
+            enabled_features=sorted(connector.enabled_features)
+            if feature_filter is not None
+            else FEATURES_NOT_CHECKED,
         )
         for connector in connectors
     ]

@@ -2074,7 +2074,7 @@ def test_cloud_destination_features_raise_on_probe_failure(
         pytest.param(
             None,
             ["source-1", "source-2", "source-3"],
-            [None, None, None],
+            [mcp_cloud.FEATURES_NOT_CHECKED] * 3,
             id="no_filter",
         ),
         pytest.param(
@@ -2089,7 +2089,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
     monkeypatch: pytest.MonkeyPatch,
     feature_filter: ConnectorFeature | None,
     expected_ids: list[str],
-    expected_flags: list[list[ConnectorFeature]],
+    expected_flags: list[list[ConnectorFeature] | str],
 ) -> None:
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
@@ -2118,7 +2118,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
         pytest.param(
             None,
             ["snowflake", "postgres"],
-            [None, None],
+            [mcp_cloud.FEATURES_NOT_CHECKED] * 2,
             id="no_filter",
         ),
         pytest.param(
@@ -2140,7 +2140,7 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
     monkeypatch: pytest.MonkeyPatch,
     feature_filter: ConnectorFeature | None,
     expected_ids: list[str],
-    expected_flags: list[list[ConnectorFeature]],
+    expected_flags: list[list[ConnectorFeature] | str],
 ) -> None:
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}

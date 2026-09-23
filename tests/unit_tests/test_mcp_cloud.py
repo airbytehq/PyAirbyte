@@ -912,16 +912,15 @@ def test_list_deployed_cloud_connectors_returns_both_kinds(
         ("source-1", "source"),
         ("destination-1", "destination"),
     ]
-    assert results[0].enabled_features is None
-    assert results[1].enabled_features is None
+    assert results[0].enabled_features == cloud_mcp.FEATURES_NOT_CHECKED
+    assert results[1].enabled_features == cloud_mcp.FEATURES_NOT_CHECKED
 
     resolved = cloud_mcp.list_deployed_cloud_connectors(
         None,
         workspace_id=None,
         name_contains=None,
         limit=None,
-        feature_filter=None,
-        with_enabled_features_list=True,
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
     )
     assert resolved[0].enabled_features == [
         ConnectorFeature.DIRECT_ACCESS,
