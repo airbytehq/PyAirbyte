@@ -224,6 +224,24 @@ def test_execute_api_action_rejects_read_actions(
     assert calls == []
 
 
+def test_execute_direct_action_rejects_write_action_as_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"status": "success"})
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    with pytest.raises(PyAirbyteInputError, match="read-only"):
+        source._execute_direct_action(  # noqa: SLF001
+            entity_type="issues",
+            action="delete",
+            read_only=True,
+        )
+
+    assert calls == []
+
+
 def test_execute_forbidden_raises_not_enabled_when_access_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

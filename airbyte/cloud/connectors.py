@@ -320,6 +320,7 @@ class CloudConnector(abc.ABC):
             cursor=cursor,
             skip_truncation=skip_truncation,
             intent=intent,
+            read_only=True,
         )
 
     def execute_api_action(
@@ -356,6 +357,7 @@ class CloudConnector(abc.ABC):
             exclude_fields=exclude_fields,
             skip_truncation=skip_truncation,
             intent=intent,
+            read_only=False,
         )
 
     def execute_sql_query(
@@ -402,6 +404,7 @@ class CloudConnector(abc.ABC):
             api_args={"sql": sql, "sql_dialect": sql_dialect},
             page_size=page_size,
             cursor=cursor,
+            read_only=True,
         )
 
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
@@ -416,6 +419,7 @@ class CloudConnector(abc.ABC):
         cursor: str | None = None,
         skip_truncation: bool = True,
         intent: str | None = None,
+        read_only: bool,
     ) -> AgentExecuteResult:
         """Execute a single entity/action operation through the Agents API.
 
@@ -427,6 +431,13 @@ class CloudConnector(abc.ABC):
         including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
+        if read_only and action in {write_action.value for write_action in CloudApiWriteAction}:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"The {action!r} action is a write action but was requested as read-only."
+                ),
+                context={"action": action, "entity_type": entity_type},
+            )
 
         params = _build_params(api_args=api_args, page_size=page_size, cursor=cursor)
         if (
