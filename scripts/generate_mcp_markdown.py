@@ -25,7 +25,7 @@ Inside each module file, content is grouped by primitive with L2 headings:
 # cloud module
 
 ## Tools (35)
-### deploy_source_to_cloud
+### deploy_connector_to_cloud
 ...
 ## Prompts (N)
 ### some_prompt
@@ -50,7 +50,7 @@ The output is designed to be:
   components are used.
 - **Deep-linkable**: every tool/resource/prompt name gets an HTML anchor
   (`<a id="name"></a>`) above its H3, so links like
-  `cloud.md#deploy_source_to_cloud` resolve in both pdoc and Docusaurus.
+  `cloud.md#deploy_connector_to_cloud` resolve in both pdoc and Docusaurus.
 
 Formatting is modeled on the
 [`mcpdocs-gen`](https://github.com/smytsyk/mcpdocs) static HTML output — same

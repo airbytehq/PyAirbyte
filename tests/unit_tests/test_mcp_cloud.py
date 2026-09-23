@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -30,9 +31,7 @@ from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
     CloudConnectorDetailsResult,
-    CloudDestinationResult,
-    CloudSourceResult,
-    ConnectorCheckResult,
+    CloudConnectorResult,
     SyncJobResult,
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
@@ -64,7 +63,7 @@ class _CloudConnectorLike:
     """Subset of `CloudConnector` used by tested MCP list tools."""
 
     connector_id: str
-    connector_type: str
+    connector_type: ConnectorType
     name: str
     connector_url: str
     enabled_features: frozenset[ConnectorFeature] = frozenset()
@@ -109,6 +108,13 @@ class _ConnectorCheckWorkspace:
     def get_destination(self, *, destination_id: str) -> _CheckableConnectorLike:
         """Return the destination test double."""
         assert destination_id == self.destination.connector_id
+        return self.destination
+
+    def get_connector(self, *, connector_id: str) -> _CheckableConnectorLike:
+        """Return the untyped connector test double matching the ID."""
+        if connector_id == self.source.connector_id:
+            return self.source
+        assert connector_id == self.destination.connector_id
         return self.destination
 
 
@@ -184,7 +190,7 @@ class _CloudWorkspace:
         items = [
             _CloudConnectorLike(
                 connector_id=f"{connector_type.value}-{index}",
-                connector_type=connector_type.value,
+                connector_type=connector_type,
                 name="target" if index == 2 else "miss",
                 connector_url=f"https://cloud.airbyte.com/{connector_type.value}-{index}",
             )
@@ -217,19 +223,19 @@ class _CloudWorkspace:
     "tool,limit_key,extra_kwargs",
     [
         pytest.param(
-            cloud_mcp.list_deployed_cloud_source_connectors,
+            cloud_mcp.list_cloud_connectors,
             "sources",
-            {},
+            {"connector_type": ConnectorType.SOURCE},
             id="sources",
         ),
         pytest.param(
-            cloud_mcp.list_deployed_cloud_destination_connectors,
+            cloud_mcp.list_cloud_connectors,
             "destinations",
-            {},
+            {"connector_type": ConnectorType.DESTINATION},
             id="destinations",
         ),
         pytest.param(
-            cloud_mcp.list_deployed_cloud_connections,
+            cloud_mcp.list_cloud_connections,
             "connections",
             {"with_connection_status": False, "failing_connections_only": False},
             id="connections",
@@ -266,21 +272,21 @@ def test_mcp_cloud_list_tools_pass_limit_to_workspace(
     "tool,limit_key,forwarded_limit,extra_kwargs",
     [
         pytest.param(
-            cloud_mcp.list_deployed_cloud_source_connectors,
+            cloud_mcp.list_cloud_connectors,
             "sources",
             1,
-            {},
+            {"connector_type": ConnectorType.SOURCE},
             id="sources",
         ),
         pytest.param(
-            cloud_mcp.list_deployed_cloud_destination_connectors,
+            cloud_mcp.list_cloud_connectors,
             "destinations",
             1,
-            {},
+            {"connector_type": ConnectorType.DESTINATION},
             id="destinations",
         ),
         pytest.param(
-            cloud_mcp.list_deployed_cloud_connections,
+            cloud_mcp.list_cloud_connections,
             "connections",
             None,
             {"with_connection_status": False, "failing_connections_only": False},
@@ -292,9 +298,7 @@ def test_mcp_cloud_list_tools_apply_limit_after_name_filter(
     monkeypatch: pytest.MonkeyPatch,
     tool: Callable[
         ...,
-        list[CloudSourceResult]
-        | list[CloudDestinationResult]
-        | list[CloudConnectionResult],
+        list[CloudConnectorResult] | list[CloudConnectionResult],
     ],
     limit_key: str,
     forwarded_limit: int | None,
@@ -336,7 +340,7 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
         lambda ctx, workspace_id=None: workspace,
     )
 
-    results = cloud_mcp.list_deployed_cloud_connections(
+    results = cloud_mcp.list_cloud_connections(
         ctx=cast(Context, object()),
         workspace_id="workspace-id",
         name_contains=None,
@@ -351,22 +355,17 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
 
 
 @pytest.mark.parametrize(
-    ("tool", "connector_id_parameter", "connector_id", "connector_type"),
+    ("connector_id", "connector_type", "explicit_type"),
     [
+        pytest.param("source-id", "source", ConnectorType.SOURCE, id="source-typed"),
+        pytest.param("source-id", "source", None, id="source-untyped"),
         pytest.param(
-            cloud_mcp.check_cloud_source,
-            "source_id",
-            "source-id",
-            "source",
-            id="source",
-        ),
-        pytest.param(
-            cloud_mcp.check_cloud_destination,
-            "destination_id",
             "destination-id",
             "destination",
-            id="destination",
+            ConnectorType.DESTINATION,
+            id="destination-typed",
         ),
+        pytest.param("destination-id", "destination", None, id="destination-untyped"),
     ],
 )
 @pytest.mark.parametrize(
@@ -400,10 +399,9 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
 )
 def test_mcp_cloud_connector_checks_map_results(
     monkeypatch: pytest.MonkeyPatch,
-    tool: Callable[..., object],
-    connector_id_parameter: str,
     connector_id: str,
     connector_type: str,
+    explicit_type: ConnectorType | None,
     check_result: CheckResult,
     expected_success: bool,
     expected_message: str | None,
@@ -416,13 +414,11 @@ def test_mcp_cloud_connector_checks_map_results(
         lambda ctx, workspace_id=None: workspace,
     )
 
-    result = cast(
-        ConnectorCheckResult,
-        tool(
-            ctx=cast(Context, object()),
-            workspace_id="workspace-id",
-            **{connector_id_parameter: connector_id},
-        ),
+    result = cloud_mcp.check_cloud_connector(
+        ctx=cast(Context, object()),
+        connector_id=connector_id,
+        connector_type=explicit_type,
+        workspace_id="workspace-id",
     )
 
     connector = (
@@ -775,15 +771,21 @@ def test_set_default_cloud_workspace_returns_update_result(
     "tool,id_kwarg,getter,deleter",
     [
         pytest.param(
-            cloud_mcp.permanently_delete_cloud_source,
-            "source_id",
+            functools.partial(
+                cloud_mcp.permanently_delete_cloud_connector,
+                connector_type=ConnectorType.SOURCE,
+            ),
+            "connector_id",
             "get_source",
             "permanently_delete_source",
             id="source",
         ),
         pytest.param(
-            cloud_mcp.permanently_delete_cloud_destination,
-            "destination_id",
+            functools.partial(
+                cloud_mcp.permanently_delete_cloud_connector,
+                connector_type=ConnectorType.DESTINATION,
+            ),
+            "connector_id",
             "get_destination",
             "permanently_delete_destination",
             id="destination",
@@ -806,7 +808,12 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 ) -> None:
     """Verify Cloud MCP delete tools forward an explicit `workspace_id`."""
     seen_workspace_ids: list[str | None] = []
-    resource = SimpleNamespace(name="delete-me-resource")
+    resource = SimpleNamespace(
+        name="delete-me-resource",
+        connector_type=ConnectorType(getter.removeprefix("get_"))
+        if getter != "get_connection"
+        else None,
+    )
     workspace = SimpleNamespace(**{
         getter: lambda **_: resource,
         deleter: lambda **_: None,
@@ -895,13 +902,13 @@ def _patch_combined_listing(
     return workspace
 
 
-def test_list_deployed_cloud_connectors_returns_both_kinds(
+def test_list_cloud_connectors_returns_both_kinds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The combined tool maps each connector's type and enabled features."""
     _patch_combined_listing(monkeypatch)
 
-    results = cloud_mcp.list_deployed_cloud_connectors(
+    results = cloud_mcp.list_cloud_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -932,13 +939,13 @@ def test_list_deployed_cloud_connectors_returns_both_kinds(
     ]
 
 
-def test_list_deployed_cloud_connectors_filters(
+def test_list_cloud_connectors_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`connector_type` and `feature_filter` narrow the combined listing."""
     workspace = _patch_combined_listing(monkeypatch)
 
-    results = cloud_mcp.list_deployed_cloud_connectors(
+    results = cloud_mcp.list_cloud_connectors(
         None,
         workspace_id=None,
         connector_type=ConnectorType.DESTINATION,
@@ -1249,23 +1256,43 @@ def test_describe_cloud_connector_forwards_id_and_toggles(
     assert result is details
 
 
-def test_describe_cloud_source_forwards_toggles(
+@pytest.mark.parametrize(
+    ("connector_type", "getter", "id_kwarg"),
+    [
+        pytest.param(ConnectorType.SOURCE, "get_source", "source_id", id="source"),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            "get_destination",
+            "destination_id",
+            id="destination",
+        ),
+    ],
+)
+def test_describe_cloud_connector_explicit_type_skips_lookup(
     monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    getter: str,
+    id_kwarg: str,
 ) -> None:
-    """`describe_cloud_source` describes the source with all `with_*` toggles."""
+    """An explicit `connector_type` routes straight to the typed workspace getter."""
     details = _describe_details()
     describe = MagicMock(return_value=details)
     monkeypatch.setattr(cloud_mcp, "_describe_cloud_connector", describe)
     connector = object()
-    get_source = MagicMock(return_value=connector)
-    workspace = SimpleNamespace(get_source=get_source)
+    typed_getter = MagicMock(return_value=connector)
+    get_connector = MagicMock()
+    workspace = SimpleNamespace(**{
+        getter: typed_getter,
+        "get_connector": get_connector,
+    })
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
     )
 
-    result = cloud_mcp.describe_cloud_source(
+    result = cloud_mcp.describe_cloud_connector(
         ctx=cast(Context, object()),
-        source_id="source-1",
+        connector_id="connector-1",
+        connector_type=connector_type,
         workspace_id="workspace-1",
         with_config=True,
         with_replication_details=True,
@@ -1273,42 +1300,8 @@ def test_describe_cloud_source_forwards_toggles(
         with_data_replication_docs=True,
     )
 
-    get_source.assert_called_once_with(source_id="source-1")
-    describe.assert_called_once_with(
-        connector,
-        with_config=True,
-        with_replication_details=True,
-        with_direct_access_guidance=True,
-        with_data_replication_docs=True,
-    )
-    assert result is details
-
-
-def test_describe_cloud_destination_forwards_toggles(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`describe_cloud_destination` describes the destination with all `with_*` toggles."""
-    details = _describe_details()
-    describe = MagicMock(return_value=details)
-    monkeypatch.setattr(cloud_mcp, "_describe_cloud_connector", describe)
-    connector = object()
-    get_destination = MagicMock(return_value=connector)
-    workspace = SimpleNamespace(get_destination=get_destination)
-    monkeypatch.setattr(
-        cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
-    )
-
-    result = cloud_mcp.describe_cloud_destination(
-        ctx=cast(Context, object()),
-        destination_id="dest-1",
-        workspace_id="workspace-1",
-        with_config=True,
-        with_replication_details=True,
-        with_direct_access_guidance=True,
-        with_data_replication_docs=True,
-    )
-
-    get_destination.assert_called_once_with(destination_id="dest-1")
+    typed_getter.assert_called_once_with(**{id_kwarg: "connector-1"})
+    get_connector.assert_not_called()
     describe.assert_called_once_with(
         connector,
         with_config=True,
