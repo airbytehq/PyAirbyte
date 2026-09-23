@@ -42,6 +42,7 @@ from airbyte.cloud.models import (
     ConnectorFeature,
     ConnectorType,
     JobTypeEnum,
+    OrganizationFeature,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -229,10 +230,8 @@ class CloudOrganizationResult(BaseModel):
     """Display name of the organization, when available."""
     email: str | None = None
     """Email associated with the organization, when available."""
-    external_access_enabled: bool
-    """Whether the organization is enabled for AI agents through the Airbyte Context layer."""
-    search_indexing_enabled: bool
-    """Whether search indexing is available in the organization."""
+    enabled_features: list[OrganizationFeature]
+    """Features enabled for this organization; see `OrganizationFeature`."""
 
 
 class CloudOrganizationListResult(BaseModel):
@@ -1105,6 +1104,92 @@ def list_deployed_cloud_destination_connectors(
             enabled_features=sorted(destination.enabled_features),
         )
         for destination in destinations
+    ]
+
+
+class CloudConnectorResult(BaseModel):
+    """Information about a deployed connector in Airbyte Cloud."""
+
+    id: str
+    """The connector ID."""
+    connector_type: Literal["source", "destination"]
+    """Whether the connector is a source or a destination."""
+    name: str
+    """The connector's display name."""
+    url: str
+    """The connector's page in the Airbyte Cloud UI."""
+    enabled_features: list[ConnectorFeature]
+    """Features enabled for this connector; see `ConnectorFeature`."""
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def list_deployed_cloud_connectors(
+    ctx: Context,
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=("Optional: return only sources or only destinations. Omit for both."),
+            default=None,
+        ),
+    ] = None,
+    name_contains: Annotated[
+        str | None,
+        Field(
+            description="Optional case-insensitive substring to filter connectors by name",
+            default=None,
+        ),
+    ],
+    limit: Annotated[
+        int | None,
+        Field(
+            description="Optional maximum number of items to return (default: no limit)",
+            default=None,
+        ),
+    ],
+    with_feature: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=WITH_FEATURE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> list[CloudConnectorResult]:
+    """List deployed source and destination connectors in the Airbyte Cloud workspace.
+
+    Each connector reports `enabled_features`; pass `with_feature` to return only
+    connectors with a given feature (for example `direct_api_query` for sources,
+    `direct_sql_query` for destinations, or `direct_access` for either).
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connectors = workspace.list_connectors(
+        connector_type=connector_type,
+        with_feature=with_feature,
+        name_contains=name_contains,
+        limit=limit,
+    )
+    # Note: name and url are guaranteed non-null from list API responses
+    return [
+        CloudConnectorResult(
+            id=connector.connector_id,
+            connector_type=connector.connector_type.value,
+            name=cast(str, connector.name),
+            url=connector.connector_url,
+            enabled_features=sorted(connector.enabled_features),
+        )
+        for connector in connectors
     ]
 
 
@@ -2115,13 +2200,13 @@ def list_cloud_organizations(
         ),
     ] = None,
     with_feature: Annotated[
-        ConnectorFeature | None,
+        OrganizationFeature | None,
         Field(
             description=(
-                "Optional feature filter: `direct_access` (or any `direct_*` feature) returns "
-                "only organizations enabled for AI agents through the Airbyte Context layer; "
-                "`search_indexing` returns only organizations where search indexing is "
-                "available. Omit to list every organization along with its feature flags."
+                "Optional feature filter: `direct_access` returns only organizations enabled "
+                "for AI agents through the Airbyte Context layer; `search_indexing` returns "
+                "only organizations where search indexing is available. Omit to list every "
+                "organization along with its enabled features."
             ),
             default=None,
         ),
@@ -2129,8 +2214,8 @@ def list_cloud_organizations(
 ) -> CloudOrganizationListResult:
     """List organizations visible to the authenticated Airbyte Cloud credentials.
 
-    Each organization reports `external_access_enabled` and `search_indexing_enabled`; pass
-    `with_feature` to return only organizations with one of those features.
+    Each organization reports `enabled_features`; pass `with_feature` to return only
+    organizations with a given feature.
     """
     effective_limit = 100 if limit is None else limit
     try:
@@ -2173,8 +2258,7 @@ def list_cloud_organizations(
                 id=organization.organization_id,
                 name=organization.organization_name,
                 email=organization.email,
-                external_access_enabled=organization.external_access_enabled,
-                search_indexing_enabled=organization.search_indexing_enabled,
+                enabled_features=sorted(organization.enabled_features),
             )
             for organization in organizations
         ],
@@ -2278,8 +2362,7 @@ def describe_cloud_organization(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
-        external_access_enabled=org.external_access_enabled,
-        search_indexing_enabled=org.search_indexing_enabled,
+        enabled_features=sorted(org.enabled_features),
     )
 
 

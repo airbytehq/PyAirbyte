@@ -93,7 +93,7 @@ from airbyte.cloud.models import (
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
-    ConnectorFeature,
+    OrganizationFeature,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.organizations import CloudOrganization
@@ -113,13 +113,10 @@ MAX_WORKSPACES_TO_VALIDATE = 25
 
 def _organization_has_feature(
     organization: CloudOrganization,
-    feature: ConnectorFeature,
+    feature: OrganizationFeature,
 ) -> bool:
     """Return whether `feature` is enabled for `organization`."""
-    if feature == ConnectorFeature.SEARCH_INDEXING:
-        return organization.search_indexing_enabled
-
-    return organization.external_access_enabled
+    return organization.is_feature_enabled(feature)
 
 
 @dataclass(init=False, kw_only=True)
@@ -1178,15 +1175,14 @@ class CloudClient:
         self,
         *,
         name_contains: str | None = None,
-        with_feature: ConnectorFeature | None = None,
+        with_feature: OrganizationFeature | None = None,
         limit: int | None = None,
     ) -> list[CloudOrganization]:
         """List organizations available to this client.
 
         `with_feature` returns only organizations where that feature is enabled (see
-        `CloudOrganization.external_access_enabled` and
-        `CloudOrganization.search_indexing_enabled`); it is applied after discovery, so
-        `limit` bounds the filtered result.
+        `CloudOrganization.enabled_features`); it is applied after discovery, so `limit`
+        bounds the filtered result.
 
         See the module docstring for how organization search and limits are resolved.
         """

@@ -707,8 +707,7 @@ def test_describe_cloud_organization_excludes_billing_fields(
         organization_id="org-id",
         organization_name="Organization",
         email="org@example.com",
-        external_access_enabled=False,
-        search_indexing_enabled=False,
+        enabled_features=[],
     )
     monkeypatch.setattr(
         cloud_mcp,
@@ -829,6 +828,118 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 
     assert seen_workspace_ids == ["explicit-workspace-id"]
     assert "resource-id" in result
+
+
+class _CombinedListingWorkspace:
+    """Fake `CloudWorkspace` returning one source and one destination."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def list_connectors(
+        self,
+        *,
+        connector_type: ConnectorType | None = None,
+        with_feature: ConnectorFeature | None = None,
+        name_contains: str | None = None,
+        limit: int | None = None,
+    ) -> list[_CloudConnectorLike]:
+        """Capture filters and mimic the core `list_connectors` filtering."""
+        self.calls.append({
+            "connector_type": connector_type,
+            "with_feature": with_feature,
+            "name_contains": name_contains,
+            "limit": limit,
+        })
+        items = [
+            _CloudConnectorLike(
+                connector_id="source-1",
+                connector_type=ConnectorType.SOURCE,
+                name="GitHub",
+                connector_url="https://cloud.airbyte.com/source-1",
+                enabled_features=frozenset({
+                    ConnectorFeature.DIRECT_ACCESS,
+                    ConnectorFeature.DIRECT_API_QUERY,
+                }),
+            ),
+            _CloudConnectorLike(
+                connector_id="destination-1",
+                connector_type=ConnectorType.DESTINATION,
+                name="Snowflake",
+                connector_url="https://cloud.airbyte.com/destination-1",
+                enabled_features=frozenset({
+                    ConnectorFeature.DIRECT_ACCESS,
+                    ConnectorFeature.DIRECT_SQL_QUERY,
+                }),
+            ),
+        ]
+        if connector_type is not None:
+            items = [
+                item for item in items if item.connector_type == connector_type.value
+            ]
+        if with_feature is not None:
+            items = [item for item in items if with_feature in item.enabled_features]
+        if name_contains:
+            items = [item for item in items if name_contains in item.name]
+        return items if limit is None else items[:limit]
+
+
+def _patch_combined_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> _CombinedListingWorkspace:
+    workspace = _CombinedListingWorkspace()
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    return workspace
+
+
+def test_list_deployed_cloud_connectors_returns_both_kinds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The combined tool maps each connector's type and enabled features."""
+    _patch_combined_listing(monkeypatch)
+
+    results = cloud_mcp.list_deployed_cloud_connectors(
+        None,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        with_feature=None,
+    )
+
+    assert [(r.id, r.connector_type) for r in results] == [
+        ("source-1", "source"),
+        ("destination-1", "destination"),
+    ]
+    assert results[0].enabled_features == [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ]
+    assert results[1].enabled_features == [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_SQL_QUERY,
+    ]
+
+
+def test_list_deployed_cloud_connectors_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`connector_type` and `with_feature` narrow the combined listing."""
+    workspace = _patch_combined_listing(monkeypatch)
+
+    results = cloud_mcp.list_deployed_cloud_connectors(
+        None,
+        workspace_id=None,
+        connector_type=ConnectorType.DESTINATION,
+        name_contains=None,
+        limit=None,
+        with_feature=ConnectorFeature.DIRECT_SQL_QUERY,
+    )
+
+    assert workspace.calls[0]["connector_type"] == ConnectorType.DESTINATION
+    assert workspace.calls[0]["with_feature"] is ConnectorFeature.DIRECT_SQL_QUERY
+    assert [(r.id, r.connector_type) for r in results] == [
+        ("destination-1", "destination")
+    ]
 
 
 def _describe_details() -> CloudConnectorDetailsResult:

@@ -82,6 +82,16 @@ class ConnectorFeature(StrEnum):
     """
 
 
+class OrganizationFeature(StrEnum):
+    """Optional capabilities an Airbyte Cloud organization (or workspace) may have enabled."""
+
+    DIRECT_ACCESS = "direct_access"
+    """AI agents can access the organization's connectors directly through the Context layer."""
+
+    SEARCH_INDEXING = "search_indexing"
+    """Airbyte indexes connector data for fast search. Not launched yet."""
+
+
 class _SourceResponseLike(Protocol):
     source_id: str
     name: str
@@ -492,6 +502,7 @@ __all__ = [
     "CloudSourceInfo",
     "CloudWorkspaceInfo",
     "ConnectorFeature",
+    "OrganizationFeature",
     "ConnectorType",
     "ExternalApiConnectorMetadata",
     "ExternalApiExecuteResult",

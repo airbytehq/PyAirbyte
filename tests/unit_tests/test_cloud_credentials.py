@@ -25,6 +25,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte.cloud.models import (
     CloudDestinationInfo,
+    OrganizationFeature,
     CloudSourceInfo,
     CloudWorkspaceInfo,
     WorkspacePrivilegeScope,
@@ -1625,10 +1626,15 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
             id="organization-id",
             name=None,
             email=None,
-            external_access_enabled=False,
-            search_indexing_enabled=False,
+            enabled_features=[],
         )
     ]
+
+
+def test_organization_feature_values() -> None:
+    """`OrganizationFeature` exposes the org-level feature names."""
+    assert OrganizationFeature.DIRECT_ACCESS == "direct_access"
+    assert OrganizationFeature.SEARCH_INDEXING == "search_indexing"
 
 
 def _seed_source(workspace: CloudWorkspace, source_id: str, name: str) -> CloudSource:
@@ -1919,8 +1925,8 @@ def test_cloud_workspace_features_false_without_context_layer(
 
     connectors = workspace.list_connectors()
 
-    assert workspace.external_access_enabled is False
-    assert workspace.search_indexing_enabled is False
+    assert workspace.enabled_features == frozenset()
+    assert not workspace.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
     assert len(connectors) == 5
     assert not any(c.enabled_features for c in connectors)
     assert workspace.list_connectors(with_feature=ConnectorFeature.DIRECT_ACCESS) == []
@@ -1961,7 +1967,7 @@ def test_cloud_destination_external_access_requires_enabled_workspace(
     )
     _patch_workspace_connectors(monkeypatch, workspace, workspace_enabled=False)
 
-    assert workspace.external_access_enabled is False
+    assert workspace.enabled_features == frozenset()
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
     assert not destination.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
 
@@ -2193,7 +2199,7 @@ def test_cloud_workspace_resolve_agents_organization_id_rejects_mismatch(
         pytest.param(requests.ConnectionError("offline"), None, id="transport"),
     ],
 )
-def test_cloud_workspace_external_access_enabled(
+def test_cloud_workspace_enabled_features(
     monkeypatch: pytest.MonkeyPatch,
     error: Exception | None,
     expected: bool | None,
@@ -2222,10 +2228,12 @@ def test_cloud_workspace_external_access_enabled(
 
     if expected is None:
         with pytest.raises(type(error)):
-            _ = workspace.external_access_enabled
+            _ = workspace.enabled_features
     else:
-        assert workspace.external_access_enabled is expected
-        assert workspace.search_indexing_enabled is False
+        assert (
+            OrganizationFeature.DIRECT_ACCESS in workspace.enabled_features
+        ) is expected
+        assert not workspace.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
 
 
 @pytest.mark.parametrize(
@@ -2430,7 +2438,7 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
     [
         pytest.param(None, "Verify the credentials", id="no_filter"),
         pytest.param(
-            ConnectorFeature.DIRECT_ACCESS,
+            OrganizationFeature.DIRECT_ACCESS,
             "have `direct_access` enabled",
             id="feature_filter",
         ),
@@ -2502,11 +2510,13 @@ def test_cloud_organization_feature_flags(
 
     if expected is None:
         with pytest.raises(type(error)):
-            _ = organization.external_access_enabled
+            _ = organization.enabled_features
         return
 
-    assert organization.external_access_enabled is expected
-    assert organization.search_indexing_enabled is False
+    assert (
+        OrganizationFeature.DIRECT_ACCESS in organization.enabled_features
+    ) is expected
+    assert not organization.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
     assert calls == (1 if context_layer else 0)
 
 
@@ -2515,17 +2525,19 @@ def test_cloud_organization_feature_flags(
     [
         pytest.param(None, None, ["disabled", "enabled"], id="no_filter"),
         pytest.param(
-            ConnectorFeature.DIRECT_ACCESS, None, ["enabled"], id="external_access"
+            OrganizationFeature.DIRECT_ACCESS, None, ["enabled"], id="direct_access"
         ),
-        pytest.param(ConnectorFeature.SEARCH_INDEXING, None, [], id="search_indexing"),
         pytest.param(
-            ConnectorFeature.DIRECT_ACCESS, 1, ["enabled"], id="limit_after_filter"
+            OrganizationFeature.SEARCH_INDEXING, None, [], id="search_indexing"
+        ),
+        pytest.param(
+            OrganizationFeature.DIRECT_ACCESS, 1, ["enabled"], id="limit_after_filter"
         ),
     ],
 )
 def test_cloud_client_list_organizations_with_feature(
     monkeypatch: pytest.MonkeyPatch,
-    with_feature: ConnectorFeature | None,
+    with_feature: OrganizationFeature | None,
     limit: int | None,
     expected_ids: list[str],
 ) -> None:
@@ -2571,12 +2583,13 @@ def test_mcp_list_cloud_organizations_reports_feature_flags(
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
     result = mcp_cloud.list_cloud_organizations(
-        None, with_feature=ConnectorFeature.DIRECT_ACCESS
+        None, with_feature=OrganizationFeature.DIRECT_ACCESS
     )
 
-    assert captured["with_feature"] is ConnectorFeature.DIRECT_ACCESS
-    assert result.organizations[0].external_access_enabled is True
-    assert result.organizations[0].search_indexing_enabled is False
+    assert captured["with_feature"] is OrganizationFeature.DIRECT_ACCESS
+    assert result.organizations[0].enabled_features == [
+        OrganizationFeature.DIRECT_ACCESS
+    ]
 
 
 def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(

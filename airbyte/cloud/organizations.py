@@ -13,7 +13,7 @@ import requests
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util, deployment
 from airbyte.cloud._credentials import _AirbyteCredentials
-from airbyte.cloud.models import CloudOrganizationBillingInfo
+from airbyte.cloud.models import CloudOrganizationBillingInfo, OrganizationFeature
 from airbyte.exceptions import AirbyteError
 from airbyte.secrets.base import SecretString
 
@@ -155,19 +155,20 @@ class CloudOrganization:
         return api_util.is_account_locked(self.payment_status, self.subscription_status)
 
     @cached_property
-    def external_access_enabled(self) -> bool:
-        """Whether this organization is enabled for AI agents through the Airbyte Context layer.
+    def enabled_features(self) -> frozenset[OrganizationFeature]:
+        """The features enabled for this organization. Resolved on first access and cached.
 
-        `False` without any API call when the API root has no Context layer (for example,
-        self-managed deployments). Otherwise `False` when the Context layer API reports the
-        organization as forbidden or not found, which is how it answers for organizations
-        that have not enabled it. Any other failure raises.
+        `DIRECT_ACCESS` is reported when AI agents can access this organization's connectors
+        through the Airbyte Context layer. It is absent without any API call when the API root
+        has no Context layer (for example, self-managed deployments), and absent when the
+        Context layer API reports the organization as forbidden or not found, which is how it
+        answers for organizations that have not enabled it. Any other failure raises.
         """
         if not deployment.is_agents_api_available(
             public_api_root=self._credentials.public_api_root,
             config_api_root=self._credentials.config_api_root,
         ):
-            return False
+            return frozenset()
 
         try:
             agents_api_util.list_agent_workspaces(
@@ -177,16 +178,18 @@ class CloudOrganization:
         except AirbyteError as error:
             status_code = (error.context or {}).get("status_code")
             if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                return False
+                return frozenset()
 
             raise
 
-        return True
+        return frozenset({OrganizationFeature.DIRECT_ACCESS})
 
-    @property
-    def search_indexing_enabled(self) -> bool:
-        """Whether search indexing is enabled for this organization.
+    def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
+        """Whether `feature` is enabled for this organization.
 
-        Search indexing has not launched yet, so this is always `False`.
+        Uses the cached feature set when available; search indexing has not launched yet,
+        so it always returns `False` without an API call.
         """
-        return False
+        if feature == OrganizationFeature.SEARCH_INDEXING:
+            return False
+        return feature in self.enabled_features

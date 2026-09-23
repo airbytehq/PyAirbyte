@@ -63,6 +63,7 @@ from airbyte.cloud.models import (
     CloudWorkspaceInfo,
     ConnectorFeature,
     ConnectorType,
+    OrganizationFeature,
 )
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
@@ -361,16 +362,17 @@ class CloudWorkspace:
         )
 
     @cached_property
-    def external_access_enabled(self) -> bool:
-        """Whether this workspace is enabled for AI agents through the Airbyte Context layer.
+    def enabled_features(self) -> frozenset[OrganizationFeature]:
+        """The features enabled for this workspace. Resolved on first access and cached.
 
-        `False` without any API call when the API root has no Context layer (for example,
-        self-managed deployments). Otherwise `False` when the Context layer API reports the
-        workspace as forbidden or not found, which is how it answers for organizations that
-        have not enabled it. Any other failure raises.
+        `DIRECT_ACCESS` is reported when AI agents can use this workspace's connectors
+        through the Airbyte Context layer. It is absent without any API call when the API
+        root has no Context layer (for example, self-managed deployments), and absent when
+        the Context layer API reports the workspace as forbidden or not found, which is how
+        it answers for organizations that have not enabled it. Any other failure raises.
         """
         if not self._has_context_layer_api():
-            return False
+            return frozenset()
 
         try:
             agents_api_util.get_agent_workspace(
@@ -381,19 +383,21 @@ class CloudWorkspace:
         except AirbyteError as error:
             status_code = (error.context or {}).get("status_code")
             if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                return False
+                return frozenset()
 
             raise
 
-        return True
+        return frozenset({OrganizationFeature.DIRECT_ACCESS})
 
-    @property
-    def search_indexing_enabled(self) -> bool:
-        """Whether search indexing is enabled for this workspace.
+    def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
+        """Whether `feature` is enabled for this workspace.
 
-        Search indexing has not launched yet, so this is always `False`.
+        Uses the cached feature set when available; search indexing has not launched yet,
+        so it always returns `False` without an API call.
         """
-        return False
+        if feature == OrganizationFeature.SEARCH_INDEXING:
+            return False
+        return feature in self.enabled_features
 
     def _list_external_access_source_ids(self) -> frozenset[str]:
         """Return the IDs of sources in this workspace that are enabled for external access.
@@ -435,7 +439,7 @@ class CloudWorkspace:
         if connector.connector_type == ConnectorType.DESTINATION:
             if (
                 connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-                and self.external_access_enabled
+                and self.is_feature_enabled(OrganizationFeature.DIRECT_ACCESS)
             ):
                 return frozenset(
                     {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY}
