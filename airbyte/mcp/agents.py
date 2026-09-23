@@ -31,6 +31,10 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
+from airbyte._direct_connectors.models import (
+    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+)
 from airbyte.agents._destination_docs import (
     DESTINATION_SKILL_PREFIX,
     LOCAL_DESTINATION_SECTION_IDS,
@@ -45,10 +49,6 @@ from airbyte.agents.models import AgentSkillDocs, AgentSkillInfo
 from airbyte.agents.organizations import AgentOrganization
 from airbyte.agents.workspaces import AgentWorkspace
 from airbyte.cloud.connectors import CloudConnector, CloudDestination, CloudSource
-from airbyte.cloud.models import (
-    SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    SQL_PASSTHROUGH_DESTINATION_DIALECTS,
-)
 from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
@@ -1133,8 +1133,10 @@ def inspect_agent_connector(
     built-in docs under `connector-destination:<id>`.
     """
     try:
-        workspace = _get_agent_workspace(ctx, workspace_id, organization_id)
-        details = workspace.get_connector(connector_id).inspect()
+        cloud_workspace = _get_cloud_workspace(ctx, workspace_id)
+        details = cloud_workspace.get_connector(connector_id=connector_id).describe(
+            with_direct_access_docs=True
+        )
     except AirbyteError as error:
         if _is_not_found(error) or error.get_message() == CONNECTOR_NOT_FOUND_MESSAGE:
             return _inspect_destination_fallback(ctx, connector_id, workspace_id, organization_id)
@@ -1148,25 +1150,36 @@ def inspect_agent_connector(
 
     warnings = [str(warning) for warning in details.warnings]
     docs_result: AgentConnectorDocsResult | None = None
-    if details.docs_skill_id:
-        try:
-            connector_docs = workspace.read_skill_docs(details.docs_skill_id)
-        except (AirbyteError, requests.RequestException) as error:
-            detail = error.get_message() if isinstance(error, AirbyteError) else str(error)
-            docs_unavailable = f"Connector docs are unavailable: {detail}"
-            warnings.append(docs_unavailable)
-            docs_result = AgentConnectorDocsResult(
-                skill_id=details.docs_skill_id,
-                content="",
-                warnings=[docs_unavailable],
+    if details.direct_access_docs is not None:
+        direct_docs = details.direct_access_docs
+        outline = [
+            AgentSkillSectionResult(
+                section_id=docs_section.id,
+                title=docs_section.title,
+                summary=docs_section.summary,
+                available=docs_section.available,
             )
-        else:
-            docs_result = _connector_docs_result(_skill_docs_result(connector_docs))
+            for docs_section in direct_docs.outline
+        ]
+        docs_result = AgentConnectorDocsResult(
+            skill_id=direct_docs.skill_id or "",
+            title=direct_docs.title,
+            content=direct_docs.content,
+            guidance=_inspect_docs_guidance(direct_docs.skill_id or "", outline),
+            warnings=_or_none(direct_docs.warnings),
+        )
+    elif details.docs_skill_id:
+        docs_warnings = [warning for warning in warnings if "docs" in warning.lower()] or None
+        docs_result = AgentConnectorDocsResult(
+            skill_id=details.docs_skill_id,
+            content="",
+            warnings=docs_warnings,
+        )
 
     return AgentConnectorDetailsResult(
         connector_id=details.connector_id,
-        connector_name=details.name,
-        workspace_id=details.workspace_id,
+        connector_name=details.connector_name or None,
+        workspace_id=cloud_workspace.workspace_id,
         integration_name=details.integration_name,
         docs=docs_result,
         warnings=_or_none(warnings),
@@ -1492,9 +1505,9 @@ def list_agent_skills(
     docs. All pages are fetched, so no pagination arguments are needed. Pass a listed
     skill's `skill_id` to `read_agent_skill_docs` to read it.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id)
+    workspace = _get_cloud_workspace(ctx, workspace_id)
     try:
-        skills = workspace.list_skills()
+        skills = workspace._list_skills()  # noqa: SLF001
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is None:
@@ -1552,7 +1565,7 @@ def read_agent_skill_docs(
     Without `section`, this returns the skill's metadata, guidance, and the outline of
     sections, which is the cheapest way to orient before reading a specific section.
     """
-    workspace = _get_agent_workspace(ctx, workspace_id)
+    workspace = _get_cloud_workspace(ctx, workspace_id)
     destination: CloudDestination | None = None
     destination_resolved = False
     if skill_id.startswith(DESTINATION_SKILL_PREFIX):
@@ -1565,7 +1578,7 @@ def read_agent_skill_docs(
             and destination.definition_id in SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
         ):
             try:
-                docs = _read_destination_skill_docs(workspace, destination, section)
+                docs = destination.get_direct_access_docs(section=section)
             except AirbyteError as error:
                 message = _agents_access_message(error)
                 if message is None:
@@ -1579,7 +1592,9 @@ def read_agent_skill_docs(
                 )
             return _skill_docs_result(docs)
     try:
-        docs = workspace.read_skill_docs(skill_id, section=section)
+        docs = workspace._get_skill(skill_id).read_docs(  # noqa: SLF001
+            section=section, format="blocks"
+        )
     except AirbyteError as error:
         if _is_not_found(error):
             return _destination_skill_docs_fallback(

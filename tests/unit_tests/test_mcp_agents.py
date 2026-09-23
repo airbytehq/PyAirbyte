@@ -8,9 +8,7 @@ from collections.abc import Callable
 from typing import Any, cast, get_args
 
 import pytest
-import requests
 from airbyte.agents.models import (
-    AgentConnectorDetails,
     AgentConnectorMetadata,
     AgentExecuteResult,
     AgentExecutionMetadata,
@@ -18,9 +16,14 @@ from airbyte.agents.models import (
     AgentSkillInfo,
     AgentSkillSection,
 )
-from airbyte.cloud.models import (
+from airbyte._direct_connectors.connector_docs import destination_skill_id
+from airbyte._direct_connectors.docs_markdown import render_docs_content_markdown
+from airbyte._direct_connectors.models import (
     BIGQUERY_DESTINATION_DEFINITION_ID,
     SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    SQL_PASSTHROUGH_DESTINATION_NAMES,
+    CloudConnectorDetails,
+    CloudConnectorDocs,
 )
 from airbyte.cloud.client import CloudClient
 from airbyte.constants import (
@@ -150,6 +153,14 @@ class _RaisingWorkspace:
         raise self._error
 
     def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def _list_skills(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        """Raise the configured error."""
+        raise self._error
+
+    def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         """Raise the configured error."""
         raise self._error
 
@@ -456,28 +467,35 @@ def test_inspect_tool_reports_connector_details(
 ) -> None:
     """Verify `inspect_agent_connector` surfaces connector metadata, docs, and warnings."""
 
-    class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
+    class _DescribableConnector:
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return CloudConnectorDetails(
                 connector_id="connector-id",
-                name="GitHub",
-                workspace_id="workspace-id",
+                connector_type="source",
+                connector_name="GitHub",
+                connector_url="",
+                connector_definition_id="definition-id",
                 integration_name="GitHub",
+                external_access_enabled=True,
+                search_indexing_enabled=False,
                 docs_skill_id="connector:github",
+                direct_access_docs=CloudConnectorDocs(
+                    skill_id="connector:github",
+                    content="",
+                ),
                 warnings=["Context Store is still syncing."],
             )
 
-    class _InspectableWorkspace:
-        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _InspectableConnector()
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return AgentSkillDocs(metadata=AgentSkillInfo(id="connector:github"))
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _DescribableConnector()
 
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
 
     result = agents_mcp.inspect_agent_connector(
@@ -498,34 +516,47 @@ def _inspect_workspace_with_docs(
     docs: AgentSkillDocs | None,
     docs_skill_id: str | None = "connector:github",
 ) -> Any:  # noqa: ANN401
-    """Stub a workspace whose connector inspects cleanly and docs read as configured."""
+    """Stub a workspace whose connector describes cleanly and docs read as configured."""
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
-    class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
+    class _DescribableConnector:
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            warnings = ["Context Store is still syncing."]
+            direct_docs = None
+            if docs_skill_id:
+                calls.append(((docs_skill_id,), {}))
+                if docs is None:
+                    warnings.append("Connector docs are unavailable: Skill docs failed")
+                else:
+                    direct_docs = CloudConnectorDocs(
+                        skill_id=docs.metadata.id,
+                        title=docs.metadata.title,
+                        content=render_docs_content_markdown(docs.content),
+                        outline=docs.outline,
+                    )
+            return CloudConnectorDetails(
                 connector_id="connector-id",
-                name="GitHub",
+                connector_type="source",
+                connector_name="GitHub",
+                connector_url="",
+                connector_definition_id="definition-id",
+                external_access_enabled=True,
+                search_indexing_enabled=False,
                 docs_skill_id=docs_skill_id,
-                warnings=["Context Store is still syncing."],
+                direct_access_docs=direct_docs,
+                warnings=warnings,
             )
 
-    class _InspectableWorkspace:
-        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _InspectableConnector()
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            calls.append((args, kwargs))
-            if docs is None:
-                raise AirbyteError(
-                    message="Skill docs failed", context={"status_code": 500}
-                )
-            return docs
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _DescribableConnector()
 
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
     return calls
 
@@ -593,25 +624,32 @@ def test_inspect_tool_skips_docs_read_without_docs_skill_id(
 ) -> None:
     """No `docs_skill_id` means no docs read and no extra warning."""
 
-    class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
+    class _DescribableConnector:
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return CloudConnectorDetails(
                 connector_id="connector-id",
-                name="GitHub",
+                connector_type="source",
+                connector_name="GitHub",
+                connector_url="",
+                connector_definition_id="definition-id",
+                external_access_enabled=True,
+                search_indexing_enabled=False,
                 docs_skill_id=None,
             )
 
-    class _InspectableWorkspace:
-        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _InspectableConnector()
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _DescribableConnector()
+
+        def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             raise AssertionError("must not run")
 
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
 
     result = _inspect_connector_result()
@@ -668,25 +706,33 @@ def test_inspect_tool_warns_when_docs_read_times_out(
 ) -> None:
     """A transport error reading docs degrades to a `docs` message plus a warning."""
 
-    class _InspectableConnector:
-        def inspect(self) -> AgentConnectorDetails:
-            return AgentConnectorDetails(
+    class _DescribableConnector:
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return CloudConnectorDetails(
                 connector_id="connector-id",
-                name="GitHub",
+                connector_type="source",
+                connector_name="GitHub",
+                connector_url="",
+                connector_definition_id="definition-id",
+                external_access_enabled=True,
+                search_indexing_enabled=False,
                 docs_skill_id="connector:github",
+                warnings=["Connector docs are unavailable: docs timed out"],
             )
 
-    class _InspectableWorkspace:
-        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return _InspectableConnector()
+    class _DescribableWorkspace:
+        workspace_id = "workspace-id"
 
-        def read_skill_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            raise requests.exceptions.Timeout("docs timed out")
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _DescribableConnector()
+
+        def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise AssertionError("must not run")
 
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
-        lambda *args, **kwargs: _InspectableWorkspace(),  # noqa: ARG005
+        "_get_cloud_workspace",
+        lambda *args, **kwargs: _DescribableWorkspace(),  # noqa: ARG005
     )
 
     result = _inspect_connector_result()
@@ -1041,7 +1087,7 @@ _ACCESS_FAILURE_CASES = [
         id="execute",
     ),
     pytest.param(
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         _RaisingWorkspace,
         lambda: agents_mcp.list_agent_skills(
             ctx=cast(Context, object()),
@@ -1051,7 +1097,7 @@ _ACCESS_FAILURE_CASES = [
         id="list_skills",
     ),
     pytest.param(
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         _RaisingWorkspace,
         lambda: agents_mcp.read_agent_skill_docs(
             ctx=cast(Context, object()),
@@ -1063,7 +1109,7 @@ _ACCESS_FAILURE_CASES = [
         id="read_skill_docs",
     ),
     pytest.param(
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         _RaisingWorkspace,
         lambda: agents_mcp.inspect_agent_connector(
             ctx=cast(Context, object()),
@@ -1356,8 +1402,32 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
         def __init__(self, info: AgentSkillInfo) -> None:
             self.info = info
 
+    class _SkillDocsSkill:
+        def __init__(self, skill_id: str) -> None:
+            self._skill_id = skill_id
+
+        def read_docs(
+            self,
+            *,
+            section: str | None = None,
+            format: str = "blocks",
+        ) -> AgentSkillDocs:
+            return AgentSkillDocs(
+                metadata=AgentSkillInfo(
+                    id=self._skill_id,
+                    title="GitHub",
+                    warnings=["Partial runtime metadata."],
+                ),
+                outline=[
+                    AgentSkillSection(id="setup", title="Setup", available=True),
+                    AgentSkillSection(id="faq", title="FAQ", available=False),
+                ],
+                section_id=section,
+                content=[{"type": "paragraph", "text": "Hello"}],
+            )
+
     class _SkilledWorkspace:
-        def list_skills(self) -> list[Any]:
+        def _list_skills(self) -> list[Any]:
             # Two skills spanning two pages; pagination is internal to the workspace.
             return [
                 _SkillLike(
@@ -1372,29 +1442,12 @@ def test_skills_tools_shape_results(monkeypatch: pytest.MonkeyPatch) -> None:
                 _SkillLike(AgentSkillInfo(id="context-store", title="Context Store")),
             ]
 
-        def read_skill_docs(
-            self,
-            skill_id: str,
-            *,
-            section: str | None = None,
-        ) -> AgentSkillDocs:
-            return AgentSkillDocs(
-                metadata=AgentSkillInfo(
-                    id=skill_id,
-                    title="GitHub",
-                    warnings=["Partial runtime metadata."],
-                ),
-                outline=[
-                    AgentSkillSection(id="setup", title="Setup", available=True),
-                    AgentSkillSection(id="faq", title="FAQ", available=False),
-                ],
-                section_id=section,
-                content=[{"type": "paragraph", "text": "Hello"}],
-            )
+        def _get_skill(self, skill_id: str) -> Any:  # noqa: ANN401
+            return _SkillDocsSkill(skill_id)
 
     monkeypatch.setattr(
         agents_mcp,
-        "_get_agent_workspace",
+        "_get_cloud_workspace",
         lambda ctx, workspace_id=None: _SkilledWorkspace(),  # noqa: ARG005
     )
 
@@ -1642,6 +1695,14 @@ class _FakeDestinationForDocs:
             raise self._connections_error
         return list(self._connections)
 
+    def get_direct_access_docs(self, *, section: str | None = None) -> Any:
+        """Mirror `CloudConnector.get_direct_access_docs` over the patched workspace."""
+        return agents_mcp._read_destination_skill_docs(  # noqa: SLF001
+            agents_mcp._get_agent_workspace(None, "workspace-1"),  # noqa: SLF001
+            self,
+            section,
+        )
+
 
 class _FakeConnectionForDocs:
     """Stand-in for `CloudConnection` in the skill-docs fallback tests."""
@@ -1682,6 +1743,13 @@ def _patch_destination_404(
         def inspect(self) -> Any:
             raise not_found
 
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise not_found
+
+    class _NotFoundSkill:
+        def read_docs(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise not_found
+
     class _NotFoundWorkspace:
         workspace_id = "workspace-1"
         organization_id = "org-1"
@@ -1693,8 +1761,16 @@ def _patch_destination_404(
             raise not_found
 
     class _CloudWorkspaceWithDestinations:
+        workspace_id = "workspace-1"
+
         def __init__(self) -> None:
             self.list_destinations_calls = 0
+
+        def get_connector(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _NotFoundConnector()
+
+        def _get_skill(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return _NotFoundSkill()
 
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1
@@ -1731,6 +1807,42 @@ def _patch_destination_server_docs(
         def inspect(self) -> Any:
             raise not_found
 
+        def describe(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            raise not_found
+
+    class _DescribableConnector:
+        """Wraps a `_FakeDestinationForDocs` as `CloudConnector.describe` would return."""
+
+        def __init__(self, destination: _FakeDestinationForDocs) -> None:
+            self._destination = destination
+
+        def describe(
+            self, *, with_direct_access_docs: bool = False, **kwargs: Any
+        ) -> Any:  # noqa: ANN401
+            direct_docs = None
+            if with_direct_access_docs:
+                docs = self._destination.get_direct_access_docs()
+                direct_docs = CloudConnectorDocs(
+                    skill_id=docs.metadata.id,
+                    title=docs.metadata.title,
+                    content=render_docs_content_markdown(docs.content),
+                    outline=docs.outline,
+                )
+            return CloudConnectorDetails(
+                connector_id=self._destination.connector_id,
+                connector_type="destination",
+                connector_name=self._destination.name,
+                connector_url="",
+                connector_definition_id=self._destination.definition_id,
+                integration_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(
+                    self._destination.definition_id
+                ),
+                external_access_enabled=False,
+                search_indexing_enabled=False,
+                docs_skill_id=destination_skill_id(self._destination.connector_id),
+                direct_access_docs=direct_docs,
+            )
+
     class _DocsWorkspace:
         workspace_id = "workspace-1"
         organization_id = "org-1"
@@ -1746,9 +1858,43 @@ def _patch_destination_server_docs(
             calls.append((skill_id, section))
             return server_docs.model_copy(update={"section_id": section})
 
+    class _ServerDocsSkill:
+        def __init__(self, skill_id: str) -> None:
+            self._skill_id = skill_id
+
+        def read_docs(
+            self,
+            *,
+            section: str | None = None,
+            format: str = "blocks",
+        ) -> AgentSkillDocs:
+            calls.append((self._skill_id, section))
+            return server_docs.model_copy(update={"section_id": section})
+
     class _CloudWorkspaceWithDestinations:
+        workspace_id = "workspace-1"
+
         def __init__(self) -> None:
             self.list_destinations_calls = 0
+
+        def get_connector(
+            self, *args: Any, connector_id: str | None = None, **kwargs: Any
+        ) -> Any:  # noqa: ANN401
+            target = connector_id or (args[0] if args else None)
+            match = next(
+                (
+                    destination
+                    for destination in destinations
+                    if destination.connector_id == target
+                ),
+                None,
+            )
+            if match is None:
+                return _NotFoundConnector()
+            return _DescribableConnector(match)
+
+        def _get_skill(self, skill_id: str) -> Any:  # noqa: ANN401
+            return _ServerDocsSkill(skill_id)
 
         def list_destinations(self) -> list[Any]:
             self.list_destinations_calls += 1

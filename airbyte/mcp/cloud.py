@@ -30,6 +30,7 @@ from airbyte.cloud.connectors import (
 )
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
+    CloudConnectorDetails,
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
@@ -192,32 +193,6 @@ class CloudConnectionResult(BaseModel):
     currently_running_job_start_time: str | None = None
     """ISO 8601 timestamp of when the currently running sync started.
     Only populated when with_connection_status=True."""
-
-
-class CloudSourceDetails(BaseModel):
-    """Detailed information about a deployed source connector in Airbyte Cloud."""
-
-    source_id: str
-    """The source ID."""
-    source_name: str
-    """Display name of the source."""
-    source_url: str
-    """Web URL for managing this source in Airbyte Cloud."""
-    connector_definition_id: str
-    """The connector definition ID (e.g., the ID for 'source-postgres')."""
-
-
-class CloudDestinationDetails(BaseModel):
-    """Detailed information about a deployed destination connector in Airbyte Cloud."""
-
-    destination_id: str
-    """The destination ID."""
-    destination_name: str
-    """Display name of the destination."""
-    destination_url: str
-    """Web URL for managing this destination in Airbyte Cloud."""
-    connector_definition_id: str
-    """The connector definition ID (e.g., the ID for 'destination-snowflake')."""
 
 
 class CloudConnectionDetails(BaseModel):
@@ -1133,6 +1108,76 @@ def list_deployed_cloud_destination_connectors(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
+def describe_cloud_connector(
+    ctx: Context,
+    connector_id: Annotated[
+        str,
+        Field(
+            description=(
+                "The ID of the deployed connector to describe. Works for both sources "
+                "and destinations; the kind is resolved automatically."
+            ),
+        ),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+    with_config: Annotated[
+        bool,
+        Field(
+            description="Include the connector definition name and configuration "
+            "(secrets are redacted by the Cloud API).",
+            default=False,
+        ),
+    ],
+    with_replication_details: Annotated[
+        bool,
+        Field(
+            description="Include the connections that read from or write to this " "connector.",
+            default=False,
+        ),
+    ],
+    with_direct_access_docs: Annotated[
+        bool,
+        Field(
+            description="Include the connector's direct-access usage docs rendered " "as Markdown.",
+            default=False,
+        ),
+    ],
+    with_data_replication_docs: Annotated[
+        bool,
+        Field(
+            description="Include links to the connector's upstream API documentation.",
+            default=False,
+        ),
+    ],
+) -> CloudConnectorDetails:
+    """Get detailed information about a deployed source or destination connector.
+
+    Always returns identity fields and enabled features. The `with_*` toggles add the
+    connector's configuration, its connections, its direct-access docs, and links to
+    its upstream API documentation.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    return workspace.get_connector(connector_id=connector_id).describe(
+        with_config=with_config,
+        with_replication_details=with_replication_details,
+        with_direct_access_docs=with_direct_access_docs,
+        with_data_replication_docs=with_data_replication_docs,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
 def describe_cloud_source(
     ctx: Context,
     source_id: Annotated[
@@ -1147,18 +1192,43 @@ def describe_cloud_source(
             default=None,
         ),
     ],
-) -> CloudSourceDetails:
+    with_config: Annotated[
+        bool,
+        Field(
+            description="Include the connector definition name and configuration "
+            "(secrets are redacted by the Cloud API).",
+            default=False,
+        ),
+    ],
+    with_replication_details: Annotated[
+        bool,
+        Field(
+            description="Include the connections that read from this source.",
+            default=False,
+        ),
+    ],
+    with_direct_access_docs: Annotated[
+        bool,
+        Field(
+            description="Include the source's direct-access usage docs rendered " "as Markdown.",
+            default=False,
+        ),
+    ],
+    with_data_replication_docs: Annotated[
+        bool,
+        Field(
+            description="Include links to the source's upstream API documentation.",
+            default=False,
+        ),
+    ],
+) -> CloudConnectorDetails:
     """Get detailed information about a specific deployed source connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    source = workspace.get_source(source_id=source_id)
-
-    source_name = cast(str, source.name)
-
-    return CloudSourceDetails(
-        source_id=source.source_id,
-        source_name=source_name,
-        source_url=source.connector_url,
-        connector_definition_id=source.definition_id,
+    return workspace.get_source(source_id=source_id).describe(
+        with_config=with_config,
+        with_replication_details=with_replication_details,
+        with_direct_access_docs=with_direct_access_docs,
+        with_data_replication_docs=with_data_replication_docs,
     )
 
 
@@ -1182,18 +1252,44 @@ def describe_cloud_destination(
             default=None,
         ),
     ],
-) -> CloudDestinationDetails:
+    with_config: Annotated[
+        bool,
+        Field(
+            description="Include the connector definition name and configuration "
+            "(secrets are redacted by the Cloud API).",
+            default=False,
+        ),
+    ],
+    with_replication_details: Annotated[
+        bool,
+        Field(
+            description="Include the connections that write to this destination.",
+            default=False,
+        ),
+    ],
+    with_direct_access_docs: Annotated[
+        bool,
+        Field(
+            description="Include the destination's direct-access usage docs rendered "
+            "as Markdown.",
+            default=False,
+        ),
+    ],
+    with_data_replication_docs: Annotated[
+        bool,
+        Field(
+            description="Include links to the destination's upstream API documentation.",
+            default=False,
+        ),
+    ],
+) -> CloudConnectorDetails:
     """Get detailed information about a specific deployed destination connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destination = workspace.get_destination(destination_id=destination_id)
-
-    destination_name = cast(str, destination.name)
-
-    return CloudDestinationDetails(
-        destination_id=destination.destination_id,
-        destination_name=destination_name,
-        destination_url=destination.connector_url,
-        connector_definition_id=destination.definition_id,
+    return workspace.get_destination(destination_id=destination_id).describe(
+        with_config=with_config,
+        with_replication_details=with_replication_details,
+        with_direct_access_docs=with_direct_access_docs,
+        with_data_replication_docs=with_data_replication_docs,
     )
 
 
