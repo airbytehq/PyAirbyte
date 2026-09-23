@@ -207,7 +207,7 @@ def build_direct_access_sql_guidance(
         title=f"{destination.name} (SQL passthrough destination)",
         summary=(
             f"Docs for querying the `{destination.name}` destination with "
-            "`execute_agent_connector_ro` and action `sql_select`."
+            "`execute_external_sql_query`."
         ),
         tags=["destination", "sql_select"],
     )
@@ -311,11 +311,10 @@ def _sql_select_call(destination: _DestinationLike, dialect: str, sql: str) -> d
         "type": "code",
         "language": "python",
         "code": (
-            "execute_agent_connector_ro(\n"
+            "execute_external_sql_query(\n"
             f'    connector_id="{destination.connector_id}",\n'
-            '    entity_type="tables",\n'
-            '    action="sql_select",\n'
-            f'    api_args={{"sql": "{sql}", "sql_dialect": "{dialect}"}},\n'
+            f'    sql="{sql}",\n'
+            f'    sql_dialect="{dialect}",\n'
             ")"
         ),
     }
@@ -351,9 +350,9 @@ def _overview(
             "type": "paragraph",
             "text": (
                 f"`{destination.name}` is an Airbyte Cloud {engine} destination. Query it with "
-                '`execute_agent_connector_ro` (`action="sql_select"`): one read-only `SELECT` '
-                f'(or `WITH`) statement per call, `"sql_dialect": "{dialect}"` in `api_args`, '
-                "rows returned as JSON. Start by listing its tables:"
+                "`execute_external_sql_query`: one read-only `SELECT` (or `WITH`) "
+                f"statement per call, `sql_dialect` `{dialect}`, rows returned as JSON. "
+                "Start by listing its tables:"
             ),
         },
         _sql_select_call(destination, dialect, "SHOW TABLES"),
@@ -373,14 +372,13 @@ def _overview(
             "items": [
                 *_DIALECT_NOTES[dialect],
                 (
-                    "Discover columns without reading rows: send `SELECT * FROM <table> "
-                    'LIMIT 1` with `"dry_run": true` in `api_args`; only the column list is '
-                    "returned. Do not guess column names: run the dry-run step first and "
-                    "select only columns it returns."
+                    "Do not guess column names: run `SELECT * FROM <table> LIMIT 1` to see "
+                    "column names before selecting."
                 ),
                 (
-                    "Results are capped by the server; when a response includes `end_cursor`, "
-                    "pass it back as the top-level `cursor` argument to fetch the next page. "
+                    "Results are capped by the server; the tool's `page_size` argument "
+                    "limits rows per page, and when a response includes `end_cursor`, pass "
+                    "it back as the tool's `cursor` argument to fetch the next page. "
                     "Always add a `LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no "
                     "`LIMIT`)."
                 ),
@@ -402,9 +400,8 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
             "type": "paragraph",
             "text": (
                 "This destination accepts one read-only SQL statement per call via "
-                '`execute_agent_connector_ro` with `action="sql_select"` and `api_args` '
-                f'containing `"sql"` and `"sql_dialect": "{dialect}"` (`entity_type` is '
-                "ignored; any value works). Only `SELECT`/`WITH` statements and the literal "
+                "`execute_external_sql_query` with `sql` and `sql_dialect` "
+                f"(`{dialect}`) arguments. Only `SELECT`/`WITH` statements and the literal "
                 f"`SHOW TABLES` are accepted; anything else is rejected before reaching {engine}. "
                 "Results are returned as JSON rows."
             ),
@@ -422,26 +419,11 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
         {
             "type": "paragraph",
             "text": (
-                "Discover columns without reading rows (`dry_run`). Do not guess column names: "
-                "run the dry-run step first and select only columns it returns:"
+                "Do not guess column names: run `SELECT * FROM <table> LIMIT 1` to see "
+                "column names before selecting:"
             ),
         },
-        {
-            "type": "code",
-            "language": "python",
-            "code": (
-                "execute_agent_connector_ro(\n"
-                f'    connector_id="{destination.connector_id}",\n'
-                '    entity_type="tables",\n'
-                '    action="sql_select",\n'
-                "    api_args={\n"
-                '        "sql": "SELECT * FROM <table> LIMIT 1",\n'
-                f'        "sql_dialect": "{dialect}",\n'
-                '        "dry_run": True,\n'
-                "    },\n"
-                ")"
-            ),
-        },
+        _sql_select_call(destination, dialect, "SELECT * FROM <table> LIMIT 1"),
         {"type": "paragraph", "text": "Read rows from a table:"},
         {
             "type": "code",
@@ -455,9 +437,10 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
             "type": "list",
             "items": [
                 (
-                    "Row count and response size are capped by the server. When a response "
-                    "includes `end_cursor`, pass it back as the top-level `cursor` argument "
-                    "to fetch the next page (`dry_run` cannot be combined with `cursor`)."
+                    "Row count and response size are capped by the server; the tool's "
+                    "`page_size` argument limits rows per page. When a response includes "
+                    "`end_cursor`, pass it back as the tool's `cursor` argument to fetch "
+                    "the next page."
                 ),
                 (
                     "Always add a `LIMIT` clause to `SELECT` queries and select only the "
