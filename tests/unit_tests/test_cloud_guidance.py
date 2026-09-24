@@ -142,15 +142,15 @@ def test_get_agent_skill_docs_passes_section(
     assert calls[0]["section"] == "setup"
 
 
-def test_get_agent_skill_docs_destination_prefix_served_locally(
+def test_get_agent_skill_docs_destination_prefix_delegates_raw_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`connector-destination:` IDs resolve locally through `get_destination`."""
+    """`connector-destination:` IDs read server docs unchanged, no enrichment."""
     workspace = _make_workspace(monkeypatch)
     destination = MagicMock()
-    destination.get_direct_access_guidance.return_value = SKILL_DOCS_RESPONSE[
-        "metadata"
-    ] and DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    destination.read_agent_skill_docs.return_value = (
+        DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    )
     calls: list[str] = []
     monkeypatch.setattr(
         CloudWorkspace,
@@ -166,12 +166,32 @@ def test_get_agent_skill_docs_destination_prefix_served_locally(
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
 
     docs = workspace.get_agent_skill_docs(
-        "connector-destination:destination-1", section="sql"
+        "connector-destination:destination-1", section="streams"
     )
 
     assert calls == ["destination-1"]
-    destination.get_direct_access_guidance.assert_called_once_with(section="sql")
-    assert docs.metadata.id == "connector:github"
+    destination.read_agent_skill_docs.assert_called_once_with(section="streams")
+    assert docs.content == SKILL_DOCS_RESPONSE["content"]
+    assert [section.id for section in docs.outline] == ["setup"]
+
+
+def test_get_agent_skill_docs_destination_errors_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A not-enabled destination read re-raises instead of falling back."""
+    workspace = _make_workspace(monkeypatch)
+    destination = MagicMock()
+    destination.read_agent_skill_docs.side_effect = (
+        exc.AirbyteExternalAccessNotEnabledError(connector_id="destination-1")
+    )
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_destination",
+        lambda _self, _destination_id: destination,
+    )
+
+    with pytest.raises(exc.AirbyteExternalAccessNotEnabledError):
+        workspace.get_agent_skill_docs("connector-destination:destination-1")
 
 
 def test_get_agent_skill_docs_connector_id_delegates(
@@ -180,8 +200,8 @@ def test_get_agent_skill_docs_connector_id_delegates(
     """`connector_id` resolves through `get_connector` and forwards `section`."""
     workspace = _make_workspace(monkeypatch)
     connector = MagicMock()
-    connector.get_direct_access_guidance.return_value = (
-        DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    connector.read_agent_skill_docs.return_value = DirectAccessGuidance.model_validate(
+        SKILL_DOCS_RESPONSE
     )
     get_connector = MagicMock(return_value=connector)
     monkeypatch.setattr(CloudWorkspace, "get_connector", get_connector)
@@ -189,7 +209,7 @@ def test_get_agent_skill_docs_connector_id_delegates(
     docs = workspace.get_agent_skill_docs(connector_id="connector-1", section="setup")
 
     get_connector.assert_called_once_with("connector-1")
-    connector.get_direct_access_guidance.assert_called_once_with(section="setup")
+    connector.read_agent_skill_docs.assert_called_once_with(section="setup")
     assert docs.metadata.id == "connector:github"
 
 

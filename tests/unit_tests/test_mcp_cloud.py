@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 from airbyte import Destination, Source
+from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
     DirectAccessGuidance,
@@ -20,6 +21,7 @@ from airbyte._direct_connectors.models import (
     DirectAccessGuidanceSection,
     ExternalApiExecuteResult,
     ExternalApiWriteAction,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
@@ -1641,6 +1643,34 @@ def test_describe_helper_with_direct_access_guidance() -> None:
     assert result.direct_access_guidance.skill_id == "connector:github"
     assert result.direct_access_guidance.title == "GitHub"
     assert "Use it." in result.direct_access_guidance.content
+
+
+def test_describe_helper_fallback_guidance_names_no_tools() -> None:
+    """The structure-only fallback docs never mention Airbyte SQL tool calls."""
+    snowflake_definition_id = next(
+        definition_id
+        for definition_id, dialect in _SQL_PASSTHROUGH_DESTINATION_DIALECTS.items()
+        if dialect == "snowflake"
+    )
+    destination = SimpleNamespace(
+        connector_id="dest-1",
+        name="Warehouse",
+        definition_id=snowflake_definition_id,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+        workspace=SimpleNamespace(list_connections=lambda: []),
+    )
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+    connector.guidance = connector_docs.build_direct_access_sql_guidance(
+        destination,
+        sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+    )
+
+    result = _describe(connector, with_direct_access_guidance=True)
+
+    assert result.direct_access_guidance is not None
+    assert "execute_external_sql_query" not in result.direct_access_guidance.content
+    assert "SHOW TABLES" not in result.direct_access_guidance.content
+    assert "sql_select" not in result.direct_access_guidance.content
 
 
 @pytest.mark.parametrize(

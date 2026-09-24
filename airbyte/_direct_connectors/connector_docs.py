@@ -1,10 +1,24 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Built-in docs for SQL passthrough destinations.
+"""Docs helpers for SQL passthrough destinations (Snowflake, BigQuery).
 
-This module always builds `_DirectConnectorInspectResult`/`DirectAccessGuidance`
-payloads locally from the Cloud workspace objects, merges them into server-served
-destination docs when the destination is enrolled for direct access, and summarizes
-the connections touching a connector for the `describe_cloud_*` MCP tools.
+Three paths serve destination docs:
+
+- The "skills get" path (`CloudWorkspace.get_agent_skill_docs`) reads destination
+  skill docs straight from the Agents API through
+  `CloudConnector.read_agent_skill_docs`, with no local enrichment.
+- The enrichment path (`CloudConnector.get_direct_access_guidance` +
+  `merge_destination_skill_docs`) prepends a short local intro -- location,
+  table naming, and dialect notes -- to the server-served destination docs
+  overview.
+- The fallback path (`build_direct_access_sql_guidance`) serves a single
+  structure-only doc -- location, table naming, connections, and streams --
+  when the destination is not enrolled for direct access (403/404) or the
+  deployment has no Context layer API. Fallback docs never reference Airbyte
+  SQL tools.
+
+This module also builds `_DirectConnectorInspectResult` payloads locally from the
+Cloud workspace objects and summarizes the connections touching a connector for
+the `describe_cloud_*` MCP tools.
 """
 
 from __future__ import annotations
@@ -19,14 +33,12 @@ from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
-    DirectAccessGuidanceSection,
     _ConnectionLike,
     _ConnectorLike,
     _DestinationLike,
     _DirectConnectorInspectResult,
     _WorkspaceLike,
 )
-from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -42,30 +54,17 @@ _DESTINATION_LOAD_CONTEXT_KEYS: Mapping[str, tuple[str, str]] = {
 DESTINATION_SKILL_PREFIX = "connector-destination:"
 SOURCE_SKILL_PREFIX = "connector-source:"
 
-SECTION_SQL_PASSTHROUGH = "sql-passthrough"
-SECTION_CONNECTIONS = "connections"
-SECTION_STREAMS = "streams"
-
-_SECTION_TITLES: Mapping[str, str] = {
-    SECTION_SQL_PASSTHROUGH: "Query the destination with sql_select",
-    SECTION_CONNECTIONS: "Connections syncing into this destination",
-    SECTION_STREAMS: "Streams enabled per connection",
-}
-
-LOCAL_DESTINATION_SECTION_IDS = frozenset(_SECTION_TITLES)
-"""Section IDs PyAirbyte builds locally; these never hit the Agents API."""
-
 SQL_PASSTHROUGH_NOT_ENABLED_NOTICE = (
-    "Airbyte SQL passthrough via `execute_external_sql_query` is not enabled for this "
-    "destination, so the tool calls below will be rejected. The table, schema, and "
-    "naming guidance still applies if you have your own SQL access to the warehouse."
+    "Airbyte SQL passthrough is not enabled for this destination, so it cannot be "
+    "queried through Airbyte tools. The table, schema, and naming guidance below "
+    "still applies if you or your user have your own SQL access to the warehouse."
 )
 """Notice prepended to SQL guidance when the destination is not enrolled."""
 
 SQL_PASSTHROUGH_UNAVAILABLE_NOTICE = (
-    "Airbyte SQL passthrough via `execute_external_sql_query` is not available in this "
-    "deployment, so the tool calls below will be rejected. The table, schema, and "
-    "naming guidance still applies if you have your own SQL access to the warehouse."
+    "Airbyte SQL passthrough is not available in this deployment, so it cannot be "
+    "queried through Airbyte tools. The table, schema, and naming guidance below "
+    "still applies if you or your user have your own SQL access to the warehouse."
 )
 """Notice prepended to SQL guidance when the deployment has no Context layer API."""
 
@@ -87,19 +86,18 @@ _DIALECT_NOTES: Mapping[str, list[str]] = {
             "destination settings Airbyte writes upper-cased table AND column names, so stream "
             "`users` is table `USERS` and field `primaryUserId` is column `PRIMARYUSERID`; "
             "connections using the legacy case-preserving raw-table mode keep the original "
-            "case. Confirm names with `SHOW TABLES`."
+            "case."
         ),
         (
             "Prefer unquoted identifiers: double-quoting makes them case-sensitive, so "
             '`SELECT "id"` fails with `invalid identifier` against column `ID`. Quote a name '
-            "exactly as returned by `SHOW TABLES` or the dry run only when it is mixed or lower "
-            "case (legacy raw-table mode), contains spaces or special characters, or is a "
-            "reserved word."
+            "only when it is mixed or lower case (legacy raw-table mode), contains spaces or "
+            "special characters, or is a reserved word."
         ),
         "Qualify tables in another schema as `<database>.<schema>.<table>`.",
         (
-            "Avoid `INFORMATION_SCHEMA` scans: on large accounts they can exceed the query "
-            "time budget. `SHOW TABLES` is served from metadata and returns quickly."
+            "Avoid `INFORMATION_SCHEMA` scans on large accounts; they can exceed the query "
+            "time budget."
         ),
     ],
     "bigquery": [
@@ -108,6 +106,7 @@ _DIALECT_NOTES: Mapping[str, list[str]] = {
         "Use Standard SQL; legacy SQL is not accepted.",
     ],
 }
+"""Per-engine naming and dialect rules, written without any tool references."""
 
 _AIRBYTE_METADATA_COLUMNS = (
     "Every Airbyte-written table also carries `_airbyte_raw_id`, `_airbyte_extracted_at` "
@@ -205,14 +204,15 @@ def _destination_connections(destination: _DestinationLike) -> list[_ConnectionL
 def build_direct_access_sql_guidance(
     destination: _DestinationLike,
     *,
-    section: str | None = None,
     sql_passthrough_notice: str | None = None,
 ) -> DirectAccessGuidance:
-    """Build `DirectAccessGuidance` for a SQL passthrough destination.
+    """Build a structure-only `DirectAccessGuidance` for a SQL passthrough destination.
 
-    When `sql_passthrough_notice` is set, it is prepended to the overview and
-    `sql-passthrough` content and returned in `warnings`, so callers see that the
-    documented tool calls would be rejected.
+    Used when the destination's skill docs cannot be read from the Agents API
+    (not enrolled, or no Context layer API). The doc covers table layout, naming,
+    and the connections syncing in; it never references Airbyte SQL tools. When
+    `sql_passthrough_notice` is set, it leads the content and is returned in
+    `warnings`.
     """
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
@@ -220,137 +220,69 @@ def build_direct_access_sql_guidance(
         id=skill_id,
         kind="connector_destination",
         title=f"{destination.name} (SQL passthrough destination)",
-        summary=(
-            f"Docs for querying the `{destination.name}` destination with "
-            "`execute_external_sql_query`."
-        ),
-        tags=["destination", "sql_select"],
+        summary=f"Table layout and naming for the `{destination.name}` destination.",
+        tags=["destination"],
     )
-    outline = _local_outline()
-    notice: list[dict[str, Any]] = (
-        [{"type": "paragraph", "text": sql_passthrough_notice}] if sql_passthrough_notice else []
+    connections = _destination_connections(destination)
+    content: list[dict[str, Any]] = []
+    if sql_passthrough_notice:
+        content.append({"type": "paragraph", "text": sql_passthrough_notice})
+    content += _destination_layout_blocks(
+        destination=destination,
+        dialect=dialect,
+        load_context=_destination_load_context(destination),
     )
-    warnings = [sql_passthrough_notice] if sql_passthrough_notice else []
-
-    if section is None:
-        connections = _destination_connections(destination)
-        content = _overview(
-            destination=destination,
-            dialect=dialect,
-            load_context=_destination_load_context(destination),
-        )
-        content += _connections_section(
-            destination=destination,
-            connections=connections,
-        )
-        content += _streams_section(
-            connections=connections,
-            destination=destination,
-            dialect=dialect,
-        )
-        return DirectAccessGuidance(
-            metadata=metadata,
-            outline=outline,
-            section_id=None,
-            content=[*notice, *content],
-            warnings=warnings,
-        )
-
-    if section == SECTION_SQL_PASSTHROUGH:
-        content = [
-            *notice,
-            *_sql_passthrough_section(
-                destination=destination,
-                dialect=dialect,
-            ),
-        ]
-    elif section == SECTION_CONNECTIONS:
-        content = _connections_section(
-            destination=destination,
-            connections=_destination_connections(destination),
-        )
-    elif section == SECTION_STREAMS:
-        content = _streams_section(
-            connections=_destination_connections(destination),
-            destination=destination,
-            dialect=dialect,
-        )
-    else:
-        raise PyAirbyteInputError(
-            message=f"Unknown section {section!r} for skill {skill_id!r}.",
-            guidance=f"Valid sections: {', '.join(_SECTION_TITLES)}.",
-        )
+    content += [
+        {"type": "paragraph", "text": "Read rows from a table:"},
+        {
+            "type": "code",
+            "language": "sql",
+            "code": _qualified_table_example(destination),
+        },
+    ]
+    content += _connections_section(
+        destination=destination,
+        connections=connections,
+    )
+    content += _streams_section(
+        connections=connections,
+        destination=destination,
+        dialect=dialect,
+    )
     return DirectAccessGuidance(
         metadata=metadata,
-        outline=outline,
-        section_id=section,
+        outline=[],
+        section_id=None,
         content=content,
-        warnings=warnings,
+        warnings=[sql_passthrough_notice] if sql_passthrough_notice else [],
     )
-
-
-def _local_outline() -> list[DirectAccessGuidanceSection]:
-    """Return the outline entries for the locally built destination sections."""
-    return [
-        DirectAccessGuidanceSection(
-            id=section_id,
-            title=title,
-            available=True,
-        )
-        for section_id, title in _SECTION_TITLES.items()
-    ]
 
 
 def merge_destination_skill_docs(
     server_docs: DirectAccessGuidance,
     destination: _DestinationLike,
 ) -> DirectAccessGuidance:
-    """Augment server-provided destination docs with PyAirbyte's SQL guidance.
+    """Prepend PyAirbyte's local table-layout intro to the server's overview content.
 
-    Local sections are appended to the outline (skipping ids the server already
-    provides), and the local overview is prepended to the default (no-section) or
-    `overview` content.
+    Only the default (no-section) or `overview` read is augmented; the server
+    outline and all other section reads pass through unchanged.
     """
+    if server_docs.section_id not in {None, "overview"}:
+        return server_docs
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
-    server_section_ids = {section.id for section in server_docs.outline}
-    outline = [
-        *server_docs.outline,
-        *(section for section in _local_outline() if section.id not in server_section_ids),
-    ]
-    content = server_docs.content
-    if server_docs.section_id in {None, "overview"}:
-        content = (
-            _overview(
-                destination=destination,
-                dialect=dialect,
-                load_context=_destination_load_context(destination),
-            )
-            + content
+    content = (
+        _destination_layout_blocks(
+            destination=destination,
+            dialect=dialect,
+            load_context=_destination_load_context(destination),
         )
-    return server_docs.model_copy(update={"outline": outline, "content": content})
+        + server_docs.content
+    )
+    return server_docs.model_copy(update={"content": content})
 
 
-def _sql_select_call(destination: _DestinationLike, dialect: str, sql: str) -> dict[str, Any]:
-    return {
-        "type": "code",
-        "language": "python",
-        "code": (
-            "execute_external_sql_query(\n"
-            f'    connector_id="{destination.connector_id}",\n'
-            f'    sql="{sql}",\n'
-            f'    sql_dialect="{dialect}",\n'
-            ")"
-        ),
-    }
-
-
-def _overview(
-    destination: _DestinationLike,
-    dialect: str,
-    load_context: _DestinationLoadContext,
-) -> list[dict[str, Any]]:
-    """Self-contained summary for a connector inspect result, without any Cloud lookups."""
-    engine = _ENGINE_NAMES[dialect]
+def _location_sentence(dialect: str, load_context: _DestinationLoadContext) -> str:
+    """Describe where a destination's tables land, without a trailing period."""
     if load_context.database_name is not None or load_context.schema_name is not None:
         location_text = ", ".join(
             f"{label} `{value}`"
@@ -360,124 +292,48 @@ def _overview(
             )
             if value is not None
         )
-        location_sentence = (
-            f"Tables land in {location_text} unless a connection overrides the namespace; "
-            "unqualified table names resolve there."
+        return (
+            f"Tables land in {location_text} unless a connection overrides the "
+            "namespace; unqualified table names resolve there"
         )
-    else:
-        location_sentence = (
-            f"Tables land in the destination's configured {_NAMESPACE_NOUNS[dialect]}, which "
-            "is also where unqualified table names resolve."
-        )
-    return [
-        {
-            "type": "paragraph",
-            "text": (
-                f"`{destination.name}` is an Airbyte Cloud {engine} destination. Query it with "
-                "`execute_external_sql_query`: one read-only `SELECT` (or `WITH`) "
-                f"statement per call, `sql_dialect` `{dialect}`, rows returned as JSON. "
-                "Start by listing its tables:"
-            ),
-        },
-        _sql_select_call(destination, dialect, "SHOW TABLES"),
-        {
-            "type": "paragraph",
-            "text": (
-                "`SHOW TABLES` is the only non-`SELECT` statement accepted; it lists the "
-                f"tables in the destination. {location_sentence} Tables are named after the "
-                "streams of the connections syncing here (`<table_prefix><stream_name>`); "
-                "read the `streams` section of these docs for the exact list per connection. "
-                "The connections and enabled streams below describe what data lands here; "
-                "re-read the `connections` or `streams` section to refresh them."
-            ),
-        },
-        {
-            "type": "list",
-            "items": [
-                *_DIALECT_NOTES[dialect],
-                (
-                    "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
-                    "`dry_run=True` returns the real columns without scanning data."
-                ),
-                (
-                    "Results are capped by the server; the tool's `page_size` argument "
-                    "limits rows per page, and when a response includes `end_cursor`, pass "
-                    "it back as the tool's `cursor` argument to fetch the next page. "
-                    "Always add a `LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no "
-                    "`LIMIT`)."
-                ),
-                (
-                    "Statements are cancelled after a fixed time budget (about a minute) and "
-                    "return an error; narrow the query rather than retrying it unchanged."
-                ),
-                _AIRBYTE_METADATA_COLUMNS,
-            ],
-        },
-    ]
+    return (
+        f"Tables land in the destination's configured {_NAMESPACE_NOUNS[dialect]}, "
+        "which is also where unqualified table names resolve"
+    )
 
 
-def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> list[dict[str, Any]]:
+def _table_naming_sentence(dialect: str) -> str:
+    sentence = "Tables are named `<table_prefix><stream_name>`"
+    if dialect == "snowflake":
+        return (
+            sentence + ", upper-cased unless the connection uses the legacy case-preserving "
+            "raw-table mode."
+        )
+    if dialect == "bigquery":
+        return sentence + "; names are case-sensitive."
+    return sentence + "."
+
+
+def _destination_layout_blocks(
+    destination: _DestinationLike,
+    dialect: str,
+    load_context: _DestinationLoadContext,
+) -> list[dict[str, Any]]:
+    """Intro paragraph plus dialect notes describing the destination's table layout."""
     engine = _ENGINE_NAMES[dialect]
     return [
-        {"type": "heading", "level": 2, "text": "Query the destination with sql_select"},
         {
             "type": "paragraph",
             "text": (
-                "This destination accepts one read-only SQL statement per call via "
-                "`execute_external_sql_query` with `sql` and `sql_dialect` "
-                f"(`{dialect}`) arguments. Only `SELECT`/`WITH` statements and the literal "
-                f"`SHOW TABLES` are accepted; anything else is rejected before reaching {engine}. "
-                "Results are returned as JSON rows."
+                f"`{destination.name}` is an Airbyte Cloud {engine} destination. "
+                f"{_location_sentence(dialect, load_context)}. "
+                f"{_table_naming_sentence(dialect)}"
             ),
         },
-        {"type": "paragraph", "text": "List tables in the destination:"},
-        _sql_select_call(destination, dialect, "SHOW TABLES"),
-        {
-            "type": "paragraph",
-            "text": (
-                "`SHOW TABLES` lists the tables in the destination's configured "
-                f"{_NAMESPACE_NOUNS[dialect]}. Unqualified table names in your own SQL resolve "
-                "to that same namespace."
-            ),
-        },
-        {
-            "type": "paragraph",
-            "text": (
-                "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
-                "`dry_run=True` returns the real columns without scanning data:"
-            ),
-        },
-        _sql_select_call(destination, dialect, "SELECT * FROM <table> LIMIT 1"),
-        {"type": "paragraph", "text": "Read rows from a table:"},
-        {
-            "type": "code",
-            "language": "sql",
-            "code": _qualified_table_example(destination),
-        },
-        {"type": "heading", "level": 3, "text": f"{engine} specifics"},
-        {"type": "list", "items": list(_DIALECT_NOTES[dialect])},
-        {"type": "heading", "level": 3, "text": "Limits and pagination"},
         {
             "type": "list",
-            "items": [
-                (
-                    "Row count and response size are capped by the server; the tool's "
-                    "`page_size` argument limits rows per page. When a response includes "
-                    "`end_cursor`, pass it back as the tool's `cursor` argument to fetch "
-                    "the next page."
-                ),
-                (
-                    "Always add a `LIMIT` clause to `SELECT` queries and select only the "
-                    "columns you need (`SHOW TABLES` takes no `LIMIT`)."
-                ),
-                (
-                    "Statements are cancelled after a fixed time budget (about a minute) and "
-                    "return an error; narrow the query rather than retrying it unchanged."
-                ),
-            ],
+            "items": [*_DIALECT_NOTES[dialect], _AIRBYTE_METADATA_COLUMNS],
         },
-        {"type": "heading", "level": 3, "text": "Airbyte metadata columns"},
-        {"type": "paragraph", "text": _AIRBYTE_METADATA_COLUMNS},
     ]
 
 
@@ -565,10 +421,8 @@ def _streams_section(
             "type": "paragraph",
             "text": (
                 "Each enabled stream is written to a table named `<table_prefix><stream_name>` "
-                f"in the destination's configured {_NAMESPACE_NOUNS[dialect]}. Query these "
-                "names directly (unqualified) with `sql_select`. Names below assume the "
-                "destination's default identifier casing and namespace; confirm with "
-                "`SHOW TABLES`."
+                f"in the destination's configured {_NAMESPACE_NOUNS[dialect]}. Names below "
+                "assume the destination's default identifier casing and namespace."
             ),
         },
     ]
