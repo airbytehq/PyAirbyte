@@ -2168,17 +2168,24 @@ def check_connector(
     """
     _ = workspace_id  # Not used (yet)
 
-    json_result = _make_config_api_request(
-        path=f"/{connector_type}s/check_connection",
-        json={
-            f"{connector_type}Id": actor_id,
-        },
-        api_root=api_root,
-        config_api_root=config_api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
+    try:
+        json_result = _make_config_api_request(
+            path=f"/{connector_type}s/check_connection",
+            json={
+                f"{connector_type}Id": actor_id,
+            },
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteError as ex:
+        # A draft connector with incomplete configuration returns HTTP 422; report it as
+        # a failed check rather than an operational error so a person can finish setup.
+        if (ex.context or {}).get("status_code") == HTTPStatus.UNPROCESSABLE_ENTITY:
+            return False, "Connector configuration is incomplete; finish setup in Airbyte Cloud."
+        raise
     result, message = json_result.get("status"), json_result.get("message")
 
     if result == "succeeded":
