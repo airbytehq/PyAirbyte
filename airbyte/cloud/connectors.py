@@ -42,7 +42,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
-import requests
 import yaml
 
 from airbyte import exceptions as exc
@@ -88,7 +87,7 @@ class _ConnectorDefinitionLike(Protocol):
     docker_repository: str
 
 
-class CloudConnector:
+class CloudConnector:  # noqa: PLR0904 - public connector management and execution API
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
     You can use a connector object to manage the connector.
@@ -482,11 +481,8 @@ class CloudConnector:
         """Execute a single entity/action operation through the Cloud Config API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API. When the Cloud Config API
-        reports the connector as forbidden or not found, the error is re-raised as
-        `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise,
-        including when the enablement lookup itself fails.
+        workspace's API roots have no Context layer API. Execution errors propagate
+        unchanged: an unavailable docs probe cannot establish disabled access.
         """
         self._require_context_layer_api()
         if read_only and action in {write_action.value for write_action in ExternalApiWriteAction}:
@@ -519,28 +515,12 @@ class CloudConnector:
         if intent is not None:
             request_body["intent"] = intent
 
-        try:
-            response = agents_api_util.execute_cloud_connector_action(
-                connector_id=self.connector_id,
-                connector_type=self.connector_type,
-                request_body=request_body,
-                credentials=self.workspace._credentials,  # noqa: SLF001
-            )
-        except exc.AirbyteError as error:
-            if agents_api_util.is_not_enabled_error(error):
-                try:
-                    enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-                except (exc.AirbyteError, requests.RequestException, ValueError):
-                    raise error from None
-                if not enabled:
-                    raise exc.AirbyteExternalAccessNotEnabledError(
-                        connector_name=(
-                            self._connector_info.name if self._connector_info else None
-                        ),
-                        connector_id=self.connector_id,
-                    ) from error
-
-            raise
+        response = agents_api_util.execute_cloud_connector_action(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            request_body=request_body,
+            credentials=self.workspace._credentials,  # noqa: SLF001
+        )
 
         return response
 
