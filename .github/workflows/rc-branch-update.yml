@@ -171,14 +171,18 @@ jobs:
           set -e
           pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$TARGET" --head "$SYNC_BRANCH" --json url --jq '.[0].url // empty')"
           sync_untouched="true"
+          sync_sha=""
           if git fetch origin "refs/heads/${SYNC_BRANCH}:refs/remotes/origin/${SYNC_BRANCH}" 2>/dev/null; then
             git merge-base --is-ancestor "origin/${SYNC_BRANCH}" "origin/${SOURCE}" || sync_untouched="false"
+            sync_sha="$(git rev-parse "origin/${SYNC_BRANCH}")"
           fi
-          { printf "pr_url=%s\n" "$pr_url"; printf "sync_untouched=%s\n" "$sync_untouched"; } | tee -a "$GITHUB_OUTPUT"
+          { printf "pr_url=%s\n" "$pr_url"; printf "sync_untouched=%s\n" "$sync_untouched"; printf "sync_sha=%s\n" "$sync_sha"; } | tee -a "$GITHUB_OUTPUT"
 
       # Refresh the sync branch unless a human has pushed conflict-resolution
       # commits to it; those are never overwritten.
       - name: Push source to sync branch
+        id: push-sync
+        continue-on-error: true
         if: >
           steps.merge.outcome == 'failure' &&
           steps.resolve-vars.outputs.dry_run != 'true' &&
@@ -186,14 +190,17 @@ jobs:
         env:
           SOURCE: ${{ steps.resolve-vars.outputs.source }}
           SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
-        run: git push --force origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
+          SYNC_SHA: ${{ steps.find-pr.outputs.sync_sha }}
+        # Lease on the SHA we inspected so a resolution commit pushed meanwhile is never overwritten.
+        run: git push --force-with-lease="refs/heads/${SYNC_BRANCH}:${SYNC_SHA}" origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
 
       - name: Open sync PR
         id: create-pr
         if: >
           steps.merge.outcome == 'failure' &&
           steps.resolve-vars.outputs.dry_run != 'true' &&
-          steps.find-pr.outputs.pr_url == ''
+          steps.find-pr.outputs.pr_url == '' &&
+          steps.push-sync.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SOURCE: ${{ steps.resolve-vars.outputs.source }}
