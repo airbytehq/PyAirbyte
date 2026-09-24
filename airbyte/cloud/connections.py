@@ -28,6 +28,7 @@ from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
+    ConnectionSchedule,
     JobTypeEnum,
     _ConnectionResponseLike,
 )
@@ -308,7 +309,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.namespace_format
 
     @property
-    def schedule(self) -> Any:  # noqa: ANN401  # Raw API schedule model, not re-exported
+    def schedule(self) -> ConnectionSchedule | None:
         """The connection's sync schedule, as returned by the API (or `None` if unknown)."""
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()

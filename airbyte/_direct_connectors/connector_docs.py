@@ -32,8 +32,6 @@ from airbyte.exceptions import PyAirbyteInputError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from airbyte_api import models
-
 _DESTINATION_LOAD_CONTEXT_KEYS: Mapping[str, tuple[str, str]] = {
     _SNOWFLAKE_DESTINATION_DEFINITION_ID: ("database", "schema"),
     _BIGQUERY_DESTINATION_DEFINITION_ID: ("project_id", "dataset_id"),
@@ -604,32 +602,6 @@ def _streams_section(
     return blocks
 
 
-def _schedule_description(schedule: models.AirbyteAPIConnectionSchedule | None) -> str | None:
-    """Describe a connection's sync schedule as a single human-readable string.
-
-    Returns `manual` for manual connections, the cron expression for cron-scheduled
-    connections, and `every <units> <time_unit>` for basic schedules (for example,
-    `every 24 hours`). Returns `None` when the schedule is unknown.
-    """
-    if schedule is None:
-        return None
-
-    schedule_type_value = (
-        schedule.schedule_type.value if schedule.schedule_type is not None else None
-    )
-    if schedule_type_value == "manual":
-        return "manual"
-    if schedule_type_value == "cron":
-        return schedule.cron_expression or "cron"
-    if schedule_type_value == "basic":
-        basic_timing = schedule.basic_timing
-        if isinstance(basic_timing, str) and basic_timing.strip():
-            text = basic_timing.replace("_", " ").strip()
-            return text if text.lower().startswith("every") else f"every {text}"
-        return "basic"
-    return schedule_type_value
-
-
 def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorConnectionInfo]:
     """Summarize each connection that reads from or writes to `connector`.
 
@@ -677,7 +649,9 @@ def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorCo
                 destination_name=str(
                     destination.name if destination is not None else connection.destination_id
                 ),
-                schedule=_schedule_description(connection.schedule),
+                schedule=connection.schedule.friendly_description
+                if connection.schedule is not None
+                else None,
                 stream_names=list(connection.stream_names),
                 namespace_definition=connection.namespace_definition,
                 namespace_format=connection.namespace_format,

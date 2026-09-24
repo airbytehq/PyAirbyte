@@ -12,6 +12,7 @@ from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
+    ConnectionSchedule,
 )
 from airbyte_api.models import (
     DestinationDuckdb,
@@ -84,7 +85,76 @@ def test_cloud_connection_info_from_api_response_populates_schedule() -> None:
         )
     )
 
-    assert info.schedule is schedule
+    assert info.schedule.schedule_type == "manual"
+
+
+def test_connection_schedule_from_api_response() -> None:
+    """`ConnectionSchedule.from_api_response` maps schedule fields by type."""
+    cron = ConnectionSchedule.from_api_response(
+        SimpleNamespace(
+            schedule_type=SimpleNamespace(value="cron"),
+            cron_expression="0 8 * * *",
+            basic_timing=None,
+        )
+    )
+    assert cron.schedule_type == "cron"
+    assert cron.schedule_expression == "0 8 * * *"
+
+    basic = ConnectionSchedule.from_api_response(
+        SimpleNamespace(
+            schedule_type=SimpleNamespace(value="basic"),
+            cron_expression=None,
+            basic_timing="Every 24 HOURS",
+        )
+    )
+    assert basic.schedule_type == "basic"
+    assert basic.schedule_expression == "Every 24 HOURS"
+
+    manual = ConnectionSchedule.from_api_response(
+        SimpleNamespace(schedule_type=SimpleNamespace(value="manual"))
+    )
+    assert manual.schedule_type == "manual"
+    assert manual.schedule_expression is None
+
+
+@pytest.mark.parametrize(
+    ("schedule", "expected"),
+    [
+        pytest.param(
+            ConnectionSchedule(schedule_type="manual"),
+            "manual",
+            id="manual",
+        ),
+        pytest.param(
+            ConnectionSchedule(schedule_type="cron", schedule_expression="0 8 * * *"),
+            "0 8 * * *",
+            id="cron_expression",
+        ),
+        pytest.param(
+            ConnectionSchedule(schedule_type="cron"),
+            "cron",
+            id="cron_no_expression",
+        ),
+        pytest.param(
+            ConnectionSchedule(
+                schedule_type="basic", schedule_expression="every_24_hours"
+            ),
+            "every 24 hours",
+            id="basic_every_24_hours",
+        ),
+        pytest.param(
+            ConnectionSchedule(schedule_type="basic"),
+            "basic",
+            id="basic_no_expression",
+        ),
+    ],
+)
+def test_connection_schedule_friendly_description(
+    schedule: ConnectionSchedule, expected: str
+) -> None:
+    """`friendly_description` renders each schedule type as a display string."""
+    assert schedule.friendly_description == expected
+    assert str(schedule) == expected
 
 
 @pytest.mark.parametrize(

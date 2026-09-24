@@ -24,8 +24,6 @@ from airbyte.exceptions import PyAirbyteInputError
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from airbyte_api.models import AirbyteAPIConnectionSchedule
-
 
 class CloudContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
@@ -359,6 +357,15 @@ class _EnumValueLike(Protocol):
         raise NotImplementedError
 
 
+class _ScheduleLike(Protocol):
+    """The schedule object `connector_docs` reads off a connection."""
+
+    @property
+    def friendly_description(self) -> str:
+        """A human-readable schedule description."""
+        raise NotImplementedError
+
+
 class _ConnectionLike(Protocol):
     """Attributes `connector_docs` reads off `airbyte.cloud.connections.CloudConnection`."""
 
@@ -400,7 +407,7 @@ class _ConnectionLike(Protocol):
         raise NotImplementedError
 
     @property
-    def schedule(self) -> AirbyteAPIConnectionSchedule | None:
+    def schedule(self) -> _ScheduleLike | None:
         """The connection's sync schedule, when known."""
         raise NotImplementedError
 

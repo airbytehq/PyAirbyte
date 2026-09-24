@@ -24,6 +24,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte.cloud.models import (
     CloudConnectionInfo,
+    ConnectionSchedule,
     ConnectorFeature,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -544,43 +545,6 @@ def test_get_connector_keyword_id_makes_no_api_call(
     assert calls == []
 
 
-@pytest.mark.parametrize(
-    ("schedule", "expected"),
-    [
-        pytest.param(None, None, id="none"),
-        pytest.param(
-            SimpleNamespace(schedule_type=SimpleNamespace(value="manual")),
-            "manual",
-            id="manual",
-        ),
-        pytest.param(
-            SimpleNamespace(
-                schedule_type=SimpleNamespace(value="cron"),
-                cron_expression="0 8 * * *",
-            ),
-            "0 8 * * *",
-            id="cron_expression",
-        ),
-        pytest.param(
-            SimpleNamespace(
-                schedule_type=SimpleNamespace(value="basic"),
-                basic_timing="every_24_hours",
-            ),
-            "every 24 hours",
-            id="basic_every_24_hours",
-        ),
-        pytest.param(
-            SimpleNamespace(schedule_type=SimpleNamespace(value="unknown")),
-            "unknown",
-            id="unknown_type",
-        ),
-    ],
-)
-def test_schedule_description(schedule: Any, expected: str | None) -> None:
-    """`_schedule_description` formats each schedule shape into a display string."""
-    assert connector_docs._schedule_description(schedule) == expected  # noqa: SLF001
-
-
 def test_build_connection_details_reads_cached_schedule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -600,7 +564,7 @@ def test_build_connection_details_reads_cached_schedule(
         destination_id="snowflake",
         name="sync",
         configurations=SimpleNamespace(streams=[SimpleNamespace(name="issues")]),
-        schedule=SimpleNamespace(schedule_type=SimpleNamespace(value="manual")),
+        schedule=ConnectionSchedule(schedule_type="manual"),
         status="active",
     )
     monkeypatch.setattr(
