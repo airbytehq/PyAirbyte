@@ -143,19 +143,18 @@ def test_get_agent_skill_docs_passes_section(
 
 
 @pytest.mark.parametrize(
-    ("call_kwargs", "lookup_method", "expected_lookup_id"),
+    ("docs_skill_id", "connector_id", "lookup_method", "expected_lookup_id"),
     [
         pytest.param(
-            {
-                "docs_skill_id": "connector-destination:destination-1",
-                "section": "streams",
-            },
+            "connector-destination:destination-1",
+            None,
             "get_destination",
             "destination-1",
             id="destination_skill_id",
         ),
         pytest.param(
-            {"connector_id": "connector-1", "section": "setup"},
+            None,
+            "connector-1",
             "get_connector",
             "connector-1",
             id="connector_id",
@@ -164,7 +163,8 @@ def test_get_agent_skill_docs_passes_section(
 )
 def test_get_agent_skill_docs_delegates_raw_read(
     monkeypatch: pytest.MonkeyPatch,
-    call_kwargs: dict[str, str],
+    docs_skill_id: str | None,
+    connector_id: str | None,
     lookup_method: str,
     expected_lookup_id: str,
 ) -> None:
@@ -182,16 +182,12 @@ def test_get_agent_skill_docs_delegates_raw_read(
 
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
 
-    # `docs_skill_id` is positional-only, so split it out of the kwargs dict.
     docs = workspace.get_agent_skill_docs(
-        call_kwargs.get("docs_skill_id"),
-        **{k: v for k, v in call_kwargs.items() if k != "docs_skill_id"},
+        docs_skill_id, connector_id=connector_id, section="setup"
     )
 
     lookup.assert_called_once_with(expected_lookup_id)
-    connector.read_agent_skill_docs.assert_called_once_with(
-        section=call_kwargs["section"]
-    )
+    connector.read_agent_skill_docs.assert_called_once_with(section="setup")
     assert docs.content == SKILL_DOCS_RESPONSE["content"]
     assert [section.id for section in docs.outline] == ["setup"]
 
