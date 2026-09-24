@@ -256,7 +256,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Build platform-internal dispatch payload
-        id: build-internal-payload
+        id: build-dispatch-payload
         env:
           PYAIRBYTE_REQUIREMENT: ${{ needs.resolve-vars.outputs.requirement }}
           PINNED: ${{ needs.resolve-vars.outputs.pinned }}
@@ -307,7 +307,7 @@ jobs:
           token: ${{ steps.get-internal-app-token.outputs.token }}
           repository: airbytehq/airbyte-platform-internal
           event-type: deploy-cloud-mcp
-          client-payload: ${{ steps.build-internal-payload.outputs.payload }}
+          client-payload: ${{ steps.build-dispatch-payload.outputs.payload }}
 
   summarize:
     name: Summarize
