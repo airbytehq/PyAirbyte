@@ -61,11 +61,11 @@ env:
   PROD_MCP_SOURCES: >
     rc-release
 
-# Serialize the dispatch requests per trigger type. Pushes and `/prerelease` dev
-# builds only ever want the newest, so supersede in-flight runs; releases run
-# to completion.
+# Serialize the dispatch requests per trigger type (per branch for pushes).
+# Pushes and `/prerelease` dev builds only ever want the newest, so supersede
+# in-flight runs; releases run to completion.
 concurrency:
-  group: deploy-cloud-mcp-${{ inputs.trigger-type || 'push' }}
+  group: deploy-cloud-mcp-${{ inputs.trigger-type || github.ref_name }}
   cancel-in-progress: ${{ inputs.trigger-type == '' || inputs.trigger-type == 'pr-prerelease' }}
 
 jobs:
@@ -235,8 +235,13 @@ jobs:
           event-type: deploy-cloud-mcp
           client-payload: ${{ steps.build-dispatch-payload.outputs.preview_payload }}
 
+      # Runs even if the preview dispatch above failed; the two services are
+      # routed independently.
       - name: Trigger internal cloud-mcp deploy
-        if: needs.resolve-vars.outputs.deploy_internal == 'true'
+        if: >-
+          !cancelled()
+          && steps.get-app-token.outcome == 'success'
+          && needs.resolve-vars.outputs.deploy_internal == 'true'
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.get-app-token.outputs.token }}
