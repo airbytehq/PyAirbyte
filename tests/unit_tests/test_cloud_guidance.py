@@ -142,55 +142,73 @@ def test_get_agent_skill_docs_passes_section(
     assert calls[0]["section"] == "setup"
 
 
-def test_get_agent_skill_docs_destination_prefix_served_locally(
+@pytest.mark.parametrize(
+    ("docs_skill_id", "connector_id", "lookup_method", "expected_lookup_id"),
+    [
+        pytest.param(
+            "connector-destination:destination-1",
+            None,
+            "get_destination",
+            "destination-1",
+            id="destination_skill_id",
+        ),
+        pytest.param(
+            None,
+            "connector-1",
+            "get_connector",
+            "connector-1",
+            id="connector_id",
+        ),
+    ],
+)
+def test_get_agent_skill_docs_delegates_raw_read(
     monkeypatch: pytest.MonkeyPatch,
+    docs_skill_id: str | None,
+    connector_id: str | None,
+    lookup_method: str,
+    expected_lookup_id: str,
 ) -> None:
-    """`connector-destination:` IDs resolve locally through `get_destination`."""
+    """Skill/connector IDs resolve to a connector and read server docs unchanged."""
     workspace = _make_workspace(monkeypatch)
-    destination = MagicMock()
-    destination.get_direct_access_guidance.return_value = SKILL_DOCS_RESPONSE[
-        "metadata"
-    ] and DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
-    calls: list[str] = []
-    monkeypatch.setattr(
-        CloudWorkspace,
-        "get_destination",
-        lambda _self, destination_id: (calls.append(destination_id), destination)[1],
+    connector = MagicMock()
+    connector.read_agent_skill_docs.return_value = DirectAccessGuidance.model_validate(
+        SKILL_DOCS_RESPONSE
     )
+    lookup = MagicMock(return_value=connector)
+    monkeypatch.setattr(CloudWorkspace, lookup_method, lookup)
 
     def fail_read_docs(**_kwargs: Any) -> dict[str, Any]:
-        raise AssertionError(
-            "Workspace docs read must not run for destination skill IDs"
-        )
+        raise AssertionError("Workspace docs read must not run for connector skill IDs")
 
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
 
     docs = workspace.get_agent_skill_docs(
-        "connector-destination:destination-1", section="sql"
+        docs_skill_id, connector_id=connector_id, section="setup"
     )
 
-    assert calls == ["destination-1"]
-    destination.get_direct_access_guidance.assert_called_once_with(section="sql")
-    assert docs.metadata.id == "connector:github"
+    lookup.assert_called_once_with(expected_lookup_id)
+    connector.read_agent_skill_docs.assert_called_once_with(section="setup")
+    assert docs.content == SKILL_DOCS_RESPONSE["content"]
+    assert [section.id for section in docs.outline] == ["setup"]
 
 
-def test_get_agent_skill_docs_connector_id_delegates(
+def test_get_agent_skill_docs_destination_errors_propagate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`connector_id` resolves through `get_connector` and forwards `section`."""
+    """A not-enabled destination read re-raises instead of falling back."""
     workspace = _make_workspace(monkeypatch)
-    connector = MagicMock()
-    connector.get_direct_access_guidance.return_value = (
-        DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    destination = MagicMock()
+    destination.read_agent_skill_docs.side_effect = (
+        exc.AirbyteExternalAccessNotEnabledError(connector_id="destination-1")
     )
-    get_connector = MagicMock(return_value=connector)
-    monkeypatch.setattr(CloudWorkspace, "get_connector", get_connector)
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_destination",
+        lambda _self, _destination_id: destination,
+    )
 
-    docs = workspace.get_agent_skill_docs(connector_id="connector-1", section="setup")
-
-    get_connector.assert_called_once_with("connector-1")
-    connector.get_direct_access_guidance.assert_called_once_with(section="setup")
-    assert docs.metadata.id == "connector:github"
+    with pytest.raises(exc.AirbyteExternalAccessNotEnabledError):
+        workspace.get_agent_skill_docs("connector-destination:destination-1")
 
 
 def test_get_agent_skill_docs_requires_exactly_one_id(
