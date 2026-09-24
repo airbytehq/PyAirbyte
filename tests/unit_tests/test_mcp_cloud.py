@@ -23,7 +23,17 @@ from airbyte._direct_connectors.models import (
     ExternalApiWriteAction,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
-from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
+from airbyte.cloud.connectors import (
+    CheckResult,
+    CloudSource,
+    ConnectorFeature,
+    ConnectorType,
+)
+from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.mcp._error_handling import (
+    MCP_TOOL_USER_FACING_ERRORS,
+    format_user_facing_error,
+)
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -1440,6 +1450,15 @@ class _DescribedConnector:
             raise self._integration_name
         return self._integration_name
 
+    def get_enabled_features(
+        self, *, warnings: list[str]
+    ) -> frozenset[ConnectorFeature]:
+        if self.workspace._has_context_layer_api():
+            details = self._context_layer_inspect(warnings=warnings)
+            if details is not None:
+                warnings.extend(details.warnings)
+        return self.enabled_features
+
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         return feature in self.enabled_features
 
@@ -1946,3 +1965,32 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
 
     assert result.enabled_features == cloud_mcp.FEATURES_UNKNOWN
     assert any("enabled features are unknown" in w for w in result.warnings)
+
+
+@pytest.mark.parametrize("action", list(ExternalApiWriteAction))
+def test_cloud_write_tool_reports_unsupported_without_network(
+    monkeypatch: pytest.MonkeyPatch, action: ExternalApiWriteAction
+) -> None:
+    workspace = CloudWorkspace(workspace_id="workspace-1", bearer_token="token")
+    source = CloudSource(workspace=workspace, connector_id="source-1")
+    monkeypatch.setattr(workspace, "get_connector", lambda _: source)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    request = MagicMock(side_effect=AssertionError("unsupported write sent to server"))
+    monkeypatch.setattr(requests, "request", request)
+
+    with pytest.raises(PyAirbyteInputError) as raised:
+        cloud_mcp.execute_external_api_action(
+            None,
+            connector_id="source-1",
+            entity_type="issues",
+            action=action,
+            api_args={"title": "example"},
+            workspace_id="workspace-1",
+        )
+
+    request.assert_not_called()
+    assert isinstance(raised.value, MCP_TOOL_USER_FACING_ERRORS)
+    assert format_user_facing_error(raised.value) == (
+        "Cloud connector write actions are not supported yet. "
+        "Use execute_api_query for read actions (list, get, search)."
+    )

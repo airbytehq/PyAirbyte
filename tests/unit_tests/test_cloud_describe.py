@@ -14,6 +14,7 @@ import requests
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte.cloud import workspaces as cloud_workspaces
+from airbyte.mcp import cloud as cloud_mcp
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudConnector,
@@ -774,3 +775,146 @@ def test_is_feature_enabled_wrong_connector_kind_short_circuits(
 
     assert connector.is_feature_enabled(feature) is False
     get_features.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_unavailable_features_warn_without_caching_absence(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=[
+            AirbyteError(context={"status_code": status, "response_text": "secret"}),
+            SKILL_DOCS_RESPONSE,
+        ]
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    warnings: list[str] = []
+
+    assert source.get_enabled_features(warnings=warnings) == frozenset()
+    assert source._enabled_features is None  # noqa: SLF001
+    assert len(warnings) == 1
+    assert "unavailable" in warnings[0]
+    assert "secret" not in warnings[0]
+    assert "not enabled" not in warnings[0]
+    assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
+    assert read_docs.call_count == 2
+    assert source.enabled_features
+    assert read_docs.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        AirbyteError(context={"status_code": 401, "response_text": "secret"}),
+        AirbyteError(context={"status_code": 500, "response_text": "secret"}),
+        requests.Timeout("secret"),
+        ValueError("secret"),
+    ],
+)
+def test_describe_survives_unknown_features_and_recovers(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(side_effect=[failure, SKILL_DOCS_RESPONSE])
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+    monkeypatch.setattr(connector_docs, "build_connection_details", lambda _: [])
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=True,
+        with_direct_access_guidance=True,
+        with_data_replication_docs=False,
+    )
+
+    assert result.connector_id == "source-1"
+    assert result.replication_details == []
+    assert result.enabled_features == "unknown"
+    assert result.warnings == [
+        "Connector feature lookup failed; enabled features are unknown."
+    ]
+    assert read_docs.call_count == 1
+    assert source._enabled_features is None  # noqa: SLF001
+    assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
+    assert read_docs.call_count == 2
+
+
+def test_malformed_probe_is_not_cached_or_silently_filtered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    monkeypatch.setattr(workspace, "list_sources", lambda: [source])
+    monkeypatch.setattr(workspace, "list_destinations", lambda: [])
+    read_docs = MagicMock(side_effect=[{}, SKILL_DOCS_RESPONSE])
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+
+    with pytest.raises(ValueError):
+        workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS)
+    assert source._enabled_features is None  # noqa: SLF001
+    assert workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == [
+        source
+    ]
+    assert read_docs.call_count == 2
+
+
+@pytest.mark.parametrize("section", [None, "overview", "sql-passthrough"])
+def test_destination_server_guidance_is_not_duplicated(
+    monkeypatch: pytest.MonkeyPatch, section: str | None
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    server_section = (
+        "actions.record.sql_select" if section == "sql-passthrough" else section
+    )
+    server_response = {
+        "metadata": {
+            "id": "connector-destination:dest-1",
+            "kind": "connector_destination",
+            "title": "Warehouse",
+        },
+        "outline": [
+            {
+                "id": "actions.record.sql_select",
+                "title": "SQL select",
+                "available": True,
+            }
+        ],
+        "section_id": server_section,
+        "content": [{"type": "paragraph", "text": "Authoritative SQL instructions."}],
+    }
+    read_docs = MagicMock(return_value=server_response)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    destination = _seed_destination(workspace, "dest-1", SNOWFLAKE_DEFINITION_ID)
+    # A successful server docs response must not trigger local configuration/connection reads.
+    monkeypatch.setattr(
+        connector_docs,
+        "_destination_load_context",
+        MagicMock(side_effect=AssertionError("local SQL rendering")),
+    )
+    monkeypatch.setattr(
+        workspace,
+        "list_connections",
+        MagicMock(side_effect=AssertionError("local connection listing")),
+    )
+
+    docs = destination.get_direct_access_guidance(section=section)
+
+    assert read_docs.call_count == 1
+    assert read_docs.call_args.kwargs["section"] == server_section
+    assert docs.content == [
+        {"type": "paragraph", "text": "Authoritative SQL instructions."}
+    ]
+    assert docs.section_id == section
+    assert {entry.id for entry in docs.outline} == {
+        "actions.record.sql_select",
+        "connections",
+        "streams",
+    }
