@@ -48,11 +48,17 @@ env:
   #   stable-release   any other published release
   #   pr-prerelease    `/prerelease` dev build via pypi_publish.yml
   # mcp.internal.airbyte.ai/cloud-mcp-preview (airbyte-ops-mcp)
-  INTERNAL_MCP_PREVIEW_SOURCES: rc-push rc-release pr-prerelease
+  INTERNAL_MCP_PREVIEW_SOURCES: >
+    rc-push
+    rc-release
+    pr-prerelease
   # mcp.internal.airbyte.ai/cloud-mcp (airbyte-ops-mcp)
-  INTERNAL_MCP_SOURCES: rc-release
+  INTERNAL_MCP_SOURCES: >
+    rc-release
   # mcp.airbyte.com/mcp (airbyte-platform-internal)
-  PROD_MCP_SOURCES: rc-release
+  # TODO: replace `rc-release` with `stable-release` after the 1.0 merge.
+  PROD_MCP_SOURCES: >
+    rc-release
 
 # Serialize the dispatch requests per source. Pushes and `/prerelease` dev
 # builds only ever want the newest, so supersede in-flight runs; releases run
