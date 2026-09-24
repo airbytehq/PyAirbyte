@@ -99,6 +99,6 @@ jobs:
       pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
       # Routing (which services this deploys to) lives in deploy_cloud_mcp.yml.
       source: >-
-        ${{ github.event_name == 'workflow_dispatch' && 'prerelease'
+        ${{ github.event_name == 'workflow_dispatch' && 'pr-prerelease'
          || contains(github.event.release.tag_name, '-rc.') && 'rc-release'
          || 'stable-release' }}

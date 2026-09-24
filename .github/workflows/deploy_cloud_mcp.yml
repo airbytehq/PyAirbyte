@@ -26,7 +26,7 @@ on:
         required: true
         type: string
       source:
-        description: 'Deploy source for routing: "rc-release", "stable-release", or "prerelease".'
+        description: 'Deploy source for routing: "rc-release", "stable-release", or "pr-prerelease".'
         required: true
         type: string
     secrets:
@@ -46,9 +46,9 @@ env:
   #   rc-push          push to `release-candidate/**`
   #   rc-release       published GitHub release tagged `-rc.`
   #   stable-release   any other published release
-  #   prerelease       `/prerelease` dev build via pypi_publish.yml
+  #   pr-prerelease    `/prerelease` dev build via pypi_publish.yml
   # mcp.internal.airbyte.ai/cloud-mcp-preview (airbyte-ops-mcp)
-  INTERNAL_MCP_PREVIEW_SOURCES: rc-push rc-release prerelease
+  INTERNAL_MCP_PREVIEW_SOURCES: rc-push rc-release pr-prerelease
   # mcp.internal.airbyte.ai/cloud-mcp (airbyte-ops-mcp)
   INTERNAL_MCP_SOURCES: rc-release
   # mcp.airbyte.com/mcp (airbyte-platform-internal)
@@ -59,7 +59,7 @@ env:
 # to completion.
 concurrency:
   group: deploy-cloud-mcp-${{ inputs.source || 'push' }}
-  cancel-in-progress: ${{ inputs.source == '' || inputs.source == 'prerelease' }}
+  cancel-in-progress: ${{ inputs.source == '' || inputs.source == 'pr-prerelease' }}
 
 jobs:
   deploy_cloud_mcp:
@@ -92,8 +92,8 @@ jobs:
                 ;;
             esac
           fi
-          printf '%s\n' main-push rc-push rc-release stable-release prerelease | grep -qxF "$source" \
-            || { echo "::error::Invalid source: '$source' (allowed: main-push, rc-push, rc-release, stable-release, prerelease)"; exit 1; }
+          printf '%s\n' main-push rc-push rc-release stable-release pr-prerelease | grep -qxF "$source" \
+            || { echo "::error::Invalid source: '$source' (allowed: main-push, rc-push, rc-release, stable-release, pr-prerelease)"; exit 1; }
           # A caller shipping a publish must name the published version, or
           # this would silently deploy the ref instead of the release.
           case "$source" in
