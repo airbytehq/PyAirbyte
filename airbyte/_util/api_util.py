@@ -14,6 +14,7 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
@@ -28,6 +29,7 @@ from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFI
 from airbyte.exceptions import (
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
+    AirbyteDeferredSetupError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
@@ -54,6 +56,9 @@ JWT_PART_COUNT = 3
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
 JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
+
+DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
+"""Connect and read timeouts for a deferred-credential create on the Config API."""
 
 
 def status_ok(status_code: int) -> bool:
@@ -1405,9 +1410,12 @@ def get_destination(
         }
 
         if destination_type in destination_mapping and raw_configuration is not None:
-            response.destination_response.configuration = destination_mapping[
-                destination_type  # pyrefly: ignore[index-error]
-            ](**raw_configuration)
+            # Draft destinations may hold a partial configuration that the typed
+            # model cannot represent; keep the SDK's deserialized value in that case.
+            with contextlib.suppress(TypeError):
+                response.destination_response.configuration = destination_mapping[
+                    destination_type  # pyrefly: ignore[index-error]
+                ](**raw_configuration)
         return response.destination_response
 
     raise AirbyteMissingResourceError(
@@ -1851,6 +1859,7 @@ def get_bearer_token(
     client_id: SecretString,
     client_secret: SecretString,
     api_root: str = CLOUD_API_ROOT,
+    timeout: tuple[float, float] | None = None,
 ) -> SecretString:
     """Get a bearer token.
 
@@ -1859,6 +1868,7 @@ def get_bearer_token(
     """
     response = requests.post(
         url=api_root + "/applications/token",
+        timeout=timeout,
         headers={
             "content-type": "application/json",
             "accept": "application/json",
@@ -1886,25 +1896,12 @@ def _make_config_api_request(
     config_api_root: str | None = None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
-
-    # Use provided bearer token or generate one from client credentials
-    if bearer_token is None:
-        if client_id is None or client_secret is None:
-            raise PyAirbyteInputError(
-                message="No authentication credentials provided.",
-                guidance="Provide either client_id and client_secret, or bearer_token.",
-            )
-        bearer_token = get_bearer_token(
-            client_id=client_id,
-            client_secret=client_secret,
-            api_root=api_root,
-        )
-    headers: dict[str, Any] = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {bearer_token}",
-        "User-Agent": "PyAirbyte Client",
-        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
-    }
+    headers = _config_api_headers(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
     full_url = config_api_root + path
     response = requests.request(
         method="POST",
@@ -1933,6 +1930,110 @@ def _make_config_api_request(
             ) from ex
 
     return response.json()
+
+
+def _config_api_headers(
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    timeout: tuple[float, float] | None = None,
+) -> dict[str, str]:
+    """Build Config API headers, minting a bearer token from client credentials if needed."""
+    if bearer_token is None:
+        if client_id is None or client_secret is None:
+            raise PyAirbyteInputError(
+                message="No authentication credentials provided.",
+                guidance="Provide either client_id and client_secret, or bearer_token.",
+            )
+        bearer_token = get_bearer_token(
+            client_id=client_id,
+            client_secret=client_secret,
+            api_root=api_root,
+            timeout=timeout,
+        )
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {bearer_token}",
+        "User-Agent": "PyAirbyte Client",
+        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
+    }
+
+
+def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
+    *,
+    connector_type: Literal["source", "destination"],
+    name: str,
+    workspace_id: str,
+    definition_id: str,
+    config: dict[str, Any],
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> str:
+    """Create a draft connector on the Config API and return its ID.
+
+    Missing configuration stays absent until a person completes it in Airbyte Cloud.
+    The response must acknowledge `isDraft: true`; a successful connection check
+    promotes the saved draft so it can be used in connections.
+
+    Redirects are not followed, since `requests` would replay the POST and could create the
+    connector twice, and both the create and any token request use bounded timeouts.
+    """
+    config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
+    path = f"/{connector_type}s/create"
+    full_url = config_api_root + path
+    response = requests.post(
+        full_url,
+        headers=_config_api_headers(
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            timeout=DEFERRED_CREATE_TIMEOUT_SECS,
+        ),
+        json={
+            "name": name,
+            "workspaceId": workspace_id,
+            f"{connector_type}DefinitionId": definition_id,
+            "connectionConfiguration": config,
+            "createAsDraft": True,
+        },
+        timeout=DEFERRED_CREATE_TIMEOUT_SECS,
+        allow_redirects=False,
+    )
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            message=f"API request failed with status {response.status_code}",
+            context={
+                "full_url": full_url,
+                "path": path,
+                "status_code": response.status_code,
+            },
+        )
+
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError:
+        raise AirbyteError(message="Cloud returned an invalid draft-create response.") from None
+    actor_id = body.get(f"{connector_type}Id") if isinstance(body, dict) else None
+    if not isinstance(actor_id, str) or not actor_id:
+        raise AirbyteError(
+            message="Cloud did not return the created connector ID.",
+            context={"full_url": full_url, "path": path},
+        )
+    if body.get("isDraft") is not True:
+        raise AirbyteDeferredSetupError(
+            message="Cloud created the connector without acknowledging draft mode.",
+            guidance=(
+                "Inspect the created connector before retrying. The platform must support drafts."
+            ),
+            actor_id=actor_id,
+        )
+    return actor_id
 
 
 def check_connector(

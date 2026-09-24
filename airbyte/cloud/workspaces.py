@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cached_property
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -53,17 +54,57 @@ from airbyte.cloud.connectors import (
     CloudSource,
     CustomCloudSourceDefinition,
 )
-from airbyte.cloud.models import CloudWorkspaceInfo
+from airbyte.cloud.models import CheckResult, CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
+from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
+
+
+def _deferred_credentials_config(
+    config: object,
+    *,
+    definition_id: str | None,
+) -> tuple[dict[str, Any], str]:
+    """Validate the inputs for a deferred-credential deploy.
+
+    Returns the configuration and definition ID. `SecretString` values and
+    `secret_reference::` strings are rejected; callers must omit plain-text credentials too.
+    """
+    if not isinstance(config, dict):
+        raise exc.PyAirbyteInputError(
+            message="Deferred deployment requires a configuration dictionary.",
+            guidance="Pass the non-secret configuration values, not a connector object.",
+        )
+    if not definition_id:
+        raise exc.PyAirbyteInputError(
+            message="`definition_id` is required when `defer_credentials=True`.",
+        )
+
+    def _reject_secrets(value: object) -> None:
+        if isinstance(value, SecretString) or (
+            isinstance(value, str) and value.startswith(SECRETS_HYDRATION_PREFIX)
+        ):
+            raise exc.PyAirbyteInputError(
+                message="Deferred deployment does not accept secret values or references.",
+                guidance="Omit credentials; the user supplies them in Airbyte Cloud.",
+            )
+        if isinstance(value, dict):
+            for nested in value.values():
+                _reject_secrets(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                _reject_secrets(nested)
+
+    _reject_secrets(config)
+    return dict(config), definition_id
 
 
 @dataclass(init=False, kw_only=True)  # noqa: PLR0904  # Core cloud API facade.
@@ -366,15 +407,64 @@ class CloudWorkspace:
             connector_id=destination_id,
         )
 
+    def check_connector_setup(
+        self,
+        connector_type: Literal["source", "destination"],
+        connector_id: str,
+    ) -> CheckResult:
+        """Run one connection check on a connector that belongs to this workspace.
+
+        Confirms a person has finished a deferred-credential setup in Airbyte Cloud. The
+        connector's workspace is verified first so a check can never be run against a connector
+        outside this workspace.
+        """
+        connector: CloudSource | CloudDestination
+        if connector_type == "source":
+            owner_id = api_util.get_source(
+                source_id=connector_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            ).workspace_id
+            connector = self.get_source(connector_id)
+        else:
+            owner_id = api_util.get_destination(
+                destination_id=connector_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            ).workspace_id
+            connector = self.get_destination(connector_id)
+        if owner_id != self.workspace_id:
+            raise exc.AirbyteMissingResourceError(
+                resource_type=connector_type,
+                resource_name_or_id=connector_id,
+                context={"workspace_id": self.workspace_id},
+            )
+        try:
+            return connector.check(raise_on_error=False)
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code == HTTPStatus.UNPROCESSABLE_ENTITY:
+                return CheckResult(success=False)
+            raise AirbyteError(
+                message="Cloud could not check the connector setup.",
+                context={"status_code": status_code},
+            ) from None
+
     # Deploy sources and destinations
 
     def deploy_source(
         self,
         name: str,
-        source: Source,
+        source: Source | dict[str, Any],
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
+        definition_id: str | None = None,
+        defer_credentials: bool = False,
     ) -> CloudSource:
         """Deploy a source to the workspace.
 
@@ -382,11 +472,34 @@ class CloudWorkspace:
 
         Args:
             name: The name to use when deploying.
-            source: The source object to deploy.
+            source: The source object to deploy, or (with `defer_credentials=True`) a
+                dictionary of non-secret configuration values.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
+            definition_id: The source definition ID. Required with `defer_credentials=True`.
+            defer_credentials: Save a draft with partial configuration. A person completes
+                credentials and other missing settings at the returned source's `connector_url`.
+                A successful connection check promotes the draft. Raises
+                `AirbyteDeferredSetupError` if Cloud does not acknowledge draft mode.
         """
+        if defer_credentials:
+            return CloudSource(
+                workspace=self,
+                connector_id=self._deploy_deferred(
+                    connector_type="source",
+                    name=name,
+                    config=source,
+                    definition_id=definition_id,
+                    unique=unique,
+                    random_name_suffix=random_name_suffix,
+                ),
+            )
+        if isinstance(source, dict):
+            raise exc.PyAirbyteInputError(
+                message="`source` must be a `Source` object unless `defer_credentials=True`.",
+            )
+
         source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
         source_config_dict["sourceType"] = source.name.replace("source-", "")
 
@@ -406,6 +519,7 @@ class CloudWorkspace:
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             config=source_config_dict,
+            definition_id=definition_id,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -422,6 +536,8 @@ class CloudWorkspace:
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
+        definition_id: str | None = None,
+        defer_credentials: bool = False,
     ) -> CloudDestination:
         """Deploy a destination to the workspace.
 
@@ -434,7 +550,24 @@ class CloudWorkspace:
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
+            definition_id: The destination definition ID. Required with `defer_credentials=True`;
+                otherwise the type is inferred from `destinationType`.
+            defer_credentials: Create the destination without its credentials. See
+                `deploy_source`.
         """
+        if defer_credentials:
+            return CloudDestination(
+                workspace=self,
+                connector_id=self._deploy_deferred(
+                    connector_type="destination",
+                    name=name,
+                    config=destination,
+                    definition_id=definition_id,
+                    unique=unique,
+                    random_name_suffix=random_name_suffix,
+                ),
+            )
+
         if isinstance(destination, Destination):
             destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
@@ -469,6 +602,49 @@ class CloudWorkspace:
         return CloudDestination(
             workspace=self,
             connector_id=deployed_destination.destination_id,
+        )
+
+    def _deploy_deferred(
+        self,
+        *,
+        connector_type: Literal["source", "destination"],
+        name: str,
+        config: object,
+        definition_id: str | None,
+        unique: bool,
+        random_name_suffix: bool,
+    ) -> str:
+        """Create a connector with deferred credentials on the Config API and return its ID."""
+        config_dict, definition_id = _deferred_credentials_config(
+            config, definition_id=definition_id
+        )
+
+        if random_name_suffix:
+            name += f" (ID: {text_util.generate_random_suffix()})"
+
+        if unique:
+            existing = (
+                self.list_sources(name=name)
+                if connector_type == "source"
+                else self.list_destinations(name=name)
+            )
+            if existing:
+                raise exc.AirbyteDuplicateResourcesError(
+                    resource_type=connector_type,
+                    resource_name=name,
+                )
+
+        return api_util.create_connector_deferred(
+            connector_type=connector_type,
+            name=name,
+            workspace_id=self.workspace_id,
+            definition_id=definition_id,
+            config=config_dict,
+            api_root=self.api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
         )
 
     def permanently_delete_source(

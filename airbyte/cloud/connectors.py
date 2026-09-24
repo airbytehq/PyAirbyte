@@ -40,7 +40,6 @@ else:
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -49,6 +48,7 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte.cloud.models import (
+    CheckResult,
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -60,35 +60,6 @@ from airbyte.cloud.models import (
 
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
-
-
-@dataclass
-class CheckResult:
-    """A cloud check result object."""
-
-    success: bool
-    """Whether the check result is valid."""
-
-    error_message: str | None = None
-    """None if the check was successful. Otherwise the failure message from the check result."""
-
-    internal_error: str | None = None
-    """None if the check was able to be run. Otherwise, this will describe the internal failure."""
-
-    def __bool__(self) -> bool:
-        """Truthy when check was successful."""
-        return self.success
-
-    def __str__(self) -> str:
-        """Get a string representation of the check result."""
-        return "Success" if self.success else f"Failed: {self.error_message}"
-
-    def __repr__(self) -> str:
-        """Get a string representation of the check result."""
-        return (
-            f"CheckResult(success={self.success}, "
-            f"error_message={self.error_message or self.internal_error})"
-        )
 
 
 class CloudConnector(abc.ABC):

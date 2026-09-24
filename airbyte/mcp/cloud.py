@@ -22,7 +22,12 @@ from pydantic import BaseModel, Field
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
-from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
+from airbyte.cloud.connectors import (
+    CheckResult,
+    CloudDestination,
+    CloudSource,
+    CustomCloudSourceDefinition,
+)
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
@@ -48,6 +53,8 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
+    AirbyteConnectorNotRegisteredError,
+    AirbyteDeferredSetupError,
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
@@ -59,6 +66,7 @@ from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
+from airbyte.registry import get_connector_metadata
 
 
 CLOUD_AUTH_TIP_TEXT = (
@@ -82,6 +90,21 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
+DEFER_CREDENTIALS_TIP_TEXT = (
+    "Create a draft connector so a person can complete OAuth or enter "
+    "secrets in Airbyte Cloud. Pass only non-secret configuration in `config` (no credentials, "
+    "secret references or `config_secret_name`). When the connector offers several "
+    "authentication methods, include the method's selector field in `config`. The result "
+    "includes a settings link for the person to complete any missing fields and test the draft. "
+    "After they report a successful test and save, call "
+    "`check_cloud_connector_setup`."
+)
+DEFERRED_SETUP_GUIDANCE = (
+    "Share `settings_url` with the user. They must open it, complete authentication and any "
+    "missing settings, then test and save the draft. A successful test makes it ready to use. "
+    "Then call `check_cloud_connector_setup` with `connector_id`, "
+    "`connector_type` and `workspace_id`."
+)
 
 _DiscoveryResult = TypeVar("_DiscoveryResult")
 
@@ -408,6 +431,38 @@ class ConnectorCheckResult(BaseModel):
     """The failure message when the check failed, otherwise None."""
 
 
+class DeferredDeployResult(BaseModel):
+    """Result of deploying a connector with `defer_credentials=True`."""
+
+    connector_id: str
+    """The deployed connector ID."""
+    connector_type: Literal["source", "destination"]
+    """The connector type: 'source' or 'destination'."""
+    name: str
+    """The connector name in Airbyte Cloud."""
+    workspace_id: str
+    """The workspace the connector was created in; pass it to `check_cloud_connector_setup`."""
+    settings_url: str
+    """Cloud settings page where a person completes the credentials."""
+    guidance: str = DEFERRED_SETUP_GUIDANCE
+    """What the agent should do next."""
+
+
+class ConnectorSetupCheckResult(BaseModel):
+    """Result of checking a connector deployed with deferred credentials."""
+
+    connector_id: str
+    """The deployed connector ID."""
+    connector_type: Literal["source", "destination"]
+    """The connector type: 'source' or 'destination'."""
+    setup_complete: bool
+    """Whether the connection check succeeded."""
+    settings_url: str
+    """Cloud settings page for the connector."""
+    guidance: str
+    """What the agent should do next."""
+
+
 class SyncJobListResult(BaseModel):
     """Result of listing sync jobs with limit support."""
 
@@ -508,8 +563,31 @@ def deploy_source_to_cloud(
             default=True,
         ),
     ],
+    defer_credentials: Annotated[
+        bool,
+        Field(
+            description=DEFER_CREDENTIALS_TIP_TEXT,
+            default=False,
+        ),
+    ],
 ) -> str:
-    """Deploy a source connector to Airbyte Cloud."""
+    """Deploy a source connector to Airbyte Cloud.
+
+    With `defer_credentials=True`, returns a JSON `DeferredDeployResult` whose `settings_url`
+    is where a person completes the credentials.
+    """
+    if defer_credentials:
+        return _deploy_deferred_to_cloud(
+            ctx,
+            connector_type="source",
+            name=source_name,
+            connector_name=source_connector_name,
+            workspace_id=workspace_id,
+            config=config,
+            config_secret_name=config_secret_name,
+            unique=unique,
+        ).model_dump_json(indent=2)
+
     source = get_source(
         source_connector_name,
         no_executor=True,
@@ -578,8 +656,31 @@ def deploy_destination_to_cloud(
             default=True,
         ),
     ],
+    defer_credentials: Annotated[
+        bool,
+        Field(
+            description=DEFER_CREDENTIALS_TIP_TEXT,
+            default=False,
+        ),
+    ],
 ) -> str:
-    """Deploy a destination connector to Airbyte Cloud."""
+    """Deploy a destination connector to Airbyte Cloud.
+
+    With `defer_credentials=True`, returns a JSON `DeferredDeployResult` whose `settings_url`
+    is where a person completes the credentials.
+    """
+    if defer_credentials:
+        return _deploy_deferred_to_cloud(
+            ctx,
+            connector_type="destination",
+            name=destination_name,
+            connector_name=destination_connector_name,
+            workspace_id=workspace_id,
+            config=config,
+            config_secret_name=config_secret_name,
+            unique=unique,
+        ).model_dump_json(indent=2)
+
     destination = get_destination(
         destination_connector_name,
         no_executor=True,
@@ -602,6 +703,118 @@ def deploy_destination_to_cloud(
     return (
         f"Successfully deployed destination '{destination_name}' "
         f"with ID: {deployed_destination.connector_id}"
+    )
+
+
+def _deploy_deferred_to_cloud(
+    ctx: Context,
+    *,
+    connector_type: Literal["source", "destination"],
+    name: str,
+    connector_name: str,
+    workspace_id: str | None,
+    config: dict | str | None,
+    config_secret_name: str | None,
+    unique: bool,
+) -> DeferredDeployResult:
+    """Create a connector from non-secret configuration; a person completes it in Cloud."""
+    if config_secret_name is not None:
+        raise PyAirbyteInputError(
+            message="`config_secret_name` cannot be used with `defer_credentials=True`.",
+            guidance="Pass non-secret configuration in `config`; credentials are entered in Cloud.",
+        )
+    metadata = get_connector_metadata(connector_name)
+    if metadata is None or metadata.definition_id is None:
+        raise AirbyteConnectorNotRegisteredError(connector_name=connector_name)
+    if metadata.connector_type != connector_type:
+        raise PyAirbyteInputError(
+            message=f"`{connector_name}` is not a {connector_type} connector.",
+            guidance=f"Pass a `{connector_type}-*` connector name.",
+        )
+    config_dict = resolve_connector_config(config=config)
+
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    deployed: CloudSource | CloudDestination
+    try:
+        if connector_type == "source":
+            deployed = workspace.deploy_source(
+                name=name,
+                source=config_dict,
+                unique=unique,
+                definition_id=metadata.definition_id,
+                defer_credentials=True,
+            )
+        else:
+            deployed = workspace.deploy_destination(
+                name=name,
+                destination=config_dict,
+                unique=unique,
+                definition_id=metadata.definition_id,
+                defer_credentials=True,
+            )
+    except AirbyteDeferredSetupError as ex:
+        if ex.actor_id is not None:
+            register_guid_created_in_session(ex.actor_id)
+        raise
+    register_guid_created_in_session(deployed.connector_id)
+    return DeferredDeployResult(
+        connector_id=deployed.connector_id,
+        connector_type=connector_type,
+        name=name,
+        workspace_id=workspace.workspace_id,
+        settings_url=deployed.connector_url,
+    )
+
+
+@mcp_tool(
+    read_only=False,
+    idempotent=False,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def check_cloud_connector_setup(
+    ctx: Context,
+    connector_type: Annotated[
+        Literal["source", "destination"],
+        Field(description="Whether the connector is a `source` or a `destination`."),
+    ],
+    connector_id: Annotated[
+        str,
+        Field(description="The ID returned by a deployment with `defer_credentials=True`."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> ConnectorSetupCheckResult:
+    """Check whether a connector deployed with deferred credentials is ready to use.
+
+    Call this once after the person confirms they authenticated, tested and saved the connector
+    in Airbyte Cloud. It runs a single connection check and reports only whether it passed;
+    failure details stay in Cloud, where the person corrects the configuration.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    check_result = workspace.check_connector_setup(connector_type, connector_id)
+    connector = (
+        workspace.get_source(connector_id)
+        if connector_type == "source"
+        else workspace.get_destination(connector_id)
+    )
+    return ConnectorSetupCheckResult(
+        connector_id=connector_id,
+        connector_type=connector_type,
+        setup_complete=check_result.success,
+        settings_url=connector.connector_url,
+        guidance=(
+            "Setup is complete; the connector can be used."
+            if check_result.success
+            else "The connector is not ready. Ask the user to finish or correct its "
+            "credentials at `settings_url`, then call this tool again."
+        ),
     )
 
 

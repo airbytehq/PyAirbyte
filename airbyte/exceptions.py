@@ -692,6 +692,14 @@ class AirbyteDuplicateResourcesError(AirbyteError):
     resource_name: str | None = None
 
 
+@dataclass
+class AirbyteDeferredSetupError(AirbyteError):
+    """Airbyte Cloud created a connector without acknowledging draft mode."""
+
+    actor_id: str | None = None
+    """The created connector ID, retained for inspection and cleanup before retrying."""
+
+
 # Custom Warnings
 @dataclass
 class AirbyteMultipleResourcesError(AirbyteError):
