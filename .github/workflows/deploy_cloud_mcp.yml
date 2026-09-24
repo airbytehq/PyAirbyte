@@ -1,38 +1,32 @@
 # Deploys the cloud-mcp Cloud Run services, which run the PyAirbyte MCP server.
 #
 # The services themselves live in other repos, so this workflow only resolves
-# which PyAirbyte build should ship and hands it off:
-# - airbytehq/airbyte-ops-mcp - every deploy, preview and production, goes to
-#   that repo's `Deploy MCP Server` workflow via `repository_dispatch`.
-# - airbytehq/airbyte-platform-internal - a production deploy additionally goes
-#   to that repo's `Deploy Cloud MCP` workflow, also via `repository_dispatch`.
-#   That repo has only a production service, so the preview path skips it.
+# which PyAirbyte build should ship and hands it off via `repository_dispatch`:
+# - airbytehq/airbyte-ops-mcp - owns cloud-mcp-preview and cloud-mcp under
+#   mcp.internal.airbyte.ai.
+# - airbytehq/airbyte-platform-internal - owns the production service behind
+#   mcp.airbyte.com/mcp.
 #
-# Triggers:
-# - push (release-candidate/**) - Every merge to a release-candidate branch
-#   refreshes cloud-mcp-preview with that commit, installed straight from git
-#   so no PyPI release is needed.
-# - workflow_call - `pypi_publish.yml` calls this after a publish to ship the
-#   published version: a release-candidate release refreshes preview and
-#   promotes to production; a `/prerelease` dev build refreshes preview only.
+# Every trigger is normalized to a `source`, and the env routing table below
+# decides which services that source deploys to. Pushes install the triggering
+# commit from git (no PyPI release needed); `pypi_publish.yml` calls this after
+# a publish to ship the published version.
 
 name: Deploy Cloud MCP
 
 on:
   push:
     branches:
-      # RC period: preview tracks the release-candidate branch. To return to
-      # tracking `main`, swap back to the commented branch below.
+      - main
       - 'release-candidate/**'
-      # - main
   workflow_call:
     inputs:
       pyairbyte-version:
         description: 'Published PyAirbyte version to pin (e.g. "0.56.0").'
         required: true
         type: string
-      preview:
-        description: 'Whether to deploy the preview service instead of production ("true" or "false").'
+      source:
+        description: 'Deploy source for routing: "rc-release", "stable-release", or "prerelease".'
         required: true
         type: string
     secrets:
@@ -46,14 +40,26 @@ on:
 permissions:
   contents: read
 
-# Serialize the dispatch requests per target service. The airbyte-ops-mcp
-# rollout does not guard concurrency, so for that target this narrows the race
-# rather than removing it; airbyte-platform-internal serializes its own deploys
-# under its `deploy-cloud-mcp` group. Preview only ever wants the newest commit,
-# so supersede in-flight preview runs; production runs to completion.
+env:
+  # Which sources deploy to which service. A source is one of:
+  #   main-push        push to `main`
+  #   rc-branch-push   push to `release-candidate/**`
+  #   rc-release       published GitHub release tagged `-rc.`
+  #   stable-release   any other published release
+  #   prerelease       `/prerelease` dev build via pypi_publish.yml
+  # mcp.internal.airbyte.ai/cloud-mcp-preview (airbyte-ops-mcp)
+  INTERNAL_MCP_PREVIEW_SOURCES: rc-branch-push rc-release prerelease
+  # mcp.internal.airbyte.ai/cloud-mcp (airbyte-ops-mcp)
+  INTERNAL_MCP_SOURCES: rc-release
+  # mcp.airbyte.com/mcp (airbyte-platform-internal)
+  PROD_MCP_SOURCES: rc-release
+
+# Serialize the dispatch requests per source. Pushes and `/prerelease` dev
+# builds only ever want the newest, so supersede in-flight runs; releases run
+# to completion.
 concurrency:
-  group: deploy-cloud-mcp-${{ inputs.preview || 'true' }}
-  cancel-in-progress: ${{ inputs.preview != 'false' }}
+  group: deploy-cloud-mcp-${{ inputs.source || 'push' }}
+  cancel-in-progress: ${{ inputs.source == '' || inputs.source == 'prerelease' }}
 
 jobs:
   deploy_cloud_mcp:
@@ -64,27 +70,39 @@ jobs:
         id: resolve-vars
         env:
           PYAIRBYTE_VERSION: ${{ inputs.pyairbyte-version || '' }}
-          # `preview` is a required `workflow_call` input, so a non-empty value
+          # `source` is a required `workflow_call` input, so a non-empty value
           # means a caller invoked this workflow. On the `push` trigger the
           # `inputs` context is empty, which is what selects the git install
           # below. This does not use `github.event_name`, which in a reusable
           # workflow reports the *caller's* trigger.
-          PREVIEW: ${{ inputs.preview || '' }}
+          SOURCE: ${{ inputs.source || '' }}
         run: |
           set -euo pipefail
           version="${PYAIRBYTE_VERSION#v}"
 
-          # ---------- Validate inputs (guard statements) ----------
-          if [ -n "$PREVIEW" ]; then
-            printf '%s\n' true false | grep -qxF "$PREVIEW" \
-              || { echo "::error::Invalid preview value: '$PREVIEW' (allowed: true, false)"; exit 1; }
-            # A caller shipping a publish must name the published version, or
-            # this would silently deploy the ref instead of the release.
-            [ -n "$version" ] \
-              || { echo "::error::pyairbyte-version is required when this workflow is called."; exit 1; }
-          else
-            PREVIEW=true
+          # ---------- Which source triggered this run ----------
+          source="$SOURCE"
+          if [ -z "$source" ]; then
+            case "$GITHUB_REF_NAME" in
+              main) source=main-push ;;
+              release-candidate/*) source=rc-branch-push ;;
+              *)
+                echo "::error::Unexpected push ref: $GITHUB_REF_NAME"
+                exit 1
+                ;;
+            esac
           fi
+          printf '%s\n' main-push rc-branch-push rc-release stable-release prerelease | grep -qxF "$source" \
+            || { echo "::error::Invalid source: '$source' (allowed: main-push, rc-branch-push, rc-release, stable-release, prerelease)"; exit 1; }
+          # A caller shipping a publish must name the published version, or
+          # this would silently deploy the ref instead of the release.
+          case "$source" in
+            main-push|rc-branch-push) ;;
+            *)
+              [ -n "$version" ] \
+                || { echo "::error::pyairbyte-version is required when this workflow is called."; exit 1; }
+              ;;
+          esac
           if [ -n "$version" ]; then
             case "$version" in
               [!0-9]*|*[!0-9A-Za-z.+!-]*)
@@ -96,8 +114,7 @@ jobs:
 
           # ---------- Requirement to install into the image ----------
           # A published version is pinned exactly; otherwise install the
-          # triggering commit from git, so a push to a release-candidate
-          # branch needs no release.
+          # triggering commit from git, so a branch push needs no release.
           if [ -n "$version" ]; then
             requirement="airbyte==$version"
             pinned="true"
@@ -106,14 +123,31 @@ jobs:
             pinned="false"
           fi
 
+          # ---------- Route the source to services (see the env table) ----------
+          # shellcheck disable=SC2086
+          routes_to() { if printf '%s\n' $2 | grep -qxF "$1"; then echo true; else echo false; fi; }
+          deploy_internal_preview="$(routes_to "$source" "$INTERNAL_MCP_PREVIEW_SOURCES")"
+          deploy_internal="$(routes_to "$source" "$INTERNAL_MCP_SOURCES")"
+          deploy_prod="$(routes_to "$source" "$PROD_MCP_SOURCES")"
+          any_target=false
+          if [ "$deploy_internal_preview" = "true" ] || [ "$deploy_internal" = "true" ] || [ "$deploy_prod" = "true" ]; then
+            any_target=true
+          else
+            echo "::notice::No deploy target routes source '$source'; nothing to dispatch."
+          fi
+
           {
+            printf 'source=%s\n' "$source"
             printf 'requirement=%s\n' "$requirement"
             printf 'pinned=%s\n' "$pinned"
-            printf 'preview=%s\n' "$PREVIEW"
+            printf 'deploy_internal_preview=%s\n' "$deploy_internal_preview"
+            printf 'deploy_internal=%s\n' "$deploy_internal"
+            printf 'deploy_prod=%s\n' "$deploy_prod"
+            printf 'any_target=%s\n' "$any_target"
           } | tee -a "$GITHUB_OUTPUT"
 
       - name: Install uv
-        if: steps.resolve-vars.outputs.pinned == 'true'
+        if: steps.resolve-vars.outputs.pinned == 'true' && steps.resolve-vars.outputs.any_target == 'true'
         uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
         with:
           enable-cache: false
@@ -123,7 +157,7 @@ jobs:
       # and which can stay stale for far longer. Polling anything else can go
       # green while the cloud-mcp image build still cannot resolve the version.
       - name: Wait for PyAirbyte version to be resolvable
-        if: steps.resolve-vars.outputs.pinned == 'true'
+        if: steps.resolve-vars.outputs.pinned == 'true' && steps.resolve-vars.outputs.any_target == 'true'
         env:
           PYPI_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
         run: |
@@ -144,21 +178,26 @@ jobs:
           [ "$attempt" -le 30 ] \
             || { echo "::error::$PYPI_REQUIREMENT did not become resolvable from PyPI after 30 attempts."; exit 1; }
 
-      - name: Build cloud-mcp dispatch payload
+      - name: Build cloud-mcp dispatch payloads
         id: build-client-payload
         env:
           PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
-          PREVIEW: ${{ steps.resolve-vars.outputs.preview }}
         run: |
           set -euo pipefail
-          payload="$(jq -cn \
+          preview_payload="$(jq -cn \
             --arg requirement "$PYAIRBYTE_REQUIREMENT" \
-            --arg preview "$PREVIEW" \
-            '{"mcp-server": "cloud-mcp", "preview": $preview, "cloud-mcp-pyairbyte-requirement": $requirement}')"
-          echo "payload=$payload" | tee -a "$GITHUB_OUTPUT"
+            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-requirement": $requirement}')"
+          prod_payload="$(jq -cn \
+            --arg requirement "$PYAIRBYTE_REQUIREMENT" \
+            '{"mcp-server": "cloud-mcp", "preview": "false", "cloud-mcp-pyairbyte-requirement": $requirement}')"
+          {
+            printf 'preview_payload=%s\n' "$preview_payload"
+            printf 'prod_payload=%s\n' "$prod_payload"
+          } | tee -a "$GITHUB_OUTPUT"
 
       - name: Authenticate as GitHub App
         id: get-app-token
+        if: steps.resolve-vars.outputs.deploy_internal_preview == 'true' || steps.resolve-vars.outputs.deploy_internal == 'true'
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         with:
           owner: airbytehq
@@ -168,13 +207,23 @@ jobs:
           # `repository_dispatch` needs contents:write and nothing else.
           permission-contents: write
 
-      - name: Trigger cloud-mcp deploy
+      - name: Trigger internal cloud-mcp-preview deploy
+        if: steps.resolve-vars.outputs.deploy_internal_preview == 'true'
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.get-app-token.outputs.token }}
           repository: airbytehq/airbyte-ops-mcp
           event-type: deploy-cloud-mcp
-          client-payload: ${{ steps.build-client-payload.outputs.payload }}
+          client-payload: ${{ steps.build-client-payload.outputs.preview_payload }}
+
+      - name: Trigger internal cloud-mcp deploy
+        if: steps.resolve-vars.outputs.deploy_internal == 'true'
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ steps.get-app-token.outputs.token }}
+          repository: airbytehq/airbyte-ops-mcp
+          event-type: deploy-cloud-mcp
+          client-payload: ${{ steps.build-client-payload.outputs.prod_payload }}
 
       # ---------- Second target: airbyte-platform-internal ----------
       # Its `Deploy Cloud MCP` workflow builds the image from a vendored copy
@@ -184,15 +233,18 @@ jobs:
 
       - name: Build platform-internal dispatch payload
         id: build-internal-payload
-        if: steps.resolve-vars.outputs.preview == 'false'
+        if: steps.resolve-vars.outputs.deploy_prod == 'true'
         env:
           PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
+          PINNED: ${{ steps.resolve-vars.outputs.pinned }}
         run: |
           set -euo pipefail
 
-          # Reaching here means `preview=false`, which only a caller can set and
-          # which the guards above pair with a non-empty version, so the
-          # requirement is always the pinned `airbyte==<version>` form.
+          # Every PROD_MCP_SOURCES entry is a release source, so the
+          # requirement is always the pinned `airbyte==<version>` form; guard
+          # anyway so a future push source can't ship a git ref silently.
+          [ "$PINNED" = "true" ] \
+            || { echo "::error::production deploys require a pinned airbyte==<version> requirement."; exit 1; }
           version="${PYAIRBYTE_REQUIREMENT#airbyte==}"
 
           # The target defaults `image_tag` to `manual-<its own short sha>`,
@@ -217,7 +269,7 @@ jobs:
 
       - name: Authenticate as GitHub App for platform-internal
         id: get-internal-app-token
-        if: steps.resolve-vars.outputs.preview == 'false'
+        if: steps.resolve-vars.outputs.deploy_prod == 'true'
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         with:
           owner: airbytehq
@@ -228,7 +280,7 @@ jobs:
           permission-contents: write
 
       - name: Trigger platform-internal cloud-mcp deploy
-        if: steps.resolve-vars.outputs.preview == 'false'
+        if: steps.resolve-vars.outputs.deploy_prod == 'true'
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.get-internal-app-token.outputs.token }}
@@ -238,18 +290,29 @@ jobs:
 
       - name: Summarize dispatch
         env:
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
           PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
-          PREVIEW: ${{ steps.resolve-vars.outputs.preview }}
+          DEPLOY_INTERNAL_PREVIEW: ${{ steps.resolve-vars.outputs.deploy_internal_preview }}
+          DEPLOY_INTERNAL: ${{ steps.resolve-vars.outputs.deploy_internal }}
+          DEPLOY_PROD: ${{ steps.resolve-vars.outputs.deploy_prod }}
           # Empty whenever the platform-internal dispatch was skipped.
           INTERNAL_IMAGE_TAG: ${{ steps.build-internal-payload.outputs.image_tag }}
         run: |
-          {
-            printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-ops-mcp.\n'
-            printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
-            printf 'Preview: %s\n' "$PREVIEW"
-            if [ -n "$INTERNAL_IMAGE_TAG" ]; then
-              printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-platform-internal (image tag: %s).\n' "$INTERNAL_IMAGE_TAG"
+          print_route() {
+            if [ "$2" = "true" ]; then
+              printf '%s: Dispatched\n' "$1"
             else
-              printf 'Skipped airbytehq/airbyte-platform-internal, which has no preview service.\n'
+              printf '%s: Skipped\n' "$1"
+            fi
+          }
+          {
+            printf 'Source: %s\n' "$SOURCE"
+            printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
+            print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW"
+            print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL"
+            if [ "$DEPLOY_PROD" = "true" ]; then
+              printf 'airbyte-platform-internal cloud-mcp: Dispatched (image tag: %s)\n' "$INTERNAL_IMAGE_TAG"
+            else
+              printf 'airbyte-platform-internal cloud-mcp: Skipped\n'
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
