@@ -41,7 +41,8 @@ permissions:
   contents: read
 
 env:
-  # Which trigger types deploy to which service. A trigger type is one of:
+  # Each deployment is sourced by the trigger types listed under it. A
+  # trigger type is one of:
   #   main-push        push to `main`
   #   rc-push          push to `release-candidate/**`
   #   rc-release       published GitHub release tagged `-rc.`
