@@ -40,7 +40,6 @@ else:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
@@ -444,13 +443,15 @@ class CloudConnector:
         sql_dialect: str | None = None,
         page_size: int | None = None,
         cursor: str | None = None,
+        dry_run: bool = False,
     ) -> ExternalApiExecuteResult:
         """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
 
         `sql_dialect` defaults to the dialect registered for this connector's definition.
-        Requires external access to be enabled for this connector in its organization's
-        Context Layer settings. Connectors without SQL passthrough fail with the Agents
-        API's own error.
+        `dry_run=True` validates the statement and returns the result columns without
+        scanning rows. Requires external access to be enabled for this connector in its
+        organization's Context Layer settings. Connectors without SQL passthrough fail
+        with the Agents API's own error.
         """
         self._require_context_layer_api()
         if sql_dialect is None:
@@ -478,7 +479,7 @@ class CloudConnector:
         return self._execute_direct_action(
             entity_type="sql",
             action=AgentReadAction.SQL_SELECT,
-            api_args={"sql": sql, "sql_dialect": sql_dialect},
+            api_args={"sql": sql, "sql_dialect": sql_dialect, "dry_run": dry_run},
             page_size=page_size,
             cursor=cursor,
             read_only=True,
@@ -498,11 +499,11 @@ class CloudConnector:
         intent: str | None = None,
         read_only: bool,
     ) -> ExternalApiExecuteResult:
-        """Execute a single entity/action operation through the Agents API.
+        """Execute a single entity/action operation through the Cloud Config API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API. When the Agents API reports the
-        connector as forbidden or not found, the error is re-raised as
+        workspace's API roots have no Context layer API. When the Cloud Config API
+        reports the connector as forbidden or not found, the error is re-raised as
         `AirbyteExternalAccessNotEnabledError` only when external access is actually
         disabled for the connector; the original `AirbyteError` propagates otherwise,
         including when the enablement lookup itself fails.
@@ -539,18 +540,17 @@ class CloudConnector:
             request_body["intent"] = intent
 
         try:
-            response = agents_api_util.execute_agent_connector_action(
+            response = agents_api_util.execute_cloud_connector_action(
                 connector_id=self.connector_id,
+                connector_type=self.connector_type,
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
-                organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
             )
         except exc.AirbyteError as error:
-            status_code = (error.context or {}).get("status_code")
-            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+            if agents_api_util.is_not_enabled_error(error):
                 try:
                     enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-                except exc.AirbyteError:
+                except (exc.AirbyteError, requests.RequestException, ValueError):
                     raise error from None
                 if not enabled:
                     raise exc.AirbyteExternalAccessNotEnabledError(
@@ -570,25 +570,45 @@ class CloudConnector:
         warnings: list[str],
         force_refresh: bool = False,
     ) -> _DirectConnectorInspectResult | None:
-        """Fetch and cache the Context Layer `inspect` result, without raising.
+        """Fetch and cache the Context layer connector details.
 
-        An `AirbyteError` from `inspect` (for example a 404 or 403 for connectors the
-        Agents API does not know) is converted into a warning on `warnings` and `None`
-        is returned.
+        The connector's docs skill is probed: a skill doc exists only for connectors the
+        Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
+        connector is not enabled for agent access, so a warning is appended to
+        `warnings` and `None` is returned. Any other failure (auth, server, malformed
+        response, transport) is raised to the caller.
         """
         if self._context_layer_details is not None and not force_refresh:
             return self._context_layer_details
+        skill_id = (
+            connector_docs.source_skill_id(self.connector_id)
+            if self.connector_type == ConnectorType.SOURCE
+            else connector_docs.destination_skill_id(self.connector_id)
+        )
         try:
-            parsed = _DirectConnectorInspectResult.model_validate(
-                agents_api_util.inspect_agent_connector(
-                    connector_id=self.connector_id,
+            docs = DirectAccessGuidance.model_validate(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
+                    skill_id=skill_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001
-                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
                 )
             )
-        except (exc.AirbyteError, requests.RequestException) as error:
-            warnings.append(f"Connector inspect failed: {error}")
+        except exc.AirbyteError as error:
+            if not agents_api_util.is_not_enabled_error(error):
+                raise
+            warnings.append(f"Connector direct-access docs lookup failed: {error}")
             return None
+        parsed = _DirectConnectorInspectResult(
+            connector_id=self.connector_id,
+            name=self.name,
+            workspace_id=self.workspace.workspace_id,
+            source_definition_id=(
+                self.definition_id if self.connector_type == ConnectorType.SOURCE else None
+            ),
+            integration_name=docs.metadata.title,
+            docs_skill_id=skill_id,
+            warnings=list(docs.metadata.warnings),
+        )
         self._context_layer_details = parsed
         return parsed
 
@@ -642,8 +662,9 @@ class CloudConnector:
 
         Sources are documented by the Agents API skills endpoint, addressed by the
         `docs_skill_id` reported by Context Layer `inspect`. SQL passthrough destinations
-        (Snowflake, BigQuery) get built-in docs generated locally. Other destinations do
-        not support direct access.
+        (Snowflake, BigQuery) always get local SQL guidance; server docs are merged in
+        when the destination is enrolled, and a 403/404 adds an explicit notice that
+        SQL passthrough is not enabled. Other destinations do not support direct access.
         """
         if self.connector_type == ConnectorType.SOURCE:
             skill_id = self._direct_access_guidance_id()
@@ -653,35 +674,58 @@ class CloudConnector:
                     connector_id=self.connector_id,
                 )
             return DirectAccessGuidance.model_validate(
-                agents_api_util.read_agent_skill_docs(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
                     skill_id=skill_id,
                     credentials=self.workspace._credentials,  # noqa: SLF001
-                    organization_id=self.workspace._resolve_agents_organization_id(),  # noqa: SLF001
-                    workspace_id=self.workspace.workspace_id,
                     section=section,
                 )
             )
 
         if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             destination = self.as_cloud_destination()
-            if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS:
+            if not self.workspace._has_context_layer_api():  # noqa: SLF001
+                return connector_docs.build_direct_access_sql_guidance(
+                    destination,
+                    section=section,
+                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
+                )
+            if (
+                section in connector_docs.LOCAL_DESTINATION_SECTION_IDS
+                and section != connector_docs.SECTION_SQL_PASSTHROUGH
+            ):
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     section=section,
                 )
-            if self.workspace._has_context_layer_api():  # noqa: SLF001
-                skill_id = connector_docs.destination_skill_id(self.connector_id)
-                try:
-                    server_docs = self.workspace.get_agent_skill_docs(skill_id, section=section)
-                except exc.AirbyteError as error:
-                    if (error.context or {}).get("status_code") != HTTPStatus.NOT_FOUND:
-                        raise
-                else:
-                    return connector_docs.merge_destination_skill_docs(server_docs, destination)
-            return connector_docs.build_direct_access_sql_guidance(
-                destination,
-                section=section,
-            )
+            skill_id = connector_docs.destination_skill_id(self.connector_id)
+            try:
+                server_docs = DirectAccessGuidance.model_validate(
+                    agents_api_util.read_cloud_skill_docs(
+                        workspace_id=self.workspace.workspace_id,
+                        skill_id=skill_id,
+                        credentials=self.workspace._credentials,  # noqa: SLF001
+                        section=(
+                            None
+                            if section in connector_docs.LOCAL_DESTINATION_SECTION_IDS
+                            else section
+                        ),
+                    )
+                )
+            except exc.AirbyteError as error:
+                if not agents_api_util.is_not_enabled_error(error):
+                    raise
+                return connector_docs.build_direct_access_sql_guidance(
+                    destination,
+                    section=section,
+                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+                )
+            if section == connector_docs.SECTION_SQL_PASSTHROUGH:
+                return connector_docs.build_direct_access_sql_guidance(
+                    destination,
+                    section=section,
+                )
+            return connector_docs.merge_destination_skill_docs(server_docs, destination)
 
         raise exc.PyAirbyteInputError(
             message="Destination does not support direct access docs.",

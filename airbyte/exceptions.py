@@ -573,15 +573,15 @@ class AirbyteError(PyAirbyteError):
 class AirbyteAgentsUnavailableError(AirbyteError):
     """The Airbyte Agents API is not available for this deployment.
 
-    The Agents API is a hosted Airbyte Cloud service. When the Cloud API roots point
-    anywhere other than public Airbyte Cloud and no explicit Agents API root is configured,
-    there is no Agents API to call.
+    The Agents API lives on the Cloud Config API. When the Cloud API roots point
+    anywhere other than public Airbyte Cloud and no explicit Config API root is
+    configured, there is no Context layer API to call.
     """
 
     guidance: str | None = (
-        "The Airbyte Agents API is only available on Airbyte Cloud. Use the public Airbyte "
-        "Cloud API roots, or set `AIRBYTE_AGENTS_API_URL` if your deployment provides an "
-        "Agents API."
+        "The Airbyte Agents API is only available on Airbyte Cloud deployments "
+        "(Config API). Use the public Airbyte Cloud API roots, or set "
+        "`AIRBYTE_CLOUD_CONFIG_API_URL` if your deployment provides a Config API."
     )
 
 

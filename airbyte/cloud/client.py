@@ -1175,12 +1175,12 @@ class CloudClient:
         self,
         *,
         name_contains: str | None = None,
-        with_feature: OrganizationFeature | None = None,
+        feature_filter: OrganizationFeature | None = None,
         limit: int | None = None,
     ) -> list[CloudOrganization]:
         """List organizations available to this client.
 
-        `with_feature` returns only organizations where that feature is enabled (see
+        `feature_filter` returns only organizations where that feature is enabled (see
         `CloudOrganization.enabled_features`); it is applied after discovery, so `limit`
         bounds the filtered result.
 
@@ -1189,13 +1189,13 @@ class CloudClient:
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
 
-        if with_feature is None:
+        if feature_filter is None:
             return self._list_organizations(name_contains=name_contains, limit=limit)
 
         organizations = [
             organization
             for organization in self._list_organizations(name_contains=name_contains)
-            if _organization_has_feature(organization, with_feature)
+            if _organization_has_feature(organization, feature_filter)
         ]
         return organizations if limit is None else organizations[:limit]
 

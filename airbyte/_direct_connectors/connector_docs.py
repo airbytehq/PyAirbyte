@@ -1,12 +1,10 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Built-in docs for SQL passthrough destinations.
 
-The Agents API may not know destination skills, so connector IDs that address Cloud
-destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs reads.
-This module builds the equivalent `_DirectConnectorInspectResult`/`DirectAccessGuidance`
+This module always builds `_DirectConnectorInspectResult`/`DirectAccessGuidance`
 payloads locally from the Cloud workspace objects, merges them into server-served
-destination docs so PyAirbyte's SQL guidance is not lost once the API serves them,
-and summarizes the connections touching a connector for the `describe_cloud_*` MCP tools.
+destination docs when the destination is enrolled for direct access, and summarizes
+the connections touching a connector for the `describe_cloud_*` MCP tools.
 """
 
 from __future__ import annotations
@@ -28,14 +26,11 @@ from airbyte._direct_connectors.models import (
     _DirectConnectorInspectResult,
     _WorkspaceLike,
 )
-from airbyte._util import api_util
 from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    from airbyte_api import models
 
 _DESTINATION_LOAD_CONTEXT_KEYS: Mapping[str, tuple[str, str]] = {
     _SNOWFLAKE_DESTINATION_DEFINITION_ID: ("database", "schema"),
@@ -59,6 +54,20 @@ _SECTION_TITLES: Mapping[str, str] = {
 
 LOCAL_DESTINATION_SECTION_IDS = frozenset(_SECTION_TITLES)
 """Section IDs PyAirbyte builds locally; these never hit the Agents API."""
+
+SQL_PASSTHROUGH_NOT_ENABLED_NOTICE = (
+    "Airbyte SQL passthrough via `execute_external_sql_query` is not enabled for this "
+    "destination, so the tool calls below will be rejected. The table, schema, and "
+    "naming guidance still applies if you have your own SQL access to the warehouse."
+)
+"""Notice prepended to SQL guidance when the destination is not enrolled."""
+
+SQL_PASSTHROUGH_UNAVAILABLE_NOTICE = (
+    "Airbyte SQL passthrough via `execute_external_sql_query` is not available in this "
+    "deployment, so the tool calls below will be rejected. The table, schema, and "
+    "naming guidance still applies if you have your own SQL access to the warehouse."
+)
+"""Notice prepended to SQL guidance when the deployment has no Context layer API."""
 
 _ENGINE_NAMES: Mapping[str, str] = {
     "snowflake": "Snowflake",
@@ -119,6 +128,11 @@ def connector_id_from_skill_id(skill_id: str) -> str:
 def destination_skill_id(connector_id: str) -> str:
     """Return the docs skill ID for a SQL passthrough destination."""
     return f"{DESTINATION_SKILL_PREFIX}{connector_id}"
+
+
+def source_skill_id(connector_id: str) -> str:
+    """Return the docs skill ID for a source connector."""
+    return f"{SOURCE_SKILL_PREFIX}{connector_id}"
 
 
 def build_destination_connector_details(
@@ -192,8 +206,14 @@ def build_direct_access_sql_guidance(
     destination: _DestinationLike,
     *,
     section: str | None = None,
+    sql_passthrough_notice: str | None = None,
 ) -> DirectAccessGuidance:
-    """Build `DirectAccessGuidance` for a SQL passthrough destination."""
+    """Build `DirectAccessGuidance` for a SQL passthrough destination.
+
+    When `sql_passthrough_notice` is set, it is prepended to the overview and
+    `sql-passthrough` content and returned in `warnings`, so callers see that the
+    documented tool calls would be rejected.
+    """
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
     metadata = DirectAccessGuidanceIndexEntry(
@@ -202,11 +222,15 @@ def build_direct_access_sql_guidance(
         title=f"{destination.name} (SQL passthrough destination)",
         summary=(
             f"Docs for querying the `{destination.name}` destination with "
-            "`execute_agent_connector_ro` and action `sql_select`."
+            "`execute_external_sql_query`."
         ),
         tags=["destination", "sql_select"],
     )
     outline = _local_outline()
+    notice: list[dict[str, Any]] = (
+        [{"type": "paragraph", "text": sql_passthrough_notice}] if sql_passthrough_notice else []
+    )
+    warnings = [sql_passthrough_notice] if sql_passthrough_notice else []
 
     if section is None:
         connections = _destination_connections(destination)
@@ -228,14 +252,18 @@ def build_direct_access_sql_guidance(
             metadata=metadata,
             outline=outline,
             section_id=None,
-            content=content,
+            content=[*notice, *content],
+            warnings=warnings,
         )
 
     if section == SECTION_SQL_PASSTHROUGH:
-        content = _sql_passthrough_section(
-            destination=destination,
-            dialect=dialect,
-        )
+        content = [
+            *notice,
+            *_sql_passthrough_section(
+                destination=destination,
+                dialect=dialect,
+            ),
+        ]
     elif section == SECTION_CONNECTIONS:
         content = _connections_section(
             destination=destination,
@@ -257,6 +285,7 @@ def build_direct_access_sql_guidance(
         outline=outline,
         section_id=section,
         content=content,
+        warnings=warnings,
     )
 
 
@@ -306,11 +335,10 @@ def _sql_select_call(destination: _DestinationLike, dialect: str, sql: str) -> d
         "type": "code",
         "language": "python",
         "code": (
-            "execute_agent_connector_ro(\n"
+            "execute_external_sql_query(\n"
             f'    connector_id="{destination.connector_id}",\n'
-            '    entity_type="tables",\n'
-            '    action="sql_select",\n'
-            f'    api_args={{"sql": "{sql}", "sql_dialect": "{dialect}"}},\n'
+            f'    sql="{sql}",\n'
+            f'    sql_dialect="{dialect}",\n'
             ")"
         ),
     }
@@ -321,7 +349,7 @@ def _overview(
     dialect: str,
     load_context: _DestinationLoadContext,
 ) -> list[dict[str, Any]]:
-    """Self-contained summary shown by `inspect_agent_connector`, without any Cloud lookups."""
+    """Self-contained summary for a connector inspect result, without any Cloud lookups."""
     engine = _ENGINE_NAMES[dialect]
     if load_context.database_name is not None or load_context.schema_name is not None:
         location_text = ", ".join(
@@ -346,9 +374,9 @@ def _overview(
             "type": "paragraph",
             "text": (
                 f"`{destination.name}` is an Airbyte Cloud {engine} destination. Query it with "
-                '`execute_agent_connector_ro` (`action="sql_select"`): one read-only `SELECT` '
-                f'(or `WITH`) statement per call, `"sql_dialect": "{dialect}"` in `api_args`, '
-                "rows returned as JSON. Start by listing its tables:"
+                "`execute_external_sql_query`: one read-only `SELECT` (or `WITH`) "
+                f"statement per call, `sql_dialect` `{dialect}`, rows returned as JSON. "
+                "Start by listing its tables:"
             ),
         },
         _sql_select_call(destination, dialect, "SHOW TABLES"),
@@ -368,14 +396,13 @@ def _overview(
             "items": [
                 *_DIALECT_NOTES[dialect],
                 (
-                    "Discover columns without reading rows: send `SELECT * FROM <table> "
-                    'LIMIT 1` with `"dry_run": true` in `api_args`; only the column list is '
-                    "returned. Do not guess column names: run the dry-run step first and "
-                    "select only columns it returns."
+                    "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
+                    "`dry_run=True` returns the real columns without scanning data."
                 ),
                 (
-                    "Results are capped by the server; when a response includes `end_cursor`, "
-                    "pass it back as the top-level `cursor` argument to fetch the next page. "
+                    "Results are capped by the server; the tool's `page_size` argument "
+                    "limits rows per page, and when a response includes `end_cursor`, pass "
+                    "it back as the tool's `cursor` argument to fetch the next page. "
                     "Always add a `LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no "
                     "`LIMIT`)."
                 ),
@@ -397,9 +424,8 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
             "type": "paragraph",
             "text": (
                 "This destination accepts one read-only SQL statement per call via "
-                '`execute_agent_connector_ro` with `action="sql_select"` and `api_args` '
-                f'containing `"sql"` and `"sql_dialect": "{dialect}"` (`entity_type` is '
-                "ignored; any value works). Only `SELECT`/`WITH` statements and the literal "
+                "`execute_external_sql_query` with `sql` and `sql_dialect` "
+                f"(`{dialect}`) arguments. Only `SELECT`/`WITH` statements and the literal "
                 f"`SHOW TABLES` are accepted; anything else is rejected before reaching {engine}. "
                 "Results are returned as JSON rows."
             ),
@@ -417,26 +443,11 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
         {
             "type": "paragraph",
             "text": (
-                "Discover columns without reading rows (`dry_run`). Do not guess column names: "
-                "run the dry-run step first and select only columns it returns:"
+                "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
+                "`dry_run=True` returns the real columns without scanning data:"
             ),
         },
-        {
-            "type": "code",
-            "language": "python",
-            "code": (
-                "execute_agent_connector_ro(\n"
-                f'    connector_id="{destination.connector_id}",\n'
-                '    entity_type="tables",\n'
-                '    action="sql_select",\n'
-                "    api_args={\n"
-                '        "sql": "SELECT * FROM <table> LIMIT 1",\n'
-                f'        "sql_dialect": "{dialect}",\n'
-                '        "dry_run": True,\n'
-                "    },\n"
-                ")"
-            ),
-        },
+        _sql_select_call(destination, dialect, "SELECT * FROM <table> LIMIT 1"),
         {"type": "paragraph", "text": "Read rows from a table:"},
         {
             "type": "code",
@@ -450,9 +461,10 @@ def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> lis
             "type": "list",
             "items": [
                 (
-                    "Row count and response size are capped by the server. When a response "
-                    "includes `end_cursor`, pass it back as the top-level `cursor` argument "
-                    "to fetch the next page (`dry_run` cannot be combined with `cursor`)."
+                    "Row count and response size are capped by the server; the tool's "
+                    "`page_size` argument limits rows per page. When a response includes "
+                    "`end_cursor`, pass it back as the tool's `cursor` argument to fetch "
+                    "the next page."
                 ),
                 (
                     "Always add a `LIMIT` clause to `SELECT` queries and select only the "
@@ -590,32 +602,6 @@ def _streams_section(
     return blocks
 
 
-def _schedule_description(schedule: models.AirbyteAPIConnectionSchedule | None) -> str | None:
-    """Describe a connection's sync schedule as a single human-readable string.
-
-    Returns `manual` for manual connections, the cron expression for cron-scheduled
-    connections, and `every <units> <time_unit>` for basic schedules (for example,
-    `every 24 hours`). Returns `None` when the schedule is unknown.
-    """
-    if schedule is None:
-        return None
-
-    schedule_type_value = (
-        schedule.schedule_type.value if schedule.schedule_type is not None else None
-    )
-    if schedule_type_value == "manual":
-        return "manual"
-    if schedule_type_value == "cron":
-        return schedule.cron_expression or "cron"
-    if schedule_type_value == "basic":
-        basic_timing = schedule.basic_timing
-        if isinstance(basic_timing, str) and basic_timing.strip():
-            text = basic_timing.replace("_", " ").strip()
-            return text if text.lower().startswith("every") else f"every {text}"
-        return "basic"
-    return schedule_type_value
-
-
 def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorConnectionInfo]:
     """Summarize each connection that reads from or writes to `connector`.
 
@@ -663,16 +649,9 @@ def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorCo
                 destination_name=str(
                     destination.name if destination is not None else connection.destination_id
                 ),
-                schedule=_schedule_description(
-                    api_util.get_connection(
-                        workspace_id=workspace.workspace_id,
-                        connection_id=connection.connection_id,
-                        api_root=workspace.api_root,
-                        client_id=workspace.client_id,
-                        client_secret=workspace.client_secret,
-                        bearer_token=workspace.bearer_token,
-                    ).schedule
-                ),
+                schedule=connection.schedule.friendly_description
+                if connection.schedule is not None
+                else None,
                 stream_names=list(connection.stream_names),
                 namespace_definition=connection.namespace_definition,
                 namespace_format=connection.namespace_format,

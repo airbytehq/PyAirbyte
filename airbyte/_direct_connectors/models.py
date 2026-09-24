@@ -24,38 +24,6 @@ from airbyte.exceptions import PyAirbyteInputError
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from airbyte.secrets.base import SecretString
-
-
-class AgentWorkspaceInfo(BaseModel):
-    """Summary information about a workspace, as returned by the Agents API."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    """The workspace ID."""
-
-    name: str | None = None
-    """The workspace name."""
-
-    organization_id: str | None = None
-    """The ID of the organization the workspace belongs to."""
-
-    status: str | None = None
-    """The workspace status, for example `active`."""
-
-
-class CloudDirectConnectorInfo(BaseModel):
-    """Summary information about a connector, as returned by the Agents API."""
-
-    model_config = ConfigDict(extra="allow")
-
-    id: str
-    """The connector ID."""
-
-    name: str | None = None
-    """The connector name, for example `GitHub - <workspace_id>`."""
-
 
 class CloudContextStoreEntity(BaseModel):
     """An entity that a connector supports caching in the Airbyte Context Store."""
@@ -110,18 +78,6 @@ class DirectAccessGuidanceIndexEntry(BaseModel):
     """Non-fatal issues reported while building or reading the guidance's docs."""
 
 
-class _DirectAccessGuidanceIndexPage(BaseModel):
-    """One page of the direct-access guidance index, as returned by the Agents API."""
-
-    model_config = ConfigDict(extra="allow")
-
-    data: list[DirectAccessGuidanceIndexEntry]
-    """The guidance index entries on this page."""
-
-    next_cursor: str | None = None
-    """The cursor to pass as `cursor` to fetch the next page, when one is available."""
-
-
 class DirectAccessGuidanceSection(BaseModel):
     """A section of direct-access guidance, as listed in the guidance outline."""
 
@@ -159,7 +115,7 @@ class DirectAccessGuidance(BaseModel):
 
 
 class _DirectConnectorInspectResult(BaseModel):
-    """Result of the Agents API `inspect` endpoint for a direct connector."""
+    """Context layer details for a direct connector, built from its docs skill."""
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -182,8 +138,8 @@ class _DirectConnectorInspectResult(BaseModel):
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
     docs_skill_id: str | None = None
-    """Skill ID to pass to `AgentWorkspace.get_skill(...).read_docs()` (MCP:
-    `read_agent_skill_docs`) for this connector's usage docs."""
+    """Skill ID to pass to `CloudWorkspace.get_agent_skill_docs(...)` for this
+    connector's usage docs."""
 
     context_store_readiness: CloudContextStoreReadiness | None = None
     """Context Store readiness information, when reported."""
@@ -401,6 +357,15 @@ class _EnumValueLike(Protocol):
         raise NotImplementedError
 
 
+class _ScheduleLike(Protocol):
+    """The schedule object `connector_docs` reads off a connection."""
+
+    @property
+    def friendly_description(self) -> str:
+        """A human-readable schedule description."""
+        raise NotImplementedError
+
+
 class _ConnectionLike(Protocol):
     """Attributes `connector_docs` reads off `airbyte.cloud.connections.CloudConnection`."""
 
@@ -439,6 +404,11 @@ class _ConnectionLike(Protocol):
     @property
     def namespace_format(self) -> str | None:
         """The connection's custom namespace format."""
+        raise NotImplementedError
+
+    @property
+    def schedule(self) -> _ScheduleLike | None:
+        """The connection's sync schedule, when known."""
         raise NotImplementedError
 
 
@@ -480,10 +450,6 @@ class _WorkspaceLike(Protocol):
     """Attributes `connector_docs` reads off `airbyte.cloud.workspaces.CloudWorkspace`."""
 
     workspace_id: str
-    api_root: str
-    client_id: SecretString | None
-    client_secret: SecretString | None
-    bearer_token: SecretString | None
 
     def list_connections(
         self,

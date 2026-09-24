@@ -37,11 +37,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cached_property
-from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-import requests
 import yaml
 
 from airbyte import exceptions as exc
@@ -49,7 +47,6 @@ from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
-    CloudDirectConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
 )
@@ -325,32 +322,6 @@ class CloudWorkspace:
 
     # Airbyte Agents (Context layer) status
 
-    def _resolve_agents_organization_id(self) -> str | None:
-        """Return the organization ID to send with Agents API requests, if known.
-
-        The workspace's parent organization is looked up from the Config API. A configured
-        `organization_id` acts as a guard: it must match the lookup when both are known, and
-        it is used only when the lookup is unavailable. `None` when neither is available.
-        """
-        configured_id = self._credentials.organization_id or None
-        try:
-            looked_up = self._organization_info.get("organizationId")
-        except (AirbyteError, NotImplementedError, requests.RequestException):
-            return configured_id
-
-        looked_up_id = looked_up if isinstance(looked_up, str) and looked_up else None
-        if looked_up_id and configured_id and looked_up_id != configured_id:
-            raise exc.PyAirbyteInputError(
-                message="Configured organization ID does not match the workspace's organization.",
-                context={
-                    "workspace_id": self.workspace_id,
-                    "configured_organization_id": configured_id,
-                    "workspace_organization_id": looked_up_id,
-                },
-            )
-
-        return looked_up_id or configured_id
-
     def _has_context_layer_api(self) -> bool:
         """Return whether a Context layer (Agents) API exists for this workspace's API roots.
 
@@ -367,26 +338,13 @@ class CloudWorkspace:
         """The features enabled for this workspace. Resolved on first access and cached.
 
         `DIRECT_ACCESS` is reported when AI agents can use this workspace's connectors
-        through the Airbyte Context layer. It is absent without any API call when the API
-        root has no Context layer (for example, self-managed deployments), and absent when
-        the Context layer API reports the workspace as forbidden or not found, which is how
-        it answers for organizations that have not enabled it. Any other failure raises.
+        through the Airbyte Context layer. Cloud enforces organization and workspace
+        enrollment on every Context layer request, so the flag reflects Context layer API
+        availability for the workspace's deployment roots without any API call;
+        per-connector enablement is reported by connector features.
         """
         if not self._has_context_layer_api():
             return frozenset()
-
-        try:
-            agents_api_util.get_agent_workspace(
-                workspace_id=self.workspace_id,
-                credentials=self._credentials,
-                organization_id=self._resolve_agents_organization_id(),
-            )
-        except AirbyteError as error:
-            status_code = (error.context or {}).get("status_code")
-            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                return frozenset()
-
-            raise
 
         return frozenset({OrganizationFeature.DIRECT_ACCESS})
 
@@ -400,56 +358,27 @@ class CloudWorkspace:
             return False
         return feature in self.enabled_features
 
-    def _list_external_access_source_ids(self) -> frozenset[str]:
-        """Return the IDs of sources in this workspace that are enabled for external access.
-
-        Empty when the Context layer API reports the workspace as forbidden or not found.
-        Raises when the API is unreachable or returns a payload that does not match the
-        expected models.
-        """
-        try:
-            records = agents_api_util.list_agent_connectors(
-                workspace_id=self.workspace_id,
-                credentials=self._credentials,
-                organization_id=self._resolve_agents_organization_id(),
-            )
-        except AirbyteError as error:
-            status_code = (error.context or {}).get("status_code")
-            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                return frozenset()
-
-            raise
-
-        return frozenset(CloudDirectConnectorInfo.model_validate(record).id for record in records)
-
     def _get_connector_features(
         self,
         connector: cloud_connectors.CloudConnector,
-        *,
-        external_access_source_ids: frozenset[str] | None = None,
     ) -> frozenset[ConnectorFeature]:
         """Resolve the enabled features for one connector in this workspace.
 
-        `external_access_source_ids` lets `list_connectors()` share one Context layer
-        lookup across many sources instead of repeating it per connector. Search indexing
-        has not launched yet, so it is never reported as enabled.
+        A docs probe against the Context layer reports whether the connector
+        is enabled for agent access. Search indexing has not launched yet, so it is never
+        reported as enabled.
         """
         if not self._has_context_layer_api():
             return frozenset()
 
         if connector.connector_type == ConnectorType.DESTINATION:
-            if (
-                connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-                and self.is_feature_enabled(OrganizationFeature.DIRECT_ACCESS)
-            ):
-                return frozenset(
-                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY}
-                )
-            return frozenset()
+            if connector.definition_id not in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
+                return frozenset()
+            if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
+                return frozenset()
+            return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY})
 
-        if external_access_source_ids is None:
-            external_access_source_ids = self._list_external_access_source_ids()
-        if connector.connector_id not in external_access_source_ids:
+        if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
             return frozenset()
 
         return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY})
@@ -573,15 +502,28 @@ class CloudWorkspace:
     def _list_guidance(self) -> list[DirectAccessGuidanceIndexEntry]:
         """List the direct-access guidance available to this workspace.
 
-        Follows the API's `next_cursor` so the full list is returned regardless of the
-        server's page size. Requires a Context Layer API for the workspace's API roots
-        (public Airbyte Cloud, or `AIRBYTE_AGENTS_API_URL` for custom deployments).
+        The index is derived locally from the workspace's connectors: one entry per
+        source, plus one per SQL passthrough destination. Use `get_agent_skill_docs()`
+        to check whether a given entry's docs exist on the server.
         """
-        return agents_api_util.list_all_agent_skills(
-            credentials=self._credentials,
-            organization_id=self._resolve_agents_organization_id(),
-            workspace_id=self.workspace_id,
+        entries = [
+            DirectAccessGuidanceIndexEntry(
+                id=connector_docs.source_skill_id(source.connector_id),
+                kind="connector_source",
+                title=source.name,
+            )
+            for source in self.list_sources()
+        ]
+        entries.extend(
+            DirectAccessGuidanceIndexEntry(
+                id=connector_docs.destination_skill_id(destination.connector_id),
+                kind="connector_destination",
+                title=destination.name,
+            )
+            for destination in self.list_destinations()
+            if destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
         )
+        return entries
 
     def get_agent_skill_docs(
         self,
@@ -615,11 +557,10 @@ class CloudWorkspace:
             )
             return destination.get_direct_access_guidance(section=section)
         return DirectAccessGuidance.model_validate(
-            agents_api_util.read_agent_skill_docs(
+            agents_api_util.read_cloud_skill_docs(
+                workspace_id=self.workspace_id,
                 skill_id=docs_skill_id,
                 credentials=self._credentials,
-                organization_id=self._resolve_agents_organization_id(),
-                workspace_id=self.workspace_id,
                 section=section,
             )
         )
@@ -1047,18 +988,19 @@ class CloudWorkspace:
         self,
         *,
         connector_type: ConnectorType | None = None,
-        with_feature: ConnectorFeature | None = None,
+        feature_filter: ConnectorFeature | None = None,
         name_contains: str | None = None,
         limit: int | None = None,
     ) -> list[cloud_connectors.CloudConnector]:
         """List sources and destinations in the workspace, with optional filters.
 
-        Items are `CloudSource` and `CloudDestination` objects. Each has its enabled features
-        resolved, so `enabled_features` reads from cache.
+        Items are `CloudSource` and `CloudDestination` objects. Enabled features are
+        resolved (and cached) only when `feature_filter` is set; otherwise
+        `enabled_features` resolves lazily on first access.
 
         Args:
             connector_type: Return only sources or only destinations.
-            with_feature: Return only connectors with this feature enabled.
+            feature_filter: Return only connectors with this feature enabled.
             name_contains: Case-insensitive substring to match against connector names.
             limit: Maximum number of connectors to return.
         """
@@ -1079,24 +1021,18 @@ class CloudWorkspace:
                 if connector.name is not None and needle in connector.name.casefold()
             ]
 
-        source_ids: frozenset[str] | None = None
-        if self._has_context_layer_api() and any(
-            connector.connector_type == ConnectorType.SOURCE for connector in connectors
-        ):
-            source_ids = self._list_external_access_source_ids()
+        matches: list[cloud_connectors.CloudConnector] = []
         for connector in connectors:
-            connector._enabled_features = self._get_connector_features(  # noqa: SLF001
-                connector,
-                external_access_source_ids=source_ids,
-            )
-
-        if with_feature is not None:
-            connectors = [
-                connector
-                for connector in connectors
-                if with_feature in connector._get_enabled_features()  # noqa: SLF001
-            ]
-        return connectors if limit is None else connectors[:limit]
+            if feature_filter is not None:
+                connector._enabled_features = self._get_connector_features(  # noqa: SLF001
+                    connector
+                )
+                if feature_filter not in connector._get_enabled_features():  # noqa: SLF001
+                    continue
+            matches.append(connector)
+            if limit is not None and len(matches) >= limit:
+                break
+        return matches
 
     def publish_custom_source_definition(
         self,

@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
@@ -23,6 +24,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte.cloud.models import (
     CloudConnectionInfo,
+    ConnectionSchedule,
     ConnectorFeature,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -37,16 +39,16 @@ from airbyte.exceptions import (
 
 SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
 
-INSPECT_RESPONSE: dict[str, Any] = {
-    "connector_id": "source-1",
-    "name": "GitHub",
-    "workspace_id": "workspace-id",
-    "source_definition_name": "GitHub",
-    "docs_skill_id": "connector:github",
-    "context_store_readiness": {
-        "supported_context_store_entities": [{"entity": "issues", "suggested": True}]
+SKILL_DOCS_RESPONSE: dict[str, Any] = {
+    "metadata": {
+        "id": "connector-source:source-1",
+        "kind": "connector_source",
+        "title": "GitHub",
+        "warnings": ["Partial runtime metadata."],
     },
-    "warnings": ["Partial runtime metadata."],
+    "outline": [],
+    "section_id": None,
+    "content": [],
 }
 
 
@@ -180,17 +182,28 @@ def test_integration_name_raises_on_lookup_failure(
 def test_direct_access_guidance_id_source_with_context_layer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sources use the `docs_skill_id` reported by Context Layer `inspect`."""
+    """A successful docs probe reports the source's deterministic skill ID."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fake_read_docs(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return SKILL_DOCS_RESPONSE
+
     monkeypatch.setattr(
         agents_api_util,
-        "inspect_agent_connector",
-        lambda **_: INSPECT_RESPONSE,
+        "read_cloud_skill_docs",
+        fake_read_docs,
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    assert source._direct_access_guidance_id() == "connector:github"  # noqa: SLF001
+    assert (
+        source._direct_access_guidance_id()  # noqa: SLF001
+        == "connector-source:source-1"
+    )
+    assert calls[0]["skill_id"] == "connector-source:source-1"
+    assert calls[0]["workspace_id"] == "workspace-id"
 
 
 def test_direct_access_guidance_id_source_without_context_layer(
@@ -206,22 +219,56 @@ def test_direct_access_guidance_id_source_without_context_layer(
         source.get_direct_access_guidance()
 
 
-def test_direct_access_guidance_id_source_inspect_failure(
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
+        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
+    ],
+)
+def test_direct_access_guidance_id_source_probe_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
+    probe_error: AirbyteError,
 ) -> None:
-    """A failing `inspect` call leaves no guidance ID; reads raise."""
+    """A 403/404 docs probe leaves no guidance ID; reads raise not-enabled."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
-        "inspect_agent_connector",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="inspect boom")),
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source._direct_access_guidance_id() is None  # noqa: SLF001
     with pytest.raises(AirbyteExternalAccessNotEnabledError):
         source.get_direct_access_guidance()
+
+
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(AirbyteError(context={"status_code": 500}), id="server_error"),
+        pytest.param(AirbyteError(message="malformed docs"), id="malformed"),
+        pytest.param(requests.ConnectionError("offline"), id="transport"),
+    ],
+)
+def test_direct_access_guidance_id_source_probe_failure_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: Exception,
+) -> None:
+    """Operational docs-probe failures propagate instead of reading as disabled."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    with pytest.raises(type(probe_error)):
+        source._direct_access_guidance_id()  # noqa: SLF001
 
 
 def test_direct_access_guidance_id_sql_passthrough_destination(
@@ -262,6 +309,157 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
         PyAirbyteInputError, match="does not support direct access docs"
     ):
         destination.get_direct_access_guidance()
+
+
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
+        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
+    ],
+)
+def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: AirbyteError,
+) -> None:
+    """A 403/404 destination docs read still returns local guidance with a notice."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
+    )
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    guidance = destination.get_direct_access_guidance()
+    assert guidance.content[0] == {"type": "paragraph", "text": notice}
+    assert guidance.warnings == [notice]
+
+
+def test_get_direct_access_guidance_destination_local_section_skips_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-SQL local sections never probe the server, so no notice is added."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock()
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    guidance = destination.get_direct_access_guidance(section="connections")
+    read_docs.assert_not_called()
+    assert connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE not in [
+        block.get("text") for block in guidance.content
+    ]
+    assert guidance.warnings == []
+
+
+def test_get_direct_access_guidance_destination_sql_section_probes_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SQL passthrough section still probes once and notices when disabled."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=AirbyteError(context={"status_code": 404}),
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    guidance = destination.get_direct_access_guidance(section="sql-passthrough")
+    assert read_docs.call_count == 1
+    assert guidance.content[0] == {"type": "paragraph", "text": notice}
+    assert guidance.warnings == [notice]
+
+
+def test_get_direct_access_guidance_destination_merges_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful docs read is merged with the local SQL guidance, no notice."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(return_value=SKILL_DOCS_RESPONSE)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    guidance = destination.get_direct_access_guidance()
+    assert read_docs.call_count == 1
+    notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    assert notice not in [block.get("text") for block in guidance.content]
+    assert notice not in getattr(guidance, "warnings", [])  # noqa: B009
+    assert "sql-passthrough" in {section.id for section in guidance.outline}
+
+
+def test_get_direct_access_guidance_destination_server_error_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-403/404 docs read failure propagates the original `AirbyteError`."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
+    )
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        destination.get_direct_access_guidance()
+    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+
+
+def test_get_direct_access_guidance_destination_no_context_layer_notices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a Context layer API, local guidance carries the unavailable notice."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch, available=False)
+    read_docs = MagicMock()
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+
+    notice = connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE
+    guidance = destination.get_direct_access_guidance()
+    read_docs.assert_not_called()
+    assert guidance.content[0] == {"type": "paragraph", "text": notice}
+    assert guidance.warnings == [notice]
 
 
 def _patch_list_connectors(
@@ -347,41 +545,46 @@ def test_get_connector_keyword_id_makes_no_api_call(
     assert calls == []
 
 
-@pytest.mark.parametrize(
-    ("schedule", "expected"),
-    [
-        pytest.param(None, None, id="none"),
-        pytest.param(
-            SimpleNamespace(schedule_type=SimpleNamespace(value="manual")),
-            "manual",
-            id="manual",
-        ),
-        pytest.param(
-            SimpleNamespace(
-                schedule_type=SimpleNamespace(value="cron"),
-                cron_expression="0 8 * * *",
-            ),
-            "0 8 * * *",
-            id="cron_expression",
-        ),
-        pytest.param(
-            SimpleNamespace(
-                schedule_type=SimpleNamespace(value="basic"),
-                basic_timing="every_24_hours",
-            ),
-            "every 24 hours",
-            id="basic_every_24_hours",
-        ),
-        pytest.param(
-            SimpleNamespace(schedule_type=SimpleNamespace(value="unknown")),
-            "unknown",
-            id="unknown_type",
-        ),
-    ],
-)
-def test_schedule_description(schedule: Any, expected: str | None) -> None:
-    """`_schedule_description` formats each schedule shape into a display string."""
-    assert connector_docs._schedule_description(schedule) == expected  # noqa: SLF001
+def test_build_connection_details_reads_cached_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`build_connection_details` uses the listed connection's schedule, not a fetch."""
+    workspace = _make_workspace(monkeypatch)
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
+    connection = CloudConnection(workspace=workspace, connection_id="conn-1")
+    connection._connection_info = CloudConnectionInfo(  # noqa: SLF001
+        connection_id="conn-1",
+        workspace_id="workspace-id",
+        source_id="source-1",
+        destination_id="snowflake",
+        name="sync",
+        configurations=SimpleNamespace(streams=[SimpleNamespace(name="issues")]),
+        schedule=ConnectionSchedule(schedule_type="manual"),
+        status="active",
+    )
+    monkeypatch.setattr(
+        CloudWorkspace, "list_connections", lambda *_, **__: [connection]
+    )
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "list_sources",
+        lambda *_, **__: [_seed_source(workspace, "source-1", "GitHub")],
+    )
+    monkeypatch.setattr(
+        CloudWorkspace, "list_destinations", lambda *_, **__: [destination]
+    )
+    get_connection = MagicMock()
+    monkeypatch.setattr("airbyte._util.api_util.get_connection", get_connection)
+
+    (info,) = connector_docs.build_connection_details(destination)
+
+    get_connection.assert_not_called()
+    assert info.schedule == "manual"
 
 
 def test_enabled_features_context_layer_source(
@@ -391,7 +594,9 @@ def test_enabled_features_context_layer_source(
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
-        agents_api_util, "list_agent_connectors", lambda **_: [{"id": "source-1"}]
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: SKILL_DOCS_RESPONSE,
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
@@ -408,9 +613,16 @@ def test_enabled_features_sql_passthrough_destination(
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
-        agents_api_util, "get_agent_workspace", lambda **_: {"id": "workspace-id"}
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: SKILL_DOCS_RESPONSE,
     )
-    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    destination = _seed_destination(
+        workspace,
+        "snowflake",
+        SNOWFLAKE_DEFINITION_ID,
+        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+    )
 
     assert destination.enabled_features == frozenset({
         ConnectorFeature.DIRECT_ACCESS,
@@ -421,10 +633,14 @@ def test_enabled_features_sql_passthrough_destination(
 def test_enabled_features_disabled_connector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A source outside the external-access set reports no features."""
+    """A source whose docs probe fails reports no features."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(agents_api_util, "list_agent_connectors", lambda **_: [])
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 404})),
+    )
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source.enabled_features == frozenset()

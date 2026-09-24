@@ -11,7 +11,6 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte._direct_connectors.models import (
-    CloudDirectConnectorInfo,
     DirectAccessGuidance,
     DirectAccessGuidanceIndexEntry,
     DirectAccessGuidanceSection,
@@ -32,6 +31,12 @@ class _WorkspaceResponseLike(Protocol):
     notifications: object
 
 
+class _ScheduleResponseLike(Protocol):
+    schedule_type: object
+    cron_expression: str | None
+    basic_timing: str | None
+
+
 class _ConnectionResponseLike(Protocol):
     connection_id: str
     workspace_id: str
@@ -42,7 +47,7 @@ class _ConnectionResponseLike(Protocol):
     prefix: str | None
     namespace_definition: object | None
     namespace_format: str | None
-    schedule: object | None
+    schedule: _ScheduleResponseLike | None
     status: object
 
 
@@ -292,6 +297,47 @@ class CloudDefaultWorkspaceUpdateInfo(BaseModel):
     """Whether access was established via a direct workspace grant or an organization grant."""
 
 
+class ConnectionSchedule(BaseModel):
+    """A connection's sync schedule."""
+
+    schedule_type: Literal["manual", "cron", "basic"]
+    """The schedule type."""
+
+    schedule_expression: str | None = None
+    """The cron expression (with timezone, e.g. `0 0 * * * ? UTC`) for `cron`; the
+    basic interval as returned by the API (e.g. `Every 24 HOURS`) for `basic`;
+    `None` for `manual`."""
+
+    @classmethod
+    def from_api_response(cls, schedule: _ScheduleResponseLike) -> ConnectionSchedule:
+        """Build a `ConnectionSchedule` from an API schedule object."""
+        schedule_type = _enum_value(schedule.schedule_type)
+        if schedule_type == "cron":
+            expression = schedule.cron_expression
+        elif schedule_type == "basic":
+            expression = schedule.basic_timing
+        else:
+            expression = None
+        return cls(schedule_type=schedule_type, schedule_expression=expression)
+
+    @property
+    def friendly_description(self) -> str:
+        """Human-readable schedule: `manual`, the cron expression, or `every 24 hours`."""
+        if self.schedule_type == "manual":
+            return "manual"
+        if self.schedule_type == "cron":
+            return self.schedule_expression or "cron"
+        expression = self.schedule_expression
+        if expression and expression.strip():
+            text = expression.replace("_", " ").strip()
+            return text if text.lower().startswith("every") else f"every {text}"
+        return "basic"
+
+    def __str__(self) -> str:
+        """Return the friendly description of the schedule."""
+        return self.friendly_description
+
+
 class CloudConnectionInfo(BaseModel):
     """Information about an Airbyte Cloud connection."""
 
@@ -322,6 +368,9 @@ class CloudConnectionInfo(BaseModel):
     namespace_format: str | None = None
     """The namespace format template, when `namespace_definition` is `custom_format`."""
 
+    schedule: ConnectionSchedule | None = None
+    """The connection's sync schedule, or `None` if unknown."""
+
     status: str
     """The connection status."""
 
@@ -342,6 +391,11 @@ class CloudConnectionInfo(BaseModel):
                 else None
             ),
             namespace_format=connection.namespace_format,
+            schedule=(
+                ConnectionSchedule.from_api_response(connection.schedule)
+                if connection.schedule is not None
+                else None
+            ),
             status=_enum_value(connection.status),
         )
 
@@ -488,11 +542,11 @@ def _enum_value(value: object) -> str:
 
 __all__ = [
     "CloudConnectionInfo",
+    "ConnectionSchedule",
     "CloudCustomSourceDefinitionInfo",
     "CloudDefaultContextInfo",
     "CloudDefaultWorkspaceUpdateInfo",
     "CloudDestinationInfo",
-    "CloudDirectConnectorInfo",
     "CloudJobInfo",
     "CloudOrganizationBillingInfo",
     "CloudOrganizationInfo",

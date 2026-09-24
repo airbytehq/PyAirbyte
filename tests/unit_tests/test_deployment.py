@@ -43,15 +43,43 @@ def test_cloud_api_environment_override_takes_precedence(
     assert not deployment.is_public_cloud(public_api_root=CLOUD_API_ROOT)
 
 
+def test_is_agents_api_available() -> None:
+    """True for public Cloud roots or an explicit Config API root; False otherwise."""
+    assert deployment.is_agents_api_available()
+    assert deployment.is_agents_api_available(
+        public_api_root=CLOUD_API_ROOT,
+        config_api_root=CLOUD_CONFIG_API_ROOT,
+    )
+    assert deployment.is_agents_api_available(
+        public_api_root="https://airbyte.example.com/api/public/v1",
+        config_api_root="https://airbyte.example.com/api/v1",
+    )
+    assert not deployment.is_agents_api_available(
+        public_api_root="https://airbyte.example.com/api/public/v1",
+    )
+
+
 @pytest.mark.parametrize("override", ["", "   "])
-def test_blank_agents_api_override_is_unset(
+def test_blank_config_api_override_is_unset(
     monkeypatch: pytest.MonkeyPatch,
     override: str,
 ) -> None:
-    """Treat blank Agents API overrides as unset."""
-    monkeypatch.setenv("AIRBYTE_AGENTS_API_URL", override)
+    """Treat blank Config API overrides as unset."""
+    monkeypatch.setenv("AIRBYTE_CLOUD_CONFIG_API_URL", override)
 
-    assert deployment.get_agents_api_root_override() is None
     assert not deployment.is_agents_api_available(
+        public_api_root="https://airbyte.example.com/api/public/v1",
+    )
+
+
+def test_config_api_env_override_enables_agents_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An `AIRBYTE_CLOUD_CONFIG_API_URL` override enables the Context layer."""
+    monkeypatch.setenv(
+        "AIRBYTE_CLOUD_CONFIG_API_URL", "https://config.example.com/api/v1"
+    )
+
+    assert deployment.is_agents_api_available(
         public_api_root="https://airbyte.example.com/api/public/v1",
     )
