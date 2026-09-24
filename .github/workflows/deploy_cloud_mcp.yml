@@ -7,8 +7,8 @@
 # - airbytehq/airbyte-platform-internal - owns the production service behind
 #   mcp.airbyte.com/mcp.
 #
-# Every trigger is normalized to a `source`, and the env routing table below
-# decides which services that source deploys to. Pushes install the triggering
+# Every trigger is normalized to a `trigger-type`, and the env routing table below
+# decides which services that trigger type deploys to. Pushes install the triggering
 # commit from git (no PyPI release needed); `pypi_publish.yml` calls this after
 # a publish to ship the published version.
 
@@ -25,8 +25,8 @@ on:
         description: 'Published PyAirbyte version to pin (e.g. "0.56.0").'
         required: true
         type: string
-      source:
-        description: 'Deploy source for routing: "rc-release", "stable-release", or "pr-prerelease".'
+      trigger-type:
+        description: 'Trigger type for routing: "rc-release", "stable-release", or "pr-prerelease".'
         required: true
         type: string
     secrets:
@@ -41,7 +41,7 @@ permissions:
   contents: read
 
 env:
-  # Which sources deploy to which service. A source is one of:
+  # Which trigger types deploy to which service. A trigger type is one of:
   #   main-push        push to `main`
   #   rc-push          push to `release-candidate/**`
   #   rc-release       published GitHub release tagged `-rc.`
@@ -60,19 +60,19 @@ env:
   PROD_MCP_SOURCES: >
     rc-release
 
-# Serialize the dispatch requests per source. Pushes and `/prerelease` dev
+# Serialize the dispatch requests per trigger type. Pushes and `/prerelease` dev
 # builds only ever want the newest, so supersede in-flight runs; releases run
 # to completion.
 concurrency:
-  group: deploy-cloud-mcp-${{ inputs.source || 'push' }}
-  cancel-in-progress: ${{ inputs.source == '' || inputs.source == 'pr-prerelease' }}
+  group: deploy-cloud-mcp-${{ inputs.trigger-type || 'push' }}
+  cancel-in-progress: ${{ inputs.trigger-type == '' || inputs.trigger-type == 'pr-prerelease' }}
 
 jobs:
   resolve-vars:
     name: Resolve Variables
     runs-on: ubuntu-latest
     outputs:
-      source: ${{ steps.resolve-vars.outputs.source }}
+      trigger_type: ${{ steps.resolve-vars.outputs.trigger_type }}
       requirement: ${{ steps.resolve-vars.outputs.requirement }}
       pinned: ${{ steps.resolve-vars.outputs.pinned }}
       deploy_internal_preview: ${{ steps.resolve-vars.outputs.deploy_internal_preview }}
@@ -83,33 +83,33 @@ jobs:
         id: resolve-vars
         env:
           PYAIRBYTE_VERSION: ${{ inputs.pyairbyte-version || '' }}
-          # `source` is a required `workflow_call` input, so a non-empty value
+          # `trigger-type` is a required `workflow_call` input, so a non-empty value
           # means a caller invoked this workflow. On the `push` trigger the
           # `inputs` context is empty, which is what selects the git install
           # below. This does not use `github.event_name`, which in a reusable
           # workflow reports the *caller's* trigger.
-          SOURCE: ${{ inputs.source || '' }}
+          TRIGGER_TYPE: ${{ inputs.trigger-type || '' }}
         run: |
           set -euo pipefail
           version="${PYAIRBYTE_VERSION#v}"
 
-          # ---------- Which source triggered this run ----------
-          source="$SOURCE"
-          if [ -z "$source" ]; then
+          # ---------- Which trigger type started this run ----------
+          trigger_type="$TRIGGER_TYPE"
+          if [ -z "$trigger_type" ]; then
             case "$GITHUB_REF_NAME" in
-              main) source=main-push ;;
-              release-candidate/*) source=rc-push ;;
+              main) trigger_type=main-push ;;
+              release-candidate/*) trigger_type=rc-push ;;
               *)
                 echo "::error::Unexpected push ref: $GITHUB_REF_NAME"
                 exit 1
                 ;;
             esac
           fi
-          printf '%s\n' main-push rc-push rc-release stable-release pr-prerelease | grep -qxF "$source" \
-            || { echo "::error::Invalid source: '$source' (allowed: main-push, rc-push, rc-release, stable-release, pr-prerelease)"; exit 1; }
+          printf '%s\n' main-push rc-push rc-release stable-release pr-prerelease | grep -qxF "$trigger_type" \
+            || { echo "::error::Invalid trigger-type: '$trigger_type' (allowed: main-push, rc-push, rc-release, stable-release, pr-prerelease)"; exit 1; }
           # A caller shipping a publish must name the published version, or
           # this would silently deploy the ref instead of the release.
-          case "$source" in
+          case "$trigger_type" in
             main-push|rc-push) ;;
             *)
               [ -n "$version" ] \
@@ -136,21 +136,21 @@ jobs:
             pinned="false"
           fi
 
-          # ---------- Route the source to services (see the env table) ----------
+          # ---------- Route the trigger type to services (see the env table) ----------
           # shellcheck disable=SC2086
           routes_to() { if printf '%s\n' $2 | grep -qxF "$1"; then echo true; else echo false; fi; }
-          deploy_internal_preview="$(routes_to "$source" "$INTERNAL_MCP_PREVIEW_SOURCES")"
-          deploy_internal="$(routes_to "$source" "$INTERNAL_MCP_SOURCES")"
-          deploy_prod="$(routes_to "$source" "$PROD_MCP_SOURCES")"
+          deploy_internal_preview="$(routes_to "$trigger_type" "$INTERNAL_MCP_PREVIEW_SOURCES")"
+          deploy_internal="$(routes_to "$trigger_type" "$INTERNAL_MCP_SOURCES")"
+          deploy_prod="$(routes_to "$trigger_type" "$PROD_MCP_SOURCES")"
           any_target=false
           if [ "$deploy_internal_preview" = "true" ] || [ "$deploy_internal" = "true" ] || [ "$deploy_prod" = "true" ]; then
             any_target=true
           else
-            echo "::notice::No deploy target routes source '$source'; nothing to dispatch."
+            echo "::notice::No deploy target routes trigger type '$trigger_type'; nothing to dispatch."
           fi
 
           {
-            printf 'source=%s\n' "$source"
+            printf 'trigger_type=%s\n' "$trigger_type"
             printf 'requirement=%s\n' "$requirement"
             printf 'pinned=%s\n' "$pinned"
             printf 'deploy_internal_preview=%s\n' "$deploy_internal_preview"
@@ -262,9 +262,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Every PROD_MCP_SOURCES entry is a release source, so the
+          # Every PROD_MCP_SOURCES entry is a release trigger type, so the
           # requirement is always the pinned `airbyte==<version>` form; guard
-          # anyway so a future push source can't ship a git ref silently.
+          # anyway so a future push trigger type can't ship a git ref silently.
           [ "$PINNED" = "true" ] \
             || { echo "::error::production deploys require a pinned airbyte==<version> requirement."; exit 1; }
           version="${PYAIRBYTE_REQUIREMENT#airbyte==}"
@@ -316,7 +316,7 @@ jobs:
     steps:
       - name: Summarize dispatch
         env:
-          SOURCE: ${{ needs.resolve-vars.outputs.source }}
+          TRIGGER_TYPE: ${{ needs.resolve-vars.outputs.trigger_type }}
           PYAIRBYTE_REQUIREMENT: ${{ needs.resolve-vars.outputs.requirement }}
           DEPLOY_INTERNAL_PREVIEW: ${{ needs.resolve-vars.outputs.deploy_internal_preview }}
           DEPLOY_INTERNAL: ${{ needs.resolve-vars.outputs.deploy_internal }}
@@ -337,7 +337,7 @@ jobs:
             esac
           }
           {
-            printf 'Source: %s\n' "$SOURCE"
+            printf 'Trigger type: %s\n' "$TRIGGER_TYPE"
             printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
             print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW" "$INTERNAL_RESULT"
             print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL" "$INTERNAL_RESULT"

@@ -82,7 +82,7 @@ jobs:
 
   # Every publish ships the exact published version to cloud-mcp. Which
   # services it deploys to is decided by the routing table in
-  # `deploy_cloud_mcp.yml`, keyed on the `source` passed here.
+  # `deploy_cloud_mcp.yml`, keyed on the `trigger-type` passed here.
   deploy_cloud_mcp:
     name: Deploy Cloud MCP
     needs: publish_to_pypi
@@ -98,7 +98,7 @@ jobs:
     with:
       pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
       # Routing (which services this deploys to) lives in deploy_cloud_mcp.yml.
-      source: >-
+      trigger-type: >-
         ${{ github.event_name == 'workflow_dispatch' && 'pr-prerelease'
          || contains(github.event.release.tag_name, '-rc.') && 'rc-release'
          || 'stable-release' }}
