@@ -59,8 +59,8 @@ class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
 
     last_updated = Column(
         DateTime(timezone=True),
-        onupdate=datetime.now(UTC),
-        default=datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(UTC),
     )
     """The last time the state was updated."""
 
@@ -91,8 +91,8 @@ class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
 
     last_updated = Column(
         DateTime(timezone=True),
-        onupdate=datetime.now(UTC),
-        default=datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(UTC),
     )
     """The last time the state was updated."""
 
