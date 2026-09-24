@@ -1,5 +1,11 @@
 # PyAirbyte
 
+> [!IMPORTANT]
+> **`main` is patches-only.** The `release-candidate/v1` branch is the active trunk for new development.
+>
+> - **New features and enhancements:** branch from and target `release-candidate/v1`, not `main`. Only bug fixes and patches for the current release should target `main`.
+> - **Investigations and debugging:** check out `release-candidate/v1` to see the latest code. Changes merged to `main` are automatically synced into the release-candidate branch by the [RC Branch: Update from `main`](.github/workflows/rc-branch-update.yml) workflow.
+
 PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provides a set of utilities to use Airbyte connectors in Python.
 
 [![PyPI version](https://badge.fury.io/py/airbyte.svg)](https://badge.fury.io/py/airbyte)
