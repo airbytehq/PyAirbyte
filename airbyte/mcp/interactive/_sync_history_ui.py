@@ -361,8 +361,12 @@ def _build_sync_history_app(  # noqa: PLR0913
                 BarChart(
                     data=chart_data,
                     series=[
-                        ChartSeries(data_key="succeeded", label="Succeeded", color="#22c55e"),
-                        ChartSeries(data_key="failed", label="Failed", color="#ef4444"),
+                        ChartSeries(
+                            data_key="succeeded", label="Succeeded", color="#22c55e"
+                        ),  # pyrefly: ignore[missing-argument]
+                        ChartSeries(
+                            data_key="failed", label="Failed", color="#ef4444"
+                        ),  # pyrefly: ignore[missing-argument]
                     ],
                     x_axis="time",
                     stacked=True,
@@ -374,7 +378,9 @@ def _build_sync_history_app(  # noqa: PLR0913
                 LineChart(
                     data=chart_data,
                     series=[
-                        ChartSeries(data_key="records", label="Records", color="#3b82f6"),
+                        ChartSeries(
+                            data_key="records", label="Records", color="#3b82f6"
+                        ),  # pyrefly: ignore[missing-argument]
                     ],
                     x_axis="time",
                     height=280,
@@ -387,7 +393,9 @@ def _build_sync_history_app(  # noqa: PLR0913
                 LineChart(
                     data=chart_data,
                     series=[
-                        ChartSeries(data_key="bytes", label="Bytes", color="#8b5cf6"),
+                        ChartSeries(
+                            data_key="bytes", label="Bytes", color="#8b5cf6"
+                        ),  # pyrefly: ignore[missing-argument]
                     ],
                     x_axis="time",
                     height=280,

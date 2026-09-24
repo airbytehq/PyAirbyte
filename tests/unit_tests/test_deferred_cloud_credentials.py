@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, cast
+from typing import Any, Literal, cast
 
 import pytest
 import requests
@@ -13,6 +13,7 @@ import responses
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CheckResult
+from airbyte.cloud.models import ConnectorType
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import ConnectorSetupCheckResult, DeferredDeployResult
@@ -548,42 +549,21 @@ def workspace_like(monkeypatch: pytest.MonkeyPatch) -> _WorkspaceLike:
     return workspace
 
 
-@pytest.mark.parametrize(
-    ("tool", "name_parameter", "connector_parameter", "connector_type"),
-    [
-        (
-            cloud_mcp.deploy_source_to_cloud,
-            "source_name",
-            "source_connector_name",
-            "source",
-        ),
-        (
-            cloud_mcp.deploy_destination_to_cloud,
-            "destination_name",
-            "destination_connector_name",
-            "destination",
-        ),
-    ],
-)
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
 def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     workspace_like: _WorkspaceLike,
-    tool: Callable[..., str],
-    name_parameter: str,
-    connector_parameter: str,
     connector_type: str,
 ) -> None:
     """Deferred MCP deploys return the settings link and next-step guidance."""
-    raw = tool(
+    raw = cloud_mcp.deploy_connector_to_cloud(
         ctx=cast(Context, object()),
+        name="My connector",
+        connector_name=f"{connector_type}-faker",
         workspace_id=WORKSPACE_ID,
         config='{"count": 10}',
         config_secret_name=None,
         unique=True,
         defer_credentials=True,
-        **{
-            name_parameter: "My connector",
-            connector_parameter: f"{connector_type}-faker",
-        },
     )
 
     result = DeferredDeployResult.model_validate_json(raw)
@@ -618,10 +598,10 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
     monkeypatch.setattr(workspace_like, "deploy_source", _unacknowledged)
 
     with pytest.raises(exc.AirbyteDeferredSetupError):
-        cloud_mcp.deploy_source_to_cloud(
+        cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
-            source_name="My connector",
-            source_connector_name="source-faker",
+            name="My connector",
+            connector_name="source-faker",
             workspace_id=WORKSPACE_ID,
             config={"count": 10},
             config_secret_name=None,
@@ -635,12 +615,13 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
 def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
     workspace_like: _WorkspaceLike,
 ) -> None:
-    """A destination connector name cannot be deployed through the source tool."""
+    """An explicit `connector_type` must agree with the registry's type for the connector."""
     with pytest.raises(exc.PyAirbyteInputError, match="not a source connector"):
-        cloud_mcp.deploy_source_to_cloud(
+        cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
-            source_name="My connector",
-            source_connector_name="destination-faker",
+            name="My connector",
+            connector_name="destination-faker",
+            connector_type=ConnectorType.SOURCE,
             workspace_id=WORKSPACE_ID,
             config={"count": 10},
             config_secret_name=None,
@@ -656,10 +637,10 @@ def test_mcp_deploy_deferred_rejects_config_secret_name(
 ) -> None:
     """Server-side secrets cannot be combined with deferred credentials."""
     with pytest.raises(exc.PyAirbyteInputError, match="config_secret_name"):
-        cloud_mcp.deploy_source_to_cloud(
+        cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
-            source_name="My connector",
-            source_connector_name="source-faker",
+            name="My connector",
+            connector_name="source-faker",
             workspace_id=WORKSPACE_ID,
             config={"count": 10},
             config_secret_name="MY_SECRET",

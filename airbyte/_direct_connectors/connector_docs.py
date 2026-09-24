@@ -1,22 +1,30 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Built-in docs for SQL passthrough destinations.
 
-The Agents API may not know destination skills, so connector IDs that address Cloud
-destinations (the targets of `sql_select`) can 404 on `inspect` and skill docs reads.
-This module builds the equivalent `AgentConnectorDetails`/`AgentSkillDocs` payloads
-locally from the Cloud workspace objects, and merges them into server-served
-destination docs so PyAirbyte's SQL guidance is not lost once the API serves them.
+This module always builds `_DirectConnectorInspectResult`/`DirectAccessGuidance`
+payloads locally from the Cloud workspace objects, merges them into server-served
+destination docs when the destination is enrolled for direct access, and summarizes
+the connections touching a connector for the `describe_cloud_*` MCP tools.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from airbyte._direct_connectors.models import (
-    AgentConnectorDetails,
-    AgentSkillDocs,
-    AgentSkillInfo,
-    AgentSkillSection,
+    _BIGQUERY_DESTINATION_DEFINITION_ID,
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID,
+    _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
+    _SQL_PASSTHROUGH_DESTINATION_NAMES,
+    CloudConnectorConnectionInfo,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+    DirectAccessGuidanceSection,
+    _ConnectionLike,
+    _ConnectorLike,
+    _DestinationLike,
+    _DirectConnectorInspectResult,
+    _WorkspaceLike,
 )
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -24,33 +32,12 @@ from airbyte.exceptions import PyAirbyteInputError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from airbyte.cloud.connections import CloudConnection
-    from airbyte.cloud.connectors import CloudDestination
-
-SNOWFLAKE_DESTINATION_DEFINITION_ID = "424892c4-daac-4491-b35d-c6688ba547ba"
-BIGQUERY_DESTINATION_DEFINITION_ID = "22f6c74f-5699-40ff-833c-4a879ea40133"
-
-SQL_PASSTHROUGH_DESTINATION_DIALECTS: Mapping[str, str] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: "snowflake",
-    BIGQUERY_DESTINATION_DEFINITION_ID: "bigquery",
+_DESTINATION_LOAD_CONTEXT_KEYS: Mapping[str, tuple[str, str]] = {
+    _SNOWFLAKE_DESTINATION_DEFINITION_ID: ("database", "schema"),
+    _BIGQUERY_DESTINATION_DEFINITION_ID: ("project_id", "dataset_id"),
 }
-"""Destination definition ID -> `sql_dialect` value accepted by the `sql_select` action."""
+"""Destination definition ID -> (database, schema) configuration keys locating tables."""
 
-SQL_PASSTHROUGH_DESTINATION_NAMES: Mapping[str, str] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: "Snowflake",
-    BIGQUERY_DESTINATION_DEFINITION_ID: "BigQuery",
-}
-"""Destination definition ID -> display name of the destination integration."""
-
-_DESTINATION_LOCATION_KEYS: Mapping[str, tuple[tuple[str, str], tuple[str, str]]] = {
-    SNOWFLAKE_DESTINATION_DEFINITION_ID: (("database", "database"), ("schema", "schema")),
-    BIGQUERY_DESTINATION_DEFINITION_ID: (("project", "project_id"), ("dataset", "dataset_id")),
-}
-"""Destination definition ID -> (label, configuration key) pairs locating synced tables."""
-
-_NAMESPACE_LABELS = frozenset({"schema", "dataset"})
-
-SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS = frozenset(SQL_PASSTHROUGH_DESTINATION_DIALECTS)
 
 DESTINATION_SKILL_PREFIX = "connector-destination:"
 SOURCE_SKILL_PREFIX = "connector-source:"
@@ -67,6 +54,20 @@ _SECTION_TITLES: Mapping[str, str] = {
 
 LOCAL_DESTINATION_SECTION_IDS = frozenset(_SECTION_TITLES)
 """Section IDs PyAirbyte builds locally; these never hit the Agents API."""
+
+SQL_PASSTHROUGH_NOT_ENABLED_NOTICE = (
+    "Airbyte SQL passthrough via `execute_external_sql_query` is not enabled for this "
+    "destination, so the tool calls below will be rejected. The table, schema, and "
+    "naming guidance still applies if you have your own SQL access to the warehouse."
+)
+"""Notice prepended to SQL guidance when the destination is not enrolled."""
+
+SQL_PASSTHROUGH_UNAVAILABLE_NOTICE = (
+    "Airbyte SQL passthrough via `execute_external_sql_query` is not available in this "
+    "deployment, so the tool calls below will be rejected. The table, schema, and "
+    "naming guidance still applies if you have your own SQL access to the warehouse."
+)
+"""Notice prepended to SQL guidance when the deployment has no Context layer API."""
 
 _ENGINE_NAMES: Mapping[str, str] = {
     "snowflake": "Snowflake",
@@ -129,101 +130,188 @@ def destination_skill_id(connector_id: str) -> str:
     return f"{DESTINATION_SKILL_PREFIX}{connector_id}"
 
 
+def source_skill_id(connector_id: str) -> str:
+    """Return the docs skill ID for a source connector."""
+    return f"{SOURCE_SKILL_PREFIX}{connector_id}"
+
+
 def build_destination_connector_details(
-    destination: CloudDestination,
-) -> AgentConnectorDetails:
-    """Build connector details for a Cloud destination the Agents API does not know."""
-    return AgentConnectorDetails(
+    destination: _DestinationLike,
+) -> _DirectConnectorInspectResult:
+    """Build `_DirectConnectorInspectResult` for a destination the API does not know."""
+    workspace: _WorkspaceLike = destination.workspace
+    return _DirectConnectorInspectResult(
         connector_id=destination.connector_id,
         name=destination.name,
-        workspace_id=destination.workspace.workspace_id,
+        workspace_id=workspace.workspace_id,
         docs_skill_id=destination_skill_id(destination.connector_id),
-        integration_name=SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
+        integration_name=_SQL_PASSTHROUGH_DESTINATION_NAMES.get(destination.definition_id),
         warnings=[],
     )
 
 
-def _destination_location(destination: CloudDestination) -> list[tuple[str, str]]:
-    """Return (label, value) pairs locating synced tables (for example database/schema)."""
-    configuration = destination.configuration or {}
-    return [
-        (label, value)
-        for label, key in _DESTINATION_LOCATION_KEYS.get(destination.definition_id, ())
-        if isinstance(value := configuration.get(key), str) and value
-    ]
+class _DestinationLoadContext(NamedTuple):
+    """Where a destination writes synced tables.
+
+    `database_name` and `schema_name` come from the destination configuration (Snowflake
+    database/schema, BigQuery project/dataset). When built for a specific connection,
+    `schema_name` reflects that connection's namespace setting and `table_prefix` is the
+    connection's prefix; without a connection, `table_prefix` is `None`. Fields are `None`
+    when the destination is not a known SQL passthrough type or the value is unknown.
+    """
+
+    database_name: str | None = None
+    schema_name: str | None = None
+    table_prefix: str | None = None
 
 
-def _destination_connections(destination: CloudDestination) -> list[Any]:
+def _destination_load_context(
+    destination: _DestinationLike,
+    connection: _ConnectionLike | None = None,
+) -> _DestinationLoadContext:
+    """Return where a destination writes synced tables for a connection, if given."""
+    keys = _DESTINATION_LOAD_CONTEXT_KEYS.get(destination.definition_id)
+    if keys is None:
+        return _DestinationLoadContext()
+    config = dict(destination.configuration or {})
+    database_key, schema_key = keys
+    database_name = config.get(database_key)
+    schema_name = config.get(schema_key)
+
+    table_prefix: str | None = None
+    if connection is not None:
+        table_prefix = connection.table_prefix or None
+        if connection.namespace_definition == "custom_format":
+            schema_name = connection.namespace_format or None
+        elif connection.namespace_definition == "source":
+            schema_name = None
+
+    return _DestinationLoadContext(
+        database_name=(database_name if isinstance(database_name, str) and database_name else None),
+        schema_name=(schema_name if isinstance(schema_name, str) and schema_name else None),
+        table_prefix=table_prefix,
+    )
+
+
+def _destination_connections(destination: _DestinationLike) -> list[_ConnectionLike]:
+    workspace: _WorkspaceLike = destination.workspace
     return [
         connection
-        for connection in destination.workspace.list_connections()
+        for connection in workspace.list_connections()
         if connection.destination_id == destination.connector_id
     ]
 
 
-def build_destination_skill_docs(
-    destination: CloudDestination,
+def build_direct_access_sql_guidance(
+    destination: _DestinationLike,
     *,
     section: str | None = None,
-) -> AgentSkillDocs:
-    """Build `AgentSkillDocs` for a SQL passthrough destination."""
-    dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
+    sql_passthrough_notice: str | None = None,
+) -> DirectAccessGuidance:
+    """Build `DirectAccessGuidance` for a SQL passthrough destination.
+
+    When `sql_passthrough_notice` is set, it is prepended to the overview and
+    `sql-passthrough` content and returned in `warnings`, so callers see that the
+    documented tool calls would be rejected.
+    """
+    dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
-    metadata = AgentSkillInfo(
+    metadata = DirectAccessGuidanceIndexEntry(
         id=skill_id,
         kind="connector_destination",
         title=f"{destination.name} (SQL passthrough destination)",
         summary=(
             f"Docs for querying the `{destination.name}` destination with "
-            "`execute_agent_connector_ro` and action `sql_select`."
+            "`execute_external_sql_query`."
         ),
         tags=["destination", "sql_select"],
     )
     outline = _local_outline()
+    notice: list[dict[str, Any]] = (
+        [{"type": "paragraph", "text": sql_passthrough_notice}] if sql_passthrough_notice else []
+    )
+    warnings = [sql_passthrough_notice] if sql_passthrough_notice else []
 
     if section is None:
         connections = _destination_connections(destination)
-        location = _destination_location(destination)
-        content = _overview(destination, dialect, location)
-        content += _connections_section(destination, connections)
-        content += _streams_section(connections, location, dialect)
-        return AgentSkillDocs(metadata=metadata, outline=outline, section_id=None, content=content)
+        content = _overview(
+            destination=destination,
+            dialect=dialect,
+            load_context=_destination_load_context(destination),
+        )
+        content += _connections_section(
+            destination=destination,
+            connections=connections,
+        )
+        content += _streams_section(
+            connections=connections,
+            destination=destination,
+            dialect=dialect,
+        )
+        return DirectAccessGuidance(
+            metadata=metadata,
+            outline=outline,
+            section_id=None,
+            content=[*notice, *content],
+            warnings=warnings,
+        )
 
     if section == SECTION_SQL_PASSTHROUGH:
-        content = _sql_passthrough_section(destination, dialect)
+        content = [
+            *notice,
+            *_sql_passthrough_section(
+                destination=destination,
+                dialect=dialect,
+            ),
+        ]
     elif section == SECTION_CONNECTIONS:
-        content = _connections_section(destination, _destination_connections(destination))
+        content = _connections_section(
+            destination=destination,
+            connections=_destination_connections(destination),
+        )
     elif section == SECTION_STREAMS:
         content = _streams_section(
-            _destination_connections(destination), _destination_location(destination), dialect
+            connections=_destination_connections(destination),
+            destination=destination,
+            dialect=dialect,
         )
     else:
         raise PyAirbyteInputError(
             message=f"Unknown section {section!r} for skill {skill_id!r}.",
             guidance=f"Valid sections: {', '.join(_SECTION_TITLES)}.",
         )
-    return AgentSkillDocs(metadata=metadata, outline=outline, section_id=section, content=content)
+    return DirectAccessGuidance(
+        metadata=metadata,
+        outline=outline,
+        section_id=section,
+        content=content,
+        warnings=warnings,
+    )
 
 
-def _local_outline() -> list[AgentSkillSection]:
+def _local_outline() -> list[DirectAccessGuidanceSection]:
     """Return the outline entries for the locally built destination sections."""
     return [
-        AgentSkillSection(id=section_id, title=title, available=True)
+        DirectAccessGuidanceSection(
+            id=section_id,
+            title=title,
+            available=True,
+        )
         for section_id, title in _SECTION_TITLES.items()
     ]
 
 
 def merge_destination_skill_docs(
-    server_docs: AgentSkillDocs,
-    destination: CloudDestination,
-) -> AgentSkillDocs:
+    server_docs: DirectAccessGuidance,
+    destination: _DestinationLike,
+) -> DirectAccessGuidance:
     """Augment server-provided destination docs with PyAirbyte's SQL guidance.
 
     Local sections are appended to the outline (skipping ids the server already
     provides), and the local overview is prepended to the default (no-section) or
     `overview` content.
     """
-    dialect = SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
+    dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     server_section_ids = {section.id for section in server_docs.outline}
     outline = [
         *server_docs.outline,
@@ -231,34 +319,47 @@ def merge_destination_skill_docs(
     ]
     content = server_docs.content
     if server_docs.section_id in {None, "overview"}:
-        content = _overview(destination, dialect, _destination_location(destination)) + content
+        content = (
+            _overview(
+                destination=destination,
+                dialect=dialect,
+                load_context=_destination_load_context(destination),
+            )
+            + content
+        )
     return server_docs.model_copy(update={"outline": outline, "content": content})
 
 
-def _sql_select_call(destination: CloudDestination, dialect: str, sql: str) -> dict[str, Any]:
+def _sql_select_call(destination: _DestinationLike, dialect: str, sql: str) -> dict[str, Any]:
     return {
         "type": "code",
         "language": "python",
         "code": (
-            "execute_agent_connector_ro(\n"
+            "execute_external_sql_query(\n"
             f'    connector_id="{destination.connector_id}",\n'
-            '    entity_type="tables",\n'
-            '    action="sql_select",\n'
-            f'    api_args={{"sql": "{sql}", "sql_dialect": "{dialect}"}},\n'
+            f'    sql="{sql}",\n'
+            f'    sql_dialect="{dialect}",\n'
             ")"
         ),
     }
 
 
 def _overview(
-    destination: CloudDestination,
+    destination: _DestinationLike,
     dialect: str,
-    location: list[tuple[str, str]],
+    load_context: _DestinationLoadContext,
 ) -> list[dict[str, Any]]:
-    """Self-contained summary shown by `inspect_agent_connector`, without any Cloud lookups."""
+    """Self-contained summary for a connector inspect result, without any Cloud lookups."""
     engine = _ENGINE_NAMES[dialect]
-    if location:
-        location_text = ", ".join(f"{label} `{value}`" for label, value in location)
+    if load_context.database_name is not None or load_context.schema_name is not None:
+        location_text = ", ".join(
+            f"{label} `{value}`"
+            for label, value in (
+                ("database", load_context.database_name),
+                ("schema", load_context.schema_name),
+            )
+            if value is not None
+        )
         location_sentence = (
             f"Tables land in {location_text} unless a connection overrides the namespace; "
             "unqualified table names resolve there."
@@ -273,9 +374,9 @@ def _overview(
             "type": "paragraph",
             "text": (
                 f"`{destination.name}` is an Airbyte Cloud {engine} destination. Query it with "
-                '`execute_agent_connector_ro` (`action="sql_select"`): one read-only `SELECT` '
-                f'(or `WITH`) statement per call, `"sql_dialect": "{dialect}"` in `api_args`, '
-                "rows returned as JSON. Start by listing its tables:"
+                "`execute_external_sql_query`: one read-only `SELECT` (or `WITH`) "
+                f"statement per call, `sql_dialect` `{dialect}`, rows returned as JSON. "
+                "Start by listing its tables:"
             ),
         },
         _sql_select_call(destination, dialect, "SHOW TABLES"),
@@ -295,14 +396,13 @@ def _overview(
             "items": [
                 *_DIALECT_NOTES[dialect],
                 (
-                    "Discover columns without reading rows: send `SELECT * FROM <table> "
-                    'LIMIT 1` with `"dry_run": true` in `api_args`; only the column list is '
-                    "returned. Do not guess column names: run the dry-run step first and "
-                    "select only columns it returns."
+                    "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
+                    "`dry_run=True` returns the real columns without scanning data."
                 ),
                 (
-                    "Results are capped by the server; when a response includes `end_cursor`, "
-                    "pass it back as the top-level `cursor` argument to fetch the next page. "
+                    "Results are capped by the server; the tool's `page_size` argument "
+                    "limits rows per page, and when a response includes `end_cursor`, pass "
+                    "it back as the tool's `cursor` argument to fetch the next page. "
                     "Always add a `LIMIT` clause to `SELECT` queries (`SHOW TABLES` takes no "
                     "`LIMIT`)."
                 ),
@@ -316,7 +416,7 @@ def _overview(
     ]
 
 
-def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> list[dict[str, Any]]:
+def _sql_passthrough_section(destination: _DestinationLike, dialect: str) -> list[dict[str, Any]]:
     engine = _ENGINE_NAMES[dialect]
     return [
         {"type": "heading", "level": 2, "text": "Query the destination with sql_select"},
@@ -324,9 +424,8 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
             "type": "paragraph",
             "text": (
                 "This destination accepts one read-only SQL statement per call via "
-                '`execute_agent_connector_ro` with `action="sql_select"` and `api_args` '
-                f'containing `"sql"` and `"sql_dialect": "{dialect}"` (`entity_type` is '
-                "ignored; any value works). Only `SELECT`/`WITH` statements and the literal "
+                "`execute_external_sql_query` with `sql` and `sql_dialect` "
+                f"(`{dialect}`) arguments. Only `SELECT`/`WITH` statements and the literal "
                 f"`SHOW TABLES` are accepted; anything else is rejected before reaching {engine}. "
                 "Results are returned as JSON rows."
             ),
@@ -344,26 +443,11 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
         {
             "type": "paragraph",
             "text": (
-                "Discover columns without reading rows (`dry_run`). Do not guess column names: "
-                "run the dry-run step first and select only columns it returns:"
+                "Do not guess column names: `SELECT * FROM <table> LIMIT 1` with "
+                "`dry_run=True` returns the real columns without scanning data:"
             ),
         },
-        {
-            "type": "code",
-            "language": "python",
-            "code": (
-                "execute_agent_connector_ro(\n"
-                f'    connector_id="{destination.connector_id}",\n'
-                '    entity_type="tables",\n'
-                '    action="sql_select",\n'
-                "    api_args={\n"
-                '        "sql": "SELECT * FROM <table> LIMIT 1",\n'
-                f'        "sql_dialect": "{dialect}",\n'
-                '        "dry_run": True,\n'
-                "    },\n"
-                ")"
-            ),
-        },
+        _sql_select_call(destination, dialect, "SELECT * FROM <table> LIMIT 1"),
         {"type": "paragraph", "text": "Read rows from a table:"},
         {
             "type": "code",
@@ -377,9 +461,10 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
             "type": "list",
             "items": [
                 (
-                    "Row count and response size are capped by the server. When a response "
-                    "includes `end_cursor`, pass it back as the top-level `cursor` argument "
-                    "to fetch the next page (`dry_run` cannot be combined with `cursor`)."
+                    "Row count and response size are capped by the server; the tool's "
+                    "`page_size` argument limits rows per page. When a response includes "
+                    "`end_cursor`, pass it back as the tool's `cursor` argument to fetch "
+                    "the next page."
                 ),
                 (
                     "Always add a `LIMIT` clause to `SELECT` queries and select only the "
@@ -396,25 +481,19 @@ def _sql_passthrough_section(destination: CloudDestination, dialect: str) -> lis
     ]
 
 
-def _namespace_entry(location: list[tuple[str, str]]) -> tuple[str, str] | None:
-    """Return the schema-level (label, value) entry of a destination location, if any."""
-    return next((entry for entry in location if entry[0] in _NAMESPACE_LABELS), None)
-
-
-def _qualified_table_example(destination: CloudDestination) -> str:
+def _qualified_table_example(destination: _DestinationLike) -> str:
     """Return an example `SELECT` qualifying the table with the destination's namespace."""
-    namespace_entry = _namespace_entry(_destination_location(destination))
-    if namespace_entry is None:
+    namespace = _destination_load_context(destination).schema_name
+    if namespace is None:
         return "SELECT * FROM <table> LIMIT 10"
-    namespace = namespace_entry[1]
-    if destination.definition_id == BIGQUERY_DESTINATION_DEFINITION_ID:
+    if destination.definition_id == _BIGQUERY_DESTINATION_DEFINITION_ID:
         return f"SELECT * FROM `{namespace}.<table>` LIMIT 10"
     return f"SELECT * FROM {namespace}.<table> LIMIT 10"
 
 
 def _connections_section(
-    destination: CloudDestination,
-    connections: list[Any],
+    destination: _DestinationLike,
+    connections: list[_ConnectionLike],
 ) -> list[dict[str, Any]]:
     if not connections:
         return [
@@ -423,9 +502,8 @@ def _connections_section(
                 "text": "No connections sync into this destination.",
             }
         ]
-    source_names = {
-        source.connector_id: source.name for source in destination.workspace.list_sources()
-    }
+    workspace: _WorkspaceLike = destination.workspace
+    source_names = {source.connector_id: source.name for source in workspace.list_sources()}
     items = []
     for connection in connections:
         source_name = source_names.get(connection.source_id, connection.source_id)
@@ -448,13 +526,13 @@ def _table_name(dialect: str, table_prefix: str, stream_name: str) -> str:
 
 
 def _connection_namespace_note(
-    connection: CloudConnection,
-    location: list[tuple[str, str]],
+    connection: _ConnectionLike,
+    load_context: _DestinationLoadContext,
 ) -> str:
     """Describe where a connection's tables land: namespace choice plus table prefix."""
     prefix_clause = (
-        f", with table prefix {connection.table_prefix!r}."
-        if connection.table_prefix
+        f", with table prefix {load_context.table_prefix!r}."
+        if load_context.table_prefix
         else ", with no table prefix."
     )
     namespace_definition = connection.namespace_definition
@@ -464,15 +542,14 @@ def _connection_namespace_note(
         note = f"Streams land in namespace format `{connection.namespace_format}`"
     else:
         note = "Streams land in the destination's default namespace"
-        if namespace_entry := _namespace_entry(location):
-            label, value = namespace_entry
-            note += f", {label} `{value}`"
+        if load_context.schema_name is not None:
+            note += f", schema `{load_context.schema_name}`"
     return note + prefix_clause
 
 
 def _streams_section(
-    connections: list[Any],
-    location: list[tuple[str, str]],
+    connections: list[_ConnectionLike],
+    destination: _DestinationLike,
     dialect: str,
 ) -> list[dict[str, Any]]:
     if not connections:
@@ -501,7 +578,13 @@ def _streams_section(
             [
                 {
                     "type": "paragraph",
-                    "text": _connection_namespace_note(connection, location),
+                    "text": _connection_namespace_note(
+                        connection=connection,
+                        load_context=_destination_load_context(
+                            destination,
+                            connection,
+                        ),
+                    ),
                 },
                 {
                     "type": "table",
@@ -517,3 +600,64 @@ def _streams_section(
             ]
         )
     return blocks
+
+
+def build_connection_details(connector: _ConnectorLike) -> list[CloudConnectorConnectionInfo]:
+    """Summarize each connection that reads from or writes to `connector`.
+
+    Counterpart connector names are resolved with one `list_sources()` and one
+    `list_destinations()` call, and the destination's database/schema location is read
+    from its configuration.
+    """
+    workspace: _WorkspaceLike = connector.workspace
+    if connector.connector_type.value == "source":
+        connections = [
+            connection
+            for connection in workspace.list_connections()
+            if connection.source_id == connector.connector_id
+        ]
+    else:
+        connections = [
+            connection
+            for connection in workspace.list_connections()
+            if connection.destination_id == connector.connector_id
+        ]
+
+    source_names = {source.connector_id: source.name for source in workspace.list_sources()}
+    destinations = {
+        destination.connector_id: destination for destination in workspace.list_destinations()
+    }
+
+    infos: list[CloudConnectorConnectionInfo] = []
+    for connection in connections:
+        destination = destinations.get(connection.destination_id)
+        ctx = (
+            _destination_load_context(
+                destination,
+                connection,
+            )
+            if destination is not None
+            else _DestinationLoadContext()
+        )
+        infos.append(
+            CloudConnectorConnectionInfo(
+                connection_id=connection.connection_id,
+                name=str(connection.name),
+                source_id=connection.source_id,
+                source_name=str(source_names.get(connection.source_id, connection.source_id)),
+                destination_id=connection.destination_id,
+                destination_name=str(
+                    destination.name if destination is not None else connection.destination_id
+                ),
+                schedule=connection.schedule.friendly_description
+                if connection.schedule is not None
+                else None,
+                stream_names=list(connection.stream_names),
+                namespace_definition=connection.namespace_definition,
+                namespace_format=connection.namespace_format,
+                table_prefix=connection.table_prefix,
+                destination_database=ctx.database_name,
+                destination_schema=ctx.schema_name,
+            )
+        )
+    return infos

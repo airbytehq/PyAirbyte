@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Literal
 
@@ -193,7 +193,7 @@ def show_workspace_sync_status(
     """Show an interactive sync status dashboard for an Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connections = workspace.list_connections(limit=max_connections)
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     connection_statuses = [
         _summarize_connection(
             connection=connection,
@@ -334,7 +334,7 @@ def _build_workspace_metric_summary(
             continue
         latest_sync_time = datetime.fromisoformat(connection_status.latest_sync_time)
         if latest_sync_time.tzinfo is None:
-            latest_sync_time = latest_sync_time.replace(tzinfo=timezone.utc)
+            latest_sync_time = latest_sync_time.replace(tzinfo=UTC)
         age_hours = (now - latest_sync_time).total_seconds() / 3600
         if age_hours <= recent_hours:
             recently_synced += 1
@@ -648,7 +648,7 @@ def _status_pie_section(
     """Render status pie chart and table filters."""
     with Column(gap=3):
         with Div(style=_status_pie_chart_style(status_pie_rows)):
-            PieChart(
+            PieChart(  # pyrefly: ignore[missing-argument]
                 data=status_pie_rows,
                 data_key="connections",
                 name_key="status",

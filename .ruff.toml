@@ -1,6 +1,6 @@
 # Ruff configuration file
 # For rules reference, see https://docs.astral.sh/ruff/rules/
-target-version = "py310"
+target-version = "py311"
 preview = true
 line-length = 100
 
@@ -95,6 +95,7 @@ ignore = [
     "TRY003",  # Allow exceptions to receive strings in constructors.
     # "TD003", # Require links for TODOs (now enabled)
     "UP038",   # Allow tuples instead of "|" syntax in `isinstance()` checks ("|" is sometimes slower)
+    "UP042",   # `(str, Enum)` -> `StrEnum` changes `str()`/f-string output; migrate deliberately, not via lint
 ]
 fixable = ["ALL"]
 unfixable = [

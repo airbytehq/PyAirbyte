@@ -13,17 +13,26 @@ __all__: list[str] = []
 from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
+import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from airbyte import cloud, get_destination, get_source
+from airbyte import Destination, Source, get_destination, get_source
+from airbyte._direct_connectors import connector_docs
+from airbyte._direct_connectors.models import (
+    CloudConnectorConnectionInfo,
+    ExternalApiExecuteResult,
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
+)
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import (
     CheckResult,
+    CloudConnector,
     CloudDestination,
     CloudSource,
     CustomCloudSourceDefinition,
@@ -33,7 +42,10 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    ConnectorFeature,
+    ConnectorType,
     JobTypeEnum,
+    OrganizationFeature,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -48,6 +60,7 @@ from airbyte.constants import (
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
+    MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_WORKSPACE_ID_HEADER,
 )
@@ -58,15 +71,33 @@ from airbyte.exceptions import (
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
+    PyAirbyteError,
     PyAirbyteInputError,
 )
-from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import (
+    resolve_api_args,
+    resolve_connector_config,
+    resolve_list_of_strings,
+)
+from airbyte.mcp._docs_results import (
+    AgentSkillDocsResult,
+    CloudConnectorDocsResult,
+    render_agent_skill_docs_result,
+    render_connector_docs_result,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
-from airbyte.registry import get_connector_metadata
+from airbyte.registry import (
+    ApiDocsUrl,  # Needed at runtime for Pydantic field types.
+    get_connector_metadata,
+)
+
+
+if TYPE_CHECKING:
+    from airbyte.cloud.sync_results import SyncResult
 
 
 CLOUD_AUTH_TIP_TEXT = (
@@ -136,26 +167,64 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
     )
 
 
-class CloudSourceResult(BaseModel):
-    """Information about a deployed source connector in Airbyte Cloud."""
+FEATURE_FILTER_TIP_TEXT = (
+    "Optional feature filter: `direct_access` returns only connectors AI agents can use "
+    "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
+    "query. `enabled_features` is only resolved and returned when this filter is set; "
+    "use `direct_access` to find every connector with any external-access feature "
+    "enabled and see its full feature list. Omit to list every connector with "
+    "`enabled_features='not_checked'` (no feature check performed)."
+)
 
-    id: str
-    """The source ID."""
-    name: str
-    """Display name of the source."""
-    url: str
-    """Web URL for managing this source in Airbyte Cloud."""
+FEATURES_NOT_CHECKED: Final = "not_checked"
+FeaturesNotChecked = Literal["not_checked"]
 
 
-class CloudDestinationResult(BaseModel):
-    """Information about a deployed destination connector in Airbyte Cloud."""
+CONNECTOR_TYPE_TIP_TEXT = (
+    "Optional: `source` or `destination`. When omitted, the connector type is "
+    "resolved automatically from the connector ID (one extra API call)."
+)
 
-    id: str
-    """The destination ID."""
-    name: str
-    """Display name of the destination."""
-    url: str
-    """Web URL for managing this destination in Airbyte Cloud."""
+
+def _get_cloud_connector(
+    workspace: CloudWorkspace,
+    connector_id: str,
+    connector_type: ConnectorType | None,
+) -> CloudConnector:
+    """Return a typed `CloudConnector`, resolving the type lazily when not provided."""
+    if connector_type == ConnectorType.SOURCE:
+        return workspace.get_source(source_id=connector_id)
+    if connector_type == ConnectorType.DESTINATION:
+        return workspace.get_destination(destination_id=connector_id)
+    return workspace.get_connector(connector_id=connector_id)
+
+
+def _get_typed_cloud_connector(
+    workspace: CloudWorkspace,
+    connector_id: str,
+    connector_type: ConnectorType | None,
+) -> CloudSource | CloudDestination:
+    """Return a `CloudSource` or `CloudDestination`, resolving the type if not provided."""
+    connector = _get_cloud_connector(workspace, connector_id, connector_type)
+    if connector.connector_type == ConnectorType.SOURCE:
+        return connector.as_cloud_source()
+    return connector.as_cloud_destination()
+
+
+def _infer_connector_type_from_name(connector_name: str) -> ConnectorType:
+    """Infer the connector type from a canonical connector name like `source-faker`."""
+    if connector_name.startswith("source-"):
+        return ConnectorType.SOURCE
+    if connector_name.startswith("destination-"):
+        return ConnectorType.DESTINATION
+    raise PyAirbyteInputError(
+        message=(
+            f"Cannot infer connector type from connector name '{connector_name}'. "
+            "Pass `connector_type` explicitly or use a canonical name with a "
+            "`source-` or `destination-` prefix."
+        ),
+        context={"connector_name": connector_name},
+    )
 
 
 class CloudConnectionResult(BaseModel):
@@ -185,32 +254,6 @@ class CloudConnectionResult(BaseModel):
     currently_running_job_start_time: str | None = None
     """ISO 8601 timestamp of when the currently running sync started.
     Only populated when with_connection_status=True."""
-
-
-class CloudSourceDetails(BaseModel):
-    """Detailed information about a deployed source connector in Airbyte Cloud."""
-
-    source_id: str
-    """The source ID."""
-    source_name: str
-    """Display name of the source."""
-    source_url: str
-    """Web URL for managing this source in Airbyte Cloud."""
-    connector_definition_id: str
-    """The connector definition ID (e.g., the ID for 'source-postgres')."""
-
-
-class CloudDestinationDetails(BaseModel):
-    """Detailed information about a deployed destination connector in Airbyte Cloud."""
-
-    destination_id: str
-    """The destination ID."""
-    destination_name: str
-    """Display name of the destination."""
-    destination_url: str
-    """Web URL for managing this destination in Airbyte Cloud."""
-    connector_definition_id: str
-    """The connector definition ID (e.g., the ID for 'destination-snowflake')."""
 
 
 class CloudConnectionDetails(BaseModel):
@@ -245,6 +288,8 @@ class CloudOrganizationResult(BaseModel):
     """Display name of the organization, when available."""
     email: str | None = None
     """Email associated with the organization, when available."""
+    enabled_features: list[OrganizationFeature]
+    """Features enabled for this organization; see `OrganizationFeature`."""
 
 
 class CloudOrganizationListResult(BaseModel):
@@ -436,7 +481,7 @@ class DeferredDeployResult(BaseModel):
 
     connector_id: str
     """The deployed connector ID."""
-    connector_type: Literal["source", "destination"]
+    connector_type: ConnectorType
     """The connector type: 'source' or 'destination'."""
     name: str
     """The connector name in Airbyte Cloud."""
@@ -477,6 +522,7 @@ class SyncJobListResult(BaseModel):
 def _get_cloud_workspace(
     ctx: Context,
     workspace_id: str | None = None,
+    organization_id: str | None = None,
 ) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
 
@@ -488,7 +534,7 @@ def _get_cloud_workspace(
     from HTTP headers or environment variables based on the config args
     defined in server.py.
     """
-    client = _get_cloud_client(ctx)
+    client = _get_cloud_client(ctx, organization_id=organization_id)
     resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError
@@ -516,7 +562,7 @@ def _get_cloud_client(
         public_api_root=api_url,
         config_api_root=config_api_url,
         workspace_id=workspace_id,
-        organization_id=organization_id,
+        organization_id=organization_id or get_mcp_config(ctx, MCP_CONFIG_ORGANIZATION_ID),
     )
 
 
@@ -524,17 +570,32 @@ def _get_cloud_client(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def deploy_source_to_cloud(
+def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
     ctx: Context,
-    source_name: Annotated[
+    name: Annotated[
         str,
-        Field(description="The name to use when deploying the source."),
+        Field(description="The name to use when deploying the connector."),
     ],
-    source_connector_name: Annotated[
+    connector_name: Annotated[
         str,
-        Field(description="The name of the source connector (e.g., 'source-faker')."),
+        Field(
+            description=(
+                "The canonical name of the connector (e.g., 'source-faker' or "
+                "'destination-postgres')."
+            ),
+        ),
     ],
     *,
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=(
+                "Optional: `source` or `destination`. When omitted, inferred from the "
+                "`source-`/`destination-` prefix of `connector_name`."
+            ),
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -545,7 +606,7 @@ def deploy_source_to_cloud(
     config: Annotated[
         dict | str | None,
         Field(
-            description="The configuration for the source connector.",
+            description="The configuration for the connector.",
             default=None,
         ),
     ],
@@ -569,147 +630,56 @@ def deploy_source_to_cloud(
             description=DEFER_CREDENTIALS_TIP_TEXT,
             default=False,
         ),
-    ],
+    ] = False,
 ) -> str:
-    """Deploy a source connector to Airbyte Cloud.
+    """Deploy a source or destination connector to Airbyte Cloud.
 
     With `defer_credentials=True`, returns a JSON `DeferredDeployResult` whose `settings_url`
     is where a person completes the credentials.
     """
+    resolved_type = connector_type or _infer_connector_type_from_name(connector_name)
     if defer_credentials:
         return _deploy_deferred_to_cloud(
             ctx,
-            connector_type="source",
-            name=source_name,
-            connector_name=source_connector_name,
+            connector_type=resolved_type,
+            name=name,
+            connector_name=connector_name,
             workspace_id=workspace_id,
             config=config,
             config_secret_name=config_secret_name,
             unique=unique,
         ).model_dump_json(indent=2)
 
-    source = get_source(
-        source_connector_name,
-        no_executor=True,
+    connector: Source | Destination = (
+        get_source(connector_name, no_executor=True)
+        if resolved_type == ConnectorType.SOURCE
+        else get_destination(connector_name, no_executor=True)
     )
     config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
-        config_spec_jsonschema=source.config_spec,
+        config_spec_jsonschema=connector.config_spec,
     )
-    source.set_config(config_dict, validate=True)
+    connector.set_config(config_dict, validate=True)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    deployed_source = workspace.deploy_source(
-        name=source_name,
-        source=source,
-        unique=unique,
+    deployed: CloudConnector = (
+        workspace.deploy_source(name=name, source=connector, unique=unique)
+        if isinstance(connector, Source)
+        else workspace.deploy_destination(name=name, destination=connector, unique=unique)
     )
 
-    register_guid_created_in_session(deployed_source.connector_id)
+    register_guid_created_in_session(deployed.connector_id)
     return (
-        f"Successfully deployed source '{source_name}' with ID '{deployed_source.connector_id}'"
-        f" and URL: {deployed_source.connector_url}"
-    )
-
-
-@mcp_tool(
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def deploy_destination_to_cloud(
-    ctx: Context,
-    destination_name: Annotated[
-        str,
-        Field(description="The name to use when deploying the destination."),
-    ],
-    destination_connector_name: Annotated[
-        str,
-        Field(description="The name of the destination connector (e.g., 'destination-postgres')."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-    config: Annotated[
-        dict | str | None,
-        Field(
-            description="The configuration for the destination connector.",
-            default=None,
-        ),
-    ],
-    config_secret_name: Annotated[
-        str | None,
-        Field(
-            description="The name of the secret containing the configuration.",
-            default=None,
-        ),
-    ],
-    unique: Annotated[
-        bool,
-        Field(
-            description="Whether to require a unique name.",
-            default=True,
-        ),
-    ],
-    defer_credentials: Annotated[
-        bool,
-        Field(
-            description=DEFER_CREDENTIALS_TIP_TEXT,
-            default=False,
-        ),
-    ],
-) -> str:
-    """Deploy a destination connector to Airbyte Cloud.
-
-    With `defer_credentials=True`, returns a JSON `DeferredDeployResult` whose `settings_url`
-    is where a person completes the credentials.
-    """
-    if defer_credentials:
-        return _deploy_deferred_to_cloud(
-            ctx,
-            connector_type="destination",
-            name=destination_name,
-            connector_name=destination_connector_name,
-            workspace_id=workspace_id,
-            config=config,
-            config_secret_name=config_secret_name,
-            unique=unique,
-        ).model_dump_json(indent=2)
-
-    destination = get_destination(
-        destination_connector_name,
-        no_executor=True,
-    )
-    config_dict = resolve_connector_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=destination.config_spec,
-    )
-    destination.set_config(config_dict, validate=True)
-
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    deployed_destination = workspace.deploy_destination(
-        name=destination_name,
-        destination=destination,
-        unique=unique,
-    )
-
-    register_guid_created_in_session(deployed_destination.connector_id)
-    return (
-        f"Successfully deployed destination '{destination_name}' "
-        f"with ID: {deployed_destination.connector_id}"
+        f"Successfully deployed {resolved_type.value} '{name}' with ID "
+        f"'{deployed.connector_id}' and URL: {deployed.connector_url}"
     )
 
 
 def _deploy_deferred_to_cloud(
     ctx: Context,
     *,
-    connector_type: Literal["source", "destination"],
+    connector_type: ConnectorType,
     name: str,
     connector_name: str,
     workspace_id: str | None,
@@ -736,7 +706,7 @@ def _deploy_deferred_to_cloud(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed: CloudSource | CloudDestination
     try:
-        if connector_type == "source":
+        if connector_type == ConnectorType.SOURCE:
             deployed = workspace.deploy_source(
                 name=name,
                 source=config_dict,
@@ -1008,7 +978,7 @@ def get_cloud_sync_status(
     connection = workspace.get_connection(connection_id=connection_id)
 
     # If a job ID is provided, get the job by ID.
-    sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)
+    sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
     if not sync_result:
         return {"status": None, "job_id": None, "attempts": []}
@@ -1179,13 +1149,29 @@ def cancel_cloud_sync(
     )
 
 
+class CloudConnectorResult(BaseModel):
+    """Information about a deployed connector in Airbyte Cloud."""
+
+    id: str
+    """The connector ID."""
+    connector_type: Literal["source", "destination"]
+    """Whether the connector is a source or a destination."""
+    name: str
+    """The connector's display name."""
+    url: str
+    """The connector's page in the Airbyte Cloud UI."""
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked = FEATURES_NOT_CHECKED
+    """Features enabled for this connector. `"not_checked"` means no feature check was
+    performed (no `feature_filter`); an empty list means checked with nothing enabled."""
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def list_deployed_cloud_source_connectors(
+def list_cloud_connectors(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -1195,10 +1181,17 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ],
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=("Optional: return only sources or only destinations. Omit for both."),
+            default=None,
+        ),
+    ] = None,
     name_contains: Annotated[
         str | None,
         Field(
-            description="Optional case-insensitive substring to filter sources by name",
+            description="Optional case-insensitive substring to filter connectors by name",
             default=None,
         ),
     ],
@@ -1209,27 +1202,160 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ],
-) -> list[CloudSourceResult]:
-    """List all deployed source connectors in the Airbyte Cloud workspace."""
+    feature_filter: Annotated[
+        ConnectorFeature | None,
+        Field(
+            description=FEATURE_FILTER_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> list[CloudConnectorResult]:
+    """List deployed source and destination connectors in the Airbyte Cloud workspace.
+
+    Pass `feature_filter` (for example `direct_api_query` for sources,
+    `direct_sql_query` for destinations, or `direct_access` for either) to return only
+    matching connectors with their `enabled_features` resolved; without it,
+    `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
+    feature check was performed; `[]` means checked and no features enabled.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    sources = workspace.list_sources(limit=None if name_contains else limit)
-
-    # Filter by name if requested
-    if name_contains:
-        needle = name_contains.lower()
-        sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
-    if limit is not None:
-        sources = sources[:limit]
-
+    connectors = workspace.list_connectors(
+        connector_type=connector_type,
+        feature_filter=feature_filter,
+        name_contains=name_contains,
+        limit=limit,
+    )
     # Note: name and url are guaranteed non-null from list API responses
     return [
-        CloudSourceResult(
-            id=source.source_id,
-            name=cast(str, source.name),
-            url=cast(str, source.connector_url),
+        CloudConnectorResult(
+            id=connector.connector_id,
+            connector_type=connector.connector_type.value,
+            name=cast(str, connector.name),
+            url=connector.connector_url,
+            enabled_features=sorted(connector.enabled_features)
+            if feature_filter is not None
+            else FEATURES_NOT_CHECKED,
         )
-        for source in sources
+        for connector in connectors
     ]
+
+
+class CloudConnectorDetailsResult(BaseModel):
+    """A description of a deployed Cloud connector.
+
+    As returned by the `describe_cloud_*` MCP tools.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    connector_id: str
+    """The connector ID."""
+
+    connector_type: Literal["source", "destination"]
+    """Whether the connector is a source or a destination."""
+
+    connector_name: str
+    """The connector's display name."""
+
+    connector_url: str
+    """The connector's web URL."""
+
+    connector_definition_id: str
+    """The connector definition ID (for example, the ID for `source-postgres`)."""
+
+    integration_name: str | None = None
+    """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
+
+    enabled_features: list[ConnectorFeature] = Field(default_factory=list)
+    """Features enabled for this connector; see `ConnectorFeature`."""
+
+    config: dict[str, Any] | None = None
+    """The connector configuration, populated only by `with_config`.
+
+    Secret values are redacted by the Cloud API. Always `None` for sources, which the
+    API does not expose configuration for."""
+
+    replication_details: list[CloudConnectorConnectionInfo] | None = None
+    """Connections touching this connector, populated only by `with_replication_details`."""
+
+    direct_access_guidance: CloudConnectorDocsResult | None = None
+    """Direct-access docs rendered as Markdown, populated only by `with_direct_access_guidance`."""
+
+    data_replication_docs: list[ApiDocsUrl] | None = None
+    """Upstream API documentation links, populated only by `with_data_replication_docs`."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues encountered while describing the connector."""
+
+    errors: list[str] = Field(default_factory=list)
+    """Fatal issues encountered while describing optional connector details."""
+
+
+def _describe_cloud_connector(
+    connector: CloudConnector,
+    *,
+    with_config: bool,
+    with_replication_details: bool,
+    with_direct_access_guidance: bool,
+    with_data_replication_docs: bool,
+) -> CloudConnectorDetailsResult:
+    """Assemble the `describe_cloud_*` MCP tools' result for a deployed connector."""
+    connector_type = connector.connector_type
+    warnings: list[str] = []
+    try:
+        integration_name = connector.integration_name
+    except AirbyteError as error:
+        warnings.append(f"Integration name lookup failed: {error}")
+        integration_name = None
+
+    result = CloudConnectorDetailsResult(
+        connector_id=connector.connector_id,
+        connector_type=connector_type.value,
+        connector_name=connector.name or "",
+        connector_url=connector.connector_url,
+        connector_definition_id=connector.definition_id,
+        integration_name=integration_name,
+        enabled_features=sorted(connector.enabled_features),
+    )
+
+    if (
+        connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+        and connector.workspace._has_context_layer_api()  # noqa: SLF001
+    ):
+        context_layer = connector._context_layer_inspect(  # noqa: SLF001
+            warnings=warnings,
+        )
+        if context_layer is not None:
+            warnings.extend(str(warning) for warning in context_layer.warnings)
+
+    if with_config and connector_type == ConnectorType.DESTINATION:
+        try:
+            result.config = connector.as_cloud_destination().configuration
+        except AirbyteError as error:
+            warnings.append(f"Connector configuration lookup failed: {error}")
+
+    if with_replication_details:
+        try:
+            result.replication_details = connector_docs.build_connection_details(connector)
+        except AirbyteError as error:
+            warnings.append(f"Connection listing failed: {error}")
+
+    if with_direct_access_guidance:
+        try:
+            docs = connector.get_direct_access_guidance()
+        except (PyAirbyteError, requests.RequestException) as error:
+            warnings.append(f"Direct access docs are unavailable: {error}")
+        else:
+            result.direct_access_guidance = render_connector_docs_result(docs)
+
+    if with_data_replication_docs:
+        try:
+            result.data_replication_docs = connector.get_data_replication_docs()
+        except (PyAirbyteError, requests.RequestException) as error:
+            warnings.append(f"Data replication docs are unavailable: {error}")
+
+    result.warnings = warnings
+    return result
 
 
 @mcp_tool(
@@ -1238,9 +1364,25 @@ def list_deployed_cloud_source_connectors(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def list_deployed_cloud_destination_connectors(
+def describe_cloud_connector(
     ctx: Context,
+    connector_id: Annotated[
+        str,
+        Field(
+            description=(
+                "The ID of the deployed connector to describe. Works for both sources "
+                "and destinations; the kind is resolved automatically."
+            ),
+        ),
+    ],
     *,
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -1248,75 +1390,310 @@ def list_deployed_cloud_destination_connectors(
             default=None,
         ),
     ],
-    name_contains: Annotated[
+    with_config: Annotated[
+        bool,
+        Field(
+            description=(
+                "Include the connector configuration (secrets are redacted by the " "Cloud API)."
+            ),
+            default=False,
+        ),
+    ],
+    with_replication_details: Annotated[
+        bool,
+        Field(
+            description="Include the connections that read from or write to this " "connector.",
+            default=False,
+        ),
+    ],
+    with_direct_access_guidance: Annotated[
+        bool,
+        Field(
+            description="Include the connector's direct-access usage docs rendered " "as Markdown.",
+            default=False,
+        ),
+    ],
+    with_data_replication_docs: Annotated[
+        bool,
+        Field(
+            description="Include links to the connector's upstream API documentation.",
+            default=False,
+        ),
+    ],
+) -> CloudConnectorDetailsResult:
+    """Get detailed information about a deployed source or destination connector.
+
+    Always returns identity fields and enabled features. The `with_*` toggles add the
+    connector's configuration, its connections, its direct-access docs, and links to
+    its upstream API documentation.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    return _describe_cloud_connector(
+        _get_cloud_connector(workspace, connector_id, connector_type),
+        with_config=with_config,
+        with_replication_details=with_replication_details,
+        with_direct_access_guidance=with_direct_access_guidance,
+        with_data_replication_docs=with_data_replication_docs,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_agent_skill_docs(
+    ctx: Context,
+    *,
+    docs_skill_id: Annotated[
         str | None,
         Field(
-            description="Optional case-insensitive substring to filter destinations by name",
+            description=(
+                "Fully-qualified skill ID, e.g. from `describe_cloud_*` `skill_id`. "
+                "Provide this or `connector_id`."
+            ),
+            default=None,
+        ),
+    ] = None,
+    connector_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Deployed source or destination ID; resolves that connector's skill docs. "
+                "Provide this or `docs_skill_id`."
+            ),
+            default=None,
+        ),
+    ] = None,
+    section: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional exact section ID from the guidance's outline to read a single "
+                "section. Omit for the overview, metadata, and outline."
+            ),
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
-    limit: Annotated[
+) -> AgentSkillDocsResult:
+    """Returns the requested skill document by ID for an AI agent.
+
+    Pass either a fully-qualified `docs_skill_id` or a `connector_id` (source or
+    destination); exactly one is required.
+
+    `section` is optional; if omitted, the summary overview is returned along with
+    the list of available sections.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    return render_agent_skill_docs_result(
+        workspace.get_agent_skill_docs(docs_skill_id, connector_id=connector_id, section=section)
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector to query."),
+    ],
+    entity_type: Annotated[
+        str,
+        Field(
+            description=(
+                "The type of entity to query, for example 'issues'. Call "
+                "`describe_cloud_*` or `get_agent_skill_docs` for supported entity types."
+            ),
+        ),
+    ],
+    action: Annotated[
+        ExternalApiReadOnlyAction,
+        Field(
+            description="The read action to run: `list`, `get`, or `search`.",
+            default=ExternalApiReadOnlyAction.LIST,
+        ),
+    ] = ExternalApiReadOnlyAction.LIST,
+    api_args: Annotated[
+        dict[str, Any] | str | None,
+        Field(
+            description=(
+                "Connector-specific arguments for the action, as an object or a JSON "
+                "object string. For example {'repository': 'airbytehq/PyAirbyte'}."
+            ),
+            default=None,
+        ),
+    ] = None,
+    select_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to keep in the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    exclude_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to drop from the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    page_size: Annotated[
         int | None,
         Field(
-            description="Optional maximum number of items to return (default: no limit)",
+            description="Maximum number of entities to return in this page.",
             default=None,
         ),
-    ],
-) -> list[CloudDestinationResult]:
-    """List all deployed destination connectors in the Airbyte Cloud workspace."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destinations = workspace.list_destinations(limit=None if name_contains else limit)
-
-    # Filter by name if requested
-    if name_contains:
-        needle = name_contains.lower()
-        destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
-    if limit is not None:
-        destinations = destinations[:limit]
-
-    # Note: name and url are guaranteed non-null from list API responses
-    return [
-        CloudDestinationResult(
-            id=destination.destination_id,
-            name=cast(str, destination.name),
-            url=cast(str, destination.connector_url),
-        )
-        for destination in destinations
-    ]
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def describe_cloud_source(
-    ctx: Context,
-    source_id: Annotated[
-        str,
-        Field(description="The ID of the source to describe."),
-    ],
-    *,
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description="Pagination cursor from a previous response.",
+            default=None,
+        ),
+    ] = None,
+    skip_truncation: Annotated[
+        bool,
+        Field(
+            description="Skip truncating long field values in the response.",
+            default=True,
+        ),
+    ] = True,
+    intent: Annotated[
+        str | None,
+        Field(
+            description="Optional free-text intent recorded with the request.",
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Read data from an external system through a deployed Cloud connector's direct API.
+
+    Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
+    `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
+    connector supports.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_api_query(
+        entity_type,
+        action,
+        resolve_api_args(api_args),
+        select_fields=resolve_list_of_strings(select_fields),
+        exclude_fields=resolve_list_of_strings(exclude_fields),
+        page_size=page_size,
+        cursor=cursor,
+        skip_truncation=skip_truncation,
+        intent=intent,
+    )
+
+
+@mcp_tool(
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector to act on."),
     ],
-) -> CloudSourceDetails:
-    """Get detailed information about a specific deployed source connector."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    source = workspace.get_source(source_id=source_id)
+    entity_type: Annotated[
+        str,
+        Field(
+            description=(
+                "The type of entity to act on, for example 'issues'. Call "
+                "`describe_cloud_*` or `get_agent_skill_docs` for supported entity types."
+            ),
+        ),
+    ],
+    action: Annotated[
+        ExternalApiWriteAction,
+        Field(description="The write action to run: `create`, `update`, or `delete`."),
+    ],
+    api_args: Annotated[
+        dict[str, Any] | str | None,
+        Field(
+            description=(
+                "Connector-specific arguments for the action, as an object or a JSON "
+                "object string. For example {'repository': 'airbytehq/PyAirbyte'}."
+            ),
+            default=None,
+        ),
+    ] = None,
+    select_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to keep in the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    exclude_fields: Annotated[
+        list[str] | str | None,
+        Field(
+            description="Fields to drop from the response, as a list or a CSV string.",
+            default=None,
+        ),
+    ] = None,
+    skip_truncation: Annotated[
+        bool,
+        Field(
+            description="Skip truncating long field values in the response.",
+            default=True,
+        ),
+    ] = True,
+    intent: Annotated[
+        str | None,
+        Field(
+            description="Optional free-text intent recorded with the request.",
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Run a write action through a deployed Cloud connector's direct API.
 
-    source_name = cast(str, source.name)
+    Creates, updates, or deletes data in the external system.
 
-    return CloudSourceDetails(
-        source_id=source.source_id,
-        source_name=source_name,
-        source_url=source.connector_url,
-        connector_definition_id=source.definition_id,
+    Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
+    `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
+    connector supports.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_api_action(
+        entity_type,
+        action,
+        resolve_api_args(api_args),
+        select_fields=resolve_list_of_strings(select_fields),
+        exclude_fields=resolve_list_of_strings(exclude_fields),
+        skip_truncation=skip_truncation,
+        intent=intent,
     )
 
 
@@ -1326,32 +1703,74 @@ def describe_cloud_source(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def describe_cloud_destination(
+def execute_external_sql_query(
     ctx: Context,
-    destination_id: Annotated[
-        str,
-        Field(description="The ID of the destination to describe."),
-    ],
     *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed SQL-passthrough destination to query."),
+    ],
+    sql: Annotated[
+        str,
+        Field(description="The read-only SQL statement to run, for example `SHOW TABLES`."),
+    ],
+    sql_dialect: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The SQL dialect (`snowflake` or `bigquery`). Defaults to the "
+                "destination's registered dialect."
+            ),
+            default=None,
+        ),
+    ] = None,
+    page_size: Annotated[
+        int | None,
+        Field(
+            description="Maximum number of rows to return in this page.",
+            default=None,
+        ),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description="Pagination cursor from a previous response.",
+            default=None,
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        Field(
+            description=(
+                "Validate the SQL and return only the result columns without "
+                "executing a scan. Cannot be combined with `cursor`."
+            ),
+            default=False,
+        ),
+    ] = False,
     workspace_id: Annotated[
         str | None,
         Field(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ],
-) -> CloudDestinationDetails:
-    """Get detailed information about a specific deployed destination connector."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destination = workspace.get_destination(destination_id=destination_id)
+    ] = None,
+) -> ExternalApiExecuteResult:
+    """Run a read-only SQL query against a deployed SQL-passthrough destination.
 
-    destination_name = cast(str, destination.name)
+    Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
 
-    return CloudDestinationDetails(
-        destination_id=destination.destination_id,
-        destination_name=destination_name,
-        destination_url=destination.connector_url,
-        connector_definition_id=destination.definition_id,
+    Run `SHOW TABLES` first to discover tables; `sql_dialect` defaults to the
+    destination's registered dialect. Use `dry_run=True` with
+    `SELECT * FROM <table> LIMIT 1` to discover a table's columns.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_sql_query(
+        sql,
+        sql_dialect=sql_dialect,
+        page_size=page_size,
+        cursor=cursor,
+        dry_run=dry_run,
     )
 
 
@@ -1361,13 +1780,20 @@ def describe_cloud_destination(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def check_cloud_source(
+def check_cloud_connector(
     ctx: Context,
-    source_id: Annotated[
+    connector_id: Annotated[
         str,
-        Field(description="The ID of the deployed source connector to check."),
+        Field(description="The ID of the deployed connector to check."),
     ],
     *,
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -1376,46 +1802,13 @@ def check_cloud_source(
         ),
     ],
 ) -> ConnectorCheckResult:
-    """Check the configuration and credentials of a deployed source connector."""
+    """Check the configuration and credentials of a deployed source or destination."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    source = workspace.get_source(source_id=source_id)
-    check_result = source.check(raise_on_error=False)
+    connector = _get_cloud_connector(workspace, connector_id, connector_type)
+    check_result = connector.check(raise_on_error=False)
     return ConnectorCheckResult(
-        connector_id=source_id,
-        connector_type=source.connector_type,
-        succeeded=check_result.success,
-        message=_get_connector_check_message(check_result),
-    )
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def check_cloud_destination(
-    ctx: Context,
-    destination_id: Annotated[
-        str,
-        Field(description="The ID of the deployed destination connector to check."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> ConnectorCheckResult:
-    """Check the configuration and credentials of a deployed destination connector."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destination = workspace.get_destination(destination_id=destination_id)
-    check_result = destination.check(raise_on_error=False)
-    return ConnectorCheckResult(
-        connector_id=destination_id,
-        connector_type=destination.connector_type,
+        connector_id=connector_id,
+        connector_type=connector.connector_type,
         succeeded=check_result.success,
         message=_get_connector_check_message(check_result),
     )
@@ -1535,7 +1928,7 @@ def get_cloud_sync_logs(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)
+    sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
     if not sync_result:
         raise AirbyteMissingResourceError(
@@ -1613,7 +2006,7 @@ def get_cloud_sync_logs(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def list_deployed_cloud_connections(
+def list_cloud_connections(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -2015,12 +2408,29 @@ def list_cloud_organizations(
             default=None,
         ),
     ] = None,
+    feature_filter: Annotated[
+        OrganizationFeature | None,
+        Field(
+            description=(
+                "Optional feature filter: `direct_access` returns only organizations enabled "
+                "for AI agents through the Airbyte Context layer; `search_indexing` returns "
+                "only organizations where search indexing is available. Omit to list every "
+                "organization along with its enabled features."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> CloudOrganizationListResult:
-    """List organizations visible to the authenticated Airbyte Cloud credentials."""
+    """List organizations visible to the authenticated Airbyte Cloud credentials.
+
+    Each organization reports `enabled_features`; pass `feature_filter` to return only
+    organizations with a given feature.
+    """
     effective_limit = 100 if limit is None else limit
     try:
         organizations = _get_cloud_client(ctx).list_organizations(
             name_contains=name_contains,
+            feature_filter=feature_filter,
             limit=effective_limit,
         )
     except AirbyteError as error:
@@ -2029,6 +2439,15 @@ def list_cloud_organizations(
             make_result=lambda message: CloudOrganizationListResult(
                 organizations=[],
                 message=message,
+            ),
+        )
+
+    if not organizations and feature_filter is not None:
+        return CloudOrganizationListResult(
+            organizations=[],
+            message=(
+                f"No organizations visible to these credentials have `{feature_filter.value}` "
+                "enabled. Omit `feature_filter` to list every organization with its feature flags."
             ),
         )
 
@@ -2048,6 +2467,7 @@ def list_cloud_organizations(
                 id=organization.organization_id,
                 name=organization.organization_name,
                 email=organization.email,
+                enabled_features=sorted(organization.enabled_features),
             )
             for organization in organizations
         ],
@@ -2133,7 +2553,7 @@ def describe_cloud_organization(
         ),
     ],
 ) -> CloudOrganizationResult:
-    """Get basic details about an organization (ID, name, email).
+    """Get basic details about an organization (ID, name, email, feature flags).
 
     Billing/account status is available via `get_cloud_organization_billing_status`.
 
@@ -2151,6 +2571,7 @@ def describe_cloud_organization(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+        enabled_features=sorted(org.enabled_features),
     )
 
 
@@ -2666,17 +3087,24 @@ def permanently_delete_custom_source_definition(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def permanently_delete_cloud_source(
+def permanently_delete_cloud_connector(
     ctx: Context,
-    source_id: Annotated[
+    connector_id: Annotated[
         str,
-        Field(description="The ID of the deployed source to delete."),
+        Field(description="The ID of the deployed source or destination to delete."),
     ],
     name: Annotated[
         str,
-        Field(description="The expected name of the source (for verification)."),
+        Field(description="The expected name of the connector (for verification)."),
     ],
     *,
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -2685,108 +3113,52 @@ def permanently_delete_cloud_source(
         ),
     ],
 ) -> str:
-    """Permanently delete a deployed source connector from Airbyte Cloud.
+    """Permanently delete a deployed source or destination connector from Airbyte Cloud.
 
-    IMPORTANT: This operation requires the source name to contain "delete-me" or "deleteme"
+    IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the source does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the source appropriately to authorize
+    If the connector does not meet this requirement, the deletion will be rejected with a
+    helpful error message. Instruct the user to rename the connector appropriately to authorize
     the deletion.
 
-    The provided name must match the actual name of the source for the operation to proceed.
+    The provided name must match the actual name of the connector for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
     """
-    check_guid_created_in_session(source_id)
+    check_guid_created_in_session(connector_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    source = workspace.get_source(source_id=source_id)
-    actual_name: str = cast(str, source.name)
+    connector = _get_cloud_connector(workspace, connector_id, connector_type)
+    actual_name: str = cast(str, connector.name)
+    resolved_type = connector.connector_type
 
     # Verify the name matches
     if actual_name != name:
         raise PyAirbyteInputError(
             message=(
                 f"Name mismatch: expected '{name}' but found '{actual_name}'. "
-                "The provided name must exactly match the source's actual name. "
+                f"The provided name must exactly match the {resolved_type.value}'s actual name. "
                 "This is a safety measure to prevent accidental deletion."
             ),
             context={
-                "source_id": source_id,
+                "connector_id": connector_id,
+                "connector_type": resolved_type.value,
                 "expected_name": name,
                 "actual_name": actual_name,
             },
         )
 
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
-    workspace.permanently_delete_source(
-        source=source_id,
-        safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
-    )
-    return f"Successfully deleted source '{actual_name}' (ID: {source_id})"
-
-
-@mcp_tool(
-    destructive=True,
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def permanently_delete_cloud_destination(
-    ctx: Context,
-    destination_id: Annotated[
-        str,
-        Field(description="The ID of the deployed destination to delete."),
-    ],
-    name: Annotated[
-        str,
-        Field(description="The expected name of the destination (for verification)."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> str:
-    """Permanently delete a deployed destination connector from Airbyte Cloud.
-
-    IMPORTANT: This operation requires the destination name to contain "delete-me" or "deleteme"
-    (case insensitive).
-
-    If the destination does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the destination appropriately to authorize
-    the deletion.
-
-    The provided name must match the actual name of the destination for the operation to proceed.
-    This is a safety measure to ensure you are deleting the correct resource.
-    """
-    check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destination = workspace.get_destination(destination_id=destination_id)
-    actual_name: str = cast(str, destination.name)
-
-    # Verify the name matches
-    if actual_name != name:
-        raise PyAirbyteInputError(
-            message=(
-                f"Name mismatch: expected '{name}' but found '{actual_name}'. "
-                "The provided name must exactly match the destination's actual name. "
-                "This is a safety measure to prevent accidental deletion."
-            ),
-            context={
-                "destination_id": destination_id,
-                "expected_name": name,
-                "actual_name": actual_name,
-            },
+    if resolved_type == ConnectorType.SOURCE:
+        workspace.permanently_delete_source(
+            source=connector_id,
+            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
         )
-
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
-    workspace.permanently_delete_destination(
-        destination=destination_id,
-        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
-    )
-    return f"Successfully deleted destination '{actual_name}' (ID: {destination_id})"
+    else:
+        workspace.permanently_delete_destination(
+            destination=connector_id,
+            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+        )
+    return f"Successfully deleted {resolved_type.value} '{actual_name}' (ID: {connector_id})"
 
 
 @mcp_tool(
@@ -2877,17 +3249,24 @@ def permanently_delete_cloud_connection(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def rename_cloud_source(
+def rename_cloud_connector(
     ctx: Context,
-    source_id: Annotated[
+    connector_id: Annotated[
         str,
-        Field(description="The ID of the deployed source to rename."),
+        Field(description="The ID of the deployed source or destination to rename."),
     ],
     name: Annotated[
         str,
-        Field(description="New name for the source."),
+        Field(description="New name for the connector."),
     ],
     *,
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -2896,11 +3275,14 @@ def rename_cloud_source(
         ),
     ],
 ) -> str:
-    """Rename a deployed source connector on Airbyte Cloud."""
+    """Rename a deployed source or destination connector on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    source = workspace.get_source(source_id=source_id)
-    source.rename(name=name)
-    return f"Successfully renamed source '{source_id}' to '{name}'. URL: {source.connector_url}"
+    connector = _get_typed_cloud_connector(workspace, connector_id, connector_type)
+    connector.rename(name=name)
+    return (
+        f"Successfully renamed {connector.connector_type.value} '{connector_id}' to '{name}'. "
+        f"URL: {connector.connector_url}"
+    )
 
 
 @mcp_tool(
@@ -2908,16 +3290,16 @@ def rename_cloud_source(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def update_cloud_source_config(
+def update_cloud_connector_config(
     ctx: Context,
-    source_id: Annotated[
+    connector_id: Annotated[
         str,
-        Field(description="The ID of the deployed source to update."),
+        Field(description="The ID of the deployed source or destination to update."),
     ],
     config: Annotated[
         dict | str,
         Field(
-            description="New configuration for the source connector.",
+            description="New configuration for the connector.",
         ),
     ],
     config_secret_name: Annotated[
@@ -2928,6 +3310,13 @@ def update_cloud_source_config(
         ),
     ] = None,
     *,
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -2936,14 +3325,14 @@ def update_cloud_source_config(
         ),
     ],
 ) -> str:
-    """Update a deployed source connector's configuration on Airbyte Cloud.
+    """Update a deployed source or destination connector's configuration on Airbyte Cloud.
 
     This is a destructive operation that can break existing connections if the
     configuration is changed incorrectly. Use with caution.
     """
-    check_guid_created_in_session(source_id)
+    check_guid_created_in_session(connector_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    source = workspace.get_source(source_id=source_id)
+    connector = _get_typed_cloud_connector(workspace, connector_id, connector_type)
 
     config_dict = resolve_connector_config(
         config=config,
@@ -2951,94 +3340,10 @@ def update_cloud_source_config(
         config_spec_jsonschema=None,  # We don't have the spec here
     )
 
-    source.update_config(config=config_dict)
-    return f"Successfully updated source '{source_id}'. URL: {source.connector_url}"
-
-
-@mcp_tool(
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def rename_cloud_destination(
-    ctx: Context,
-    destination_id: Annotated[
-        str,
-        Field(description="The ID of the deployed destination to rename."),
-    ],
-    name: Annotated[
-        str,
-        Field(description="New name for the destination."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> str:
-    """Rename a deployed destination connector on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destination = workspace.get_destination(destination_id=destination_id)
-    destination.rename(name=name)
+    connector.update_config(config=config_dict)
     return (
-        f"Successfully renamed destination '{destination_id}' to '{name}'. "
-        f"URL: {destination.connector_url}"
-    )
-
-
-@mcp_tool(
-    destructive=True,
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def update_cloud_destination_config(
-    ctx: Context,
-    destination_id: Annotated[
-        str,
-        Field(description="The ID of the deployed destination to update."),
-    ],
-    config: Annotated[
-        dict | str,
-        Field(
-            description="New configuration for the destination connector.",
-        ),
-    ],
-    config_secret_name: Annotated[
-        str | None,
-        Field(
-            description="The name of the secret containing the configuration.",
-            default=None,
-        ),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> str:
-    """Update a deployed destination connector's configuration on Airbyte Cloud.
-
-    This is a destructive operation that can break existing connections if the
-    configuration is changed incorrectly. Use with caution.
-    """
-    check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destination = workspace.get_destination(destination_id=destination_id)
-
-    config_dict = resolve_connector_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=None,  # We don't have the spec here
-    )
-
-    destination.update_config(config=config_dict)
-    return (
-        f"Successfully updated destination '{destination_id}'. " f"URL: {destination.connector_url}"
+        f"Successfully updated {connector.connector_type.value} '{connector_id}'. "
+        f"URL: {connector.connector_url}"
     )
 
 

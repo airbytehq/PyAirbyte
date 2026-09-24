@@ -10,15 +10,15 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import requests
 import yaml
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
+from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.logs import warn_once
@@ -74,6 +74,24 @@ class Language(str, Enum):
     MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
+class ConnectorType(StrEnum):
+    """Connector type: `source` or `destination`."""
+
+    SOURCE = "source"
+    DESTINATION = "destination"
+
+    @classmethod
+    def parse(cls, value: str) -> ConnectorType:
+        """Parse a connector type value, with a descriptive error on unknown input."""
+        try:
+            return cls(value)
+        except ValueError:
+            valid = ", ".join(f"`{member.value}`" for member in cls)
+            raise ValueError(
+                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
+            ) from None
+
+
 class ConnectorMetadata(BaseModel):
     """Metadata for a connector."""
 
@@ -83,7 +101,7 @@ class ConnectorMetadata(BaseModel):
     display_name: str | None = None
     """Human-readable connector name."""
 
-    connector_type: str | None = None
+    connector_type: ConnectorType | None = None
     """Connector type: `source` or `destination`."""
 
     definition_id: str | None = None
@@ -152,7 +170,9 @@ def _is_registry_disabled(url: str) -> bool:
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
     latest_version: str | None = entry.get("dockerImageTag")
-    connector_type = "source" if name.startswith("source-") else "destination"
+    connector_type = (
+        ConnectorType.SOURCE if name.startswith("source-") else ConnectorType.DESTINATION
+    )
     definition_id = entry.get("sourceDefinitionId") or entry.get("destinationDefinitionId")
     tags = entry.get("tags", [])
     language: Language | None = None
