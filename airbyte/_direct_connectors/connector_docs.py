@@ -82,41 +82,33 @@ _LOCATION_LABELS: Mapping[str, tuple[str, str]] = {
 }
 """Per-engine labels for the database/schema-like location keys."""
 
-_DIALECT_NOTES: Mapping[str, list[str]] = {
-    "snowflake": [
-        (
-            "Unquoted identifiers are upper-cased and case-insensitive. With the default "
-            "destination settings Airbyte writes upper-cased table AND column names, so stream "
-            "`users` is table `USERS` and field `primaryUserId` is column `PRIMARYUSERID`; "
-            "connections using the legacy case-preserving raw-table mode keep the original "
-            "case."
-        ),
-        (
-            "Prefer unquoted identifiers: double-quoting makes them case-sensitive, so "
-            '`SELECT "id"` fails with `invalid identifier` against column `ID`. Quote a name '
-            "only when it is mixed or lower case (legacy raw-table mode), contains spaces or "
-            "special characters, or is a reserved word."
-        ),
-        "Qualify tables in another schema as `<database>.<schema>.<table>`.",
-        (
-            "Avoid `INFORMATION_SCHEMA` scans on large accounts; they can exceed the query "
-            "time budget."
-        ),
-    ],
-    "bigquery": [
-        "Table names are case-sensitive and match the stream name.",
-        "Qualify tables in another dataset as `` `<project>.<dataset>.<table>` `` (backticked).",
-        "Use Standard SQL; legacy SQL is not accepted.",
-    ],
+_DIALECT_NOTES: Mapping[str, str] = {
+    "snowflake": """\
+- Unquoted identifiers are upper-cased and case-insensitive. With the default destination \
+settings Airbyte writes upper-cased table AND column names, so stream `users` is table \
+`USERS` and field `primaryUserId` is column `PRIMARYUSERID`; connections using the legacy \
+case-preserving raw-table mode keep the original case.
+- Prefer unquoted identifiers: double-quoting makes them case-sensitive, so `SELECT "id"` \
+fails with `invalid identifier` against column `ID`. Quote a name only when it is mixed or \
+lower case (legacy raw-table mode), contains spaces or special characters, or is a \
+reserved word.
+- Qualify tables in another schema as `<database>.<schema>.<table>`.
+- Avoid `INFORMATION_SCHEMA` scans on large accounts; they can exceed the query time budget.
+""",
+    "bigquery": """\
+- Table names are case-sensitive and match the stream name.
+- Qualify tables in another dataset as `` `<project>.<dataset>.<table>` `` (backticked).
+- Use Standard SQL; legacy SQL is not accepted.
+""",
 }
-"""Per-engine naming and dialect rules, written without any tool references."""
+"""Per-engine naming and dialect rules as markdown, written without any tool references."""
 
-_AIRBYTE_METADATA_COLUMNS = (
-    "Every Airbyte-written table also carries `_airbyte_raw_id`, `_airbyte_extracted_at` "
-    "(when the record was extracted from the source; useful for freshness checks), "
-    "`_airbyte_meta` (per-row sync errors), and "
-    "`_airbyte_generation_id`. Raw records live in the `airbyte_internal` namespace."
-)
+_AIRBYTE_METADATA_COLUMNS = """\
+- Every Airbyte-written table also carries `_airbyte_raw_id`, `_airbyte_extracted_at` (when \
+the record was extracted from the source; useful for freshness checks), `_airbyte_meta` \
+(per-row sync errors), and `_airbyte_generation_id`. Raw records live in the \
+`airbyte_internal` namespace.
+"""
 
 
 def connector_id_from_skill_id(skill_id: str) -> str:
@@ -335,8 +327,8 @@ def _destination_layout_blocks(
             ),
         },
         {
-            "type": "list",
-            "items": [*_DIALECT_NOTES[dialect], _AIRBYTE_METADATA_COLUMNS],
+            "type": "paragraph",
+            "text": _DIALECT_NOTES[dialect] + _AIRBYTE_METADATA_COLUMNS,
         },
     ]
 
