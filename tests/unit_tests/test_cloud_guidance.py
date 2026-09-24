@@ -16,18 +16,10 @@ from airbyte._direct_connectors.models import (
     DirectAccessGuidanceIndexEntry,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
-from airbyte.cloud import workspaces as cloud_workspaces
-from airbyte.cloud.connectors import CloudDestination
-from airbyte.cloud.models import CloudDestinationInfo
 from airbyte.cloud.workspaces import CloudWorkspace
 
 
 SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
-BIGQUERY_DEFINITION_ID = next(
-    definition_id
-    for definition_id, dialect in _SQL_PASSTHROUGH_DESTINATION_DIALECTS.items()
-    if dialect == "bigquery"
-)
 
 SKILL_DOCS_RESPONSE: dict[str, Any] = {
     "metadata": {
@@ -150,35 +142,56 @@ def test_get_agent_skill_docs_passes_section(
     assert calls[0]["section"] == "setup"
 
 
-def test_get_agent_skill_docs_destination_prefix_delegates_raw_read(
+@pytest.mark.parametrize(
+    ("call_kwargs", "lookup_method", "expected_lookup_id"),
+    [
+        pytest.param(
+            {
+                "docs_skill_id": "connector-destination:destination-1",
+                "section": "streams",
+            },
+            "get_destination",
+            "destination-1",
+            id="destination_skill_id",
+        ),
+        pytest.param(
+            {"connector_id": "connector-1", "section": "setup"},
+            "get_connector",
+            "connector-1",
+            id="connector_id",
+        ),
+    ],
+)
+def test_get_agent_skill_docs_delegates_raw_read(
     monkeypatch: pytest.MonkeyPatch,
+    call_kwargs: dict[str, str],
+    lookup_method: str,
+    expected_lookup_id: str,
 ) -> None:
-    """`connector-destination:` IDs read server docs unchanged, no enrichment."""
+    """Skill/connector IDs resolve to a connector and read server docs unchanged."""
     workspace = _make_workspace(monkeypatch)
-    destination = MagicMock()
-    destination.read_agent_skill_docs.return_value = (
-        DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
+    connector = MagicMock()
+    connector.read_agent_skill_docs.return_value = DirectAccessGuidance.model_validate(
+        SKILL_DOCS_RESPONSE
     )
-    calls: list[str] = []
-    monkeypatch.setattr(
-        CloudWorkspace,
-        "get_destination",
-        lambda _self, destination_id: (calls.append(destination_id), destination)[1],
-    )
+    lookup = MagicMock(return_value=connector)
+    monkeypatch.setattr(CloudWorkspace, lookup_method, lookup)
 
     def fail_read_docs(**_kwargs: Any) -> dict[str, Any]:
-        raise AssertionError(
-            "Workspace docs read must not run for destination skill IDs"
-        )
+        raise AssertionError("Workspace docs read must not run for connector skill IDs")
 
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
 
+    # `docs_skill_id` is positional-only, so split it out of the kwargs dict.
     docs = workspace.get_agent_skill_docs(
-        "connector-destination:destination-1", section="streams"
+        call_kwargs.get("docs_skill_id"),
+        **{k: v for k, v in call_kwargs.items() if k != "docs_skill_id"},
     )
 
-    assert calls == ["destination-1"]
-    destination.read_agent_skill_docs.assert_called_once_with(section="streams")
+    lookup.assert_called_once_with(expected_lookup_id)
+    connector.read_agent_skill_docs.assert_called_once_with(
+        section=call_kwargs["section"]
+    )
     assert docs.content == SKILL_DOCS_RESPONSE["content"]
     assert [section.id for section in docs.outline] == ["setup"]
 
@@ -200,75 +213,6 @@ def test_get_agent_skill_docs_destination_errors_propagate(
 
     with pytest.raises(exc.AirbyteExternalAccessNotEnabledError):
         workspace.get_agent_skill_docs("connector-destination:destination-1")
-
-
-def test_get_agent_skill_docs_connector_id_delegates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`connector_id` resolves through `get_connector` and forwards `section`."""
-    workspace = _make_workspace(monkeypatch)
-    connector = MagicMock()
-    connector.read_agent_skill_docs.return_value = DirectAccessGuidance.model_validate(
-        SKILL_DOCS_RESPONSE
-    )
-    get_connector = MagicMock(return_value=connector)
-    monkeypatch.setattr(CloudWorkspace, "get_connector", get_connector)
-
-    docs = workspace.get_agent_skill_docs(connector_id="connector-1", section="setup")
-
-    get_connector.assert_called_once_with("connector-1")
-    connector.read_agent_skill_docs.assert_called_once_with(section="setup")
-    assert docs.metadata.id == "connector:github"
-
-
-def test_get_direct_access_guidance_section_without_context_layer_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A section-scoped destination read fails when there is no Context layer API."""
-    workspace = _make_workspace(monkeypatch)
-    monkeypatch.setattr(
-        cloud_workspaces.deployment,
-        "is_agents_api_available",
-        lambda **_: False,
-    )
-    destination = CloudDestination(workspace=workspace, connector_id="dest-1")
-    destination._connector_info = CloudDestinationInfo(  # noqa: SLF001
-        destination_id="dest-1",
-        name="Warehouse",
-        definition_id=SNOWFLAKE_DEFINITION_ID,
-    )
-
-    with pytest.raises(exc.PyAirbyteInputError, match="Section-scoped"):
-        destination.get_direct_access_guidance(section="streams")
-
-
-def test_get_direct_access_guidance_bigquery_uses_project_dataset_labels(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The merged intro labels BigQuery locations as project/dataset."""
-    workspace = _make_workspace(monkeypatch)
-    monkeypatch.setattr(
-        cloud_workspaces.deployment,
-        "is_agents_api_available",
-        lambda **_: True,
-    )
-    read_docs = MagicMock(return_value=SKILL_DOCS_RESPONSE)
-    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
-    destination = CloudDestination(workspace=workspace, connector_id="dest-1")
-    destination._connector_info = CloudDestinationInfo(  # noqa: SLF001
-        destination_id="dest-1",
-        name="Warehouse",
-        definition_id=BIGQUERY_DEFINITION_ID,
-        configuration={"project_id": "PROJ", "dataset_id": "DS"},
-    )
-    destination._configuration = {"project_id": "PROJ", "dataset_id": "DS"}  # noqa: SLF001
-
-    guidance = destination.get_direct_access_guidance()
-
-    intro = guidance.content[0]
-    assert intro["type"] == "paragraph"
-    assert "project `PROJ`" in intro["text"]
-    assert "dataset `DS`" in intro["text"]
 
 
 def test_get_agent_skill_docs_requires_exactly_one_id(

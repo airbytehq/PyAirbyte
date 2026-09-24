@@ -40,6 +40,11 @@ from airbyte.exceptions import (
 
 
 SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
+BIGQUERY_DEFINITION_ID = next(
+    definition_id
+    for definition_id, dialect in _SQL_PASSTHROUGH_DESTINATION_DIALECTS.items()
+    if dialect == "bigquery"
+)
 
 SKILL_DOCS_RESPONSE: dict[str, Any] = {
     "metadata": {
@@ -416,8 +421,31 @@ def test_get_direct_access_guidance_destination_forwards_section_to_sonar(
     assert guidance.content == [{"type": "paragraph", "text": "Streams from Sonar."}]
 
 
+@pytest.mark.parametrize(
+    ("dialect", "definition_id", "configuration", "expected_location_phrases"),
+    [
+        pytest.param(
+            "snowflake",
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "DATABASE", "schema": "SCHEMA"},
+            ["Snowflake", "database `DATABASE`", "schema `SCHEMA`"],
+            id="snowflake",
+        ),
+        pytest.param(
+            "bigquery",
+            BIGQUERY_DEFINITION_ID,
+            {"project_id": "PROJ", "dataset_id": "DS"},
+            ["BigQuery", "project `PROJ`", "dataset `DS`"],
+            id="bigquery",
+        ),
+    ],
+)
 def test_get_direct_access_guidance_destination_merges_server_docs(
     monkeypatch: pytest.MonkeyPatch,
+    dialect: str,
+    definition_id: str,
+    configuration: dict[str, Any],
+    expected_location_phrases: list[str],
 ) -> None:
     """A successful docs read gets a short local intro; the outline is unchanged."""
     workspace = _make_workspace(monkeypatch)
@@ -427,9 +455,9 @@ def test_get_direct_access_guidance_destination_merges_server_docs(
     monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
     destination = _seed_destination(
         workspace,
-        "snowflake",
-        SNOWFLAKE_DEFINITION_ID,
-        configuration={"database": "DATABASE", "schema": "SCHEMA"},
+        dialect,
+        definition_id,
+        configuration=configuration,
     )
 
     guidance = destination.get_direct_access_guidance()
@@ -438,9 +466,8 @@ def test_get_direct_access_guidance_destination_merges_server_docs(
     assert [section.id for section in guidance.outline] == ["setup", "streams"]
     intro = guidance.content[0]
     assert intro["type"] == "paragraph"
-    assert "DATABASE" in intro["text"]
-    assert "SCHEMA" in intro["text"]
-    assert "Snowflake" in intro["text"]
+    for phrase in expected_location_phrases:
+        assert phrase in intro["text"]
     assert guidance.content[-1] == {"type": "paragraph", "text": "Server overview."}
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)
@@ -496,6 +523,9 @@ def test_get_direct_access_guidance_destination_no_context_layer_notices(
     assert guidance.outline == []
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)
+
+    with pytest.raises(PyAirbyteInputError, match="Section-scoped"):
+        destination.get_direct_access_guidance(section="streams")
 
 
 def _patch_list_connectors(
