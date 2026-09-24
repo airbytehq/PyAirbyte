@@ -201,14 +201,7 @@ def build_direct_access_sql_guidance(
     *,
     sql_passthrough_notice: str | None = None,
 ) -> DirectAccessGuidance:
-    """Build a structure-only `DirectAccessGuidance` for a SQL passthrough destination.
-
-    Used when the destination's skill docs cannot be read from the Agents API
-    (not enrolled, or no Context layer API). The doc covers table layout, naming,
-    and the connections syncing in; it never references Airbyte SQL tools. When
-    `sql_passthrough_notice` is set, it leads the content and is returned in
-    `warnings`.
-    """
+    """Build standalone sql guidance when there is no associated skill."""
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
     skill_id = destination_skill_id(destination.connector_id)
     metadata = DirectAccessGuidanceIndexEntry(
