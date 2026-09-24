@@ -43,12 +43,12 @@ permissions:
 env:
   # Which sources deploy to which service. A source is one of:
   #   main-push        push to `main`
-  #   rc-branch-push   push to `release-candidate/**`
+  #   rc-push          push to `release-candidate/**`
   #   rc-release       published GitHub release tagged `-rc.`
   #   stable-release   any other published release
   #   prerelease       `/prerelease` dev build via pypi_publish.yml
   # mcp.internal.airbyte.ai/cloud-mcp-preview (airbyte-ops-mcp)
-  INTERNAL_MCP_PREVIEW_SOURCES: rc-branch-push rc-release prerelease
+  INTERNAL_MCP_PREVIEW_SOURCES: rc-push rc-release prerelease
   # mcp.internal.airbyte.ai/cloud-mcp (airbyte-ops-mcp)
   INTERNAL_MCP_SOURCES: rc-release
   # mcp.airbyte.com/mcp (airbyte-platform-internal)
@@ -85,19 +85,19 @@ jobs:
           if [ -z "$source" ]; then
             case "$GITHUB_REF_NAME" in
               main) source=main-push ;;
-              release-candidate/*) source=rc-branch-push ;;
+              release-candidate/*) source=rc-push ;;
               *)
                 echo "::error::Unexpected push ref: $GITHUB_REF_NAME"
                 exit 1
                 ;;
             esac
           fi
-          printf '%s\n' main-push rc-branch-push rc-release stable-release prerelease | grep -qxF "$source" \
-            || { echo "::error::Invalid source: '$source' (allowed: main-push, rc-branch-push, rc-release, stable-release, prerelease)"; exit 1; }
+          printf '%s\n' main-push rc-push rc-release stable-release prerelease | grep -qxF "$source" \
+            || { echo "::error::Invalid source: '$source' (allowed: main-push, rc-push, rc-release, stable-release, prerelease)"; exit 1; }
           # A caller shipping a publish must name the published version, or
           # this would silently deploy the ref instead of the release.
           case "$source" in
-            main-push|rc-branch-push) ;;
+            main-push|rc-push) ;;
             *)
               [ -n "$version" ] \
                 || { echo "::error::pyairbyte-version is required when this workflow is called."; exit 1; }
