@@ -98,7 +98,7 @@ jobs:
       OCTAVIA_BOT_APP_ID: ${{ secrets.OCTAVIA_BOT_APP_ID }}
       OCTAVIA_BOT_PRIVATE_KEY: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     with:
-      version-override: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
+      pyairbyte-version: ${{ github.event.release.tag_name || github.event.inputs.version_override }}
       preview: ${{ 'true' }}
 
   # An RC release additionally promotes the published version to production.
@@ -118,5 +118,5 @@ jobs:
       OCTAVIA_BOT_APP_ID: ${{ secrets.OCTAVIA_BOT_APP_ID }}
       OCTAVIA_BOT_PRIVATE_KEY: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     with:
-      version-override: ${{ github.event.release.tag_name }}
+      pyairbyte-version: ${{ github.event.release.tag_name }}
       preview: ${{ 'false' }}
