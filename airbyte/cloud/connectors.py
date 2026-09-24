@@ -713,6 +713,18 @@ class CloudConnector:
         if self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             destination = self.as_cloud_destination()
             if not self.workspace._has_context_layer_api():  # noqa: SLF001
+                if section is not None:
+                    raise exc.PyAirbyteInputError(
+                        message=(
+                            "Section-scoped destination docs are unavailable without "
+                            "the Context Layer API."
+                        ),
+                        guidance=(
+                            "Request the docs without a section to get the "
+                            "structure-only summary."
+                        ),
+                        context={"connector_id": self.connector_id, "section": section},
+                    )
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
