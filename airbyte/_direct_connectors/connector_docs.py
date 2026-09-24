@@ -3,18 +3,17 @@
 
 Three paths serve destination docs:
 
-- The "skills get" path (`CloudWorkspace.get_agent_skill_docs`) reads destination
-  skill docs straight from the Agents API through
-  `CloudConnector.read_agent_skill_docs`, with no local enrichment.
-- The enrichment path (`CloudConnector.get_direct_access_guidance` +
-  `merge_destination_skill_docs`) prepends a short local intro -- location,
-  table naming, and dialect notes -- to the server-served destination docs
-  overview.
-- The fallback path (`build_direct_access_sql_guidance`) serves a single
-  structure-only doc -- location, table naming, connections, and streams --
-  when the destination is not enrolled for direct access (403/404) or the
-  deployment has no Context layer API. Fallback docs never reference Airbyte
-  SQL tools.
+- `CloudWorkspace.get_agent_skill_docs` / `CloudConnector.read_agent_skill_docs`
+  (MCP tool `get_agent_skill_docs`) read destination skill docs straight from
+  the Agents API, with no local enrichment.
+- `CloudConnector.get_direct_access_guidance` (MCP tool `describe_cloud_connector`
+  with `with_direct_access_guidance=True`) prepends a short local intro --
+  location, table naming, and dialect notes -- to the server-served destination
+  docs overview.
+- The same method falls back to a single structure-only doc -- location, table
+  naming, connections, and streams -- when the destination is not enrolled for
+  direct access (403/404) or the deployment has no Context layer API. Fallback
+  docs never reference Airbyte SQL tools.
 
 This module also builds `_DirectConnectorInspectResult` payloads locally from the
 Cloud workspace objects and summarizes the connections touching a connector for
