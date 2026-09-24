@@ -329,23 +329,26 @@ jobs:
           DEPLOY_PROD: ${{ needs.resolve-vars.outputs.deploy_prod }}
           INTERNAL_RESULT: ${{ needs.deploy-internal.result }}
           PROD_RESULT: ${{ needs.deploy-prod.result }}
+          INTERNAL_RUNS_URL: https://github.com/airbytehq/airbyte-ops-mcp/actions/workflows/deploy-mcp-command.yml?query=event%3Arepository_dispatch
+          PROD_RUNS_URL: https://github.com/airbytehq/airbyte-platform-internal/actions/workflows/deploy-cloud-mcp.yml?query=event%3Arepository_dispatch
         run: |
+          # print_route <label> <routed> <job result> <target workflow runs url>
           print_route() {
             if [ "$2" != "true" ]; then
-              printf '%s: Skipped (not routed)\n' "$1"
+              printf -- '- %s: Skipped (not routed)\n' "$1"
               return
             fi
             case "$3" in
-              success)   printf '%s: Dispatched\n' "$1" ;;
-              failure)   printf '%s: Failed\n' "$1" ;;
-              cancelled) printf '%s: Cancelled\n' "$1" ;;
-              *)         printf '%s: %s\n' "$1" "$3" ;;
+              success)   printf -- '- %s: [Dispatched](%s)\n' "$1" "$4" ;;
+              failure)   printf -- '- %s: Failed\n' "$1" ;;
+              cancelled) printf -- '- %s: Cancelled\n' "$1" ;;
+              *)         printf -- '- %s: %s\n' "$1" "$3" ;;
             esac
           }
           {
-            printf 'Trigger type: %s\n' "$TRIGGER_TYPE"
-            printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
-            print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW" "$INTERNAL_RESULT"
-            print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL" "$INTERNAL_RESULT"
-            print_route "airbyte-platform-internal cloud-mcp" "$DEPLOY_PROD" "$PROD_RESULT"
+            printf -- '- Trigger type: %s\n' "$TRIGGER_TYPE"
+            printf -- '- Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
+            print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW" "$INTERNAL_RESULT" "$INTERNAL_RUNS_URL"
+            print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL" "$INTERNAL_RESULT" "$INTERNAL_RUNS_URL"
+            print_route "airbyte-platform-internal cloud-mcp" "$DEPLOY_PROD" "$PROD_RESULT" "$PROD_RUNS_URL"
           } | tee -a "$GITHUB_STEP_SUMMARY"
