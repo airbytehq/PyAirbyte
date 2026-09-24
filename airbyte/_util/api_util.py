@@ -14,6 +14,7 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
@@ -1401,9 +1402,12 @@ def get_destination(
         }
 
         if destination_type in destination_mapping and raw_configuration is not None:
-            response.destination_response.configuration = destination_mapping[
-                destination_type  # pyrefly: ignore[index-error]
-            ](**raw_configuration)
+            # Draft destinations may hold a partial configuration that the typed
+            # model cannot represent; keep the SDK's deserialized value in that case.
+            with contextlib.suppress(TypeError):
+                response.destination_response.configuration = destination_mapping[
+                    destination_type  # pyrefly: ignore[index-error]
+                ](**raw_configuration)
         return response.destination_response
 
     raise AirbyteMissingResourceError(

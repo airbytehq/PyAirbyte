@@ -396,6 +396,36 @@ def test_check_connector_setup_verifies_workspace_before_checking(
     assert checks[0]["connector_type"] == connector_type
 
 
+@responses.activate
+def test_get_destination_tolerates_partial_draft_configuration() -> None:
+    """A draft destination's incomplete config must not crash typed deserialization."""
+    partial_config = {"host": "localhost", "database": "example", "port": 5432}
+    responses.add(
+        responses.GET,
+        f"{PUBLIC_API_ROOT}/destinations/{ACTOR_ID}",
+        json={
+            "destinationId": ACTOR_ID,
+            "name": "My destination",
+            "destinationType": "postgres",
+            "definitionId": DEFINITION_ID,
+            "workspaceId": WORKSPACE_ID,
+            "createdAt": 1700000000,
+            "configuration": partial_config,
+        },
+    )
+
+    result = api_util.get_destination(
+        destination_id=ACTOR_ID,
+        api_root=PUBLIC_API_ROOT,
+        client_id=None,
+        client_secret=None,
+        bearer_token=TOKEN,
+    )
+
+    assert result.destination_id == ACTOR_ID
+    assert result.workspace_id == WORKSPACE_ID
+
+
 # --- MCP tools -------------------------------------------------------------------------------
 
 
