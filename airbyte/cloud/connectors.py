@@ -164,17 +164,29 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._connector_definition: _ConnectorDefinitionLike | None = None
         """The connector definition lookup result. (Cached; `None` until fetched.)"""
 
-    def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
-        """Return the enabled features, resolving them through the workspace on first use."""
-        if self._enabled_features is None:
-            self._enabled_features = self.workspace._get_connector_features(self)  # noqa: SLF001
+    def get_enabled_features(
+        self, *, warnings: list[str] | None = None
+    ) -> frozenset[ConnectorFeature]:
+        """Resolve connector features, optionally collecting unavailable-docs warnings.
 
-        return self._enabled_features
+        Successful features are cached. Unavailable docs (403/404) return no features
+        without caching absence; other probe failures propagate so callers can distinguish
+        unknown support from an empty feature set.
+        """
+        if self._enabled_features is not None:
+            if warnings is not None and self._context_layer_details is not None:
+                warnings.extend(self._context_layer_details.warnings)
+            return self._enabled_features
+
+        features = self.workspace._get_connector_features(self, warnings=warnings)  # noqa: SLF001
+        if features:
+            self._enabled_features = features
+        return features
 
     @property
     def enabled_features(self) -> frozenset[ConnectorFeature]:
-        """The features enabled for this connector. Resolved on first access and cached."""
-        return self._get_enabled_features()
+        """The connector's enabled features; successful lookups are cached."""
+        return self.get_enabled_features()
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.
@@ -421,11 +433,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         skip_truncation: bool = True,
         intent: str | None = None,
     ) -> ExternalApiExecuteResult:
-        """Run a write action (`create`, `update`, or `delete`) on one entity type.
+        """Reject unsupported Cloud writes (`create`, `update`, or `delete`).
 
-        Requires external access to be enabled for this connector in its organization's
-        Context Layer settings. Connectors without an entity API fail with the Agents
-        API's own error.
+        Cloud connector execution currently supports read actions only. This method
+        raises `PyAirbyteInputError` without sending a request.
         """
         try:
             resolved_action = ExternalApiWriteAction(action)
@@ -436,15 +447,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 context={"entity_type": entity_type, "action": action},
             ) from None
 
-        return self._execute_direct_action(
-            entity_type=entity_type,
-            action=resolved_action.value,
-            api_args=api_args,
-            select_fields=select_fields,
-            exclude_fields=exclude_fields,
-            skip_truncation=skip_truncation,
-            intent=intent,
-            read_only=False,
+        _ = api_args, select_fields, exclude_fields, skip_truncation, intent
+        raise exc.PyAirbyteInputError(
+            message="Cloud connector write actions are not supported yet.",
+            guidance="Use execute_api_query for read actions (list, get, search).",
+            context={"entity_type": entity_type, "action": resolved_action.value},
         )
 
     def execute_sql_query(
@@ -742,11 +749,12 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
         The connector's docs skill is probed: a skill doc exists only for connectors the
         Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
-        connector is not enabled for agent access, so a warning is appended to
+        docs are unavailable, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
         response, transport) is raised to the caller.
         """
         if self._context_layer_details is not None and not force_refresh:
+            warnings.extend(self._context_layer_details.warnings)
             return self._context_layer_details
         skill_id = (
             connector_docs.source_skill_id(self.connector_id)
@@ -764,7 +772,9 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         except exc.AirbyteError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+            warnings.append(
+                "Connector direct-access docs are unavailable (access denied or not found)."
+            )
             return None
         parsed = _DirectConnectorInspectResult(
             connector_id=self.connector_id,
@@ -778,6 +788,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             warnings=list(docs.metadata.warnings),
         )
         self._context_layer_details = parsed
+        warnings.extend(parsed.warnings)
         return parsed
 
     def _fetch_enablement(self) -> ConnectorEnablement | None:
