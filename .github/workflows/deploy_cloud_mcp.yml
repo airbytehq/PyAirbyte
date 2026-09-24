@@ -197,7 +197,19 @@ jobs:
     needs: resolve-vars
     if: needs.resolve-vars.outputs.deploy_internal_preview == 'true' || needs.resolve-vars.outputs.deploy_internal == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      preview_run_url: ${{ steps.find-preview-run.outputs.run_url }}
+      prod_run_url: ${{ steps.find-prod-run.outputs.run_url }}
     steps:
+      - name: Record job start time
+        id: job-start
+        run: printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check out dispatch helper
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Build cloud-mcp dispatch payloads
         id: build-dispatch-payload
         env:
@@ -223,10 +235,13 @@ jobs:
           repositories: airbyte-ops-mcp
           app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
           private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
-          # `repository_dispatch` needs contents:write and nothing else.
+          # `repository_dispatch` needs contents:write; actions:read is for
+          # looking up the run each dispatch started.
           permission-contents: write
+          permission-actions: read
 
       - name: Trigger internal cloud-mcp-preview deploy
+        id: dispatch-preview
         if: needs.resolve-vars.outputs.deploy_internal_preview == 'true'
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
@@ -235,9 +250,22 @@ jobs:
           event-type: deploy-cloud-mcp
           client-payload: ${{ steps.build-dispatch-payload.outputs.preview_payload }}
 
+      - name: Find internal cloud-mcp-preview deploy run
+        id: find-preview-run
+        if: steps.dispatch-preview.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+          TARGET_REPO: airbytehq/airbyte-ops-mcp
+          TARGET_WORKFLOW: deploy-mcp-command.yml
+          RUN_STARTED_AT: ${{ steps.job-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.github/scripts/find-dispatched-run.sh"
+
       # Runs even if the preview dispatch above failed; the two services are
       # routed independently.
       - name: Trigger internal cloud-mcp deploy
+        id: dispatch-prod
         if: >-
           !cancelled()
           && steps.get-app-token.outcome == 'success'
@@ -249,6 +277,19 @@ jobs:
           event-type: deploy-cloud-mcp
           client-payload: ${{ steps.build-dispatch-payload.outputs.prod_payload }}
 
+      - name: Find internal cloud-mcp deploy run
+        id: find-prod-run
+        if: steps.dispatch-prod.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+          TARGET_REPO: airbytehq/airbyte-ops-mcp
+          TARGET_WORKFLOW: deploy-mcp-command.yml
+          RUN_STARTED_AT: ${{ steps.job-start.outputs.started_at }}
+          EXCLUDE_RUN_URL: ${{ steps.find-preview-run.outputs.run_url }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.github/scripts/find-dispatched-run.sh"
+
   # ---------- Second target: airbyte-platform-internal ----------
   # Its `Deploy Cloud MCP` workflow builds the image from a vendored copy
   # of the cloud-mcp build context and rolls out the Cloud Run service it
@@ -259,7 +300,18 @@ jobs:
     needs: resolve-vars
     if: needs.resolve-vars.outputs.deploy_prod == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      run_url: ${{ steps.find-run.outputs.run_url }}
     steps:
+      - name: Record job start time
+        id: job-start
+        run: printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check out dispatch helper
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Build platform-internal dispatch payload
         id: build-dispatch-payload
         env:
@@ -303,8 +355,10 @@ jobs:
           repositories: airbyte-platform-internal
           app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
           private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
-          # `repository_dispatch` needs contents:write and nothing else.
+          # `repository_dispatch` needs contents:write; actions:read is for
+          # looking up the run the dispatch started.
           permission-contents: write
+          permission-actions: read
 
       - name: Trigger platform-internal cloud-mcp deploy
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -313,6 +367,17 @@ jobs:
           repository: airbytehq/airbyte-platform-internal
           event-type: deploy-cloud-mcp
           client-payload: ${{ steps.build-dispatch-payload.outputs.payload }}
+
+      - name: Find platform-internal cloud-mcp deploy run
+        id: find-run
+        env:
+          GH_TOKEN: ${{ steps.get-internal-app-token.outputs.token }}
+          TARGET_REPO: airbytehq/airbyte-platform-internal
+          TARGET_WORKFLOW: deploy-cloud-mcp.yml
+          RUN_STARTED_AT: ${{ steps.job-start.outputs.started_at }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.github/scripts/find-dispatched-run.sh"
 
   summarize:
     name: Summarize
@@ -329,23 +394,27 @@ jobs:
           DEPLOY_PROD: ${{ needs.resolve-vars.outputs.deploy_prod }}
           INTERNAL_RESULT: ${{ needs.deploy-internal.result }}
           PROD_RESULT: ${{ needs.deploy-prod.result }}
+          INTERNAL_PREVIEW_RUN_URL: ${{ needs.deploy-internal.outputs.preview_run_url }}
+          INTERNAL_RUN_URL: ${{ needs.deploy-internal.outputs.prod_run_url }}
+          PROD_RUN_URL: ${{ needs.deploy-prod.outputs.run_url }}
         run: |
+          # print_route <label> <routed> <job result> <run url>
           print_route() {
             if [ "$2" != "true" ]; then
-              printf '%s: Skipped (not routed)\n' "$1"
+              printf -- '- %s: Skipped (not routed)\n' "$1"
               return
             fi
             case "$3" in
-              success)   printf '%s: Dispatched\n' "$1" ;;
-              failure)   printf '%s: Failed\n' "$1" ;;
-              cancelled) printf '%s: Cancelled\n' "$1" ;;
-              *)         printf '%s: %s\n' "$1" "$3" ;;
+              success)   printf -- '- %s: [Dispatched](%s)\n' "$1" "$4" ;;
+              failure)   printf -- '- %s: Failed\n' "$1" ;;
+              cancelled) printf -- '- %s: Cancelled\n' "$1" ;;
+              *)         printf -- '- %s: %s\n' "$1" "$3" ;;
             esac
           }
           {
-            printf 'Trigger type: %s\n' "$TRIGGER_TYPE"
-            printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
-            print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW" "$INTERNAL_RESULT"
-            print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL" "$INTERNAL_RESULT"
-            print_route "airbyte-platform-internal cloud-mcp" "$DEPLOY_PROD" "$PROD_RESULT"
+            printf -- '- Trigger type: %s\n' "$TRIGGER_TYPE"
+            printf -- '- Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
+            print_route "airbyte-ops-mcp cloud-mcp-preview" "$DEPLOY_INTERNAL_PREVIEW" "$INTERNAL_RESULT" "$INTERNAL_PREVIEW_RUN_URL"
+            print_route "airbyte-ops-mcp cloud-mcp" "$DEPLOY_INTERNAL" "$INTERNAL_RESULT" "$INTERNAL_RUN_URL"
+            print_route "airbyte-platform-internal cloud-mcp" "$DEPLOY_PROD" "$PROD_RESULT" "$PROD_RUN_URL"
           } | tee -a "$GITHUB_STEP_SUMMARY"
