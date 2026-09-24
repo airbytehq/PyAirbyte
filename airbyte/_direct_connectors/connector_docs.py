@@ -55,15 +55,13 @@ SOURCE_SKILL_PREFIX = "connector-source:"
 
 SQL_PASSTHROUGH_NOT_ENABLED_NOTICE = (
     "Airbyte SQL passthrough is not enabled for this destination, so it cannot be "
-    "queried through Airbyte tools. The table, schema, and naming guidance below "
-    "still applies if you or your user have your own SQL access to the warehouse."
+    "queried through Airbyte tools."
 )
 """Notice prepended to SQL guidance when the destination is not enrolled."""
 
 SQL_PASSTHROUGH_UNAVAILABLE_NOTICE = (
     "Airbyte SQL passthrough is not available in this deployment, so it cannot be "
-    "queried through Airbyte tools. The table, schema, and naming guidance below "
-    "still applies if you or your user have your own SQL access to the warehouse."
+    "queried through Airbyte tools."
 )
 """Notice prepended to SQL guidance when the deployment has no Context layer API."""
 
