@@ -8,6 +8,14 @@
 #   to that repo's `Deploy Cloud MCP` workflow, also via `repository_dispatch`.
 #   That repo has only a production service, so the preview path skips it.
 #
+# Which PyAirbyte build ships is chosen by exactly one of these, in order of
+# increasing flexibility (setting more than one fails the run):
+# - release-channel: latest PyPI release on the channel (`rc` or `ga`).
+#   When nothing is set, `DEFAULT_RELEASE_CHANNEL` below applies.
+# - version-override: an exact published version, e.g. `1.0.0rc3`.
+# - package-ref-override: a full PEP 508 requirement, e.g.
+#   `airbyte @ git+https://github.com/airbytehq/PyAirbyte@<sha>`.
+#
 # Triggers:
 # - push (release-candidate/**) - Every merge to a release-candidate branch
 #   refreshes cloud-mcp-preview with that commit, installed straight from git
@@ -15,6 +23,9 @@
 # - workflow_call - `pypi_publish.yml` calls this after a publish to ship the
 #   published version: a release-candidate release refreshes preview and
 #   promotes to production; a `/prerelease` dev build refreshes preview only.
+# - workflow_dispatch - Manual deploy of the latest release on a channel, an
+#   exact version, or an arbitrary package ref; `dry-run` resolves and reports
+#   the requirement without dispatching anything.
 
 name: Deploy Cloud MCP
 
@@ -25,9 +36,39 @@ on:
       # tracking `main`, swap back to the commented branch below.
       - 'release-candidate/**'
       # - main
+  workflow_dispatch:
+    inputs:
+      release-channel:
+        description: 'Deploy the latest PyPI release on this channel: "rc" or "ga". Leave empty for the default channel. Mutually exclusive with the overrides below.'
+        required: false
+        type: string
+        default: ''
+      version-override:
+        description: 'Exact published PyAirbyte version to deploy (e.g. "1.0.0rc3"). Mutually exclusive with release-channel and package-ref-override.'
+        required: false
+        type: string
+        default: ''
+      package-ref-override:
+        description: 'Full PEP 508 requirement to deploy (e.g. "airbyte @ git+https://github.com/airbytehq/PyAirbyte@<sha>"). Mutually exclusive with release-channel and version-override.'
+        required: false
+        type: string
+        default: ''
+      preview:
+        description: 'Deploy the preview service ("true") instead of production ("false").'
+        required: false
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+        default: 'true'
+      dry-run:
+        description: 'Resolve and report the requirement that would ship, but dispatch nothing.'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
-      pyairbyte-version:
+      version-override:
         description: 'Published PyAirbyte version to pin (e.g. "0.56.0").'
         required: true
         type: string
@@ -46,6 +87,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Channel used when no selection input is set. Flip to `ga` to track
+  # stable releases again.
+  DEFAULT_RELEASE_CHANNEL: rc
+
 # Serialize the dispatch requests per target service. The airbyte-ops-mcp
 # rollout does not guard concurrency, so for that target this narrows the race
 # rather than removing it; airbyte-platform-internal serializes its own deploys
@@ -63,57 +109,110 @@ jobs:
       - name: Resolve Variables
         id: resolve-vars
         env:
-          PYAIRBYTE_VERSION: ${{ inputs.pyairbyte-version || '' }}
-          # `preview` is a required `workflow_call` input, so a non-empty value
-          # means a caller invoked this workflow. On the `push` trigger the
-          # `inputs` context is empty, which is what selects the git install
-          # below. This does not use `github.event_name`, which in a reusable
-          # workflow reports the *caller's* trigger.
+          RELEASE_CHANNEL: ${{ inputs.release-channel || '' }}
+          VERSION_OVERRIDE: ${{ inputs.version-override || '' }}
+          PACKAGE_REF_OVERRIDE: ${{ inputs.package-ref-override || '' }}
+          # `preview` is a required `workflow_call` input and defaults to
+          # `true` on `workflow_dispatch`, so it is empty only on the `push`
+          # trigger. This does not use `github.event_name`, which in a
+          # reusable workflow reports the *caller's* trigger.
           PREVIEW: ${{ inputs.preview || '' }}
+          DRY_RUN: ${{ inputs.dry-run || 'false' }}
         run: |
           set -euo pipefail
-          version="${PYAIRBYTE_VERSION#v}"
+          version_override="${VERSION_OVERRIDE#v}"
+          package_ref_override="$PACKAGE_REF_OVERRIDE"
 
-          # ---------- Validate inputs (guard statements) ----------
-          if [ -n "$PREVIEW" ]; then
-            printf '%s\n' true false | grep -qxF "$PREVIEW" \
-              || { echo "::error::Invalid preview value: '$PREVIEW' (allowed: true, false)"; exit 1; }
-            # A caller shipping a publish must name the published version, or
-            # this would silently deploy the ref instead of the release.
-            [ -n "$version" ] \
-              || { echo "::error::pyairbyte-version is required when this workflow is called."; exit 1; }
-          else
+          # A push installs the pushed commit from git, so a merge to the
+          # tracked branch needs no release.
+          if [ -z "$PREVIEW" ]; then
             PREVIEW=true
-          fi
-          if [ -n "$version" ]; then
-            case "$version" in
-              [!0-9]*|*[!0-9A-Za-z.+!-]*)
-                echo "::error::Invalid PEP 440 version: $version"
-                exit 1
-                ;;
-            esac
-          fi
-
-          # ---------- Requirement to install into the image ----------
-          # A published version is pinned exactly; otherwise install the
-          # triggering commit from git, so a push to a release-candidate
-          # branch needs no release.
-          if [ -n "$version" ]; then
-            requirement="airbyte==$version"
-            pinned="true"
-          else
-            requirement="airbyte @ git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_SHA}"
-            pinned="false"
+            package_ref_override="airbyte @ git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_SHA}"
           fi
 
           {
-            printf 'requirement=%s\n' "$requirement"
-            printf 'pinned=%s\n' "$pinned"
+            printf 'channel=%s\n' "${RELEASE_CHANNEL:-$DEFAULT_RELEASE_CHANNEL}"
+            printf 'version_override=%s\n' "$version_override"
+            printf 'package_ref_override=%s\n' "$package_ref_override"
             printf 'preview=%s\n' "$PREVIEW"
+            printf 'dry_run=%s\n' "$DRY_RUN"
           } | tee -a "$GITHUB_OUTPUT"
 
+          # ---------- Input guards ----------
+          set_names=()
+          [ -z "$RELEASE_CHANNEL" ] || set_names+=("release-channel")
+          [ -z "$VERSION_OVERRIDE" ] || set_names+=("version-override")
+          [ -z "$PACKAGE_REF_OVERRIDE" ] || set_names+=("package-ref-override")
+          [ "${#set_names[@]}" -le 1 ] \
+            || { echo "::error::release-channel, version-override, and package-ref-override are mutually exclusive; got: ${set_names[*]}"; exit 1; }
+          printf '%s\n' '' rc ga | grep -qxF "$RELEASE_CHANNEL" \
+            || { echo "::error::release-channel must be 'rc' or 'ga', got '$RELEASE_CHANNEL'."; exit 1; }
+          if [ -n "$version_override" ]; then
+            [[ "$version_override" =~ ^[0-9][A-Za-z0-9.+!-]*$ ]] \
+              || { echo "::error::version-override must be a bare PyAirbyte version such as '1.0.0rc3', got '$VERSION_OVERRIDE'."; exit 1; }
+          fi
+          if [ -n "$package_ref_override" ]; then
+            [[ "$package_ref_override" =~ ^airbyte([^A-Za-z0-9_-]|$) ]] \
+              || { echo "::error::package-ref-override must name the 'airbyte' distribution, got '$package_ref_override'."; exit 1; }
+          fi
+          printf '%s\n' true false | grep -qxF "$PREVIEW" \
+            || { echo "::error::Invalid preview value: '$PREVIEW' (allowed: true, false)"; exit 1; }
+
+      # Latest non-yanked release per channel, from PyPI's release list.
+      # rc: highest `X.Y.ZrcN` (alphas, betas, and `.dev` builds excluded).
+      # ga: highest `X.Y.Z`. Both are recorded as outputs for the audit trail.
+      - name: Resolve PyAirbyte versions
+        id: resolve-versions
+        run: |
+          set -euo pipefail
+          versions="$(curl -fsSL --retry 5 --retry-all-errors https://pypi.org/pypi/airbyte/json \
+            | jq -r '.releases | to_entries[] | select((.value | length) > 0 and ([.value[].yanked] | any | not)) | .key')"
+          latest_ga="$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$versions" | sort -V | tail -n1 || true)"
+          latest_rc="$(grep -E '^[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$' <<<"$versions" | sort -V | tail -n1 || true)"
+          [ -n "$latest_ga" ] \
+            || { echo "::error::Could not resolve PyAirbyte version from PyPI."; exit 1; }
+          {
+            echo "latest_ga=$latest_ga"
+            echo "latest_rc=$latest_rc"
+          } | tee -a "$GITHUB_OUTPUT"
+          {
+            printf 'PyAirbyte latest GA: %s\n' "$latest_ga"
+            printf 'PyAirbyte latest RC: %s\n' "$latest_rc"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Precedence: package-ref-override > version-override > latest release
+      # on the channel. `pinned` marks an exact PyPI pin, which is the only
+      # form worth polling PyPI for below.
+      - name: Select PyAirbyte requirement
+        id: select-requirement
+        env:
+          CHANNEL: ${{ steps.resolve-vars.outputs.channel }}
+          VERSION_OVERRIDE: ${{ steps.resolve-vars.outputs.version_override }}
+          PACKAGE_REF_OVERRIDE: ${{ steps.resolve-vars.outputs.package_ref_override }}
+          LATEST_RC: ${{ steps.resolve-versions.outputs.latest_rc }}
+          LATEST_GA: ${{ steps.resolve-versions.outputs.latest_ga }}
+        run: |
+          set -euo pipefail
+          pinned=true
+          if [ -n "$PACKAGE_REF_OVERRIDE" ]; then
+            requirement="$PACKAGE_REF_OVERRIDE"
+            pinned=false
+          elif [ -n "$VERSION_OVERRIDE" ]; then
+            requirement="airbyte==$VERSION_OVERRIDE"
+          elif [ "$CHANNEL" = "rc" ]; then
+            # Fall back to the latest GA release until the first RC exists.
+            requirement="airbyte==${LATEST_RC:-$LATEST_GA}"
+          else
+            requirement="airbyte==$LATEST_GA"
+          fi
+          {
+            echo "requirement=$requirement"
+            echo "pinned=$pinned"
+          } | tee -a "$GITHUB_OUTPUT"
+          printf 'PyAirbyte requirement: %s\n' "$requirement" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Install uv
-        if: steps.resolve-vars.outputs.pinned == 'true'
+        if: steps.select-requirement.outputs.pinned == 'true' && steps.resolve-vars.outputs.dry_run != 'true'
         uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
         with:
           enable-cache: false
@@ -123,9 +222,9 @@ jobs:
       # and which can stay stale for far longer. Polling anything else can go
       # green while the cloud-mcp image build still cannot resolve the version.
       - name: Wait for PyAirbyte version to be resolvable
-        if: steps.resolve-vars.outputs.pinned == 'true'
+        if: steps.select-requirement.outputs.pinned == 'true' && steps.resolve-vars.outputs.dry_run != 'true'
         env:
-          PYPI_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
+          PYPI_REQUIREMENT: ${{ steps.select-requirement.outputs.requirement }}
         run: |
           set -euo pipefail
           attempt=1
@@ -146,8 +245,9 @@ jobs:
 
       - name: Build cloud-mcp dispatch payload
         id: build-client-payload
+        if: steps.resolve-vars.outputs.dry_run != 'true'
         env:
-          PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
+          PYAIRBYTE_REQUIREMENT: ${{ steps.select-requirement.outputs.requirement }}
           PREVIEW: ${{ steps.resolve-vars.outputs.preview }}
         run: |
           set -euo pipefail
@@ -159,6 +259,7 @@ jobs:
 
       - name: Authenticate as GitHub App
         id: get-app-token
+        if: steps.resolve-vars.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         with:
           owner: airbytehq
@@ -169,6 +270,7 @@ jobs:
           permission-contents: write
 
       - name: Trigger cloud-mcp deploy
+        if: steps.resolve-vars.outputs.dry_run != 'true'
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.get-app-token.outputs.token }}
@@ -184,24 +286,26 @@ jobs:
 
       - name: Build platform-internal dispatch payload
         id: build-internal-payload
-        if: steps.resolve-vars.outputs.preview == 'false'
+        if: steps.resolve-vars.outputs.preview == 'false' && steps.resolve-vars.outputs.dry_run != 'true'
         env:
-          PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
+          PYAIRBYTE_REQUIREMENT: ${{ steps.select-requirement.outputs.requirement }}
+          PINNED: ${{ steps.select-requirement.outputs.pinned }}
         run: |
           set -euo pipefail
-
-          # Reaching here means `preview=false`, which only a caller can set and
-          # which the guards above pair with a non-empty version, so the
-          # requirement is always the pinned `airbyte==<version>` form.
-          version="${PYAIRBYTE_REQUIREMENT#airbyte==}"
 
           # The target defaults `image_tag` to `manual-<its own short sha>`,
           # which names nothing about the PyAirbyte build and repeats across
           # releases whenever that repo's HEAD has not moved. Name the tag after
-          # the version instead. PEP 440 allows `+` and `!`, which are not legal
-          # in a Docker tag and which the target rejects outright, so map every
-          # disallowed character to `-`.
-          image_tag="pyairbyte-$(printf '%s' "$version" | sed 's/[^a-zA-Z0-9._-]/-/g')"
+          # the pinned version instead; a package ref has no version to name,
+          # so fall back to this run's id. PEP 440 allows `+` and `!`, which
+          # are not legal in a Docker tag and which the target rejects
+          # outright, so map every disallowed character to `-`.
+          if [ "$PINNED" = "true" ]; then
+            version="${PYAIRBYTE_REQUIREMENT#airbyte==}"
+            image_tag="pyairbyte-$(printf '%s' "$version" | sed 's/[^a-zA-Z0-9._-]/-/g')"
+          else
+            image_tag="pyairbyte-ref-${GITHUB_RUN_ID}"
+          fi
 
           # `deploy` is a string because `client_payload` is untyped JSON; the
           # target validates it against exactly `true`/`false`.
@@ -217,7 +321,7 @@ jobs:
 
       - name: Authenticate as GitHub App for platform-internal
         id: get-internal-app-token
-        if: steps.resolve-vars.outputs.preview == 'false'
+        if: steps.resolve-vars.outputs.preview == 'false' && steps.resolve-vars.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         with:
           owner: airbytehq
@@ -228,7 +332,7 @@ jobs:
           permission-contents: write
 
       - name: Trigger platform-internal cloud-mcp deploy
-        if: steps.resolve-vars.outputs.preview == 'false'
+        if: steps.resolve-vars.outputs.preview == 'false' && steps.resolve-vars.outputs.dry_run != 'true'
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.get-internal-app-token.outputs.token }}
@@ -238,17 +342,24 @@ jobs:
 
       - name: Summarize dispatch
         env:
-          PYAIRBYTE_REQUIREMENT: ${{ steps.resolve-vars.outputs.requirement }}
+          PYAIRBYTE_REQUIREMENT: ${{ steps.select-requirement.outputs.requirement }}
           PREVIEW: ${{ steps.resolve-vars.outputs.preview }}
+          DRY_RUN: ${{ steps.resolve-vars.outputs.dry_run }}
           # Empty whenever the platform-internal dispatch was skipped.
           INTERNAL_IMAGE_TAG: ${{ steps.build-internal-payload.outputs.image_tag }}
         run: |
           {
-            printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-ops-mcp.\n'
+            if [ "$DRY_RUN" = "true" ]; then
+              printf 'Dry run: no deploy was dispatched.\n'
+            else
+              printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-ops-mcp.\n'
+            fi
             printf 'Requirement: %s\n' "$PYAIRBYTE_REQUIREMENT"
             printf 'Preview: %s\n' "$PREVIEW"
             if [ -n "$INTERNAL_IMAGE_TAG" ]; then
               printf 'Requested a cloud-mcp deploy in airbytehq/airbyte-platform-internal (image tag: %s).\n' "$INTERNAL_IMAGE_TAG"
+            elif [ "$PREVIEW" = "false" ]; then
+              printf 'Skipped airbytehq/airbyte-platform-internal (dry run).\n'
             else
               printf 'Skipped airbytehq/airbyte-platform-internal, which has no preview service.\n'
             fi
