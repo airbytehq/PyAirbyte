@@ -1,15 +1,19 @@
 # Keeps the release-candidate trunk current with `main`.
 #
-# On a schedule (and on demand), this workflow fast-forwards the release-candidate
+# On every push to `main`, on a schedule, and on demand, this workflow fast-forwards the release-candidate
 # branch to `main` when possible, falls back to a clean merge commit when the
 # branches have diverged, and — when the merge conflicts — pushes `main` to a
 # dedicated sync branch and opens a PR into the release-candidate branch so a
-# human can resolve the conflicts. While that PR is open the sync branch is left
-# untouched; it is recreated only after the PR is merged or closed.
+# human can resolve the conflicts. While that PR is open the sync branch keeps
+# tracking `main` until a human pushes resolution commits to it, after which it
+# is left untouched.
 
 name: "RC Branch: Update from `main`"
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Run every weekday at 06:00 Pacific Time
     - cron: "0 6 * * 1-5"
@@ -160,31 +164,43 @@ jobs:
         if: steps.merge.outcome == 'failure' && steps.resolve-vars.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SOURCE: ${{ steps.resolve-vars.outputs.source }}
           TARGET: ${{ steps.resolve-vars.outputs.target }}
           SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
         run: |
           set -e
           pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$TARGET" --head "$SYNC_BRANCH" --json url --jq '.[0].url // empty')"
-          echo "pr_url=$pr_url" | tee -a "$GITHUB_OUTPUT"
+          sync_untouched="true"
+          sync_sha=""
+          if git fetch origin "refs/heads/${SYNC_BRANCH}:refs/remotes/origin/${SYNC_BRANCH}" 2>/dev/null; then
+            git merge-base --is-ancestor "origin/${SYNC_BRANCH}" "origin/${SOURCE}" || sync_untouched="false"
+            sync_sha="$(git rev-parse "origin/${SYNC_BRANCH}")"
+          fi
+          { printf "pr_url=%s\n" "$pr_url"; printf "sync_untouched=%s\n" "$sync_untouched"; printf "sync_sha=%s\n" "$sync_sha"; } | tee -a "$GITHUB_OUTPUT"
 
-      # Only (re)create the sync branch when no PR is open, so human conflict
-      # resolutions pushed to an existing PR's head are never overwritten.
+      # Refresh the sync branch unless a human has pushed conflict-resolution
+      # commits to it; those are never overwritten.
       - name: Push source to sync branch
+        id: push-sync
+        continue-on-error: true
         if: >
           steps.merge.outcome == 'failure' &&
           steps.resolve-vars.outputs.dry_run != 'true' &&
-          steps.find-pr.outputs.pr_url == ''
+          (steps.find-pr.outputs.pr_url == '' || steps.find-pr.outputs.sync_untouched == 'true')
         env:
           SOURCE: ${{ steps.resolve-vars.outputs.source }}
           SYNC_BRANCH: ${{ steps.resolve-vars.outputs.sync_branch }}
-        run: git push --force origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
+          SYNC_SHA: ${{ steps.find-pr.outputs.sync_sha }}
+        # Lease on the SHA we inspected so a resolution commit pushed meanwhile is never overwritten.
+        run: git push --force-with-lease="refs/heads/${SYNC_BRANCH}:${SYNC_SHA}" origin "origin/${SOURCE}:refs/heads/${SYNC_BRANCH}"
 
       - name: Open sync PR
         id: create-pr
         if: >
           steps.merge.outcome == 'failure' &&
           steps.resolve-vars.outputs.dry_run != 'true' &&
-          steps.find-pr.outputs.pr_url == ''
+          steps.find-pr.outputs.pr_url == '' &&
+          steps.push-sync.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SOURCE: ${{ steps.resolve-vars.outputs.source }}
@@ -199,7 +215,7 @@ jobs:
 
           \`${TARGET}\` is **${BEHIND}** commit(s) behind \`${SOURCE}\`. Please resolve the merge conflicts on \`${SYNC_BRANCH}\` and merge this PR.
 
-          While this PR is open, the sync branch is left untouched so your conflict-resolution commits are preserved. Once it is merged or closed, the next run recreates the branch from \`${SOURCE}\` if conflicts remain.
+          This PR's branch is refreshed from \`${SOURCE}\` on each run until you push conflict-resolution commits to it; after that it is left untouched so your work is preserved.
 
           Workflow run: ${RUN_URL}
           EOF
