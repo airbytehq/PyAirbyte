@@ -410,7 +410,9 @@ class CloudConnector:
         _ = api_args, select_fields, exclude_fields, skip_truncation, intent
         raise exc.PyAirbyteInputError(
             message="Cloud connector write actions are not supported yet.",
-            guidance="Use execute_api_query for read actions (list, get, search).",
+            guidance=(
+                "Use execute_api_query (Python) or execute_external_api_query (MCP) for reads."
+            ),
             context={"entity_type": entity_type, "action": resolved_action.value},
         )
 

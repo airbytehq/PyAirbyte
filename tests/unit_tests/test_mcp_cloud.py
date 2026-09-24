@@ -1992,5 +1992,5 @@ def test_cloud_write_tool_reports_unsupported_without_network(
     assert isinstance(raised.value, MCP_TOOL_USER_FACING_ERRORS)
     assert format_user_facing_error(raised.value) == (
         "Cloud connector write actions are not supported yet. "
-        "Use execute_api_query for read actions (list, get, search)."
+        "Use execute_api_query (Python) or execute_external_api_query (MCP) for reads."
     )
