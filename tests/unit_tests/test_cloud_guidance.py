@@ -23,6 +23,11 @@ from airbyte.cloud.workspaces import CloudWorkspace
 
 
 SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DIALECTS))
+BIGQUERY_DEFINITION_ID = next(
+    definition_id
+    for definition_id, dialect in _SQL_PASSTHROUGH_DESTINATION_DIALECTS.items()
+    if dialect == "bigquery"
+)
 
 SKILL_DOCS_RESPONSE: dict[str, Any] = {
     "metadata": {
@@ -235,6 +240,35 @@ def test_get_direct_access_guidance_section_without_context_layer_raises(
 
     with pytest.raises(exc.PyAirbyteInputError, match="Section-scoped"):
         destination.get_direct_access_guidance(section="streams")
+
+
+def test_get_direct_access_guidance_bigquery_uses_project_dataset_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The merged intro labels BigQuery locations as project/dataset."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        cloud_workspaces.deployment,
+        "is_agents_api_available",
+        lambda **_: True,
+    )
+    read_docs = MagicMock(return_value=SKILL_DOCS_RESPONSE)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    destination = CloudDestination(workspace=workspace, connector_id="dest-1")
+    destination._connector_info = CloudDestinationInfo(  # noqa: SLF001
+        destination_id="dest-1",
+        name="Warehouse",
+        definition_id=BIGQUERY_DEFINITION_ID,
+        configuration={"project_id": "PROJ", "dataset_id": "DS"},
+    )
+    destination._configuration = {"project_id": "PROJ", "dataset_id": "DS"}  # noqa: SLF001
+
+    guidance = destination.get_direct_access_guidance()
+
+    intro = guidance.content[0]
+    assert intro["type"] == "paragraph"
+    assert "project `PROJ`" in intro["text"]
+    assert "dataset `DS`" in intro["text"]
 
 
 def test_get_agent_skill_docs_requires_exactly_one_id(

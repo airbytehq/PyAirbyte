@@ -79,6 +79,12 @@ _NAMESPACE_NOUNS: Mapping[str, str] = {
 }
 """How each engine names the namespace an unqualified table reference resolves to."""
 
+_LOCATION_LABELS: Mapping[str, tuple[str, str]] = {
+    "snowflake": ("database", "schema"),
+    "bigquery": ("project", "dataset"),
+}
+"""Per-engine labels for the database/schema-like location keys."""
+
 _DIALECT_NOTES: Mapping[str, list[str]] = {
     "snowflake": [
         (
@@ -284,11 +290,12 @@ def merge_destination_skill_docs(
 def _location_sentence(dialect: str, load_context: _DestinationLoadContext) -> str:
     """Describe where a destination's tables land, without a trailing period."""
     if load_context.database_name is not None or load_context.schema_name is not None:
+        database_label, schema_label = _LOCATION_LABELS[dialect]
         location_text = ", ".join(
             f"{label} `{value}`"
             for label, value in (
-                ("database", load_context.database_name),
-                ("schema", load_context.schema_name),
+                (database_label, load_context.database_name),
+                (schema_label, load_context.schema_name),
             )
             if value is not None
         )
