@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Build cloud-mcp dispatch payloads
-        id: build-client-payload
+        id: build-dispatch-payload
         env:
           PYAIRBYTE_REQUIREMENT: ${{ needs.resolve-vars.outputs.requirement }}
         run: |
@@ -233,7 +233,7 @@ jobs:
           token: ${{ steps.get-app-token.outputs.token }}
           repository: airbytehq/airbyte-ops-mcp
           event-type: deploy-cloud-mcp
-          client-payload: ${{ steps.build-client-payload.outputs.preview_payload }}
+          client-payload: ${{ steps.build-dispatch-payload.outputs.preview_payload }}
 
       - name: Trigger internal cloud-mcp deploy
         if: needs.resolve-vars.outputs.deploy_internal == 'true'
@@ -242,7 +242,7 @@ jobs:
           token: ${{ steps.get-app-token.outputs.token }}
           repository: airbytehq/airbyte-ops-mcp
           event-type: deploy-cloud-mcp
-          client-payload: ${{ steps.build-client-payload.outputs.prod_payload }}
+          client-payload: ${{ steps.build-dispatch-payload.outputs.prod_payload }}
 
   # ---------- Second target: airbyte-platform-internal ----------
   # Its `Deploy Cloud MCP` workflow builds the image from a vendored copy
