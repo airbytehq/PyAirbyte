@@ -258,7 +258,7 @@ def send_telemetry(
                 "anonymousId": _get_analytics_id(),
                 "event": event_type,
                 "properties": payload_props,
-                "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+                "timestamp": datetime.datetime.now(tz=datetime.UTC).isoformat(),
             },
         )
 

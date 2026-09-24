@@ -115,7 +115,7 @@ def _to_time_str(timestamp: float) -> str:
     For now, we'll just use UTC to avoid breaking tests. In the future, we should
     return a local time string.
     """
-    datetime_obj = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+    datetime_obj = datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC)
     datetime_obj = datetime_obj.astimezone()
     return datetime_obj.strftime("%H:%M:%S")
 

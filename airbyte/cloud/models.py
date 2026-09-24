@@ -187,7 +187,7 @@ class CloudWorkspaceInfo(BaseModel):
     @classmethod
     def from_api_response(cls, workspace: _WorkspaceResponseLike) -> CloudWorkspaceInfo:
         """Create a public model from an internal API workspace response."""
-        return cls(
+        return cls(  # pyrefly: ignore[missing-argument]
             workspace_id=workspace.workspace_id,
             name=workspace.name,
             data_residency=workspace.data_residency,

@@ -5,7 +5,7 @@ readme = "README.md"
 authors = [
     { name = "Airbyte", email = "contact@airbyte.io" }
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 dynamic = ["version"]
 dependencies = [
     "airbyte-api>=0.53.0,<1.0",
@@ -154,7 +154,7 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 ignore_errors = true
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 

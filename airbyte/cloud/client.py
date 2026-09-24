@@ -810,7 +810,7 @@ class CloudClient:
         if not isinstance(organization_id, str) or not organization_id:
             self._workspace_organizations[workspace_id] = None
             return None
-        organization_info = CloudOrganizationInfo(
+        organization_info = CloudOrganizationInfo(  # pyrefly: ignore[missing-argument]
             organization_id=organization_id,
             organization_name=(
                 organization.get("organizationName")
