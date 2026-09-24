@@ -2085,7 +2085,7 @@ def test_cloud_destination_features_raise_on_probe_failure(
         ),
     ],
 )
-def test_mcp_list_deployed_cloud_source_connectors_features(
+def test_mcp_list_cloud_connectors_source_features(
     monkeypatch: pytest.MonkeyPatch,
     feature_filter: ConnectorFeature | None,
     expected_ids: list[str],
@@ -2099,8 +2099,9 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
     )
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    results = mcp_cloud.list_deployed_cloud_source_connectors(
+    results = mcp_cloud.list_cloud_connectors(
         None,
+        connector_type=ConnectorType.SOURCE,
         workspace_id=None,
         name_contains=None,
         limit=None,
@@ -2136,7 +2137,7 @@ def test_mcp_list_deployed_cloud_source_connectors_features(
         pytest.param(ConnectorFeature.SEARCH_INDEXING, [], [], id="search_indexing"),
     ],
 )
-def test_mcp_list_deployed_cloud_destination_connectors_features(
+def test_mcp_list_cloud_connectors_destination_features(
     monkeypatch: pytest.MonkeyPatch,
     feature_filter: ConnectorFeature | None,
     expected_ids: list[str],
@@ -2148,8 +2149,9 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
     _patch_workspace_connectors(monkeypatch, workspace)
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    results = mcp_cloud.list_deployed_cloud_destination_connectors(
+    results = mcp_cloud.list_cloud_connectors(
         None,
+        connector_type=ConnectorType.DESTINATION,
         workspace_id=None,
         name_contains=None,
         limit=None,
@@ -2161,18 +2163,17 @@ def test_mcp_list_deployed_cloud_destination_connectors_features(
 
 
 @pytest.mark.parametrize(
-    "list_tool",
+    "connector_type",
     [
-        pytest.param(mcp_cloud.list_deployed_cloud_source_connectors, id="sources"),
-        pytest.param(
-            mcp_cloud.list_deployed_cloud_destination_connectors, id="destinations"
-        ),
+        pytest.param(ConnectorType.SOURCE, id="sources"),
+        pytest.param(ConnectorType.DESTINATION, id="destinations"),
+        pytest.param(None, id="all"),
     ],
 )
 @pytest.mark.parametrize("limit", [0, -1])
-def test_mcp_list_deployed_cloud_connectors_rejects_non_positive_limit(
+def test_mcp_list_cloud_connectors_rejects_non_positive_limit(
     monkeypatch: pytest.MonkeyPatch,
-    list_tool: Callable[..., object],
+    connector_type: ConnectorType | None,
     limit: int,
 ) -> None:
     workspace = _make_workspace(
@@ -2181,7 +2182,13 @@ def test_mcp_list_deployed_cloud_connectors_rejects_non_positive_limit(
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
     with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
-        list_tool(None, workspace_id=None, name_contains=None, limit=limit)
+        mcp_cloud.list_cloud_connectors(
+            None,
+            connector_type=connector_type,
+            workspace_id=None,
+            name_contains=None,
+            limit=limit,
+        )
 
 
 def _make_workspace(
