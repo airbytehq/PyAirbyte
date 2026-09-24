@@ -1713,8 +1713,8 @@ def execute_external_sql_query(
 
 
 @mcp_tool(
-    read_only=True,
-    idempotent=True,
+    read_only=False,
+    idempotent=False,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )

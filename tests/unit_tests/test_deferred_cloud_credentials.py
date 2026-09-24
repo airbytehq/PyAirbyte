@@ -19,6 +19,7 @@ from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import DeferredDeployResult
 from airbyte.secrets.base import SecretString
 from fastmcp import Context
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -384,6 +385,27 @@ def test_deploy_deferred_rejects_plaintext_credentials(
     assert raised.value.context == {"fields": ["password"]}
 
 
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_rejects_nested_plaintext_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """Credentials nested inside list-of-dict config values are also rejected."""
+    call = _stub_create(monkeypatch, connector_type)
+
+    with pytest.raises(exc.PyAirbyteInputError, match="credential values") as raised:
+        _deploy(
+            _workspace(),
+            connector_type,
+            {"count": 10, "credentials": [{"password": "hunter2"}]},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["credentials.0.password"]}
+
+
 @responses.activate
 @pytest.mark.parametrize(
     ("status_code", "body", "expected"),
@@ -609,6 +631,15 @@ def test_mcp_deploy_deferred_rejects_plaintext_credentials(
             unique=True,
             defer_credentials=True,
         )
+
+
+def test_mcp_check_cloud_connector_is_not_read_only_or_idempotent() -> None:
+    """The check triggers a connection test, so it must not be advertised as read-only."""
+    (annotations,) = [
+        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector
+    ]
+    assert annotations["readOnlyHint"] is False
+    assert annotations["idempotentHint"] is False
 
 
 def test_mcp_deploy_deferred_rejects_config_secret_name(

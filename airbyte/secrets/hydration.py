@@ -15,6 +15,7 @@ from airbyte.secrets.util import get_secret
 
 
 GLOBAL_MASK_KEYS_URL = "https://connectors.airbyte.com/files/registries/v0/specs_secrets_mask.yaml"
+_GLOBAL_MASK_TIMEOUT_SECS = 10
 
 
 def _hydrate_recursive(
@@ -79,12 +80,18 @@ def _walk_dict(
     """Walk through a dictionary and yield paths to each leaf node.
 
     Yields tuples of (path, value) where path is a list of keys leading to the value.
+    Lists containing dicts are descended into, with the item index appended to the path;
+    other lists are treated as single leaf values.
     """
     breadcrumb = breadcrumb or []
     for key, val in d.items():
         new_path: list[str] = [*breadcrumb, key]
         if isinstance(val, dict):
             yield from _walk_dict(val, new_path)
+        elif isinstance(val, (list, tuple)) and any(isinstance(item, dict) for item in val):
+            for index, item in enumerate(val):
+                if isinstance(item, dict):
+                    yield from _walk_dict(item, [*new_path, str(index)])
         else:
             yield new_path, val
 
@@ -100,6 +107,7 @@ def _get_global_secrets_mask() -> list[str]:
     response = requests.get(
         GLOBAL_MASK_KEYS_URL,
         allow_redirects=True,
+        timeout=_GLOBAL_MASK_TIMEOUT_SECS,
     )
     if not response.ok:
         raise PyAirbyteInternalError(
