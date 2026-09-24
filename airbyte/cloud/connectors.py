@@ -59,7 +59,6 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
-import requests
 import yaml
 from pydantic import ValidationError
 
@@ -691,11 +690,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Execute a single entity/action operation through the Cloud Config API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API. When the Cloud Config API
-        reports the connector as forbidden or not found, the error is re-raised as
-        `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise,
-        including when the enablement lookup itself fails.
+        workspace's API roots have no Context layer API. Execution errors propagate
+        unchanged: an unavailable docs probe cannot establish disabled access.
         """
         self._require_context_layer_api()
         if read_only and action in {write_action.value for write_action in ExternalApiWriteAction}:

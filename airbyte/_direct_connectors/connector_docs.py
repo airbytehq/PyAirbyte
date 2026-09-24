@@ -215,6 +215,7 @@ def build_direct_access_sql_guidance(
         title=f"{destination.name} (SQL passthrough destination)",
         summary=f"Table layout and naming for the `{destination.name}` destination.",
         tags=["destination"],
+        warnings=[sql_passthrough_notice] if sql_passthrough_notice else [],
     )
     connections = _destination_connections(destination)
     content: list[dict[str, Any]] = []
@@ -247,7 +248,6 @@ def build_direct_access_sql_guidance(
         outline=[],
         section_id=None,
         content=content,
-        warnings=[sql_passthrough_notice] if sql_passthrough_notice else [],
     )
 
 
