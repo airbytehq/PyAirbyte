@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
+from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, Self, final
 
 import pandas as pd
 import pyarrow as pa
@@ -13,7 +13,6 @@ import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
-from typing_extensions import Self
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 

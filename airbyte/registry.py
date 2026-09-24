@@ -10,12 +10,11 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import requests
 import yaml
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
