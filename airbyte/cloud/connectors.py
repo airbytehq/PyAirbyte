@@ -704,7 +704,8 @@ class CloudConnector:
         destinations (Snowflake, BigQuery) read server docs the same way, merged
         with a short local intro on the overview; when the destination is not
         enrolled (403/404 on an unscoped read) or the deployment has no Context
-        layer API, a structure-only local fallback doc is returned with a notice.
+        layer API, it falls back to general guidance for the destination type plus
+        guidance inferred from its connections, with a notice.
         Other destinations do not support direct access.
         """
         if self.connector_type == ConnectorType.SOURCE:
@@ -720,8 +721,8 @@ class CloudConnector:
                             "the Context Layer API."
                         ),
                         guidance=(
-                            "Request the docs without a section to get the "
-                            "structure-only summary."
+                            "Request the docs without a section to get the general "
+                            "destination guidance."
                         ),
                         context={"connector_id": self.connector_id, "section": section},
                     )
