@@ -32,7 +32,7 @@ class _WorkspaceResponseLike(Protocol):
 
 
 class _ScheduleResponseLike(Protocol):
-    schedule_type: object | None
+    schedule_type: object
     cron_expression: str | None
     basic_timing: str | None
 
@@ -311,17 +311,14 @@ class ConnectionSchedule(BaseModel):
     @classmethod
     def from_api_response(cls, schedule: _ScheduleResponseLike) -> ConnectionSchedule:
         """Build a `ConnectionSchedule` from an API schedule object."""
-        schedule_type = str(getattr(schedule.schedule_type, "value", schedule.schedule_type))
-        return cls(
-            schedule_type=schedule_type,
-            schedule_expression=(
-                getattr(schedule, "cron_expression", None)
-                if schedule_type == "cron"
-                else getattr(schedule, "basic_timing", None)
-                if schedule_type == "basic"
-                else None
-            ),
-        )
+        schedule_type = _enum_value(schedule.schedule_type)
+        if schedule_type == "cron":
+            expression = schedule.cron_expression
+        elif schedule_type == "basic":
+            expression = schedule.basic_timing
+        else:
+            expression = None
+        return cls(schedule_type=schedule_type, schedule_expression=expression)
 
     @property
     def friendly_description(self) -> str:
@@ -372,7 +369,7 @@ class CloudConnectionInfo(BaseModel):
     """The namespace format template, when `namespace_definition` is `custom_format`."""
 
     schedule: ConnectionSchedule | None = None
-    """The connection's sync schedule, as returned by the API."""
+    """The connection's sync schedule, or `None` if unknown."""
 
     status: str
     """The connection status."""

@@ -310,7 +310,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     @property
     def schedule(self) -> ConnectionSchedule | None:
-        """The connection's sync schedule, as returned by the API (or `None` if unknown)."""
+        """The connection's sync schedule, or `None` if unknown."""
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 

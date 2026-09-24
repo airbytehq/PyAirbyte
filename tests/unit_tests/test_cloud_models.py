@@ -68,7 +68,7 @@ def test_cloud_connector_info_from_api_response_populates_definition_id(
 
 def test_cloud_connection_info_from_api_response_populates_schedule() -> None:
     """`CloudConnectionInfo` carries the schedule returned by the API."""
-    schedule = SimpleNamespace(schedule_type=SimpleNamespace(value="manual"))
+    schedule = SimpleNamespace(schedule_type="manual")
     info = CloudConnectionInfo.from_api_response(
         SimpleNamespace(
             connection_id="conn-1",
@@ -92,7 +92,7 @@ def test_connection_schedule_from_api_response() -> None:
     """`ConnectionSchedule.from_api_response` maps schedule fields by type."""
     cron = ConnectionSchedule.from_api_response(
         SimpleNamespace(
-            schedule_type=SimpleNamespace(value="cron"),
+            schedule_type="cron",
             cron_expression="0 8 * * *",
             basic_timing=None,
         )
@@ -102,7 +102,7 @@ def test_connection_schedule_from_api_response() -> None:
 
     basic = ConnectionSchedule.from_api_response(
         SimpleNamespace(
-            schedule_type=SimpleNamespace(value="basic"),
+            schedule_type="basic",
             cron_expression=None,
             basic_timing="Every 24 HOURS",
         )
@@ -111,7 +111,7 @@ def test_connection_schedule_from_api_response() -> None:
     assert basic.schedule_expression == "Every 24 HOURS"
 
     manual = ConnectionSchedule.from_api_response(
-        SimpleNamespace(schedule_type=SimpleNamespace(value="manual"))
+        SimpleNamespace(schedule_type="manual")
     )
     assert manual.schedule_type == "manual"
     assert manual.schedule_expression is None
