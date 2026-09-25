@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from airbyte._executors.docker import (
     DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR,
@@ -73,3 +73,35 @@ def test_map_cli_args_passes_through_unmapped_paths(tmp_path: Path) -> None:
     mapped = executor.map_cli_args([str(outside_file)])
 
     assert mapped == [str(outside_file)]
+
+
+class _WindowsPath(PureWindowsPath):
+    """Windows path semantics on any host, so the test runs in Linux CI."""
+
+    def exists(self) -> bool:
+        return True
+
+
+def test_windows_host_produces_posix_container_path(monkeypatch) -> None:
+    r"""A Windows host path must still map to a POSIX container path.
+
+    Asserting `"\\" not in result` alone is vacuous on Linux, where `Path` is
+    already `PosixPath`; forcing Windows path semantics gives the test teeth.
+    """
+    monkeypatch.setattr("airbyte._executors.docker.Path", _WindowsPath)
+
+    volume = _WindowsPath(r"C:\Users\dev\AppData\Local\Temp")
+    executor = DockerExecutor(
+        name="source-test",
+        image_name_full="airbyte/source-test:latest",
+        executable=["docker", "run", "airbyte/source-test:latest"],
+        volumes={volume: "/airbyte/tmp"},
+    )
+
+    mapped = executor.map_cli_args([
+        "read",
+        r"C:\Users\dev\AppData\Local\Temp\config.json",
+    ])
+
+    assert "\\" not in mapped[1], f"backslash leaked into {mapped[1]!r}"
+    assert mapped[1] == str(PurePosixPath("/airbyte/tmp/config.json"))
