@@ -127,7 +127,7 @@ Skill doc sections for direct API queries and actions are named with the pattern
 `execute_external_api_*` tools. If you already know the entity type and action, skip the
 overview and read that section directly with `get_agent_skill_docs`. E.g. for GitHub
 `entity_type='issues'`, `action='list'`, read `section='actions.issues.list'` to learn that
-its `api_args` are `owner`, `repo`, `states`, etc.\
+its expected `api_args` keys are `owner`, `repo`, `states`, etc.\
 """
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
