@@ -33,6 +33,7 @@ from airbyte.cloud.models import (
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteError,
     AirbyteExternalAccessNotEnabledError,
     PyAirbyteInputError,
@@ -259,8 +260,8 @@ def test_direct_access_guidance_id_source_without_context_layer(
 @pytest.mark.parametrize(
     "probe_error",
     [
-        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
-        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
+        pytest.param(AirbyteCloudApiError(status_code=404), id="not_found"),
+        pytest.param(AirbyteCloudApiError(status_code=403), id="forbidden"),
     ],
 )
 def test_direct_access_guidance_id_source_probe_not_enabled(
@@ -351,8 +352,8 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
 @pytest.mark.parametrize(
     "probe_error",
     [
-        pytest.param(AirbyteError(context={"status_code": 404}), id="not_found"),
-        pytest.param(AirbyteError(context={"status_code": 403}), id="forbidden"),
+        pytest.param(AirbyteCloudApiError(status_code=404), id="not_found"),
+        pytest.param(AirbyteCloudApiError(status_code=403), id="forbidden"),
     ],
 )
 def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
@@ -705,7 +706,7 @@ def test_enabled_features_disabled_connector(
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 404})),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudApiError(status_code=404)),
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 

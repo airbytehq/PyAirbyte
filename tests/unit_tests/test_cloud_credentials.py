@@ -35,6 +35,7 @@ from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteError,
     AirbyteMissingResourceError,
     PyAirbyteInputError,
@@ -1702,7 +1703,7 @@ def _patch_workspace_connectors(
         skill_id = str(kwargs["skill_id"])
         connector_id = skill_id.rsplit(":", 1)[-1]
         if connector_id not in enabled_ids:
-            raise AirbyteError(context={"status_code": 404})
+            raise AirbyteCloudApiError(status_code=404)
         return {
             "metadata": {
                 "id": skill_id,
