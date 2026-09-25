@@ -121,6 +121,15 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
+SKILL_DOCS_SECTION_HINT = """\
+Skill doc sections for direct API queries and actions are named with the pattern
+`actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
+`execute_external_api_*` tools. Call `get_agent_skill_docs` with no `section` input to list all
+available sections, and/or retrieve the relevant section(s) with `get_agent_skill_docs` before
+calling an action. E.g. for GitHub `entity_type='issues'`, `action='list'`, the
+`'actions.issues.list'` section will teach that its expected `api_args` keys are `owner`,
+`repo`, `states`, etc.\
+"""
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
     "Create a draft connector so a person can complete OAuth or enter "
@@ -1453,7 +1462,7 @@ def describe_cloud_connector(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def get_agent_skill_docs(
     ctx: Context,
@@ -1483,7 +1492,7 @@ def get_agent_skill_docs(
         Field(
             description=(
                 "Optional exact section ID from the guidance's outline to read a single "
-                "section. Omit for the overview, metadata, and outline."
+                "section. Omit for the overview, metadata, and outline. " + SKILL_DOCS_SECTION_HINT
             ),
             default=None,
         ),
@@ -1514,7 +1523,7 @@ def get_agent_skill_docs(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1545,7 +1554,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` before calling."
+                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_HINT
             ),
             default=None,
         ),
@@ -1623,7 +1632,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1651,7 +1660,7 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` before calling."
+                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_HINT
             ),
             default=None,
         ),
