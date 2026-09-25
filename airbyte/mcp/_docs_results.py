@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class CloudConnectorDocsResult(BaseModel):
     """Connector docs rendered for agent consumption by the Cloud MCP tools.
 
-    Returned by `describe_cloud_*`.
+    Returned by `describe_cloud_connector`.
     """
 
     model_config = ConfigDict(extra="allow")
