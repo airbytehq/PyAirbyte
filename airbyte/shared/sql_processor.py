@@ -896,11 +896,26 @@ class SqlProcessorBase(abc.ABC):
         to improve performance.
         """
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
-        for file_path in files:
-            dataframe = pd.read_json(file_path, lines=True)
+        sql_column_definitions: dict[str, TypeEngine] = self._get_sql_column_definitions(
+            stream_name
+        )
 
-            sql_column_definitions: dict[str, TypeEngine] = self._get_sql_column_definitions(
-                stream_name
+        # Parse dates only where the schema says date-time. `pd.read_json`
+        # otherwise coerces by column NAME (`date`, `_at`, `_time`), which
+        # turns a numeric column into a datetime and breaks the insert
+        # against the DECIMAL column this same schema created.
+        datetime_columns: list[str] = [
+            column_name
+            for column_name, sql_type in sql_column_definitions.items()
+            if isinstance(sql_type, sqlalchemy.types.DateTime)
+        ]
+
+        for file_path in files:
+            dataframe = pd.read_json(
+                file_path,
+                lines=True,
+                convert_dates=datetime_columns,
+                keep_default_dates=False,
             )
 
             # Remove fields that are not in the schema
