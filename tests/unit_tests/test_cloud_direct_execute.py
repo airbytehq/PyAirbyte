@@ -174,6 +174,80 @@ def test_execute_api_query_forwards_action(
     }
 
 
+@pytest.mark.parametrize(
+    ("action_input", "api_args", "expected_params"),
+    [
+        pytest.param(
+            ExternalApiReadOnlyAction.DOWNLOAD,
+            {"fileId": "abc"},
+            {"fileId": "abc", "_airbyte_response_type": "json"},
+            id="enum_download_defaults_to_json",
+        ),
+        pytest.param(
+            "download",
+            {
+                "fileId": "abc",
+                "_airbyte_response_type": "JSON",
+                "_airbyte_response_format": "base64",
+            },
+            {
+                "fileId": "abc",
+                "_airbyte_response_type": "json",
+                "_airbyte_response_format": "base64",
+            },
+            id="string_download_normalizes_json",
+        ),
+    ],
+)
+def test_execute_api_query_download_requests_json_response(
+    monkeypatch: pytest.MonkeyPatch,
+    action_input: Any,  # noqa: ANN401
+    api_args: dict[str, Any],
+    expected_params: dict[str, Any],
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(
+        monkeypatch,
+        {
+            "status": "success",
+            "result": {"format": "text", "content": "hello", "has_more": False},
+        },
+    )
+    source = _seed_source(workspace, "source-1", "Google Drive")
+
+    result = source.execute_api_query(
+        "files",
+        action_input,
+        api_args=api_args,
+    )
+
+    assert isinstance(result, ExternalApiExecuteResult)
+    assert result.result["content"] == "hello"
+    assert len(calls) == 1
+    body = calls[0]["request_body"]
+    assert body["action"] == "download"
+    assert body["params"] == expected_params
+
+
+def test_execute_api_query_download_rejects_stream_response_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_execute(monkeypatch, {"status": "success"})
+    source = _seed_source(workspace, "source-1", "Google Drive")
+
+    with pytest.raises(PyAirbyteInputError, match="response type"):
+        source.execute_api_query(
+            "files",
+            "download",
+            api_args={"fileId": "abc", "_airbyte_response_type": "stream"},
+        )
+
+    assert calls == []
+
+
 def test_execute_api_action_forwards_to_cloud_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

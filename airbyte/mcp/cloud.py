@@ -1457,7 +1457,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     action: Annotated[
         ExternalApiReadOnlyAction,
         Field(
-            description="The read action to run: `list`, `get`, or `search`.",
+            description="The read action to run: `list`, `get`, `search`, or `download`.",
             default=ExternalApiReadOnlyAction.LIST,
         ),
     ] = ExternalApiReadOnlyAction.LIST,
@@ -1526,6 +1526,15 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
     `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
     connector supports.
+
+    `download` returns a file's content as JSON rather than a byte stream. Pass the
+    connector's file identifier in `api_args`. Rich documents (PDF/DOCX/XLSX/PPTX)
+    are converted to Markdown and plain-text files are decoded, in a
+    20,000-character window by default; add `_airbyte_response_format: "base64"`
+    to `api_args` for binary files and `_airbyte_max_chars` (up to 100,000) to
+    change the window. When the result has `has_more: true`, request the next
+    window with `_airbyte_text_offset` set to `next_offset` and
+    `_airbyte_download_token` set to `download_token`.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_query(

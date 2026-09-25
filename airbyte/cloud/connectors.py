@@ -49,6 +49,7 @@ from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.actions import (
+    DOWNLOAD_RESPONSE_TYPE_PARAM,
     AgentReadAction,
     _build_params,
 )
@@ -342,7 +343,7 @@ class CloudConnector:
         skip_truncation: bool = True,
         intent: str | None = None,
     ) -> ExternalApiExecuteResult:
-        """Run a read action (`list`, `get`, or `search`) on one entity type.
+        """Run a read action (`list`, `get`, `search`, or `download`) on one entity type.
 
         Requires external access to be enabled for this connector in its organization's
         Context Layer settings. Connectors without an entity API fail with the Agents
@@ -353,7 +354,7 @@ class CloudConnector:
         except ValueError:
             raise exc.PyAirbyteInputError(
                 message=f"The {action!r} action is not a valid read action.",
-                guidance="Use one of: list, get, search.",
+                guidance="Use one of: list, get, search, download.",
                 context={"entity_type": entity_type, "action": action},
             ) from None
 
@@ -489,6 +490,22 @@ class CloudConnector:
             )
 
         params = _build_params(api_args=api_args, page_size=page_size, cursor=cursor)
+        if action == AgentReadAction.DOWNLOAD.value:
+            response_type = str(params.get(DOWNLOAD_RESPONSE_TYPE_PARAM) or "json").lower()
+            if response_type != "json":
+                raise exc.PyAirbyteInputError(
+                    message=f"The {response_type!r} download response type is not supported.",
+                    guidance=(
+                        "PyAirbyte only supports the `json` response type for the `download` "
+                        "action; omit `_airbyte_response_type` from `api_args` or set it to "
+                        "`json`. Raw byte streams are not supported."
+                    ),
+                    context={
+                        "entity_type": entity_type,
+                        DOWNLOAD_RESPONSE_TYPE_PARAM: response_type,
+                    },
+                )
+            params[DOWNLOAD_RESPONSE_TYPE_PARAM] = "json"
         if (
             action == AgentReadAction.SQL_SELECT.value
             and self.workspace.workspace_id is not None

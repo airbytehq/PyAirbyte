@@ -13,13 +13,8 @@ from typing import Any
 from airbyte.exceptions import PyAirbyteInputError
 
 
-UNSUPPORTED_ACTIONS: set[str] = {"download"}
-"""Actions PyAirbyte rejects before sending them to the Agents API.
-
-`download` returns a binary stream rather than JSON, and PyAirbyte does not yet support
-streaming responses, so it is rejected with actionable guidance instead of failing later
-inside the transport layer.
-"""
+DOWNLOAD_RESPONSE_TYPE_PARAM = "_airbyte_response_type"
+"""The `api_args` key selecting the download action's response type; PyAirbyte forces `json`."""
 
 
 class AgentReadAction(str, Enum):
@@ -30,13 +25,15 @@ class AgentReadAction(str, Enum):
     engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
     `dry_run`) in `api_args`; `entity_type` is ignored for this action.
 
-    The `download` action is deliberately absent even though it reads: it returns a binary
-    stream rather than JSON, which PyAirbyte does not yet support.
+    The `download` action fetches one file's content. PyAirbyte always requests the JSON
+    response type, so the content arrives as text (Markdown for rich documents) or base64
+    rather than as a byte stream.
     """
 
     LIST = "list"
     GET = "get"
     SEARCH = "search"
+    DOWNLOAD = "download"
     SQL_SELECT = "sql_select"
 
 
