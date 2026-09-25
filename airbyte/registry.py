@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -277,6 +278,17 @@ def _get_registry_cache(
 
     __cache = new_cache
     return __cache
+
+
+def _get_connector_name_by_definition_id(definition_id: str) -> str | None:
+    """Look up a connector name by its definition ID, or None if not found/registry disabled."""
+    if _is_registry_disabled(_get_registry_url()):
+        return None
+    with contextlib.suppress(Exception):
+        for connector_name, metadata in _get_registry_cache().items():
+            if metadata.definition_id == definition_id:
+                return connector_name
+    return None
 
 
 def get_connector_metadata(name: str) -> ConnectorMetadata | None:

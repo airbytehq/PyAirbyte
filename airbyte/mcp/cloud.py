@@ -128,13 +128,14 @@ DEFER_CREDENTIALS_TIP_TEXT = (
     "authentication methods, include the method's selector field in `config`. The result "
     "includes a settings link for the person to complete any missing fields and test the draft. "
     "After they report a successful test and save, call "
-    "`check_cloud_connector_setup`."
+    "`check_cloud_connector` with the `connector_id` (optionally `connector_type` and "
+    "`workspace_id`)."
 )
 DEFERRED_SETUP_GUIDANCE = (
     "Share `settings_url` with the user. They must open it, complete authentication and any "
     "missing settings, then test and save the draft. A successful test makes it ready to use. "
-    "Then call `check_cloud_connector_setup` with `connector_id`, "
-    "`connector_type` and `workspace_id`."
+    "Then call `check_cloud_connector` with `connector_id` (optionally `connector_type` "
+    "and `workspace_id`)."
 )
 
 _DiscoveryResult = TypeVar("_DiscoveryResult")
@@ -486,25 +487,10 @@ class DeferredDeployResult(BaseModel):
     name: str
     """The connector name in Airbyte Cloud."""
     workspace_id: str
-    """The workspace the connector was created in; pass it to `check_cloud_connector_setup`."""
+    """The workspace the connector was created in; pass it to `check_cloud_connector`."""
     settings_url: str
     """Cloud settings page where a person completes the credentials."""
     guidance: str = DEFERRED_SETUP_GUIDANCE
-    """What the agent should do next."""
-
-
-class ConnectorSetupCheckResult(BaseModel):
-    """Result of checking a connector deployed with deferred credentials."""
-
-    connector_id: str
-    """The deployed connector ID."""
-    connector_type: Literal["source", "destination"]
-    """The connector type: 'source' or 'destination'."""
-    setup_complete: bool
-    """Whether the connection check succeeded."""
-    settings_url: str
-    """Cloud settings page for the connector."""
-    guidance: str
     """What the agent should do next."""
 
 
@@ -733,58 +719,6 @@ def _deploy_deferred_to_cloud(
         name=name,
         workspace_id=workspace.workspace_id,
         settings_url=deployed.connector_url,
-    )
-
-
-@mcp_tool(
-    read_only=False,
-    idempotent=False,
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def check_cloud_connector_setup(
-    ctx: Context,
-    connector_type: Annotated[
-        Literal["source", "destination"],
-        Field(description="Whether the connector is a `source` or a `destination`."),
-    ],
-    connector_id: Annotated[
-        str,
-        Field(description="The ID returned by a deployment with `defer_credentials=True`."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> ConnectorSetupCheckResult:
-    """Check whether a connector deployed with deferred credentials is ready to use.
-
-    Call this once after the person confirms they authenticated, tested and saved the connector
-    in Airbyte Cloud. It runs a single connection check and reports only whether it passed;
-    failure details stay in Cloud, where the person corrects the configuration.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    check_result = workspace.check_connector_setup(connector_type, connector_id)
-    connector = (
-        workspace.get_source(connector_id)
-        if connector_type == "source"
-        else workspace.get_destination(connector_id)
-    )
-    return ConnectorSetupCheckResult(
-        connector_id=connector_id,
-        connector_type=connector_type,
-        setup_complete=check_result.success,
-        settings_url=connector.connector_url,
-        guidance=(
-            "Setup is complete; the connector can be used."
-            if check_result.success
-            else "The connector is not ready. Ask the user to finish or correct its "
-            "credentials at `settings_url`, then call this tool again."
-        ),
     )
 
 
@@ -1779,8 +1713,8 @@ def execute_external_sql_query(
 
 
 @mcp_tool(
-    read_only=True,
-    idempotent=True,
+    read_only=False,
+    idempotent=False,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
