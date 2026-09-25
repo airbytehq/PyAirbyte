@@ -1154,11 +1154,16 @@ def get_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.get_source(
-        api.GetSourceRequest(
-            source_id=source_id,
-        ),
-    )
+    base_context = {"source_id": source_id, "api_root": api_root}
+    try:
+        response = airbyte_instance.sources.get_source(
+            api.GetSourceRequest(
+                source_id=source_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1390,11 +1395,16 @@ def get_destination(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.get_destination(
-        api.GetDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
+    base_context = {"destination_id": destination_id, "api_root": api_root}
+    try:
+        response = airbyte_instance.destinations.get_destination(
+            api.GetDestinationRequest(
+                destination_id=destination_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.destination_response:
         # TODO: This is a temporary workaround to resolve an issue where
         # the destination API response is of the wrong type.

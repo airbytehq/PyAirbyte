@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -16,6 +17,7 @@ from airbyte.exceptions import (
     AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
 )
+from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
@@ -1298,3 +1300,128 @@ def test_get_bearer_token_sends_analytic_source_header(
     headers = captured["headers"]
     assert isinstance(headers, dict)
     assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
+
+
+def _sdk_404_error(resource_type: str) -> SDKError:
+    """Create an SDKError like the Speakeasy SDK raises on a 404."""
+    raw_response = requests.Response()
+    raw_response.status_code = 404
+    raw_response.url = "https://api.airbyte.com/v1/connectors/connector-id"
+    return SDKError(
+        "API error occurred: Status 404",
+        404,
+        f'{{"resourceType":"{resource_type}"}}',
+        raw_response,
+    )
+
+
+def test_get_connector_falls_back_to_destination_on_source_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bare destination ID must still resolve when the source lookup 404s."""
+    raw_response = requests.Response()
+    raw_response.status_code = 200
+    raw_response.url = "https://api.airbyte.com/v1/destinations/dest-id"
+    raw_response._content = (
+        b'{"destinationId":"dest-id","name":"dest",'
+        b'"destinationType":"duckdb","workspaceId":"ws"}'
+    )
+    destination_response = models.DestinationResponse(
+        configuration=models.DestinationDuckdb(destination_path="/tmp/test.duckdb"),
+        created_at=0,
+        definition_id="definition-id",
+        destination_id="dest-id",
+        destination_type="duckdb",
+        name="dest",
+        workspace_id="ws",
+    )
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(side_effect=_sdk_404_error("SOURCE_CONNECTION")),
+        ),
+        destinations=SimpleNamespace(
+            get_destination=Mock(
+                return_value=api.GetDestinationResponse(
+                    content_type="application/json",
+                    status_code=200,
+                    raw_response=raw_response,
+                    destination_response=destination_response,
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    connector_type, response = api_util.get_connector(
+        "dest-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert connector_type is ConnectorType.DESTINATION
+    assert response is destination_response
+
+
+def test_get_connector_raises_missing_resource_when_neither_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(side_effect=_sdk_404_error("SOURCE_CONNECTION")),
+        ),
+        destinations=SimpleNamespace(
+            get_destination=Mock(
+                side_effect=_sdk_404_error("DESTINATION_CONNECTION"),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteMissingResourceError):
+        api_util.get_connector(
+            "missing-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+
+def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_response = requests.Response()
+    raw_response.status_code = 500
+    raw_response.url = "https://api.airbyte.com/v1/sources/source-id"
+    error = SDKError(
+        "API error occurred: Status 500", 500, "response body", raw_response
+    )
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(get_source=Mock(side_effect=error)),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util.get_source(
+            "source-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert type(exc_info.value) is AirbyteError
