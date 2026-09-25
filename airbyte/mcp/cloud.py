@@ -122,11 +122,12 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
 SKILL_DOCS_SECTION_HINT = """\
-Action sections in skill docs are named `actions.<entity_type>.<action>`, matching the
-`entity_type` and `action` arguments of the `execute_external_api_*` tools. If you already
-know the entity type and action, skip the overview and read that section directly with
-`get_agent_skill_docs`. E.g. for GitHub `entity_type='issues'`, `action='list'`, read
-`section='actions.issues.list'` to learn that its `api_args` are `owner`, `repo`, `states`, etc.\
+Skill doc sections for direct API queries and actions are named with the pattern
+`actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
+`execute_external_api_*` tools. If you already know the entity type and action, skip the
+overview and read that section directly with `get_agent_skill_docs`. E.g. for GitHub
+`entity_type='issues'`, `action='list'`, read `section='actions.issues.list'` to learn that
+its `api_args` are `owner`, `repo`, `states`, etc.\
 """
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
