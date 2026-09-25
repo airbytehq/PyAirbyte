@@ -171,20 +171,26 @@ class CloudConnectionResult(BaseModel):
     """ID of the source used by this connection."""
     destination_id: str
     """ID of the destination used by this connection."""
+    sync_status_fetched: bool = False
+    """Whether sync job status was looked up for this connection.
+    True when the tool was called with with_connection_status=True or
+    failing_connections_only=True. When False, all job fields below are null regardless
+    of the connection's actual sync history."""
     last_job_status: str | None = None
     """Status of the most recent completed sync job (e.g., 'succeeded', 'failed', 'cancelled').
-    Only populated when with_connection_status=True."""
+    Null if sync_status_fetched is False, or if the connection has no completed jobs."""
     last_job_id: int | None = None
-    """Job ID of the most recent completed sync. Only populated when with_connection_status=True."""
+    """Job ID of the most recent completed sync.
+    Null if sync_status_fetched is False, or if the connection has no completed jobs."""
     last_job_time: str | None = None
-    """ISO 8601 timestamp of the most recent completed sync.
-    Only populated when with_connection_status=True."""
+    """ISO 8601 start timestamp of the most recent completed sync.
+    Null if sync_status_fetched is False, or if the connection has no completed jobs."""
     currently_running_job_id: int | None = None
     """Job ID of a currently running sync, if any.
-    Only populated when with_connection_status=True."""
+    Null if sync_status_fetched is False, or if no sync is currently running."""
     currently_running_job_start_time: str | None = None
     """ISO 8601 timestamp of when the currently running sync started.
-    Only populated when with_connection_status=True."""
+    Null if sync_status_fetched is False, or if no sync is currently running."""
 
 
 class CloudSourceDetails(BaseModel):
@@ -1640,7 +1646,12 @@ def list_deployed_cloud_connections(
     with_connection_status: Annotated[
         bool | None,
         Field(
-            description="If True, include status info for each connection's most recent sync job",
+            description=(
+                "If True, look up each connection's most recent sync job and populate the "
+                "last_job_* and currently_running_job_* fields. Defaults to False, in which "
+                "case those fields are always null (sync_status_fetched=False) even if the "
+                "connection has run jobs. Requires one extra API call per connection."
+            ),
             default=False,
         ),
     ],
@@ -1656,7 +1667,11 @@ def list_deployed_cloud_connections(
 
     When with_connection_status is True, each connection result will include
     information about the most recent sync job status, skipping over any
-    currently in-progress syncs to find the last completed job.
+    currently in-progress syncs to find the last completed job. When it is
+    False (the default), the last_job_* fields are always null and
+    sync_status_fetched is False; a null last_job_status does NOT mean the
+    connection has never run. Use get_cloud_sync_status or
+    list_cloud_sync_jobs for a single connection's job history.
 
     When failing_connections_only is True, only connections where the most
     recent completed sync job failed or was cancelled will be returned.
@@ -1716,6 +1731,7 @@ def list_deployed_cloud_connections(
                 url=cast(str, connection.connection_url),
                 source_id=connection.source_id,
                 destination_id=connection.destination_id,
+                sync_status_fetched=bool(with_connection_status),
                 last_job_status=last_job_status,
                 last_job_id=last_job_id,
                 last_job_time=last_job_time,
