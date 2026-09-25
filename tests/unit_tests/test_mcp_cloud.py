@@ -1819,7 +1819,7 @@ def test_list_cloud_connectors_feature_filter_not_enabled_still_excluded(
             _ProbingConnector(
                 "source-1",
                 probe_calls,
-                error=AirbyteError(context={"status_code": 404}),
+                features=frozenset(),
             ),
             _ProbingConnector(
                 "source-2",

@@ -21,7 +21,6 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import Destination, Source, get_destination, get_source
-from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
@@ -1195,40 +1194,28 @@ def list_cloud_connectors(
         if probe_failure is None:
             try:
                 features = connector.enabled_features
-            except AirbyteError as error:
-                if agents_api_util.is_not_enabled_error(error):
-                    features = frozenset()
-                else:
-                    probe_failure = (
-                        "Connector feature lookup failed; enabled features are " f"unknown: {error}"
-                    )
-            except requests.RequestException as error:
+            except (AirbyteError, requests.RequestException) as error:
                 probe_failure = (
-                    "Connector feature lookup failed; enabled features are " f"unknown: {error}"
+                    f"Connector feature lookup failed; enabled features are unknown: {error}"
                 )
         if probe_failure is not None:
-            results.append(
-                CloudConnectorResult(
-                    id=connector.connector_id,
-                    connector_type=connector.connector_type.value,
-                    name=cast(str, connector.name),
-                    url=connector.connector_url,
-                    enabled_features=FEATURES_UNKNOWN,
-                    warnings=[probe_failure],
-                )
-            )
+            enabled_features: list[ConnectorFeature] | FeaturesUnknown = FEATURES_UNKNOWN
+            connector_warnings = [probe_failure]
         elif features is not None and feature_filter in features:
-            results.append(
-                CloudConnectorResult(
-                    id=connector.connector_id,
-                    connector_type=connector.connector_type.value,
-                    name=cast(str, connector.name),
-                    url=connector.connector_url,
-                    enabled_features=sorted(features),
-                )
-            )
+            enabled_features = sorted(features)
+            connector_warnings = []
         else:
             continue
+        results.append(
+            CloudConnectorResult(
+                id=connector.connector_id,
+                connector_type=connector.connector_type.value,
+                name=cast(str, connector.name),
+                url=connector.connector_url,
+                enabled_features=enabled_features,
+                warnings=connector_warnings,
+            )
+        )
         if limit is not None and len(results) >= limit:
             break
     return results
@@ -1324,13 +1311,8 @@ def _describe_cloud_connector(
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
     except (AirbyteError, requests.RequestException) as error:
-        if isinstance(error, AirbyteError) and agents_api_util.is_not_enabled_error(error):
-            result.enabled_features = []
-        else:
-            result.enabled_features = FEATURES_UNKNOWN
-            warnings.append(
-                "Connector feature lookup failed; enabled features are unknown: " f"{error}"
-            )
+        result.enabled_features = FEATURES_UNKNOWN
+        warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:
