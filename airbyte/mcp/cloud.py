@@ -1483,7 +1483,10 @@ def get_agent_skill_docs(
         Field(
             description=(
                 "Optional exact section ID from the guidance's outline to read a single "
-                "section. Omit for the overview, metadata, and outline."
+                "section. Action sections are named `actions.<entity_type>.<action>` "
+                "(e.g. `actions.issues.list`), matching the `entity_type` and `action` "
+                "arguments of the `execute_external_api_*` tools. Omit for the overview, "
+                "metadata, and outline."
             ),
             default=None,
         ),
@@ -1502,7 +1505,9 @@ def get_agent_skill_docs(
     destination); exactly one is required.
 
     `section` is optional; if omitted, the summary overview is returned along with
-    the list of available sections.
+    the list of available sections. When you already know the entity type and
+    action you want to call, skip the overview and read
+    `section="actions.<entity_type>.<action>"` directly for its argument names.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     return render_agent_skill_docs_result(
@@ -1545,7 +1550,8 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` before calling."
+                "them from `get_agent_skill_docs` with "
+                "`section='actions.<entity_type>.<action>'` before calling."
             ),
             default=None,
         ),
@@ -1605,7 +1611,9 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     Before calling, read the connector's action docs with `get_agent_skill_docs`
     (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
-    differ per connector and are not guessable.
+    differ per connector and are not guessable. If you already know the entity
+    type and action, read `get_agent_skill_docs` with
+    `section="actions.<entity_type>.<action>"` directly.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_query(
@@ -1651,7 +1659,8 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` before calling."
+                "them from `get_agent_skill_docs` with "
+                "`section='actions.<entity_type>.<action>'` before calling."
             ),
             default=None,
         ),
@@ -1699,7 +1708,9 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
     Before calling, read the connector's action docs with `get_agent_skill_docs`
     (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
-    differ per connector and are not guessable.
+    differ per connector and are not guessable. If you already know the entity
+    type and action, read `get_agent_skill_docs` with
+    `section="actions.<entity_type>.<action>"` directly.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_action(
