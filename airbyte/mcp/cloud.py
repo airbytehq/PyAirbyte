@@ -1483,10 +1483,11 @@ def get_agent_skill_docs(
         Field(
             description=(
                 "Optional exact section ID from the guidance's outline to read a single "
-                "section. Action sections are named `actions.<entity_type>.<action>` "
-                "(e.g. `actions.issues.list`), matching the `entity_type` and `action` "
-                "arguments of the `execute_external_api_*` tools. Omit for the overview, "
-                "metadata, and outline."
+                "section. Action sections are named `actions.<entity_type>.<action>`, "
+                "matching the `entity_type` and `action` arguments of the "
+                "`execute_external_api_*` tools. E.g. to learn the `api_args` for listing "
+                "GitHub issues, pass `section='actions.issues.list'`. Omit for the "
+                "overview, metadata, and outline."
             ),
             default=None,
         ),
@@ -1508,6 +1509,8 @@ def get_agent_skill_docs(
     the list of available sections. When you already know the entity type and
     action you want to call, skip the overview and read
     `section="actions.<entity_type>.<action>"` directly for its argument names.
+    E.g. to learn the `api_args` for listing GitHub issues, call this tool with
+    `connector_id=<github connector id>` and `section="actions.issues.list"`.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     return render_agent_skill_docs_result(
@@ -1551,7 +1554,9 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
                 "them from `get_agent_skill_docs` with "
-                "`section='actions.<entity_type>.<action>'` before calling."
+                "`section='actions.<entity_type>.<action>'` before calling. E.g. for GitHub "
+                "`entity_type='issues'`, `action='list'`, read `section='actions.issues.list'` "
+                "to learn it takes `owner`, `repo`, `states`, etc."
             ),
             default=None,
         ),
@@ -1613,7 +1618,8 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     learn the entity types, actions, and required `api_args`; argument names
     differ per connector and are not guessable. If you already know the entity
     type and action, read `get_agent_skill_docs` with
-    `section="actions.<entity_type>.<action>"` directly.
+    `section="actions.<entity_type>.<action>"` directly. E.g. for GitHub
+    `entity_type="issues"`, `action="list"`, read `section="actions.issues.list"`.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_query(
@@ -1660,7 +1666,9 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
                 "them from `get_agent_skill_docs` with "
-                "`section='actions.<entity_type>.<action>'` before calling."
+                "`section='actions.<entity_type>.<action>'` before calling. E.g. for GitHub "
+                "`entity_type='issues'`, `action='list'`, read `section='actions.issues.list'` "
+                "to learn it takes `owner`, `repo`, `states`, etc."
             ),
             default=None,
         ),
@@ -1710,7 +1718,8 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
     learn the entity types, actions, and required `api_args`; argument names
     differ per connector and are not guessable. If you already know the entity
     type and action, read `get_agent_skill_docs` with
-    `section="actions.<entity_type>.<action>"` directly.
+    `section="actions.<entity_type>.<action>"` directly. E.g. for GitHub
+    `entity_type="issues"`, `action="list"`, read `section="actions.issues.list"`.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_action(
