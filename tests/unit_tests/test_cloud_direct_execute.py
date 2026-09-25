@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
@@ -74,14 +76,33 @@ def _patch_execute(
     *,
     error: Exception | None = None,
 ) -> list[dict[str, Any]]:
-    """Stub `execute_cloud_connector_action` and record each call's kwargs."""
+    """Stub HTTP responses while exercising the Cloud execution result boundary."""
     calls: list[dict[str, Any]] = []
+    execute = agents_api_util.execute_cloud_connector_action
+
+    def fake_request(**kwargs: Any) -> requests.Response:
+        assert kwargs["method"] == "POST"
+        call = calls[-1]
+        route = (
+            "sources"
+            if call["connector_type"] == ConnectorType.SOURCE
+            else "destinations"
+        )
+        assert kwargs["url"].endswith(f"/{route}/{call['connector_id']}/execute")
+        assert kwargs["json"] == call["request_body"]
+        raw_response = requests.Response()
+        raw_response.status_code = 200
+        raw_response.headers["Content-Type"] = "application/json"
+        raw_response._content = json.dumps(response).encode()  # noqa: SLF001
+        return raw_response
+
+    monkeypatch.setattr(requests, "request", fake_request)
 
     def fake_execute(**kwargs: Any) -> dict[str, Any]:
         calls.append(kwargs)
         if error is not None:
             raise error
-        return response
+        return execute(**kwargs)
 
     monkeypatch.setattr(agents_api_util, "execute_cloud_connector_action", fake_execute)
     return calls
@@ -134,7 +155,7 @@ def test_execute_api_query_forwards_action(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": [{"id": 1}]})
+    calls = _patch_execute(monkeypatch, {"data": [{"id": 1}]})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     kwargs: dict[str, Any] = {}
@@ -179,7 +200,7 @@ def test_execute_api_action_forwards_to_cloud_api(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": {"id": 1}})
+    calls = _patch_execute(monkeypatch, {"data": {"id": 1}})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     result = source.execute_api_action(
@@ -211,7 +232,7 @@ def test_execute_rejects_mismatched_action(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success"})
+    calls = _patch_execute(monkeypatch, {"data": None})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     with pytest.raises(PyAirbyteInputError):
@@ -225,7 +246,7 @@ def test_execute_direct_action_rejects_write_action_as_read_only(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success"})
+    calls = _patch_execute(monkeypatch, {"data": None})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
     with pytest.raises(PyAirbyteInputError, match="read-only"):
@@ -320,7 +341,7 @@ def test_direct_methods_raise_without_context_layer(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch, available=False)
-    calls = _patch_execute(monkeypatch, {"status": "success"})
+    calls = _patch_execute(monkeypatch, {"data": None})
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
@@ -376,7 +397,7 @@ def test_execute_sql_query_dialect(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": [{"n": 1}]})
+    calls = _patch_execute(monkeypatch, {"data": [{"n": 1}]})
 
     if kind == "untyped_destination":
         probes = _patch_connector_probes(
@@ -420,7 +441,7 @@ def test_execute_sql_query_dry_run(
     """`dry_run=True` is forwarded in the request params."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    calls = _patch_execute(monkeypatch, {"data": []})
     connector = _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
 
     connector.execute_sql_query("SELECT 1", dry_run=True)
@@ -433,7 +454,7 @@ def test_execute_api_query_works_on_destinations(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    calls = _patch_execute(monkeypatch, {"data": []})
     destination = _seed_destination(
         workspace, "destination-1", "not-a-passthrough-definition"
     )
@@ -450,7 +471,7 @@ def test_execute_sql_query_requires_dialect_when_not_inferrable(
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success"})
+    calls = _patch_execute(monkeypatch, {"data": None})
     destination = _seed_destination(
         workspace, "destination-1", "not-a-passthrough-definition"
     )
@@ -660,7 +681,7 @@ def test_untyped_connector_execute_resolves_kind_for_routing(
     """Execute resolves `connector_type` once, because the Cloud route depends on it."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    calls = _patch_execute(monkeypatch, {"status": "success", "result": []})
+    calls = _patch_execute(monkeypatch, {"data": []})
     probes = _patch_connector_probes(monkeypatch, source=_source_payload("connector-1"))
     connector = workspace.get_connector(connector_id="connector-1")
 
@@ -670,3 +691,87 @@ def test_untyped_connector_execute_resolves_kind_for_routing(
     assert len(calls) == 1
     assert calls[0]["connector_type"] is ConnectorType.SOURCE
     assert probes == ["source"]
+
+
+@pytest.mark.parametrize("kind", ["source", "destination"])
+@pytest.mark.parametrize(
+    "data",
+    [
+        None,
+        False,
+        0,
+        "payload",
+        [],
+        [{"id": 1}],
+        {"data": [{"n": 1}], "meta": {"end_cursor": "nested-cursor"}},
+    ],
+)
+def test_cloud_execute_preserves_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    data: Any,  # noqa: ANN401
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_execute(monkeypatch, {"data": data})
+    connector = (
+        _seed_source(workspace, "source-1", "Source")
+        if kind == "source"
+        else _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
+    )
+
+    result = connector.execute_api_query("records")
+
+    assert isinstance(result, ExternalApiExecuteResult)
+    assert result.status == "success"
+    assert result.result == data
+    assert result.has_next_page is False
+    assert result.end_cursor is None
+    assert result.execution_metadata.model_dump(exclude_none=True) == {}
+    if isinstance(data, list):
+        assert result.entities == data
+    else:
+        with pytest.raises(PyAirbyteInputError, match="did not return a list"):
+            _ = result.entities
+
+
+def test_cloud_execute_maps_top_level_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    data = {"data": [{"n": 1}], "meta": {"end_cursor": "nested-cursor"}}
+    meta = {"has_next_page": True, "end_cursor": "outer-cursor", "custom": {"total": 2}}
+    _patch_execute(monkeypatch, {"data": data, "meta": meta})
+    destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
+
+    result = destination.execute_sql_query("SELECT 1")
+
+    assert result.result == data
+    assert result.connector_metadata.model_dump() == meta
+    assert result.has_next_page is True
+    assert result.end_cursor == "outer-cursor"
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "missing required `data`"),
+        ({"meta": {}}, "missing required `data`"),
+        ({"status": "success", "result": []}, "missing required `data`"),
+        *[
+            ({"data": [], "meta": meta}, "`meta` must be an object")
+            for meta in (None, [], "metadata", 1, True)
+        ],
+    ],
+)
+def test_cloud_execute_rejects_malformed_envelope(
+    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any], message: str
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_execute(monkeypatch, payload)
+    source = _seed_source(workspace, "source-1", "Source")
+
+    with pytest.raises(AirbyteError, match=message) as exc_info:
+        source.execute_api_query("records")
+
+    assert (exc_info.value.context or {})["path"] == "/sources/source-1/execute"
