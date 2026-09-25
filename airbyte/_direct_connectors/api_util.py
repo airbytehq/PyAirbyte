@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
 
+from airbyte._direct_connectors.models import ExternalApiExecuteResult
 from airbyte._util import deployment
 from airbyte._util.api_util import (
     AIRBYTE_ANALYTIC_SOURCE_HEADER,
@@ -194,22 +195,41 @@ def execute_cloud_connector_action(
     connector_type: ConnectorType,
     request_body: dict[str, Any],
     credentials: _AirbyteCredentials,
-) -> dict[str, Any]:
+) -> ExternalApiExecuteResult:
     """Execute an action on a deployed Cloud connector via the Cloud Config API.
 
     The connector kind selects the route: `/sources/{id}/execute` for sources and
     `/destinations/{id}/execute` for destinations. The request body is forwarded as-is.
+    Cloud `data` and optional `meta` are normalized into a typed
+    `ExternalApiExecuteResult` without changing the payload or extracting nested
+    pagination metadata.
     """
     path = (
         f"/sources/{connector_id}/execute"
         if connector_type == ConnectorType.SOURCE
         else f"/destinations/{connector_id}/execute"
     )
-    return make_cloud_agent_request(
+    response = make_cloud_agent_request(
         method="POST",
         path=path,
         credentials=credentials,
         json=request_body,
+    )
+
+    if "data" not in response:
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud execute response: missing required `data` field.",
+            context={"path": path},
+        )
+    if "meta" in response and not isinstance(response["meta"], dict):
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud execute response: `meta` must be an object.",
+            context={"path": path, "meta_type": type(response["meta"]).__name__},
+        )
+    return ExternalApiExecuteResult(
+        status="success",
+        result=response["data"],
+        connector_metadata=response.get("meta", {}),
     )
 
 

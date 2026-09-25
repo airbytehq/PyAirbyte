@@ -31,6 +31,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import SpanKind, StatusCode
 
 from airbyte._direct_connectors import api_util as agents_api
+from airbyte._direct_connectors.models import ExternalApiExecuteResult
 from airbyte.cloud.connectors import CloudConnector
 from airbyte.registry import ConnectorType
 from airbyte.mcp import _otel as observability
@@ -373,7 +374,11 @@ def test_agents_intent_reaches_api_unchanged_with_bounded_trace_copy(
         "_get_cloud_workspace",
         lambda *args, **kwargs: Mock(get_connector=Mock(return_value=connector)),
     )
-    execute = Mock(return_value={"status": "success", "result": ["result-SENTINEL"]})
+    execute = Mock(
+        return_value=ExternalApiExecuteResult(
+            status="success", result=["result-SENTINEL"]
+        )
+    )
     monkeypatch.setattr(agents_api, "execute_cloud_connector_action", execute)
     for middleware in agents_app.middleware:
         if isinstance(middleware, observability.IntentCaptureMiddleware):
