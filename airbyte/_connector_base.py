@@ -324,6 +324,13 @@ class ConnectorBase(abc.ABC):
             # Version not detected, so return None.
             return None
 
+    # TK: C002/loop_guards; complexity 8 -> 7; measured=False.
+    # TK: Suggested replacement: if not msg.type == Type.CONNECTION_STATUS and msg.connectionStatus: continue  # noqa: E501
+    # TK: Rejected; guard 1 is `(not A) and B`, not the complement of
+    # TK: `A and B`, so it misses some non-status messages.
+    # TK: Guard 2 lets FAILED messages continue past the
+    # TK: `AirbyteConnectorCheckFailedError` raise.
+    # TK: Reviewer: confirm this behavior-changing suggestion remains unapplied before merge.
     def check(self) -> None:
         """Call check on the connector.
 
