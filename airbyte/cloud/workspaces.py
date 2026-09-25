@@ -429,12 +429,12 @@ class CloudWorkspace:
         connector: cloud_connectors.CloudConnector,
         *,
         warnings: list[str] | None = None,
-    ) -> frozenset[ConnectorFeature]:
+    ) -> frozenset[ConnectorFeature] | None:
         """Resolve the enabled features for one connector in this workspace.
 
         A successful docs probe against the Context layer reports available access.
-        An unavailable probe does not prove that access is disabled. Search indexing has
-        not launched yet, so it is never reported as enabled.
+        An unavailable probe returns `None`, since it does not prove disabled access.
+        Search indexing has not launched yet, so it is never reported as enabled.
         """
         if not self._has_context_layer_api():
             return frozenset()
@@ -444,11 +444,11 @@ class CloudWorkspace:
             if connector.definition_id not in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
                 return frozenset()
             if connector._context_layer_inspect(warnings=warning_sink) is None:  # noqa: SLF001
-                return frozenset()
+                return None
             return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY})
 
         if connector._context_layer_inspect(warnings=warning_sink) is None:  # noqa: SLF001
-            return frozenset()
+            return None
 
         return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY})
 
@@ -1182,10 +1182,7 @@ class CloudWorkspace:
 
         matches: list[cloud_connectors.CloudConnector] = []
         for connector in connectors:
-            if (
-                feature_filter is not None
-                and feature_filter not in connector.get_enabled_features()
-            ):
+            if feature_filter is not None and feature_filter not in connector.enabled_features:
                 continue
             matches.append(connector)
             if limit is not None and len(matches) >= limit:

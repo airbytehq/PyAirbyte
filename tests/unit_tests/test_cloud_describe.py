@@ -801,7 +801,7 @@ def test_unavailable_features_warn_without_caching_absence(
     source = _seed_source(workspace, "source-1", "GitHub")
     warnings: list[str] = []
 
-    assert source.get_enabled_features(warnings=warnings) == frozenset()
+    assert source.get_enabled_features(warnings=warnings) is None
     assert source._enabled_features is None  # noqa: SLF001
     assert len(warnings) == 1
     assert "unavailable" in warnings[0]
@@ -816,6 +816,8 @@ def test_unavailable_features_warn_without_caching_absence(
 @pytest.mark.parametrize(
     "failure",
     [
+        AirbyteError(context={"status_code": 403, "response_text": "secret"}),
+        AirbyteError(context={"status_code": 404, "response_text": "secret"}),
         AirbyteError(context={"status_code": 401, "response_text": "secret"}),
         AirbyteError(context={"status_code": 500, "response_text": "secret"}),
         requests.Timeout("secret"),
@@ -844,9 +846,8 @@ def test_describe_survives_unknown_features_and_recovers(
     assert result.connector_id == "source-1"
     assert result.replication_details == []
     assert result.enabled_features == "unknown"
-    assert result.warnings == [
-        "Connector feature lookup failed; enabled features are unknown."
-    ]
+    assert result.warnings
+    assert all("secret" not in warning for warning in result.warnings)
     assert read_docs.call_count == 1
     assert source._enabled_features is None  # noqa: SLF001
     assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
@@ -921,8 +922,37 @@ def test_destination_server_guidance_is_not_duplicated(
         {"type": "paragraph", "text": "Authoritative SQL instructions."}
     ]
     assert docs.section_id == section
-    assert {entry.id for entry in docs.outline} == {
-        "actions.record.sql_select",
-        "connections",
-        "streams",
+    assert {entry.id for entry in docs.outline} == {"actions.record.sql_select"}
+
+
+@pytest.mark.parametrize("cache_path", ["fresh", "inspect", "features"])
+def test_describe_stringifies_structured_probe_warnings(
+    monkeypatch: pytest.MonkeyPatch, cache_path: str
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    warning = {"code": "partial", "message": "Partial metadata"}
+    response = {
+        **SKILL_DOCS_RESPONSE,
+        "metadata": {**SKILL_DOCS_RESPONSE["metadata"], "warnings": [warning]},
     }
+    read_docs = MagicMock(return_value=response)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+    if cache_path == "inspect":
+        source._context_layer_inspect(warnings=[])  # noqa: SLF001
+    elif cache_path == "features":
+        source.get_enabled_features()
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.warnings == [str(warning)]
+    assert result.model_dump()["warnings"] == [str(warning)]
+    assert read_docs.call_count == 1

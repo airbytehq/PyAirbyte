@@ -1317,8 +1317,9 @@ def _describe_cloud_connector(
         integration_name = None
 
     try:
-        enabled_features: list[ConnectorFeature] | Literal["unknown"] = sorted(
-            connector.get_enabled_features(warnings=warnings)
+        features = connector.get_enabled_features(warnings=warnings)
+        enabled_features: list[ConnectorFeature] | Literal["unknown"] = (
+            "unknown" if features is None else sorted(features)
         )
     except (AirbyteError, requests.RequestException, ValueError):
         enabled_features = "unknown"
