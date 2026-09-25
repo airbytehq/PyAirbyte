@@ -1257,7 +1257,7 @@ def test_execute_external_api_action_uses_write_path(
     connector = _RecordingExecuteConnector()
     _execute_workspace(monkeypatch, connector)
 
-    cloud_mcp.execute_external_api_action(
+    cloud_mcp._execute_external_api_action(
         None,
         connector_id="source-1",
         entity_type="issues",
