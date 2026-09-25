@@ -20,6 +20,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
     ConnectorType,
     ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
 )
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
@@ -99,7 +100,7 @@ def _patch_execute(
 
     monkeypatch.setattr(requests, "request", fake_request)
 
-    def fake_execute(**kwargs: Any) -> dict[str, Any]:
+    def fake_execute(**kwargs: Any) -> ExternalApiExecuteResult:
         calls.append(kwargs)
         if error is not None:
             raise error
@@ -187,27 +188,23 @@ def test_execute_api_query_forwards_action(
     }
 
 
-def test_execute_api_action_forwards_to_cloud_api(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("action", list(ExternalApiWriteAction))
+def test_execute_api_action_is_unsupported(
+    monkeypatch: pytest.MonkeyPatch, action: ExternalApiWriteAction
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     calls = _patch_execute(monkeypatch, {"data": {"id": 1}})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    result = source.execute_api_action(
-        "issues",
-        "create",  # type: ignore[arg-type]
-        {"title": "New issue"},
-        intent="file a bug",
-    )
+    with pytest.raises(
+        PyAirbyteInputError, match="write actions are not supported yet"
+    ):
+        source.execute_api_action(
+            "issues", action, {"title": "New issue"}, intent="file a bug"
+        )
 
-    assert isinstance(result, ExternalApiExecuteResult)
-    body = calls[0]["request_body"]
-    assert body["entity"] == "issues"
-    assert body["action"] == "create"
-    assert body["params"] == {"title": "New issue"}
-    assert body["intent"] == "file a bug"
+    assert calls == []
 
 
 @pytest.mark.parametrize(
@@ -300,7 +297,12 @@ def test_direct_methods_raise_without_context_layer(
     for connector in connectors:
         for method in (method_name, "execute_sql_query"):
             args = method_args if method == method_name else ("SELECT 1",)
-            with pytest.raises(AirbyteExternalAccessNotEnabledError):
+            expected_error = (
+                PyAirbyteInputError
+                if method == "execute_api_action"
+                else AirbyteExternalAccessNotEnabledError
+            )
+            with pytest.raises(expected_error):
                 getattr(connector, method)(*args)
 
     assert calls == []

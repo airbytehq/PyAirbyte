@@ -518,14 +518,12 @@ class CloudConnector:  # noqa: PLR0904 - public connector management and executi
         if intent is not None:
             request_body["intent"] = intent
 
-        response = agents_api_util.execute_cloud_connector_action(
+        return agents_api_util.execute_cloud_connector_action(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
             request_body=request_body,
             credentials=self.workspace._credentials,  # noqa: SLF001
         )
-
-        return response
 
     def _context_layer_inspect(
         self,

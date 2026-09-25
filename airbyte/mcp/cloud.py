@@ -1318,11 +1318,11 @@ def _describe_cloud_connector(
 
     try:
         features = connector.get_enabled_features(warnings=warnings)
-        enabled_features: list[ConnectorFeature] | Literal["unknown"] = (
-            "unknown" if features is None else sorted(features)
+        enabled_features: list[ConnectorFeature] | FeaturesUnknown = (
+            FEATURES_UNKNOWN if features is None else sorted(features)
         )
     except (AirbyteError, requests.RequestException, ValueError):
-        enabled_features = "unknown"
+        enabled_features = FEATURES_UNKNOWN
         warnings.append("Connector feature lookup failed; enabled features are unknown.")
 
     result = CloudConnectorDetailsResult(
@@ -1347,7 +1347,7 @@ def _describe_cloud_connector(
         except AirbyteError as error:
             warnings.append(f"Connection listing failed: {error}")
 
-    if with_direct_access_guidance and enabled_features != "unknown":
+    if with_direct_access_guidance and enabled_features != FEATURES_UNKNOWN:
         try:
             docs = connector.get_direct_access_guidance()
         except (PyAirbyteError, requests.RequestException, ValueError):

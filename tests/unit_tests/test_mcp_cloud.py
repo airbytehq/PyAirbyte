@@ -1953,13 +1953,10 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
     """A feature-probe failure marks `enabled_features` `"unknown"` with a warning."""
 
     class _FailingFeaturesConnector(_DescribedConnector):
-        @property
-        def enabled_features(self) -> frozenset[ConnectorFeature]:
+        def get_enabled_features(
+            self, *, warnings: list[str]
+        ) -> frozenset[ConnectorFeature]:
             raise AirbyteCloudApiError(status_code=504)
-
-        @enabled_features.setter
-        def enabled_features(self, value: frozenset[ConnectorFeature]) -> None:
-            pass
 
     result = _describe(_FailingFeaturesConnector())
 

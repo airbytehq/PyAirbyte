@@ -794,7 +794,9 @@ def test_unavailable_features_warn_without_caching_absence(
     _patch_context_layer(monkeypatch)
     read_docs = MagicMock(
         side_effect=[
-            AirbyteError(context={"status_code": status, "response_text": "secret"}),
+            AirbyteCloudApiError(
+                status_code=status, context={"response_text": "secret"}
+            ),
             SKILL_DOCS_RESPONSE,
         ]
     )
@@ -817,10 +819,10 @@ def test_unavailable_features_warn_without_caching_absence(
 @pytest.mark.parametrize(
     "failure",
     [
-        AirbyteError(context={"status_code": 403, "response_text": "secret"}),
-        AirbyteError(context={"status_code": 404, "response_text": "secret"}),
-        AirbyteError(context={"status_code": 401, "response_text": "secret"}),
-        AirbyteError(context={"status_code": 500, "response_text": "secret"}),
+        AirbyteCloudApiError(status_code=403, context={"response_text": "secret"}),
+        AirbyteCloudApiError(status_code=404, context={"response_text": "secret"}),
+        AirbyteCloudApiError(status_code=401, context={"response_text": "secret"}),
+        AirbyteCloudApiError(status_code=500, context={"response_text": "secret"}),
         requests.Timeout("secret"),
         ValueError("secret"),
     ],
@@ -875,7 +877,7 @@ def test_malformed_probe_is_not_cached_or_silently_filtered(
     assert read_docs.call_count == 2
 
 
-@pytest.mark.parametrize("section", [None, "overview", "sql-passthrough"])
+@pytest.mark.parametrize("section", [None, "overview", "actions.record.sql_select"])
 def test_destination_server_guidance_is_not_duplicated(
     monkeypatch: pytest.MonkeyPatch, section: str | None
 ) -> None:
@@ -915,7 +917,7 @@ def test_destination_server_guidance_is_not_duplicated(
         MagicMock(side_effect=AssertionError("local connection listing")),
     )
 
-    docs = destination.get_direct_access_guidance(section=section)
+    docs = destination.read_agent_skill_docs(section=section)
 
     assert read_docs.call_count == 1
     assert read_docs.call_args.kwargs["section"] == server_section
