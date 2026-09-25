@@ -21,6 +21,7 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import Destination, Source, get_destination, get_source
+from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
@@ -174,11 +175,15 @@ FEATURE_FILTER_TIP_TEXT = (
     "query. `enabled_features` is only resolved and returned when this filter is set; "
     "use `direct_access` to find every connector with any external-access feature "
     "enabled and see its full feature list. Omit to list every connector with "
-    "`enabled_features='not_checked'` (no feature check performed)."
+    "`enabled_features='not_checked'` (no feature check performed). Connectors whose "
+    "feature lookup fails are returned with `enabled_features='unknown'` and a "
+    "`warnings` entry, so they can still be inspected or tried."
 )
 
 FEATURES_NOT_CHECKED: Final = "not_checked"
 FeaturesNotChecked = Literal["not_checked"]
+FEATURES_UNKNOWN: Final = "unknown"
+FeaturesUnknown = Literal["unknown"]
 
 
 CONNECTOR_TYPE_TIP_TEXT = (
@@ -1094,9 +1099,15 @@ class CloudConnectorResult(BaseModel):
     """The connector's display name."""
     url: str
     """The connector's page in the Airbyte Cloud UI."""
-    enabled_features: list[ConnectorFeature] | FeaturesNotChecked = FEATURES_NOT_CHECKED
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked | FeaturesUnknown = (
+        FEATURES_NOT_CHECKED
+    )
     """Features enabled for this connector. `"not_checked"` means no feature check was
-    performed (no `feature_filter`); an empty list means checked with nothing enabled."""
+    performed (no `feature_filter`); `"unknown"` means the feature lookup failed (see
+    `warnings`); an empty list means checked with nothing enabled."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues encountered while resolving this connector's features."""
 
 
 @mcp_tool(
@@ -1151,27 +1162,76 @@ def list_cloud_connectors(
     matching connectors with their `enabled_features` resolved; without it,
     `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
     feature check was performed; `[]` means checked and no features enabled.
+
+    When a connector's feature lookup fails for a reason other than "not enabled"
+    (for example, the docs endpoint is down), that connector and all remaining ones
+    are returned with `enabled_features="unknown"` plus a `warnings` entry: once
+    one probe fails, the endpoint is down for the whole workspace, so no further
+    probes are attempted. `"unknown"` results can still be inspected or tried via
+    `describe_cloud_connector` or the execute tools.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connectors = workspace.list_connectors(
         connector_type=connector_type,
-        feature_filter=feature_filter,
         name_contains=name_contains,
-        limit=limit,
+        limit=None if feature_filter is not None else limit,
     )
-    # Note: name and url are guaranteed non-null from list API responses
-    return [
-        CloudConnectorResult(
-            id=connector.connector_id,
-            connector_type=connector.connector_type.value,
-            name=cast(str, connector.name),
-            url=connector.connector_url,
-            enabled_features=sorted(connector.enabled_features)
-            if feature_filter is not None
-            else FEATURES_NOT_CHECKED,
-        )
-        for connector in connectors
-    ]
+    if feature_filter is None:
+        # Note: name and url are guaranteed non-null from list API responses
+        return [
+            CloudConnectorResult(
+                id=connector.connector_id,
+                connector_type=connector.connector_type.value,
+                name=cast(str, connector.name),
+                url=connector.connector_url,
+            )
+            for connector in connectors
+        ]
+
+    results: list[CloudConnectorResult] = []
+    probe_failure: str | None = None
+    for connector in connectors:
+        features: frozenset[ConnectorFeature] | None = None
+        if probe_failure is None:
+            try:
+                features = connector.enabled_features
+            except AirbyteError as error:
+                if agents_api_util.is_not_enabled_error(error):
+                    features = frozenset()
+                else:
+                    probe_failure = (
+                        "Connector feature lookup failed; enabled features are " f"unknown: {error}"
+                    )
+            except requests.RequestException as error:
+                probe_failure = (
+                    "Connector feature lookup failed; enabled features are " f"unknown: {error}"
+                )
+        if probe_failure is not None:
+            results.append(
+                CloudConnectorResult(
+                    id=connector.connector_id,
+                    connector_type=connector.connector_type.value,
+                    name=cast(str, connector.name),
+                    url=connector.connector_url,
+                    enabled_features=FEATURES_UNKNOWN,
+                    warnings=[probe_failure],
+                )
+            )
+        elif features is not None and feature_filter in features:
+            results.append(
+                CloudConnectorResult(
+                    id=connector.connector_id,
+                    connector_type=connector.connector_type.value,
+                    name=cast(str, connector.name),
+                    url=connector.connector_url,
+                    enabled_features=sorted(features),
+                )
+            )
+        else:
+            continue
+        if limit is not None and len(results) >= limit:
+            break
+    return results
 
 
 class CloudConnectorDetailsResult(BaseModel):
@@ -1200,8 +1260,9 @@ class CloudConnectorDetailsResult(BaseModel):
     integration_name: str | None = None
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
-    enabled_features: list[ConnectorFeature] = Field(default_factory=list)
-    """Features enabled for this connector; see `ConnectorFeature`."""
+    enabled_features: list[ConnectorFeature] | FeaturesUnknown = Field(default_factory=list)
+    """Features enabled for this connector; see `ConnectorFeature`. `"unknown"` means
+    the feature lookup failed (see `warnings`)."""
 
     config: dict[str, Any] | None = None
     """The connector configuration, populated only by `with_config`.
@@ -1249,18 +1310,27 @@ def _describe_cloud_connector(
         connector_url=connector.connector_url,
         connector_definition_id=connector.definition_id,
         integration_name=integration_name,
-        enabled_features=sorted(connector.enabled_features),
     )
 
-    if (
-        connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-        and connector.workspace._has_context_layer_api()  # noqa: SLF001
-    ):
-        context_layer = connector._context_layer_inspect(  # noqa: SLF001
-            warnings=warnings,
-        )
-        if context_layer is not None:
-            warnings.extend(str(warning) for warning in context_layer.warnings)
+    try:
+        result.enabled_features = sorted(connector.enabled_features)
+        if (
+            connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+            and connector.workspace._has_context_layer_api()  # noqa: SLF001
+        ):
+            context_layer = connector._context_layer_inspect(  # noqa: SLF001
+                warnings=warnings,
+            )
+            if context_layer is not None:
+                warnings.extend(str(warning) for warning in context_layer.warnings)
+    except (AirbyteError, requests.RequestException) as error:
+        if isinstance(error, AirbyteError) and agents_api_util.is_not_enabled_error(error):
+            result.enabled_features = []
+        else:
+            result.enabled_features = FEATURES_UNKNOWN
+            warnings.append(
+                "Connector feature lookup failed; enabled features are unknown: " f"{error}"
+            )
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:

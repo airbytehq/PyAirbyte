@@ -70,6 +70,12 @@ def _error_message(*, response: requests.Response, full_url: str) -> str:
         return f"{message} (Unauthorized) when accessing: {full_url}."
     if response.status_code == HTTPStatus.FORBIDDEN:
         return f"{message} (Forbidden) when accessing: {full_url}."
+    try:
+        phrase = HTTPStatus(response.status_code).phrase
+    except ValueError:
+        phrase = None
+    if phrase is not None:
+        return f"{message} ({phrase}) when accessing: {full_url}."
     return f"{message} when accessing: {full_url}."
 
 
@@ -81,6 +87,16 @@ def _error_guidance(*, response: requests.Response) -> str | None:
         return (
             "Authentication succeeded but access was denied; the workspace or connector "
             "may not be enabled for agent access in Airbyte Cloud."
+        )
+    if response.status_code in {
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.GATEWAY_TIMEOUT,
+    }:
+        return (
+            "Airbyte Cloud accepted the request but its upstream direct-access "
+            "service failed or timed out. This is not a credentials or permissions "
+            "problem; retry later or contact Airbyte support if it persists."
         )
     return None
 

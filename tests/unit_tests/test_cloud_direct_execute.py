@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
@@ -670,3 +671,36 @@ def test_untyped_connector_execute_resolves_kind_for_routing(
     assert len(calls) == 1
     assert calls[0]["connector_type"] is ConnectorType.SOURCE
     assert probes == ["source"]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_phrase", "expects_upstream_guidance"),
+    [
+        pytest.param(502, "Bad Gateway", True, id="bad_gateway"),
+        pytest.param(503, "Service Unavailable", True, id="service_unavailable"),
+        pytest.param(504, "Gateway Timeout", True, id="gateway_timeout"),
+        pytest.param(401, "Unauthorized", False, id="unauthorized"),
+        pytest.param(403, "Forbidden", False, id="forbidden"),
+    ],
+)
+def test_agent_request_error_message_and_guidance(
+    status_code: int,
+    expected_phrase: str,
+    expects_upstream_guidance: bool,
+) -> None:
+    """Upstream 5xx failures get a status phrase and non-credentials guidance."""
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://cloud.airbyte.com/api/v1/sources/source-1/execute"
+
+    message = agents_api_util._error_message(  # noqa: SLF001
+        response=raw_response, full_url=raw_response.url
+    )
+    guidance = agents_api_util._error_guidance(response=raw_response)  # noqa: SLF001
+
+    assert f"({expected_phrase})" in message
+    if expects_upstream_guidance:
+        assert guidance is not None
+        assert "upstream" in guidance
+    else:
+        assert guidance is None or "upstream" not in guidance
