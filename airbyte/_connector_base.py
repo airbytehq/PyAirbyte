@@ -173,7 +173,7 @@ class ConnectorBase(abc.ABC):
         If config is not provided, the already-set config will be validated.
         """
         spec = self._get_spec(force_refresh=False)
-        config = hydrate_secrets(config) if config else self._hydrated_config
+        config = hydrate_secrets(config) if config is not None else self._hydrated_config
 
         try:
             jsonschema.validate(config, spec.connectionSpecification)
