@@ -165,16 +165,16 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     def get_enabled_features(
         self, *, warnings: list[str] | None = None
-    ) -> frozenset[ConnectorFeature]:
+    ) -> frozenset[ConnectorFeature] | None:
         """Resolve connector features, optionally collecting unavailable-docs warnings.
 
-        Successful features are cached. Unavailable docs (403/404) return no features
+        Successful features are cached. Unavailable docs (403/404) return `None`
         without caching absence; other probe failures propagate so callers can distinguish
         unknown support from an empty feature set.
         """
         if self._enabled_features is not None:
             if warnings is not None and self._context_layer_details is not None:
-                warnings.extend(self._context_layer_details.warnings)
+                warnings.extend(str(warning) for warning in self._context_layer_details.warnings)
             return self._enabled_features
 
         features = self.workspace._get_connector_features(self, warnings=warnings)  # noqa: SLF001
@@ -184,8 +184,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     @property
     def enabled_features(self) -> frozenset[ConnectorFeature]:
-        """The connector's enabled features; successful lookups are cached."""
-        return self.get_enabled_features()
+        """Known enabled features; unavailable probes yield an empty set.
+
+        Use `get_enabled_features()` to distinguish unknown support from no features.
+        """
+        return self.get_enabled_features() or frozenset()
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.
@@ -752,7 +755,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         response, transport) is raised to the caller.
         """
         if self._context_layer_details is not None and not force_refresh:
-            warnings.extend(self._context_layer_details.warnings)
+            warnings.extend(str(warning) for warning in self._context_layer_details.warnings)
             return self._context_layer_details
         skill_id = (
             connector_docs.source_skill_id(self.connector_id)
@@ -786,7 +789,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             warnings=list(docs.metadata.warnings),
         )
         self._context_layer_details = parsed
-        warnings.extend(parsed.warnings)
+        warnings.extend(str(warning) for warning in parsed.warnings)
         return parsed
 
     def _fetch_enablement(self) -> ConnectorEnablement | None:
