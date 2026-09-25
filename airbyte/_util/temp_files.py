@@ -38,7 +38,12 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
             )
             temp_file.flush()
             # Grant "read" permission to all users
-            Path(temp_file.name).chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            # Owner write is required: connectors that declare `config_migrations`
+            # rewrite this file in place via
+            # `ConcurrentDeclarativeSource._migrate_and_transform_config()`, which
+            # raises PermissionError against a read-only file. Group and other
+            # write are deliberately withheld (CWE-732) - the file holds secrets.
+            Path(temp_file.name).chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH | stat.S_IWUSR)
 
             # Don't close the file yet (breaks Windows)
             # temp_file.close()
