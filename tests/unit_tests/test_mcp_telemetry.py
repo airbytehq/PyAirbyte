@@ -184,6 +184,7 @@ def test_hosted_attribution_is_resolved_per_call(
 ) -> None:
     """Hosted attribution reflects mode changes after module import."""
     monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setattr(server, "get_deployment_mode", lambda: "OSS")
     telemetry = next(
         middleware
         for middleware in server.app.middleware
@@ -191,11 +192,11 @@ def test_hosted_attribution_is_resolved_per_call(
     )
     extra_properties = telemetry._extra_properties
     assert callable(extra_properties)
-    assert extra_properties() == {"is_hosted_mcp": False}
+    assert extra_properties() == {"is_hosted_mcp": False, "deployment_mode": "OSS"}
 
     set_hosted_mcp_mode()
 
-    assert extra_properties() == {"is_hosted_mcp": True}
+    assert extra_properties() == {"is_hosted_mcp": True, "deployment_mode": "OSS"}
 
 
 @pytest.mark.parametrize(

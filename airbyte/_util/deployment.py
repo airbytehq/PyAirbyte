@@ -8,6 +8,8 @@ still point to hosted Airbyte Cloud.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from airbyte._util.api_util import get_config_api_root
 from airbyte.cloud.auth import resolve_cloud_api_url, resolve_cloud_config_api_url
 from airbyte.constants import AGENTS_API_ROOT_ENV_VAR, CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
@@ -21,7 +23,7 @@ def get_agents_api_root_override() -> str | None:
     return text.rstrip("/") or None
 
 
-def is_public_cloud(
+def is_airbyte_cloud(
     *,
     public_api_root: str | None = None,
     config_api_root: str | None = None,
@@ -37,6 +39,25 @@ def is_public_cloud(
     return resolved_config.rstrip("/") == CLOUD_CONFIG_API_ROOT.rstrip("/")
 
 
+DeploymentMode = Literal["CLOUD", "OSS"]
+
+
+def get_deployment_mode(
+    *,
+    public_api_root: str | None = None,
+    config_api_root: str | None = None,
+) -> DeploymentMode:
+    """Return "CLOUD" when the effective Cloud API roots are public Airbyte Cloud, else "OSS"."""
+    return (
+        "CLOUD"
+        if is_airbyte_cloud(
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
+        )
+        else "OSS"
+    )
+
+
 def is_agents_api_available(
     *,
     public_api_root: str | None = None,
@@ -47,7 +68,7 @@ def is_agents_api_available(
     True when `AIRBYTE_AGENTS_API_URL` is set explicitly, or when the roots are the public
     Airbyte Cloud roots (which have the hosted Agents API).
     """
-    return bool(get_agents_api_root_override()) or is_public_cloud(
+    return bool(get_agents_api_root_override()) or is_airbyte_cloud(
         public_api_root=public_api_root,
         config_api_root=config_api_root,
     )

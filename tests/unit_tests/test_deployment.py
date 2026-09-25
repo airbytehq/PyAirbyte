@@ -6,28 +6,33 @@ from __future__ import annotations
 import pytest
 
 from airbyte._util import deployment
-from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.constants import (
+    CLOUD_API_ROOT,
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
+)
 
 
-def test_is_public_cloud_for_default_roots() -> None:
+def test_is_airbyte_cloud_for_default_roots() -> None:
     """Recognize public Cloud roots, including trailing slashes."""
-    assert deployment.is_public_cloud()
-    assert deployment.is_public_cloud(
+    assert deployment.is_airbyte_cloud()
+    assert deployment.is_airbyte_cloud(
         public_api_root=f"{CLOUD_API_ROOT}/",
         config_api_root=f"{CLOUD_CONFIG_API_ROOT}/",
     )
 
 
-def test_is_public_cloud_for_custom_api_root() -> None:
+def test_is_airbyte_cloud_for_custom_api_root() -> None:
     """Reject a custom public API root."""
-    assert not deployment.is_public_cloud(
+    assert not deployment.is_airbyte_cloud(
         public_api_root="https://airbyte.example.com/api/public/v1",
     )
 
 
-def test_is_public_cloud_for_custom_config_root() -> None:
+def test_is_airbyte_cloud_for_custom_config_root() -> None:
     """Reject a custom Config API root."""
-    assert not deployment.is_public_cloud(
+    assert not deployment.is_airbyte_cloud(
         config_api_root="https://airbyte.example.com/api/v1",
     )
 
@@ -37,10 +42,10 @@ def test_cloud_api_environment_override_takes_precedence(
 ) -> None:
     """Use the Cloud API environment override before the explicit root."""
     monkeypatch.setenv(
-        "AIRBYTE_CLOUD_API_URL", "https://airbyte.example.com/api/public/v1"
+        CLOUD_API_ROOT_ENV_VAR, "https://airbyte.example.com/api/public/v1"
     )
 
-    assert not deployment.is_public_cloud(public_api_root=CLOUD_API_ROOT)
+    assert not deployment.is_airbyte_cloud(public_api_root=CLOUD_API_ROOT)
 
 
 @pytest.mark.parametrize("override", ["", "   "])
@@ -55,3 +60,37 @@ def test_blank_agents_api_override_is_unset(
     assert not deployment.is_agents_api_available(
         public_api_root="https://airbyte.example.com/api/public/v1",
     )
+
+
+def test_get_deployment_mode_defaults_to_cloud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report CLOUD when no Cloud API roots are overridden."""
+    monkeypatch.delenv(CLOUD_API_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(CLOUD_CONFIG_API_ROOT_ENV_VAR, raising=False)
+
+    assert deployment.get_deployment_mode() == "CLOUD"
+
+
+def test_get_deployment_mode_for_custom_api_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report OSS when the public Cloud API root is overridden."""
+    monkeypatch.delenv(CLOUD_CONFIG_API_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setenv(
+        CLOUD_API_ROOT_ENV_VAR, "https://airbyte.example.com/api/public/v1"
+    )
+
+    assert deployment.get_deployment_mode() == "OSS"
+
+
+def test_get_deployment_mode_for_custom_config_api_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report OSS when only the Config API root is overridden."""
+    monkeypatch.delenv(CLOUD_API_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setenv(
+        CLOUD_CONFIG_API_ROOT_ENV_VAR, "https://airbyte.example.com/api/v1"
+    )
+
+    assert deployment.get_deployment_mode() == "OSS"
