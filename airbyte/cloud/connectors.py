@@ -710,6 +710,8 @@ class CloudConnector:  # noqa: PLR0904 - public connector management and executi
             except exc.AirbyteError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
+                # Keep the not-enabled notice for this fallback. A rare missing-docs
+                # 404 is indistinguishable from disabled access without an explicit signal.
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,

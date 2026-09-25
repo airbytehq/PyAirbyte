@@ -386,6 +386,7 @@ def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     )
 
     notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
+    assert "SQL passthrough is not enabled" in notice
     guidance = destination.get_direct_access_guidance()
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
     assert guidance.metadata.warnings == [notice]
