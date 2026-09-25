@@ -2184,7 +2184,11 @@ def check_connector(
         # A draft connector with incomplete configuration returns HTTP 422; report it as
         # a failed check rather than an operational error so a person can finish setup.
         if (ex.context or {}).get("status_code") == HTTPStatus.UNPROCESSABLE_ENTITY:
-            return False, "Connector configuration is incomplete; finish setup in Airbyte Cloud."
+            return (
+                False,
+                "Connector configuration is incomplete or invalid; "
+                "finish setup in Airbyte Cloud.",
+            )
         raise
     result, message = json_result.get("status"), json_result.get("message")
 

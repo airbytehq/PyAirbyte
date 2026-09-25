@@ -35,6 +35,7 @@ workspace.permanently_delete_source(deployed_source)
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -52,6 +53,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.cloud import connectors as cloud_connectors
 from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
@@ -66,6 +68,7 @@ from airbyte.cloud.models import (
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
+from airbyte.registry import _get_connector_name_by_definition_id
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.hydration import detect_hardcoded_secrets
 
@@ -77,16 +80,30 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
+def _get_deferred_spec(definition_id: str) -> dict[str, Any] | None:
+    """Best-effort fetch of the connector spec for a definition ID (cloud, then oss)."""
+    name = _get_connector_name_by_definition_id(definition_id)
+    if name is None:
+        return None
+    for platform in ("cloud", "oss"):
+        with contextlib.suppress(Exception):
+            spec = get_connector_spec_from_registry(name, platform=platform)
+            if spec is not None:
+                return spec
+    return None
+
+
 def _deferred_credentials_config(
     config: object,
     *,
     definition_id: str | None,
+    spec_json_schema: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Validate the inputs for a deferred-credential deploy.
 
     Returns the configuration and definition ID. `SecretString` values and
-    `secret_reference::` strings are rejected; plain-text credential fields (per the
-    global secrets mask) are rejected too.
+    `secret_reference::` strings are rejected; credential fields are detected via the
+    connector spec when available, otherwise via the global secrets mask.
     """
     if not isinstance(config, dict):
         raise exc.PyAirbyteInputError(
@@ -114,7 +131,7 @@ def _deferred_credentials_config(
                 _reject_secrets(nested)
 
     _reject_secrets(config)
-    found = detect_hardcoded_secrets(config=config, spec_json_schema=None)
+    found = detect_hardcoded_secrets(config=config, spec_json_schema=spec_json_schema)
     if found:
         raise exc.PyAirbyteInputError(
             message="Deferred deployment does not accept credential values.",
@@ -776,7 +793,9 @@ class CloudWorkspace:
     ) -> str:
         """Create a connector with deferred credentials on the Config API and return its ID."""
         config_dict, definition_id = _deferred_credentials_config(
-            config, definition_id=definition_id
+            config,
+            definition_id=definition_id,
+            spec_json_schema=_get_deferred_spec(definition_id) if definition_id else None,
         )
 
         if random_name_suffix:

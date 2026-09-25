@@ -131,16 +131,15 @@ def _get_connector_secrets_mask(
     """Get the list of properties to mask from the connector spec."""
     result: list[str] = []
     for field_keys, field_value in _walk_dict(spec_json_schema):
-        if isinstance(field_value, dict):
-            is_secret: bool = any(
-                (
-                    field_value.get("writeOnly") is True,
-                    field_value.get("format") == "password",
-                    field_value.get("airbyte_secret") is True,
-                )
-            )
-            if is_secret:
-                result.append(field_keys[-1])
+        if len(field_keys) == 1:
+            continue
+        is_secret: bool = (
+            (field_keys[-1] == "writeOnly" and field_value is True)
+            or (field_keys[-1] == "format" and field_value == "password")
+            or (field_keys[-1] == "airbyte_secret" and field_value is True)
+        )
+        if is_secret:
+            result.append(field_keys[-2])
 
     return result
 

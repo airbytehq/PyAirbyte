@@ -17,6 +17,7 @@ from airbyte.cloud.models import ConnectorType
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import DeferredDeployResult
+from airbyte.registry import ConnectorMetadata
 from airbyte.secrets.base import SecretString
 from fastmcp import Context
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
@@ -35,12 +36,15 @@ PUBLIC_API_ROOT = "https://api.airbyte.test/api/public/v1"
 
 
 @pytest.fixture(autouse=True)
-def _stub_global_secrets_mask(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub the remote global secrets mask so deferred validation stays offline."""
+def _stub_secret_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stub the remote secrets mask and spec fetch so deferred validation stays offline."""
     monkeypatch.setattr(
         "airbyte.secrets.hydration._get_global_secrets_mask",
-        lambda: ["password", "api_key", "token", "secret"],
+        lambda: ["password", "api_key", "token", "secret", "email"],
     )
+    monkeypatch.setattr(cloud_workspaces, "_get_deferred_spec", lambda _id: None)
 
 
 def _actor_body(connector_type: str, *, draft: bool | None) -> dict[str, Any]:
@@ -404,6 +408,92 @@ def test_deploy_deferred_rejects_nested_plaintext_credentials(
 
     assert call.kwargs == {}
     assert raised.value.context == {"fields": ["credentials.0.password"]}
+
+
+_SPEC_WITH_SECRET_PASSWORD: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "email": {"type": "string"},
+        "password": {"type": "string", "airbyte_secret": True},
+    },
+}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_prefers_connector_spec_over_global_mask(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """With a spec available, non-secret spec fields deploy despite the global mask."""
+    call = _stub_create(monkeypatch, connector_type)
+    monkeypatch.setattr(
+        cloud_workspaces, "_get_deferred_spec", lambda _id: _SPEC_WITH_SECRET_PASSWORD
+    )
+
+    deployed = _deploy(
+        _workspace(),
+        connector_type,
+        {"count": 10, "email": "owner@example.com"},
+        definition_id=DEFINITION_ID,
+        defer_credentials=True,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert call.kwargs["config"] == {"count": 10, "email": "owner@example.com"}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_spec_still_rejects_secret_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """Fields marked `airbyte_secret` in the connector spec are still rejected."""
+    call = _stub_create(monkeypatch, connector_type)
+    monkeypatch.setattr(
+        cloud_workspaces, "_get_deferred_spec", lambda _id: _SPEC_WITH_SECRET_PASSWORD
+    )
+
+    with pytest.raises(exc.PyAirbyteInputError, match="credential values") as raised:
+        _deploy(
+            _workspace(),
+            connector_type,
+            {"email": "x", "password": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["password"]}
+
+
+def test_get_connector_name_by_definition_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The definition-ID lookup returns the connector name on a hit and None on a miss."""
+    metadata = ConnectorMetadata(
+        name="source-faker",
+        latest_available_version=None,
+        definition_id=DEFINITION_ID,
+        pypi_package_name=None,
+        language=None,
+        install_types=set(),
+    )
+    monkeypatch.setattr("airbyte.registry._is_registry_disabled", lambda _url: False)
+    monkeypatch.setattr(
+        "airbyte.registry._get_registry_cache",
+        lambda **kwargs: {"source-faker": metadata},
+    )
+
+    assert (
+        cloud_workspaces._get_connector_name_by_definition_id(DEFINITION_ID)  # noqa: SLF001
+        == "source-faker"
+    )
+    assert (
+        cloud_workspaces._get_connector_name_by_definition_id(  # noqa: SLF001
+            "55555555-5555-4555-8555-555555555555"
+        )
+        is None
+    )
 
 
 @responses.activate
