@@ -36,7 +36,7 @@ from prefab_ui.components import (
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.interactive._shared_models import (
     ConnectorType,
     PublicConnectorFilters,
@@ -81,9 +81,6 @@ def _json_dumps(value: JsonValue) -> str:
     read_only=True,
     idempotent=True,
     open_world=True,
-    annotations={
-        INTERACTIVE_UI_ANNOTATION: True,
-    },
     app=PrefabAppConfig(),
 )
 def show_connectors_list(

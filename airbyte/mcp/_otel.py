@@ -36,11 +36,12 @@ from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from fastmcp import FastMCP
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp.tools import Tool, ToolResult
+    from mcp.server.context import ServerRequestContext
     from mcp.types import CallToolRequestParams, ListToolsRequest
     from opentelemetry.context import Context
     from opentelemetry.sdk.trace import Span
@@ -182,8 +183,8 @@ def _reset_for_tests() -> None:
 
 
 def _build_tool_maps() -> None:
+    from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE
     from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
-    from fastmcp_extensions.tool_filters import ANNOTATION_MCP_MODULE
 
     for func, tool_annotations in _REGISTERED_TOOLS:
         name = getattr(func, "__name__", None)
@@ -192,12 +193,58 @@ def _build_tool_maps() -> None:
             _TOOL_ANNOTATIONS[name] = dict(tool_annotations)
 
 
+class _StripMetaTraceContextMiddleware:
+    """SDK-tier middleware dropping untrusted `_meta` tracing context.
+
+    FastMCP 4 extracts `_meta.traceparent`/`tracestate` for span parenting in
+    its seam span, which opens *above* the FastMCP middleware layer — so the
+    pop in `IntentCaptureMiddleware` runs too late to prevent an untrusted
+    client from parenting the server span onto its own trace. Inserted into
+    `LowLevelServer.middleware` just ahead of `FastMCPServerMiddleware`.
+    """
+
+    async def __call__(
+        self,
+        ctx: ServerRequestContext[Any],
+        call_next: Callable[[ServerRequestContext[Any]], Awaitable[Any]],
+    ) -> Any:  # noqa: ANN401
+        # The seam reads trace context from `ctx.params["_meta"]` (lifted into
+        # FastMCPRequestContext.meta inside the seam); `ctx.meta` only carries
+        # `progress_token`, so strip on the raw params block.
+        params = getattr(ctx, "params", None)
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        if isinstance(meta, dict):
+            meta.pop("traceparent", None)
+            meta.pop("tracestate", None)
+        return await call_next(ctx)
+
+
+def _install_meta_trace_context_middleware(app: FastMCP) -> None:
+    """Insert `_StripMetaTraceContextMiddleware` ahead of FastMCP's seam span."""
+    try:
+        from fastmcp.server.low_level import FastMCPServerMiddleware
+
+        low_level_middleware = app._mcp_server.middleware  # noqa: SLF001
+        index = next(
+            (
+                i
+                for i, middleware in enumerate(low_level_middleware)
+                if isinstance(middleware, FastMCPServerMiddleware)
+            ),
+            len(low_level_middleware),
+        )
+        low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
+    except Exception:
+        logger.debug("Meta trace-context stripping middleware not installed")
+
+
 class IntentCaptureMiddleware(Middleware):
     """Advertise optional intent and carry it into FastMCP's existing tool span."""
 
     def __init__(self, app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
         """Retain the app to distinguish synthetic intent from real parameters."""
         self._app, self._environ = app, environ
+        _install_meta_trace_context_middleware(app)
 
     async def on_list_tools(
         self,
@@ -233,9 +280,9 @@ class IntentCaptureMiddleware(Middleware):
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
-                if meta is not None and meta.model_extra:
-                    meta.model_extra.pop("traceparent", None)
-                    meta.model_extra.pop("tracestate", None)
+                if meta:
+                    meta.pop("traceparent", None)
+                    meta.pop("tracestate", None)
             args = dict(context.message.arguments or {})
             intent = args.get(INTENT_ARG)
             if INTENT_ARG in args or _LEGACY_TELEMETRY_ARG in args:
@@ -253,9 +300,33 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
+        # FastMCP 4 opens a single seam SERVER span *above* the middleware
+        # chain (later renamed to `tools/call <name>`), so `on_start` stamping
+        # runs before this middleware exists; stamp the in-flight span here.
+        try:
+            current_span = trace.get_current_span()
+            if current_span.is_recording():
+                current_span.set_attributes(attrs)
+        except Exception:
+            logger.debug("Intent stamping skipped")
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
             return await call_next(context)
+        except Exception as exc:
+            # FastMCP 4 wraps tool failures in `ToolError` below the span's
+            # `on_end`, so the cause class is captured here, at the middleware.
+            try:
+                span = trace.get_current_span()
+                span_context = span.get_span_context()
+                if span.is_recording() and span_context.is_valid:
+                    if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
+                        _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
+                    _LATE_ATTRIBUTES[span_context.span_id] = {
+                        "airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__
+                    }
+            except Exception:
+                logger.debug("Exception class capture skipped")
+            raise
         finally:
             _INTENT_ATTRIBUTES.reset(token)
 
@@ -358,11 +429,12 @@ class RedactingExporter(SpanExporter):
 
     def _rebuild(self, span: ReadableSpan) -> ReadableSpan | None:
         late = _LATE_ATTRIBUTES.pop(span.context.span_id, {}) if span.context else {}
-        # FastMCP also traces resource/prompt requests, including unknown caller names.
-        # Only its server tool spans belong in this hosted export pipeline.
+        # FastMCP also traces resource/prompt requests, including unknown caller
+        # names, and the `mcp` SDK emits its own client/session spans. Only the
+        # server tool spans belong in this hosted export pipeline.
         if (
             span.instrumentation_scope is not None
-            and span.instrumentation_scope.name == "fastmcp"
+            and span.instrumentation_scope.name in {"fastmcp", "mcp-python-sdk"}
             and (span.kind != SpanKind.SERVER or not span.name.startswith("tools/call "))
         ):
             return None
