@@ -1632,7 +1632,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 
 # Not yet registered as an MCP tool: write actions are not supported by the backend.
 # Restore the `@mcp_tool(open_world=True, extra_help_text=...)` decorator and revert the
-# `_` prefix when these are live.
+# `_` prefix when these are live. Tracked in https://linear.app/airbyteio/issue/AGENTIC-2280
 def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
     *,
