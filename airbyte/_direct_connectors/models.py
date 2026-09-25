@@ -169,6 +169,7 @@ class ExternalApiReadOnlyAction(StrEnum):
     LIST = "list"
     GET = "get"
     SEARCH = "search"
+    DOWNLOAD = "download"
 
 
 class ExternalApiWriteAction(StrEnum):
