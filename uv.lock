@@ -195,6 +195,7 @@ dev = [
     { name = "types-pyyaml" },
     { name = "types-requests" },
     { name = "viztracer" },
+    { name = "vulture" },
 ]
 
 [package.metadata]
@@ -268,6 +269,7 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.12" },
     { name = "types-requests", specifier = "==2.31.0.4" },
     { name = "viztracer", specifier = ">=0.16.3,<1.1.0" },
+    { name = "vulture", specifier = ">=2.14,<3.0" },
 ]
 
 [[package]]
@@ -4464,6 +4466,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/27/48/f7c18833434987bd56e53382209c681cec291a1ab97b93227104365dc28c/viztracer-1.0.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:06675e00b42049122524af9af32d9a801ea0627d59ba401290b66b510ede667c", size = 10393711, upload-time = "2025-05-09T22:40:42.082Z" },
     { url = "https://files.pythonhosted.org/packages/ef/24/0f493cfa082dbfda3456fc8df38fb1914e3f8ff5aa724e1a0915cc1d6e94/viztracer-1.0.4-cp312-cp312-win32.whl", hash = "sha256:d2669dac757734a703b5586a03c7419b9047e10b8000c4bf01d4db99844d9d18", size = 10429612, upload-time = "2025-05-09T22:45:55.364Z" },
     { url = "https://files.pythonhosted.org/packages/b2/ec/f5a00c801d704e23a59422627848ef7862223e70be159350bc6a53ee9f0f/viztracer-1.0.4-cp312-cp312-win_amd64.whl", hash = "sha256:488ebb9ae8c6f6c32327ce463eb578f39854d0738f160b11e9097d3d0082a919", size = 10432342, upload-time = "2025-05-09T22:45:53.205Z" },
+]
+
+[[package]]
+name = "vulture"
+version = "2.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/3e/4d08c5903b2c0c70cad583c170cc4a663fc6a61e2ad00b711fcda61358cd/vulture-2.16.tar.gz", hash = "sha256:f8d9f6e2af03011664a3c6c240c9765b3f392917d3135fddca6d6a68d359f717", size = 52680, upload-time = "2026-03-25T14:41:27.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/be/f935130312330614811dae2ea9df3f395f6d63889eb6c2e68c14507152ee/vulture-2.16-py3-none-any.whl", hash = "sha256:6e0f1c312cef1c87856957e5c2ca9608834a7c794c2180477f30bf0e4cc58eee", size = 26993, upload-time = "2026-03-25T14:41:26.21Z" },
 ]
 
 [[package]]

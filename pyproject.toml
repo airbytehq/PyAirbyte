@@ -81,6 +81,7 @@ dev = [
     "types-pyyaml>=6.0.12.12",
     "types-requests==2.31.0.4",
     "viztracer>=0.16.3,<1.1.0",
+    "vulture>=2.14,<3.0",
     "pydantic-ai>=0.2.16",
 ]
 
@@ -158,6 +159,11 @@ pythonVersion = "3.10"
 venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
+[tool.vulture]
+paths = ["airbyte", "vulture_whitelist.py"]
+min_confidence = 60
+sort_by_size = true
+
 [tool.poe.tasks]
 test = { shell = "pytest" }
 test-fast = { shell = "pytest --durations=5 --exitfirst -m 'not slow'" }
@@ -168,7 +174,8 @@ coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 coverage-reset = { shell = "coverage erase" }
 
-check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
+check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq && vulture" }
+dead-code-check = { shell = "vulture" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
