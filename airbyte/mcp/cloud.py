@@ -121,6 +121,14 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
+SKILL_DOCS_SECTION_TIP_TEXT = (
+    "Action sections in skill docs are named `actions.<entity_type>.<action>`, matching "
+    "the `entity_type` and `action` arguments of the `execute_external_api_*` tools. If "
+    "you already know the entity type and action, skip the overview and read that section "
+    "directly with `get_agent_skill_docs`. E.g. for GitHub `entity_type='issues'`, "
+    "`action='list'`, read `section='actions.issues.list'` to learn that its `api_args` "
+    "are `owner`, `repo`, `states`, etc."
+)
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
     "Create a draft connector so a person can complete OAuth or enter "
@@ -1453,7 +1461,7 @@ def describe_cloud_connector(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_TIP_TEXT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def get_agent_skill_docs(
     ctx: Context,
@@ -1483,11 +1491,8 @@ def get_agent_skill_docs(
         Field(
             description=(
                 "Optional exact section ID from the guidance's outline to read a single "
-                "section. Action sections are named `actions.<entity_type>.<action>`, "
-                "matching the `entity_type` and `action` arguments of the "
-                "`execute_external_api_*` tools. E.g. to learn the `api_args` for listing "
-                "GitHub issues, pass `section='actions.issues.list'`. Omit for the "
-                "overview, metadata, and outline."
+                "section. Omit for the overview, metadata, and outline. "
+                + SKILL_DOCS_SECTION_TIP_TEXT
             ),
             default=None,
         ),
@@ -1506,11 +1511,7 @@ def get_agent_skill_docs(
     destination); exactly one is required.
 
     `section` is optional; if omitted, the summary overview is returned along with
-    the list of available sections. When you already know the entity type and
-    action you want to call, skip the overview and read
-    `section="actions.<entity_type>.<action>"` directly for its argument names.
-    E.g. to learn the `api_args` for listing GitHub issues, call this tool with
-    `connector_id=<github connector id>` and `section="actions.issues.list"`.
+    the list of available sections.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     return render_agent_skill_docs_result(
@@ -1522,7 +1523,7 @@ def get_agent_skill_docs(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_TIP_TEXT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1553,10 +1554,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` with "
-                "`section='actions.<entity_type>.<action>'` before calling. E.g. for GitHub "
-                "`entity_type='issues'`, `action='list'`, read `section='actions.issues.list'` "
-                "to learn it takes `owner`, `repo`, `states`, etc."
+                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_TIP_TEXT
             ),
             default=None,
         ),
@@ -1616,10 +1614,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     Before calling, read the connector's action docs with `get_agent_skill_docs`
     (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
-    differ per connector and are not guessable. If you already know the entity
-    type and action, read `get_agent_skill_docs` with
-    `section="actions.<entity_type>.<action>"` directly. E.g. for GitHub
-    `entity_type="issues"`, `action="list"`, read `section="actions.issues.list"`.
+    differ per connector and are not guessable.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_query(
@@ -1637,7 +1632,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_TIP_TEXT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1665,10 +1660,7 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
                 "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` with "
-                "`section='actions.<entity_type>.<action>'` before calling. E.g. for GitHub "
-                "`entity_type='issues'`, `action='list'`, read `section='actions.issues.list'` "
-                "to learn it takes `owner`, `repo`, `states`, etc."
+                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_TIP_TEXT
             ),
             default=None,
         ),
@@ -1716,10 +1708,7 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
     Before calling, read the connector's action docs with `get_agent_skill_docs`
     (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
-    differ per connector and are not guessable. If you already know the entity
-    type and action, read `get_agent_skill_docs` with
-    `section="actions.<entity_type>.<action>"` directly. E.g. for GitHub
-    `entity_type="issues"`, `action="list"`, read `section="actions.issues.list"`.
+    differ per connector and are not guessable.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_action(
