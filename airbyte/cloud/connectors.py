@@ -533,7 +533,7 @@ class CloudConnector:
 
             raise
 
-        return ExternalApiExecuteResult.model_validate(response)
+        return response
 
     def _context_layer_inspect(
         self,
