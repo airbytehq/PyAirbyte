@@ -37,7 +37,11 @@ from airbyte.mcp.cloud import (
     CloudConnectorResult,
     SyncJobResult,
 )
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteCloudApiError,
+    AirbyteError,
+    PyAirbyteInputError,
+)
 from fastmcp import Context
 
 
@@ -1776,7 +1780,7 @@ def test_list_cloud_connectors_feature_filter_probe_failure_marks_unknown(
             _ProbingConnector(
                 "source-2",
                 probe_calls,
-                error=AirbyteError(context={"status_code": 502}),
+                error=AirbyteCloudApiError(status_code=502),
             ),
             _ProbingConnector(
                 "source-3",
@@ -1806,6 +1810,61 @@ def test_list_cloud_connectors_feature_filter_probe_failure_marks_unknown(
         assert result.enabled_features == cloud_mcp.FEATURES_UNKNOWN
         assert any("enabled features are unknown" in w for w in result.warnings)
     assert probe_calls == ["source-1", "source-2"]
+
+
+def test_list_cloud_connectors_feature_filter_connector_failure_keeps_probing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connector-specific probe failure marks only that connector `"unknown"`."""
+    probe_calls: list[str] = []
+    _patch_probe_listing(
+        monkeypatch,
+        [
+            _ProbingConnector(
+                "source-1",
+                probe_calls,
+                error=AirbyteCloudApiError(status_code=422),
+            ),
+            _ProbingConnector(
+                "source-2",
+                probe_calls,
+                features=frozenset(),
+            ),
+            _ProbingConnector(
+                "source-3",
+                probe_calls,
+                features=frozenset({ConnectorFeature.DIRECT_ACCESS}),
+            ),
+        ],
+    )
+
+    results = cloud_mcp.list_cloud_connectors(
+        None,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
+    )
+
+    assert [result.id for result in results] == ["source-1", "source-3"]
+    assert results[0].enabled_features == cloud_mcp.FEATURES_UNKNOWN
+    assert any("enabled features are unknown" in w for w in results[0].warnings)
+    assert results[1].enabled_features == [ConnectorFeature.DIRECT_ACCESS]
+    assert probe_calls == ["source-1", "source-2", "source-3"]
+
+
+def test_list_cloud_connectors_limit_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`limit=0` raises `PyAirbyteInputError` before listing connectors."""
+    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0"):
+        cloud_mcp.list_cloud_connectors(
+            None,
+            workspace_id=None,
+            name_contains=None,
+            limit=0,
+            feature_filter=ConnectorFeature.DIRECT_ACCESS,
+        )
 
 
 def test_list_cloud_connectors_feature_filter_not_enabled_still_excluded(
@@ -1852,7 +1911,7 @@ def test_list_cloud_connectors_feature_filter_limit_counts_unknown(
             _ProbingConnector(
                 "source-1",
                 probe_calls,
-                error=AirbyteError(context={"status_code": 502}),
+                error=AirbyteCloudApiError(status_code=502),
             ),
             _ProbingConnector("source-2", probe_calls),
         ],
@@ -1877,7 +1936,7 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
     class _FailingFeaturesConnector(_DescribedConnector):
         @property
         def enabled_features(self) -> frozenset[ConnectorFeature]:
-            raise AirbyteError(context={"status_code": 504})
+            raise AirbyteCloudApiError(status_code=504)
 
         @enabled_features.setter
         def enabled_features(self, value: frozenset[ConnectorFeature]) -> None:

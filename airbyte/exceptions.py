@@ -586,6 +586,13 @@ class AirbyteAgentsUnavailableError(AirbyteError):
 
 
 @dataclass
+class AirbyteCloudApiError(AirbyteError):
+    """The Airbyte Cloud Config API returned a non-2xx response."""
+
+    status_code: int | None = None
+
+
+@dataclass
 class AirbyteExternalAccessNotEnabledError(PyAirbyteError):
     """The connector is not enabled for external access, so it cannot execute direct actions."""
 

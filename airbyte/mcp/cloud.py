@@ -66,6 +66,7 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteConnectorNotRegisteredError,
     AirbyteDeferredSetupError,
     AirbyteError,
@@ -1162,13 +1163,16 @@ def list_cloud_connectors(
     `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
     feature check was performed; `[]` means checked and no features enabled.
 
-    When a connector's feature lookup fails for a reason other than "not enabled"
-    (for example, the docs endpoint is down), that connector and all remaining ones
-    are returned with `enabled_features="unknown"` plus a `warnings` entry: once
-    one probe fails, the endpoint is down for the whole workspace, so no further
-    probes are attempted. `"unknown"` results can still be inspected or tried via
-    `describe_cloud_connector` or the execute tools.
+    When a connector's feature lookup fails for a reason other than "not enabled",
+    it is returned with `enabled_features="unknown"` plus a `warnings` entry. A
+    502/503/504 or transport failure means the endpoint is down for the whole
+    workspace, so remaining connectors are returned as `"unknown"` without further
+    probes; other failures mark only that connector `"unknown"`. `"unknown"`
+    results can still be inspected or tried via `describe_cloud_connector` or the
+    execute tools.
     """
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connectors = workspace.list_connectors(
         connector_type=connector_type,
@@ -1195,9 +1199,31 @@ def list_cloud_connectors(
             try:
                 features = connector.enabled_features
             except (AirbyteError, requests.RequestException) as error:
-                probe_failure = (
-                    f"Connector feature lookup failed; enabled features are unknown: {error}"
-                )
+                warning = f"Connector feature lookup failed; enabled features are unknown: {error}"
+                if isinstance(error, requests.RequestException) or (
+                    isinstance(error, AirbyteCloudApiError)
+                    and error.status_code
+                    in {
+                        HTTPStatus.BAD_GATEWAY,
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        HTTPStatus.GATEWAY_TIMEOUT,
+                    }
+                ):
+                    probe_failure = warning
+                else:
+                    results.append(
+                        CloudConnectorResult(
+                            id=connector.connector_id,
+                            connector_type=connector.connector_type.value,
+                            name=cast(str, connector.name),
+                            url=connector.connector_url,
+                            enabled_features=FEATURES_UNKNOWN,
+                            warnings=[warning],
+                        )
+                    )
+                    if limit is not None and len(results) >= limit:
+                        break
+                    continue
         if probe_failure is not None:
             enabled_features: list[ConnectorFeature] | FeaturesUnknown = FEATURES_UNKNOWN
             connector_warnings = [probe_failure]
