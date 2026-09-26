@@ -427,25 +427,28 @@ class CloudWorkspace:
     def _get_connector_features(
         self,
         connector: cloud_connectors.CloudConnector,
-    ) -> frozenset[ConnectorFeature]:
+        *,
+        warnings: list[str] | None = None,
+    ) -> frozenset[ConnectorFeature] | None:
         """Resolve the enabled features for one connector in this workspace.
 
-        A docs probe against the Context layer reports whether the connector
-        is enabled for agent access. Search indexing has not launched yet, so it is never
-        reported as enabled.
+        A successful docs probe against the Context layer reports available access.
+        An unavailable probe returns `None`, since it does not prove disabled access.
+        Search indexing has not launched yet, so it is never reported as enabled.
         """
         if not self._has_context_layer_api():
             return frozenset()
 
+        warning_sink = warnings if warnings is not None else []
         if connector.connector_type == ConnectorType.DESTINATION:
             if connector.definition_id not in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
                 return frozenset()
-            if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
-                return frozenset()
+            if connector._context_layer_inspect(warnings=warning_sink) is None:  # noqa: SLF001
+                return None
             return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY})
 
-        if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
-            return frozenset()
+        if connector._context_layer_inspect(warnings=warning_sink) is None:  # noqa: SLF001
+            return None
 
         return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY})
 
@@ -1179,12 +1182,8 @@ class CloudWorkspace:
 
         matches: list[cloud_connectors.CloudConnector] = []
         for connector in connectors:
-            if feature_filter is not None:
-                connector._enabled_features = self._get_connector_features(  # noqa: SLF001
-                    connector
-                )
-                if feature_filter not in connector._get_enabled_features():  # noqa: SLF001
-                    continue
+            if feature_filter is not None and feature_filter not in connector.enabled_features:
+                continue
             matches.append(connector)
             if limit is not None and len(matches) >= limit:
                 break

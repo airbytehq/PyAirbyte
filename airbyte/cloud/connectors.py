@@ -42,7 +42,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
-import requests
 import yaml
 
 from airbyte import exceptions as exc
@@ -88,7 +87,7 @@ class _ConnectorDefinitionLike(Protocol):
     docker_repository: str
 
 
-class CloudConnector:
+class CloudConnector:  # noqa: PLR0904 - public connector management and execution API
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
     You can use a connector object to manage the connector.
@@ -122,17 +121,32 @@ class CloudConnector:
         self._connector_definition: _ConnectorDefinitionLike | None = None
         """The connector definition lookup result. (Cached; `None` until fetched.)"""
 
-    def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
-        """Return the enabled features, resolving them through the workspace on first use."""
-        if self._enabled_features is None:
-            self._enabled_features = self.workspace._get_connector_features(self)  # noqa: SLF001
+    def get_enabled_features(
+        self, *, warnings: list[str] | None = None
+    ) -> frozenset[ConnectorFeature] | None:
+        """Resolve connector features, optionally collecting unavailable-docs warnings.
 
-        return self._enabled_features
+        Successful features are cached. Unavailable docs (403/404) return `None`
+        without caching absence; other probe failures propagate so callers can distinguish
+        unknown support from an empty feature set.
+        """
+        if self._enabled_features is not None:
+            if warnings is not None and self._context_layer_details is not None:
+                warnings.extend(str(warning) for warning in self._context_layer_details.warnings)
+            return self._enabled_features
+
+        features = self.workspace._get_connector_features(self, warnings=warnings)  # noqa: SLF001
+        if features:
+            self._enabled_features = features
+        return features
 
     @property
     def enabled_features(self) -> frozenset[ConnectorFeature]:
-        """The features enabled for this connector. Resolved on first access and cached."""
-        return self._get_enabled_features()
+        """Known enabled features; unavailable probes yield an empty set.
+
+        Use `get_enabled_features()` to distinguish unknown support from no features.
+        """
+        return self.get_enabled_features() or frozenset()
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.
@@ -381,11 +395,10 @@ class CloudConnector:
         skip_truncation: bool = True,
         intent: str | None = None,
     ) -> ExternalApiExecuteResult:
-        """Run a write action (`create`, `update`, or `delete`) on one entity type.
+        """Reject unsupported Cloud writes (`create`, `update`, or `delete`).
 
-        Requires external access to be enabled for this connector in its organization's
-        Context Layer settings. Connectors without an entity API fail with the Agents
-        API's own error.
+        Cloud connector execution currently supports read actions only. This method
+        raises `PyAirbyteInputError` without sending a request.
         """
         try:
             resolved_action = ExternalApiWriteAction(action)
@@ -396,15 +409,13 @@ class CloudConnector:
                 context={"entity_type": entity_type, "action": action},
             ) from None
 
-        return self._execute_direct_action(
-            entity_type=entity_type,
-            action=resolved_action.value,
-            api_args=api_args,
-            select_fields=select_fields,
-            exclude_fields=exclude_fields,
-            skip_truncation=skip_truncation,
-            intent=intent,
-            read_only=False,
+        _ = api_args, select_fields, exclude_fields, skip_truncation, intent
+        raise exc.PyAirbyteInputError(
+            message="Cloud connector write actions are not supported yet.",
+            guidance=(
+                "Use execute_api_query (Python) or execute_external_api_query (MCP) for reads."
+            ),
+            context={"entity_type": entity_type, "action": resolved_action.value},
         )
 
     def execute_sql_query(
@@ -473,11 +484,8 @@ class CloudConnector:
         """Execute a single entity/action operation through the Cloud Config API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API. When the Cloud Config API
-        reports the connector as forbidden or not found, the error is re-raised as
-        `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise,
-        including when the enablement lookup itself fails.
+        workspace's API roots have no Context layer API. Execution errors propagate
+        unchanged: an unavailable docs probe cannot establish disabled access.
         """
         self._require_context_layer_api()
         if read_only and action in {write_action.value for write_action in ExternalApiWriteAction}:
@@ -510,30 +518,12 @@ class CloudConnector:
         if intent is not None:
             request_body["intent"] = intent
 
-        try:
-            response = agents_api_util.execute_cloud_connector_action(
-                connector_id=self.connector_id,
-                connector_type=self.connector_type,
-                request_body=request_body,
-                credentials=self.workspace._credentials,  # noqa: SLF001
-            )
-        except exc.AirbyteError as error:
-            if agents_api_util.is_not_enabled_error(error):
-                try:
-                    enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-                except (exc.AirbyteError, requests.RequestException, ValueError):
-                    raise error from None
-                if not enabled:
-                    raise exc.AirbyteExternalAccessNotEnabledError(
-                        connector_name=(
-                            self._connector_info.name if self._connector_info else None
-                        ),
-                        connector_id=self.connector_id,
-                    ) from error
-
-            raise
-
-        return response
+        return agents_api_util.execute_cloud_connector_action(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            request_body=request_body,
+            credentials=self.workspace._credentials,  # noqa: SLF001
+        )
 
     def _context_layer_inspect(
         self,
@@ -545,11 +535,12 @@ class CloudConnector:
 
         The connector's docs skill is probed: a skill doc exists only for connectors the
         Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
-        connector is not enabled for agent access, so a warning is appended to
+        docs are unavailable, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
         response, transport) is raised to the caller.
         """
         if self._context_layer_details is not None and not force_refresh:
+            warnings.extend(str(warning) for warning in self._context_layer_details.warnings)
             return self._context_layer_details
         skill_id = (
             connector_docs.source_skill_id(self.connector_id)
@@ -567,7 +558,9 @@ class CloudConnector:
         except exc.AirbyteError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+            warnings.append(
+                "Connector direct-access docs are unavailable (access denied or not found)."
+            )
             return None
         parsed = _DirectConnectorInspectResult(
             connector_id=self.connector_id,
@@ -581,6 +574,7 @@ class CloudConnector:
             warnings=list(docs.metadata.warnings),
         )
         self._context_layer_details = parsed
+        warnings.extend(str(warning) for warning in parsed.warnings)
         return parsed
 
     def _fetch_connector_definition(self) -> _ConnectorDefinitionLike:
@@ -714,6 +708,8 @@ class CloudConnector:
             except exc.AirbyteError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
+                # Keep the not-enabled notice for this fallback. A rare missing-docs
+                # 404 is indistinguishable from disabled access without an explicit signal.
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,

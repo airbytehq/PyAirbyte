@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 import requests
@@ -21,6 +20,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
     ConnectorType,
     ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
 )
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
@@ -100,7 +100,7 @@ def _patch_execute(
 
     monkeypatch.setattr(requests, "request", fake_request)
 
-    def fake_execute(**kwargs: Any) -> dict[str, Any]:
+    def fake_execute(**kwargs: Any) -> ExternalApiExecuteResult:
         calls.append(kwargs)
         if error is not None:
             raise error
@@ -126,15 +126,6 @@ def _seed_destination(
         destination_id=destination_id, name=destination_id, definition_id=definition_id
     )
     return destination
-
-
-def _patch_direct_access(*, enabled: bool) -> Any:
-    """Mock `CloudConnector.is_feature_enabled` without hitting the API."""
-    return patch.object(
-        CloudConnector,
-        "is_feature_enabled",
-        return_value=enabled,
-    )
 
 
 @pytest.mark.parametrize(
@@ -197,27 +188,23 @@ def test_execute_api_query_forwards_action(
     }
 
 
-def test_execute_api_action_forwards_to_cloud_api(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("action", list(ExternalApiWriteAction))
+def test_execute_api_action_is_unsupported(
+    monkeypatch: pytest.MonkeyPatch, action: ExternalApiWriteAction
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     calls = _patch_execute(monkeypatch, {"data": {"id": 1}})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    result = source.execute_api_action(
-        "issues",
-        "create",  # type: ignore[arg-type]
-        {"title": "New issue"},
-        intent="file a bug",
-    )
+    with pytest.raises(
+        PyAirbyteInputError, match="write actions are not supported yet"
+    ):
+        source.execute_api_action(
+            "issues", action, {"title": "New issue"}, intent="file a bug"
+        )
 
-    assert isinstance(result, ExternalApiExecuteResult)
-    body = calls[0]["request_body"]
-    assert body["entity"] == "issues"
-    assert body["action"] == "create"
-    assert body["params"] == {"title": "New issue"}
-    assert body["intent"] == "file a bug"
+    assert calls == []
 
 
 @pytest.mark.parametrize(
@@ -261,83 +248,27 @@ def test_execute_direct_action_rejects_write_action_as_read_only(
     assert calls == []
 
 
-_FLAG_LOOKUP_ERROR: Any = object()
-"""Marker: the feature lookup itself fails."""
-
-
-@pytest.mark.parametrize(
-    ("execute_status", "access_flag", "expected_exc", "expected_status"),
-    [
-        pytest.param(
-            403,
-            False,
-            AirbyteExternalAccessNotEnabledError,
-            None,
-            id="forbidden_disabled_raises_not_enabled",
-        ),
-        pytest.param(
-            404,
-            True,
-            AirbyteError,
-            404,
-            id="not_found_enabled_reraises",
-        ),
-        pytest.param(
-            403,
-            _FLAG_LOOKUP_ERROR,
-            AirbyteError,
-            403,
-            id="flag_lookup_failure_reraises",
-        ),
-        pytest.param(
-            500,
-            True,
-            AirbyteError,
-            500,
-            id="other_error_propagates",
-        ),
-    ],
-)
+@pytest.mark.parametrize("execute_status", [403, 404, 500])
+@pytest.mark.parametrize("docs_status", [403, 404, 500])
 def test_execute_error_handling(
     monkeypatch: pytest.MonkeyPatch,
     execute_status: int,
-    access_flag: Any,  # noqa: ANN401
-    expected_exc: type[Exception],
-    expected_status: int | None,
+    docs_status: int,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    _patch_execute(
-        monkeypatch,
-        {},
-        error=AirbyteCloudApiError(
-            status_code=execute_status,
-            context={"status_code": execute_status},
-        ),
-    )
+    error = AirbyteCloudApiError(status_code=execute_status)
+    _patch_execute(monkeypatch, {}, error=error)
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    flag_patch = (
-        _patch_direct_access(enabled=access_flag)
-        if isinstance(access_flag, bool)
-        else patch.object(
-            CloudConnector,
-            "is_feature_enabled",
-            side_effect=AirbyteError(context={"status_code": 500}),
-        )
-    )
-    with flag_patch, pytest.raises(expected_exc) as exc_info:
+    def unavailable_docs(**_kwargs: Any) -> dict[str, Any]:
+        raise AirbyteError(context={"status_code": docs_status})
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", unavailable_docs)
+    with pytest.raises(AirbyteError) as exc_info:
         source.execute_api_query("issues")
 
-    if expected_exc is AirbyteExternalAccessNotEnabledError:
-        assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-        assert exc_info.value.connector_id == "source-1"
-        assert exc_info.value.connector_name == "GitHub Issues"
-    else:
-        assert isinstance(exc_info.value, AirbyteError)
-        assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-        assert isinstance(exc_info.value, AirbyteCloudApiError)
-        assert exc_info.value.status_code == expected_status
+    assert exc_info.value is error
 
 
 @pytest.mark.parametrize("method_name", ["execute_api_query", "execute_api_action"])
@@ -366,7 +297,12 @@ def test_direct_methods_raise_without_context_layer(
     for connector in connectors:
         for method in (method_name, "execute_sql_query"):
             args = method_args if method == method_name else ("SELECT 1",)
-            with pytest.raises(AirbyteExternalAccessNotEnabledError):
+            expected_error = (
+                PyAirbyteInputError
+                if method == "execute_api_action"
+                else AirbyteExternalAccessNotEnabledError
+            )
+            with pytest.raises(expected_error):
                 getattr(connector, method)(*args)
 
     assert calls == []

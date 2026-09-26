@@ -1325,6 +1325,15 @@ def _describe_cloud_connector(
         warnings.append(f"Integration name lookup failed: {error}")
         integration_name = None
 
+    try:
+        features = connector.get_enabled_features(warnings=warnings)
+        enabled_features: list[ConnectorFeature] | FeaturesUnknown = (
+            FEATURES_UNKNOWN if features is None else sorted(features)
+        )
+    except (AirbyteError, requests.RequestException, ValueError):
+        enabled_features = FEATURES_UNKNOWN
+        warnings.append("Connector feature lookup failed; enabled features are unknown.")
+
     result = CloudConnectorDetailsResult(
         connector_id=connector.connector_id,
         connector_type=connector_type.value,
@@ -1332,22 +1341,8 @@ def _describe_cloud_connector(
         connector_url=connector.connector_url,
         connector_definition_id=connector.definition_id,
         integration_name=integration_name,
+        enabled_features=enabled_features,
     )
-
-    try:
-        result.enabled_features = sorted(connector.enabled_features)
-        if (
-            connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-            and connector.workspace._has_context_layer_api()  # noqa: SLF001
-        ):
-            context_layer = connector._context_layer_inspect(  # noqa: SLF001
-                warnings=warnings,
-            )
-            if context_layer is not None:
-                warnings.extend(str(warning) for warning in context_layer.warnings)
-    except (AirbyteError, requests.RequestException) as error:
-        result.enabled_features = FEATURES_UNKNOWN
-        warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:
@@ -1361,11 +1356,11 @@ def _describe_cloud_connector(
         except AirbyteError as error:
             warnings.append(f"Connection listing failed: {error}")
 
-    if with_direct_access_guidance:
+    if with_direct_access_guidance and enabled_features != FEATURES_UNKNOWN:
         try:
             docs = connector.get_direct_access_guidance()
-        except (PyAirbyteError, requests.RequestException) as error:
-            warnings.append(f"Direct access docs are unavailable: {error}")
+        except (PyAirbyteError, requests.RequestException, ValueError):
+            warnings.append("Direct access docs are unavailable.")
         else:
             result.direct_access_guidance = render_connector_docs_result(docs)
 
@@ -1700,14 +1695,10 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
         ),
     ] = None,
 ) -> ExternalApiExecuteResult:
-    """Run a write action through a deployed Cloud connector's direct API.
+    """Cloud connector write actions are not supported yet.
 
-    Creates, updates, or deletes data in the external system.
-
-    Before calling, read the connector's action docs with `get_agent_skill_docs`
-    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
-    learn the entity types, actions, and required `api_args`; argument names
-    differ per connector and are not guessable.
+    Returns a clear error without executing a write. Use `execute_external_api_query`
+    for supported read actions (`list`, `get`, or `search`).
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_action(
