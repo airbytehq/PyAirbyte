@@ -11,13 +11,13 @@ insiders mode via env vars; the trusted-execution and interactive-UI gates canno
 both be open in one request, so the passes are merged to document every
 registered tool.
 
-The per-module grouping uses the `mcp_module` annotation that
-`fastmcp_extensions.mcp_tool` attaches to every registered tool (derived from
+The per-module grouping uses the `mcp_module` routing key that
+`fastmcp_extensions.mcp_tool` records for every registered tool (derived from
 the Python file the tool is defined in — e.g. tools in `airbyte/mcp/cloud.py`
-get `mcp_module="cloud"`). Prompts and resources fall back to `meta.mcp_module`
-when present, and otherwise to an import-based lookup against
-`fastmcp_extensions.decorators._REGISTERED_*`; anything still unresolved lands
-in `misc.md`.
+get `mcp_module="cloud"`). It is a registration-time key only — never on the
+wire — so the inspect child process re-annotates the report from the
+`ToolTraits` registry and the `fastmcp_extensions.decorators._REGISTERED_*`
+lists; anything still unresolved lands in `misc.md`.
 
 Inside each module file, content is grouped by primitive with L2 headings:
 
@@ -90,9 +90,8 @@ from fastmcp import FastMCP
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.http import _current_http_request  # noqa: PLC2701
 from fastmcp.utilities.inspect import format_fastmcp_info, inspect_fastmcp
-from fastmcp_extensions import ANNOTATION_INTERACTIVE_UI
+from fastmcp_extensions import Capability, get_tool_traits
 from fastmcp_extensions.capability_tokens import DEFAULT_EXTENSIONS_HEADER
-from fastmcp_extensions.tool_filters import ANNOTATION_REQUIRES_CLIENT_FILESYSTEM
 from starlette.requests import Request
 
 from airbyte.constants import (
@@ -185,20 +184,17 @@ def _import_server(server_spec: str) -> FastMCP[Any]:
 
 
 def _build_extra_module_map() -> dict[str, str]:
-    """Best-effort import-based lookup of `mcp_module` for prompts/resources.
+    """Best-effort import-based lookup of `mcp_module` for tools/prompts/resources.
 
-    `fastmcp_extensions`'s `mcp_tool` decorator embeds `mcp_module` in the MCP
-    tool `annotations` dict, which the inspect JSON surfaces directly. But
-    `mcp_prompt` and `mcp_resource` store `mcp_module` on the library's
-    internal `_REGISTERED_*` lists only — it is not re-emitted as an MCP
-    annotation, so it doesn't appear in the inspect JSON.
+    `mcp_module` is now a registration-time routing key only — it never
+    appears in the inspect JSON. `fastmcp_extensions` records it on the
+    internal `_REGISTERED_*` lists (and in the per-app `ToolTraits`
+    registry for registered tools), so the caller must import the server
+    module before calling this helper. If that fails (not a
+    `fastmcp_extensions`-based server, import errors, etc.), we silently
+    return an empty map and the caller falls back to `MISC_MODULE`.
 
-    To still recover that information, the caller must import the server module
-    before calling this helper, then this helper reads those internal lists. If
-    that fails (not a `fastmcp_extensions`-based server, import errors, etc.),
-    we silently return an empty map and the caller falls back to `MISC_MODULE`.
-
-    Returns a map of `name/uri -> mcp_module` covering both prompts and
+    Returns a map of `name/uri -> mcp_module` covering tools, prompts, and
     resources.
     """
     mapping: dict[str, str] = {}
@@ -214,8 +210,15 @@ def _build_extra_module_map() -> dict[str, str]:
         from fastmcp_extensions.decorators import (  # noqa: PLC0415
             _REGISTERED_PROMPTS,  # noqa: PLC2701
             _REGISTERED_RESOURCES,  # noqa: PLC2701
+            _REGISTERED_TOOLS,  # noqa: PLC2701
         )
 
+        for fn, ann in _REGISTERED_TOOLS:
+            mcp_module = ann.get("mcp_module") or MISC_MODULE
+            if name := getattr(fn, "__name__", None):
+                mapping[name] = mcp_module
+            if name := ann.get("name"):
+                mapping[name] = mcp_module
         for _fn, ann in _REGISTERED_PROMPTS:
             if name := ann.get("name"):
                 mapping[name] = ann.get("mcp_module") or MISC_MODULE
@@ -232,13 +235,28 @@ def _build_extra_module_map() -> dict[str, str]:
     return mapping
 
 
-def _annotate_modules(report: dict[str, Any], module_map: dict[str, str]) -> None:
-    """Preserve prompt/resource module metadata in the inspect report."""
-    for section in ("prompts", "resources", "templates"):
+def _annotate_modules(
+    report: dict[str, Any], module_map: dict[str, str], server: FastMCP[Any]
+) -> None:
+    """Preserve module/capability metadata in the inspect report.
+
+    `mcp_module` and `requiresClientFilesystem` never appear on the wire in
+    `mcp` 2, so the docs pipeline synthesizes them here from the internal
+    `ToolTraits` registry (`get_tool_traits`) and the `_REGISTERED_*`
+    fallback map — fields on the *report*, not on the wire tool.
+    """
+    for section in ("tools", "prompts", "resources", "templates"):
         for item in report.get(section) or []:
             key = item.get("name") or item.get("uri") or item.get("uri_template")
             if key in module_map:
                 item["meta"] = {**(item.get("meta") or {}), "mcp_module": module_map[key]}
+            if section == "tools" and key:
+                traits = get_tool_traits(server, str(key))
+                if Capability.CLIENT_FILESYSTEM in traits.required_capabilities:
+                    item["annotations"] = {
+                        **(item.get("annotations") or {}),
+                        "requiresClientFilesystem": True,
+                    }
 
 
 def _merge_reports(report_a: dict[str, Any], report_b: dict[str, Any]) -> dict[str, Any]:
@@ -280,7 +298,7 @@ def _emit_inspect_json(server_spec: str, report_path: Path) -> None:
         finally:
             _current_http_request.reset(token)
         report = _merge_reports(report_a, report_b)
-        _annotate_modules(report, _build_extra_module_map())
+        _annotate_modules(report, _build_extra_module_map(), server)
         return report
 
     report_path.write_text(
@@ -368,7 +386,9 @@ _HINT_LABELS: dict[str, str] = {
 }
 
 
-def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
+def _render_hint_badges(
+    annotations: dict[str, Any] | None, meta: dict[str, Any] | None = None
+) -> str:
     """Render MCP tool-annotation hints as inline `code` badges.
 
     Only hints whose value is explicitly `True` are rendered — an unset or
@@ -380,24 +400,26 @@ def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
     `annotations.title == "Deploy a source to Airbyte Cloud"` shows up in
     the rendered doc.
     """
-    if not annotations:
+    if not annotations and not meta:
         return ""
+    annotations = annotations or {}
+    meta = meta or {}
     lines: list[str] = []
     badges = [f"`{label}`" for key, label in _HINT_LABELS.items() if annotations.get(key) is True]
     if badges:
         lines.append("**Hints:** " + " · ".join(badges))
-    if annotations.get(ANNOTATION_REQUIRES_CLIENT_FILESYSTEM) is True:
+    if annotations.get("requiresClientFilesystem") is True:
         lines.append(
             "**Availability:** requires trusted execution "
             f"(`{MCP_TRUSTED_EXECUTION_ENV_VAR}=1`, stdio transport only); "
             "never available over HTTP."
         )
-    if annotations.get(ANNOTATION_INTERACTIVE_UI) is True:
+    if meta.get("ui"):
         lines.append(
             "**Availability:** requires an MCP Apps UI-capable client "
             f"(declares the `{UI_EXTENSION_ID}` extension)."
         )
-    if annotations.get("mcp_module") in MCP_INSIDERS_MODULES:
+    if meta.get("mcp_module") in MCP_INSIDERS_MODULES:
         lines.append(
             "**Availability:** experimental, insiders only "
             f"(`{MCP_INSIDERS_ENV_VAR}=1` for stdio, `{MCP_INSIDERS_HEADER}: 1` for hosted "
@@ -439,7 +461,7 @@ def _render_tool(tool: dict[str, Any]) -> str:
     # produces a clean sidebar nav entry. The HTML anchor above the heading
     # is what we deep-link to.
     parts: list[str] = [f'<a id="{name}"></a>\n\n### {name}\n\n']
-    parts.append(_render_hint_badges(tool.get("annotations")))
+    parts.append(_render_hint_badges(tool.get("annotations"), tool.get("meta")))
     if description := tool.get("description"):
         parts.append(description.strip() + "\n\n")
     if tags := tool.get("tags"):

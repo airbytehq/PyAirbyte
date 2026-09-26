@@ -836,6 +836,19 @@ def test_install_leaves_provider_unset_when_build_fails(
     )
 
 
+def test_install_meta_trace_context_middleware_fails_closed_without_seam():
+    """Missing `FastMCPServerMiddleware` must raise, not silently skip stripping."""
+    from fastmcp.server.low_level import FastMCPServerMiddleware
+
+    server = FastMCP("no-seam")
+    low_level = server._mcp_server.middleware  # noqa: SLF001
+    low_level[:] = [
+        item for item in low_level if not isinstance(item, FastMCPServerMiddleware)
+    ]
+    with pytest.raises(RuntimeError, match="FastMCPServerMiddleware not found"):
+        observability._install_meta_trace_context_middleware(server)  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     "enabled,capture", [(False, False), (False, True), (True, False), (True, True)]
 )

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from fastmcp_extensions import ToolTraits
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
@@ -27,11 +28,9 @@ APP = cast(FastMCP, object())
 """Stand-in for the app; the filter only passes it to `get_mcp_config`, which is patched."""
 
 
-def _tool(mcp_module: str) -> Tool:
-    """Return a tool-like object annotated with an MCP module name."""
-    return cast(
-        Tool, SimpleNamespace(annotations=SimpleNamespace(mcp_module=mcp_module))
-    )
+def _tool(name: str) -> Tool:
+    """Return a tool-like object named for the module it belongs to."""
+    return cast(Tool, SimpleNamespace(name=name))
 
 
 @pytest.fixture
@@ -43,6 +42,15 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         _tool_utils,
         "get_mcp_config",
         lambda app, key, **kwargs: config.get(key),  # noqa: ARG005
+    )
+    # `mcp_module` is internal state (never on the wire), so stub the traits
+    # registry lookup with a tool-name -> module map.
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_tool_traits",
+        lambda app, name: ToolTraits(
+            mcp_module=name if name != "unannotated" else None
+        ),  # noqa: ARG005
     )
     return config
 
@@ -110,10 +118,26 @@ def test_module_visibility(
 
 
 def test_unannotated_tools_are_always_visible(mcp_config: dict[str, str]) -> None:
-    """A tool with no module annotation is never filtered by module."""
-    tool = cast(Tool, SimpleNamespace(annotations=None))
+    """A tool with no mcp_module trait is never filtered by module."""
+    tool = cast(Tool, SimpleNamespace(name="unannotated"))
 
     assert _tool_utils.airbyte_module_filter(tool, APP)
+
+
+def test_ui_tool_wire_meta_carries_only_standard_ui_key() -> None:
+    """UI tools put `ui` on the wire `_meta`; custom keys stay off the wire."""
+    import asyncio
+
+    from airbyte.mcp.server import app as airbyte_app
+
+    tool = asyncio.run(airbyte_app.get_tool("show_connectors_list"))
+    wire = tool.to_mcp_tool().model_dump(by_alias=True)
+
+    assert (wire.get("_meta") or {}).get("ui", {}).get("resourceUri")
+    serialized = str(wire)
+    assert "'interactive-ui'" not in serialized
+    assert "'mcp_module'" not in serialized
+    assert "requiresClientFilesystem" not in serialized
 
 
 def test_insiders_gate_is_empty() -> None:
