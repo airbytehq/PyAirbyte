@@ -471,11 +471,22 @@ def test_interactive_tools_are_filtered_by_ui_support(
     assert ("show_workspace_sync_status" in tool_names) is expected_visible
 
 
-def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> None:
+def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that non-UI clients cannot call interactive tools directly."""
+    import fastmcp_extensions.tool_filters
     from fastmcp_extensions import mcp_server
 
     from airbyte.mcp import interactive
+
+    # `call_tool` runs outside a request here, so no session exists to read
+    # client capabilities from — a non-UI client declares no extensions.
+    monkeypatch.setattr(
+        fastmcp_extensions.tool_filters,
+        "client_supports_extension",
+        lambda *_args, **_kwargs: False,
+    )
 
     app = mcp_server(
         name="test",
