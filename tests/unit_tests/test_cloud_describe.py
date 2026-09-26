@@ -32,6 +32,7 @@ from airbyte.cloud.models import (
     CloudSourceInfo,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.mcp import cloud as cloud_mcp
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteError,
@@ -774,3 +775,136 @@ def test_is_feature_enabled_wrong_connector_kind_short_circuits(
 
     assert connector.is_feature_enabled(feature) is False
     get_features.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_get_connector_features_unavailable_probe_returns_none(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """A 403/404 docs probe means 'unknown': `None` for sources and passthrough destinations."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=AirbyteCloudApiError(
+            status_code=status, context={"response_text": "secret"}
+        )
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    passthrough = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    plain = _seed_destination(workspace, "dest-2", "other-definition")
+
+    warnings: list[str] = []
+    assert workspace._get_connector_features(source, warnings=warnings) is None  # noqa: SLF001
+    assert workspace._get_connector_features(passthrough, warnings=warnings) is None  # noqa: SLF001
+    assert workspace._get_connector_features(plain) == frozenset()  # noqa: SLF001
+    assert warnings
+    assert read_docs.call_count == 2
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_unavailable_features_warn_without_caching_absence(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """An unavailable probe warns and is not cached; a later successful probe caches."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=[
+            AirbyteCloudApiError(
+                status_code=status, context={"response_text": "secret"}
+            ),
+            SKILL_DOCS_RESPONSE,
+        ]
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    warnings: list[str] = []
+
+    assert source.get_enabled_features(warnings=warnings) is None
+    assert source._enabled_features is None  # noqa: SLF001
+    assert len(warnings) == 1
+    assert ConnectorFeature.DIRECT_API_QUERY in source.get_enabled_features()
+    assert read_docs.call_count == 2
+    assert source.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    })
+    assert read_docs.call_count == 2
+
+
+def test_enabled_features_property_empty_when_probe_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `enabled_features` property reports an empty set when the probe is unavailable."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=AirbyteCloudApiError(
+            status_code=404, context={"response_text": "secret"}
+        )
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    assert source.get_enabled_features() is None
+    assert source.enabled_features == frozenset()
+    assert read_docs.call_count == 2  # the unavailable result is not cached
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_describe_survives_unknown_features_and_recovers(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    """A 403/404 probe marks described features 'unknown' with a warning and is not cached."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=[
+            AirbyteCloudApiError(
+                status_code=status, context={"response_text": "secret"}
+            ),
+            SKILL_DOCS_RESPONSE,
+        ]
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+    monkeypatch.setattr(connector_docs, "build_connection_details", lambda _: [])
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=True,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.connector_id == "source-1"
+    assert result.enabled_features == "unknown"
+    assert result.warnings
+    assert read_docs.call_count == 1
+    assert source._enabled_features is None  # noqa: SLF001
+    assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
+    assert read_docs.call_count == 2
+
+
+def test_malformed_probe_is_not_cached_or_silently_filtered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed probe response propagates and is not cached."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    monkeypatch.setattr(workspace, "list_sources", lambda: [source])
+    monkeypatch.setattr(workspace, "list_destinations", lambda: [])
+    read_docs = MagicMock(side_effect=[{}, SKILL_DOCS_RESPONSE])
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+
+    with pytest.raises(ValueError):
+        workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS)
+    assert source._enabled_features is None  # noqa: SLF001
+    assert workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == [
+        source
+    ]
+    assert read_docs.call_count == 2
