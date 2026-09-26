@@ -157,10 +157,15 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
 ) -> None:
     config: dict[str, object] = {}
     middleware: list[object] = []
+    from fastmcp.server.low_level import FastMCPServerMiddleware
+
     fake_app = SimpleNamespace(
         auth=object(),
         http_app=lambda **kwargs: object(),
         add_middleware=middleware.append,
+        _mcp_server=SimpleNamespace(
+            middleware=[FastMCPServerMiddleware.__new__(FastMCPServerMiddleware)]
+        ),
     )
 
     monkeypatch.setattr(http_main, "app", fake_app)
