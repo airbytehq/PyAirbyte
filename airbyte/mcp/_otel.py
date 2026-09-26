@@ -221,21 +221,22 @@ class _StripMetaTraceContextMiddleware:
 
 def _install_meta_trace_context_middleware(app: FastMCP) -> None:
     """Insert `_StripMetaTraceContextMiddleware` ahead of FastMCP's seam span."""
-    try:
-        from fastmcp.server.low_level import FastMCPServerMiddleware
+    from fastmcp.server.low_level import FastMCPServerMiddleware
 
-        low_level_middleware = app._mcp_server.middleware  # noqa: SLF001
-        index = next(
-            (
-                i
-                for i, middleware in enumerate(low_level_middleware)
-                if isinstance(middleware, FastMCPServerMiddleware)
-            ),
-            len(low_level_middleware),
+    low_level_middleware = app._mcp_server.middleware  # noqa: SLF001
+    index = next(
+        (
+            i
+            for i, middleware in enumerate(low_level_middleware)
+            if isinstance(middleware, FastMCPServerMiddleware)
+        ),
+        None,
+    )
+    if index is None:
+        raise RuntimeError(
+            "FastMCPServerMiddleware not found; cannot install _meta trace-context stripping"
         )
-        low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
-    except Exception:
-        logger.debug("Meta trace-context stripping middleware not installed")
+    low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
 
 
 class IntentCaptureMiddleware(Middleware):
