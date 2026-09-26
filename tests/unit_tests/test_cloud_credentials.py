@@ -2080,8 +2080,8 @@ def test_cloud_destination_features_raise_on_probe_failure(
         ),
         pytest.param(
             ConnectorFeature.SEARCH_INDEXING,
-            [],
-            [],
+            ["source-3"],
+            [mcp_cloud.FEATURES_UNKNOWN],
             id="search_indexing",
         ),
     ],
