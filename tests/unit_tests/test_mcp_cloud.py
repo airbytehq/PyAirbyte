@@ -75,6 +75,11 @@ class _CloudConnectorLike:
     connector_url: str
     enabled_features: frozenset[ConnectorFeature] = frozenset()
 
+    def get_enabled_features(
+        self, *, warnings: list[str]
+    ) -> frozenset[ConnectorFeature] | None:
+        return self.enabled_features
+
 
 @dataclass
 class _CheckableConnectorLike:
@@ -1432,6 +1437,9 @@ class _DescribedConnector:
         self.config: dict[str, object] | AirbyteError = {"key": "value"}
         self.guidance: DirectAccessGuidance | Exception | None = None
         self.replication_docs: list[object] | Exception = []
+        self.probe_warnings: list[str] = []
+        self.features_unknown = False
+        self._context_layer_details: object | None = None
 
     @property
     def integration_name(self) -> str:
@@ -1439,6 +1447,16 @@ class _DescribedConnector:
         if isinstance(self._integration_name, AirbyteError):
             raise self._integration_name
         return self._integration_name
+
+    def get_enabled_features(
+        self, *, warnings: list[str]
+    ) -> frozenset[ConnectorFeature] | None:
+        warnings.extend(self.probe_warnings)
+        if self.workspace._has_context_layer_api():
+            details = self._context_layer_inspect(warnings=warnings)
+            if details is not None:
+                self._context_layer_details = details
+        return None if self.features_unknown else self.enabled_features
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         return feature in self.enabled_features
@@ -1714,8 +1732,9 @@ class _ProbingConnector:
         connector_id: str,
         probe_calls: list[str],
         *,
-        features: frozenset[ConnectorFeature] = frozenset(),
+        features: frozenset[ConnectorFeature] | None = frozenset(),
         error: Exception | None = None,
+        probe_warnings: list[str] | None = None,
     ) -> None:
         self.connector_id = connector_id
         self.connector_type = ConnectorType.SOURCE
@@ -1723,13 +1742,16 @@ class _ProbingConnector:
         self.connector_url = f"https://cloud.airbyte.com/{connector_id}"
         self._features = features
         self._error = error
+        self._probe_warnings = probe_warnings or []
         self._probe_calls = probe_calls
 
-    @property
-    def enabled_features(self) -> frozenset[ConnectorFeature]:
+    def get_enabled_features(
+        self, *, warnings: list[str]
+    ) -> frozenset[ConnectorFeature] | None:
         self._probe_calls.append(self.connector_id)
         if self._error is not None:
             raise self._error
+        warnings.extend(self._probe_warnings)
         return self._features
 
 
@@ -1870,7 +1892,7 @@ def test_list_cloud_connectors_limit_must_be_positive(
 def test_list_cloud_connectors_feature_filter_not_enabled_still_excluded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A 403/404 probe failure still means 'not enabled': excluded, not `"unknown"`."""
+    """A successful probe reporting no features still excludes the connector."""
     probe_calls: list[str] = []
     _patch_probe_listing(
         monkeypatch,
@@ -1898,6 +1920,52 @@ def test_list_cloud_connectors_feature_filter_not_enabled_still_excluded(
 
     assert [result.id for result in results] == ["source-2"]
     assert probe_calls == ["source-1", "source-2"]
+
+
+def test_list_cloud_connectors_feature_filter_unavailable_probe_included_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unavailable probe (403/404) marks the connector `"unknown"`, not excluded."""
+    probe_calls: list[str] = []
+    _patch_probe_listing(
+        monkeypatch,
+        [
+            _ProbingConnector(
+                "source-1",
+                probe_calls,
+                features=None,
+                probe_warnings=[
+                    "Connector direct-access docs lookup failed: forbidden"
+                ],
+            ),
+            _ProbingConnector(
+                "source-2",
+                probe_calls,
+                features=frozenset(),
+            ),
+            _ProbingConnector(
+                "source-3",
+                probe_calls,
+                features=frozenset({ConnectorFeature.DIRECT_ACCESS}),
+            ),
+        ],
+    )
+
+    results = cloud_mcp.list_cloud_connectors(
+        None,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
+    )
+
+    assert [result.id for result in results] == ["source-1", "source-3"]
+    assert results[0].enabled_features == cloud_mcp.FEATURES_UNKNOWN
+    assert results[0].warnings == [
+        "Connector direct-access docs lookup failed: forbidden"
+    ]
+    assert results[1].enabled_features == [ConnectorFeature.DIRECT_ACCESS]
+    assert probe_calls == ["source-1", "source-2", "source-3"]
 
 
 def test_list_cloud_connectors_feature_filter_limit_counts_unknown(
@@ -1934,13 +2002,10 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
     """A feature-probe failure marks `enabled_features` `"unknown"` with a warning."""
 
     class _FailingFeaturesConnector(_DescribedConnector):
-        @property
-        def enabled_features(self) -> frozenset[ConnectorFeature]:
+        def get_enabled_features(
+            self, *, warnings: list[str]
+        ) -> frozenset[ConnectorFeature] | None:
             raise AirbyteCloudApiError(status_code=504)
-
-        @enabled_features.setter
-        def enabled_features(self, value: frozenset[ConnectorFeature]) -> None:
-            pass
 
     result = _describe(_FailingFeaturesConnector())
 

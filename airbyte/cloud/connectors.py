@@ -88,7 +88,7 @@ class _ConnectorDefinitionLike(Protocol):
     docker_repository: str
 
 
-class CloudConnector:
+class CloudConnector:  # noqa: PLR0904 - public connector management and execution API
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
     You can use a connector object to manage the connector.
@@ -122,17 +122,29 @@ class CloudConnector:
         self._connector_definition: _ConnectorDefinitionLike | None = None
         """The connector definition lookup result. (Cached; `None` until fetched.)"""
 
-    def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
-        """Return the enabled features, resolving them through the workspace on first use."""
-        if self._enabled_features is None:
-            self._enabled_features = self.workspace._get_connector_features(self)  # noqa: SLF001
+    def get_enabled_features(
+        self, *, warnings: list[str] | None = None
+    ) -> frozenset[ConnectorFeature] | None:
+        """Resolve enabled features; `None` means the docs probe was unavailable (403/404).
 
+        Results are cached only when known. Probe failures other than 403/404 propagate.
+        """
+        if self._enabled_features is None:
+            features = self.workspace._get_connector_features(self, warnings=warnings)  # noqa: SLF001
+            if features is None:
+                return None
+            self._enabled_features = features
         return self._enabled_features
 
     @property
     def enabled_features(self) -> frozenset[ConnectorFeature]:
-        """The features enabled for this connector. Resolved on first access and cached."""
-        return self._get_enabled_features()
+        """The features enabled for this connector. Resolved on first access and cached.
+
+        An unknown result (unavailable probe) yields an empty set; use
+        `get_enabled_features()` to distinguish unknown from known-empty.
+        """
+        features = self.get_enabled_features()
+        return frozenset() if features is None else features
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.

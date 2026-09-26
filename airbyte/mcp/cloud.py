@@ -1205,8 +1205,9 @@ def list_cloud_connectors(
     for connector in connectors:
         features: frozenset[ConnectorFeature] | None = None
         if probe_failure is None:
+            probe_warnings: list[str] = []
             try:
-                features = connector.enabled_features
+                features = connector.get_enabled_features(warnings=probe_warnings)
             except (AirbyteError, requests.RequestException) as error:
                 warning = f"Connector feature lookup failed; enabled features are unknown: {error}"
                 if isinstance(error, requests.RequestException) or (
@@ -1233,6 +1234,24 @@ def list_cloud_connectors(
                     if limit is not None and len(results) >= limit:
                         break
                     continue
+            if features is None:
+                results.append(
+                    CloudConnectorResult(
+                        id=connector.connector_id,
+                        connector_type=connector.connector_type.value,
+                        name=cast(str, connector.name),
+                        url=connector.connector_url,
+                        enabled_features=FEATURES_UNKNOWN,
+                        warnings=probe_warnings
+                        or [
+                            "Connector direct-access docs are unavailable; "
+                            "enabled features are unknown."
+                        ],
+                    )
+                )
+                if limit is not None and len(results) >= limit:
+                    break
+                continue
         if probe_failure is not None:
             enabled_features: list[ConnectorFeature] | FeaturesUnknown = FEATURES_UNKNOWN
             connector_warnings = [probe_failure]
@@ -1335,16 +1354,10 @@ def _describe_cloud_connector(
     )
 
     try:
-        result.enabled_features = sorted(connector.enabled_features)
-        if (
-            connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-            and connector.workspace._has_context_layer_api()  # noqa: SLF001
-        ):
-            context_layer = connector._context_layer_inspect(  # noqa: SLF001
-                warnings=warnings,
-            )
-            if context_layer is not None:
-                warnings.extend(str(warning) for warning in context_layer.warnings)
+        features = connector.get_enabled_features(warnings=warnings)
+        result.enabled_features = FEATURES_UNKNOWN if features is None else sorted(features)
+        if features and connector._context_layer_details is not None:  # noqa: SLF001
+            warnings.extend(str(warning) for warning in connector._context_layer_details.warnings)  # noqa: SLF001
     except (AirbyteError, requests.RequestException) as error:
         result.enabled_features = FEATURES_UNKNOWN
         warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
