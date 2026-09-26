@@ -124,7 +124,7 @@ WORKSPACE_ID_TIP_TEXT = (
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
-`execute_external_api_*` tools. Call `get_agent_skill_docs` with no `section` input to list all
+`execute_external_api_query` tool. Call `get_agent_skill_docs` with no `section` input to list all
 available sections, and/or retrieve the relevant section(s) with `get_agent_skill_docs` before
 calling an action. E.g. for GitHub `entity_type='issues'`, `action='list'`, the
 `'actions.issues.list'` section will teach that its expected `api_args` keys are `owner`,
@@ -1630,11 +1630,10 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     )
 
 
-@mcp_tool(
-    open_world=True,
-    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
-)
-def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
+# Not yet registered as an MCP tool: write actions are not supported by the backend.
+# Restore the `@mcp_tool(open_world=True, extra_help_text=...)` decorator and revert the
+# `_` prefix when these are live. Tracked in https://linear.app/airbyteio/issue/AGENTIC-2280
+def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
     *,
     connector_id: Annotated[

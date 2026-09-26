@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1257,7 +1258,7 @@ def test_execute_external_api_action_uses_write_path(
     connector = _RecordingExecuteConnector()
     _execute_workspace(monkeypatch, connector)
 
-    cloud_mcp.execute_external_api_action(
+    cloud_mcp._execute_external_api_action(
         None,
         connector_id="source-1",
         entity_type="issues",
@@ -1271,6 +1272,15 @@ def test_execute_external_api_action_uses_write_path(
     assert kwargs["entity_type"] == "issues"
     assert kwargs["action"] is ExternalApiWriteAction.CREATE
     assert kwargs["api_args"] == {"title": "Bug"}
+
+
+def test_execute_external_api_action_is_not_advertised() -> None:
+    """The write tool stays hidden until the backend supports write actions."""
+    from airbyte.mcp import server
+
+    names = {tool.name for tool in asyncio.run(server.app.list_tools())}
+    assert "execute_external_api_query" in names
+    assert "execute_external_api_action" not in names
 
 
 def test_execute_external_sql_query_forwards_args(
