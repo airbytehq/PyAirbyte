@@ -856,7 +856,7 @@ def test_enabled_features_property_empty_when_probe_unavailable(
 def test_describe_survives_unknown_features_and_recovers(
     monkeypatch: pytest.MonkeyPatch, status: int
 ) -> None:
-    """A 403/404 probe marks described features 'unknown' with a sanitized warning."""
+    """A 403/404 probe marks described features 'unknown' with a warning and is not cached."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     read_docs = MagicMock(
