@@ -1189,7 +1189,7 @@ class _RecordingExecuteConnector:
 
     def execute_search_query(self, prompt: str, **kwargs: object) -> object:
         self.calls.append(("search", {"prompt": prompt, **kwargs}))
-        return ExternalSearchResult()
+        return ExternalSearchResult(hits=[], metadata=[])
 
     def get_search_status(self) -> object:
         self.calls.append(("search_status", {}))

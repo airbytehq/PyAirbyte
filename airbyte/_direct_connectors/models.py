@@ -360,10 +360,10 @@ class ExternalSearchResult(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    hits: list[ExternalSearchHit] = Field(default_factory=list)
+    hits: list[ExternalSearchHit]
     """The matched entities, best match first."""
 
-    metadata: list[ExternalSearchIndexMetadata] = Field(default_factory=list)
+    metadata: list[ExternalSearchIndexMetadata]
     """Per-index details about how the search ran."""
 
     response_time_ms: int | None = None
@@ -497,7 +497,7 @@ class ExternalSearchStatusResult(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    sources: list[ExternalSearchSourceStatus] = Field(default_factory=list)
+    sources: list[ExternalSearchSourceStatus]
     """The indexed sources: the connector itself for a source, or every indexed source
     synced to a destination."""
 

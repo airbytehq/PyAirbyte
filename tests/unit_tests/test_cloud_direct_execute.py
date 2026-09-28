@@ -1066,6 +1066,12 @@ def test_search_status_parses_response(monkeypatch: pytest.MonkeyPatch) -> None:
             "execute_search_query", {"hits": [{"entity_id": "1"}]}, id="search"
         ),
         pytest.param("get_search_status", {"sources": [{"streams": []}]}, id="status"),
+        # A truncated payload is malformed, not an empty result.
+        pytest.param("execute_search_query", {}, id="search_empty_payload"),
+        pytest.param(
+            "execute_search_query", {"hits": []}, id="search_missing_metadata"
+        ),
+        pytest.param("get_search_status", {}, id="status_empty_payload"),
     ],
 )
 def test_search_rejects_malformed_response(
@@ -1321,12 +1327,13 @@ def test_search_hit_keeps_strict_fields(field: str) -> None:
     ("payload", "expected_warnings"),
     [
         pytest.param(
-            {"metadata": [_INDEX_METADATA], "warnings": None},
+            {"hits": [], "metadata": [_INDEX_METADATA], "warnings": None},
             [],
             id="null_warnings",
         ),
         pytest.param(
             {
+                "hits": [],
                 "metadata": [
                     _INDEX_METADATA,
                     {**_INDEX_METADATA, "error": "index offline"},
@@ -1364,7 +1371,13 @@ def test_search_result_warns_when_no_index_was_searched() -> None:
 
 
 def test_search_status_result_accepts_null_warnings() -> None:
-    assert ExternalSearchStatusResult.model_validate({"warnings": None}).warnings == []
+    assert (
+        ExternalSearchStatusResult.model_validate({
+            "sources": [],
+            "warnings": None,
+        }).warnings
+        == []
+    )
 
 
 @pytest.mark.parametrize("method_name", ["execute_search_query", "execute_api_query"])
