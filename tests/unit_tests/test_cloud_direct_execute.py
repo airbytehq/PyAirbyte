@@ -1492,11 +1492,11 @@ def test_fetch_enablement_does_not_cache_other_failures(
 
 
 @pytest.mark.parametrize("status_code", [403, 404])
-def test_docs_probe_not_enabled_handling_unchanged(
+def test_docs_probe_unavailable_emits_neutral_warning(
     monkeypatch: pytest.MonkeyPatch,
     status_code: int,
 ) -> None:
-    """The skills-docs probe still reads a 403 or 404 as "not enabled", with a warning."""
+    """Unavailable docs produce a warning without asserting disabled access."""
     workspace = _make_workspace(monkeypatch)
 
     def fail(**_: Any) -> Any:  # noqa: ANN401
@@ -1507,5 +1507,6 @@ def test_docs_probe_not_enabled_handling_unchanged(
     warnings: list[str] = []
 
     assert source._context_layer_inspect(warnings=warnings) is None  # noqa: SLF001
-    assert len(warnings) == 1
-    assert "docs lookup failed" in warnings[0]
+    assert warnings == [
+        "Connector direct-access docs are unavailable (access denied or not found)."
+    ]
