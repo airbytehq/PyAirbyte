@@ -287,8 +287,10 @@ methods, recognized public Airbyte API routes with validated UUID/numeric IDs,
 and statuses. URL queries, unknown routes and custom origins are redacted.
 For `execute_external_api_query`, `airbyte.mcp.agent.entity_type` records the
 requested entity name for `list`, `get`, or `search`, including the default
-`list` action. Names must be nonempty printable strings of at most 256 characters
-with no surrounding whitespace; accepted names are exported unchanged. This
+`list` action. Names must be nonempty printable strings with no surrounding
+whitespace. Valid names longer than 256 characters are truncated for telemetry,
+with trailing spaces at the cut removed; the tool receives the full original
+name. Shorter names are exported unchanged. This
 caller-supplied field can include customer-defined names or sensitive text:
 format checks do not establish public provenance or anonymize the value. It
 describes the request, including failed attempts, rather than verified access

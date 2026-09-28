@@ -292,11 +292,13 @@ class IntentCaptureMiddleware(Middleware):
             entity_type = arguments.get("entity_type")
             if (
                 isinstance(entity_type, str)
-                and 0 < len(entity_type) <= _MAX_ENTITY_TYPE_LENGTH
+                and entity_type
                 and entity_type.isprintable()
                 and entity_type == entity_type.strip()
             ):
-                attrs["airbyte.mcp.agent.entity_type"] = entity_type
+                attrs["airbyte.mcp.agent.entity_type"] = entity_type[
+                    :_MAX_ENTITY_TYPE_LENGTH
+                ].rstrip()
         if name in _TOOL_MODULES:
             hints = _TOOL_ANNOTATIONS.get(name, {})
             attrs.update(
@@ -425,11 +427,11 @@ class RedactingExporter(SpanExporter):
         if (
             is_execution_root
             and isinstance(entity_type, str)
-            and 0 < len(entity_type) <= _MAX_ENTITY_TYPE_LENGTH
+            and entity_type
             and entity_type.isprintable()
             and entity_type == entity_type.strip()
         ):
-            attrs["airbyte.mcp.agent.entity_type"] = entity_type
+            attrs["airbyte.mcp.agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":

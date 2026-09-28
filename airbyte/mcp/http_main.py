@@ -112,9 +112,10 @@ messages and stacks, status descriptions, URL queries, user agents and caller
 identity. Outbound URLs retain recognized public Airbyte API routes with valid
 UUID/numeric IDs; unknown routes and custom origins are redacted.
 `execute_external_api_query` traces its requested `entity_type` for supported
-read actions, including default `list`. Nonempty printable names up to 256
-characters with no surrounding whitespace are retained verbatim; other values
-are omitted without changing dispatch. These are caller-supplied names, which
+read actions, including default `list`. Nonempty printable names with no
+surrounding whitespace are retained, truncating those longer than 256 characters
+for telemetry and removing trailing spaces at the cut. Other values are omitted;
+the original tool arguments are unchanged. These are caller-supplied names, which
 can include customer-defined or sensitive text; format checks are not
 anonymization or verification that an entity was accessed. Other tool arguments,
 results and HTTP headers are not recorded. Unregistered

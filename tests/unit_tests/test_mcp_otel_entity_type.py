@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""AGENTIC-2260: exact bounded caller entity names at the final exporter boundary."""
+"""AGENTIC-2260: bounded caller entity names at the final exporter boundary."""
 
 from __future__ import annotations
 
@@ -122,9 +122,19 @@ async def _call(app, tool, arguments):
 @pytest.mark.parametrize(
     ("entity", "expected"),
     [(entity, entity) for entity in ENTITIES]
-    + [("x" * 257, None), (" contacts", None), ("contacts\n", None), ("", None)],
+    + [
+        ("x" * 257, "x" * 256),
+        ("界" * 257, "界" * 256),
+        ("x" * 10_000, "x" * 256),
+        ("x" * 255 + " y", "x" * 255),
+        ("x" * 256 + "\n", None),
+        ("x" * 256 + " ", None),
+        (" contacts", None),
+        ("contacts\n", None),
+        ("", None),
+    ],
 )
-def test_real_execution_tools_keep_exact_requested_name_on_success_and_error(
+def test_real_execution_tools_bound_telemetry_without_changing_requested_name(
     agents_app, entity_export, monkeypatch, vendor, tool, action, entity, expected
 ):
     connector = CloudConnector(
@@ -258,8 +268,9 @@ def test_invalid_entity_names_are_omitted_without_mutating_tool_input(
         "issues\x7f",
         "issues\u200b",
         "issues\u00a0comments",
-        "x" * 257,
-        "x" * 10_000,
+        "x" * 256 + "\n",
+        "x" * 256 + " ",
+        "x" * 10_000 + "\x00",
     ]
 
     async def exercise():
@@ -317,7 +328,11 @@ def test_exporter_validates_injected_type_value_and_root_scope(entity_export, ve
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "東京 / Équipes", "東京 / Équipes"),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 256, "x" * 256),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "界" * 256, "界" * 256),
-        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 257, None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 257, "x" * 256),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "界" * 257, "界" * 256),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 255 + " y", "x" * 255),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 256 + "\n", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 256 + " ", None),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "", None),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, " ", None),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, " contacts", None),
@@ -372,7 +387,11 @@ def test_exporter_validates_injected_type_value_and_root_scope(entity_export, ve
         ("customer_private_table", "customer_private_table"),
         ("Contacts 東京", "Contacts 東京"),
         ("x" * 256, "x" * 256),
-        ("x" * 257, None),
+        ("x" * 257, "x" * 256),
+        ("界" * 257, "界" * 256),
+        ("x" * 255 + " y", "x" * 255),
+        ("x" * 256 + "\n", None),
+        ("x" * 256 + " ", None),
         ("native-SENTINEL\n", None),
         (42, None),
     ],
@@ -479,7 +498,7 @@ def test_failed_cancelled_timed_out_calls_reset_before_next_attempt(
                 if failure == "cancel":
                     task.cancel()
                     with pytest.raises(asyncio.CancelledError):
-                        await task
+                        _ = await task
                 else:
                     with pytest.raises(asyncio.TimeoutError):
                         await asyncio.wait_for(task, timeout=0)
