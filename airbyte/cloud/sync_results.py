@@ -128,6 +128,20 @@ if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
+@dataclass(frozen=True)
+class SyncAttemptFailure:
+    """One entry of an attempt's `failureSummary.failures` list from Config API `/jobs/get`."""
+
+    failure_origin: str | None
+    """Where the failure came from, e.g. `source`, `destination`, `replication`."""
+    failure_type: str | None
+    """Failure category, e.g. `config_error`, `system_error`, `transient_error`."""
+    external_message: str | None
+    """User-facing failure message."""
+    retryable: bool | None
+    """Whether the platform considers the failure retryable."""
+
+
 @dataclass
 class SyncAttempt:
     """Represents a single attempt of a sync job.
@@ -167,6 +181,20 @@ class SyncAttempt:
         """Return the creation time of the attempt."""
         timestamp = self._get_attempt_data()["createdAt"]
         return ab_datetime_parse(timestamp)
+
+    @property
+    def failures(self) -> list[SyncAttemptFailure]:
+        """Structured failure reasons for this attempt; empty if the attempt did not fail."""
+        failure_summary = self._get_attempt_data().get("failureSummary") or {}
+        return [
+            SyncAttemptFailure(
+                failure_origin=failure.get("failureOrigin"),
+                failure_type=failure.get("failureType"),
+                external_message=failure.get("externalMessage"),
+                retryable=failure.get("retryable"),
+            )
+            for failure in failure_summary.get("failures") or []
+        ]
 
     def _get_attempt_data(self) -> dict[str, Any]:
         """Get attempt data from the provided attempt data."""

@@ -88,7 +88,7 @@ class _ConnectorDefinitionLike(Protocol):
     docker_repository: str
 
 
-class CloudConnector:
+class CloudConnector:  # noqa: PLR0904  # Too many public methods
     """A cloud connector is a deployed source or destination on Airbyte Cloud.
 
     You can use a connector object to manage the connector.
@@ -614,6 +614,15 @@ class CloudConnector:
         """The connector's integration title, for example `GitHub` or `Snowflake`."""
         return self._fetch_connector_definition().name
 
+    @property
+    def canonical_name(self) -> str:
+        """The connector's canonical registry name, for example `source-postgres`.
+
+        Derived from the connector definition's Docker repository. This does not identify the
+        version the connector is running; deployed connectors may be pinned or overridden.
+        """
+        return self._fetch_connector_definition().docker_repository.split("/")[-1]
+
     def _direct_access_guidance_id(self) -> str | None:
         """The skill ID serving this connector's direct-access docs, if any."""
         if self.connector_type == ConnectorType.SOURCE:
@@ -738,9 +747,7 @@ class CloudConnector:
         The connector's canonical name (for example `source-github`) is resolved from the
         connector definition's Docker repository, then looked up in the connector registry.
         """
-        definition = self._fetch_connector_definition()
-        connector_name = definition.docker_repository.split("/")[-1]
-        return get_connector_api_docs_urls(connector_name)
+        return get_connector_api_docs_urls(self.canonical_name)
 
     def list_connections(self) -> list[CloudConnection]:
         """List the connections that read from or write to this connector."""

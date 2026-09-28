@@ -11,9 +11,10 @@
 __all__: list[str] = []
 
 from collections.abc import Callable
+from dataclasses import asdict
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
+from typing import Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
 from fastmcp import Context, FastMCP
@@ -44,9 +45,15 @@ from airbyte.cloud.models import (
     CloudOrganizationInfo,
     ConnectorFeature,
     ConnectorType,
+    JobStatusEnum,
     JobTypeEnum,
     OrganizationFeature,
     WorkspacePrivilegeScope,
+)
+from airbyte.cloud.sync_results import (
+    SyncAttempt,
+    SyncAttemptFailure,  # Needed at runtime for Pydantic field types.
+    SyncResult,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
@@ -95,10 +102,6 @@ from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
     get_connector_metadata,
 )
-
-
-if TYPE_CHECKING:
-    from airbyte.cloud.sync_results import SyncResult
 
 
 CLOUD_AUTH_TIP_TEXT = (
@@ -489,6 +492,211 @@ class ConnectorCheckResult(BaseModel):
     """Whether the connector check succeeded."""
     message: str | None
     """The failure message when the check failed, otherwise None."""
+
+
+TROUBLESHOOT_RECENT_JOBS_LIMIT = 5
+"""Number of most recent jobs `troubleshoot_cloud_connection` inspects."""
+TROUBLESHOOT_DEFAULT_MAX_LOG_LINES = 200
+"""Default number of trailing log lines `troubleshoot_cloud_connection` returns."""
+TROUBLESHOOT_MAX_LOG_LINES_CAP = 1000
+"""Upper bound on the log lines `troubleshoot_cloud_connection` returns."""
+
+TROUBLESHOOT_CONNECTION_GUIDANCE = """
+How to use this report:
+1. Classify the root cause as exactly one of the following, using these signals:
+   - credentials/auth: a check fails with an auth error (401/403, invalid/expired
+     token, bad password, OAuth refresh failed), or failure_type is config_error
+     with an auth message.
+   - network/allowlist: timeouts, connection refused, unknown host, or SSL/TLS
+     errors when connecting to the source or destination host.
+   - permissions: authenticated but denied (permission denied, insufficient
+     privileges, missing grants on a schema/table/bucket).
+   - invalid config: a check fails on a config value (bad host/port/database, missing
+     required field), or failure_type is config_error without an auth or permission
+     message.
+   - connector bug/regression: failure_type system_error from origin source or
+     destination with a stack-trace-like message, especially if recent jobs
+     succeeded before and the checks still pass.
+   - schema/state issue: schema changes, missing streams or columns, type
+     mismatches, cursor or state errors, or failure_type refresh_schema.
+   - rate limit/transient: failure_type transient_error, heartbeat_timeout or
+     destination_timeout, retryable true, or 429/"rate limit" messages.
+   - billing/account locked: billing.status.is_account_locked is true or the
+     payment_status/subscription_status is not in good standing.
+   - connection disabled: connection.enabled is false.
+2. Act yourself ONLY in these cases: re-run a sync with run_cloud_sync after a
+   rate limit/transient failure, or cancel a stuck sync (running far longer than
+   usual) with cancel_cloud_sync. If either raises SafeModeError, tell the user
+   how to do it in the Airbyte UI instead.
+3. Otherwise, give the user concrete steps and link the relevant page:
+   connector_url for credentials, allowlist, permission or config fixes, and
+   connection_url for syncs, schema and enabling the connection. Link the
+   connector docs too, for example https://docs.airbyte.com/integrations/sources/<name>
+   or .../destinations/<name> without the source-/destination- prefix. For
+   network/allowlist issues, ask the user for the source or destination host
+   (this tool cannot read source config) and point them to
+   https://docs.airbyte.com/platform/operating-airbyte/ip-allowlist.
+   For a suspected connector bug, use get_connector_version_history and
+   get_connector_info with canonical_connector_name. Ask the user to confirm
+   their current version in the UI and suggest upgrading if a newer version
+   fixes the issue. Otherwise, draft a GitHub issue for airbytehq/airbyte that
+   includes the connector name and version, failure type and message, a
+   redacted log excerpt, and the job_url. The job_url opens the connection's
+   job timeline, not a specific job.
+4. Guardrails: never call update_cloud_connector_config, any permanently_delete_* tool, or
+   set_cloud_connection_selected_streams, which resets sync modes and cursors and
+   is not safely reversible. Never repeat secrets, tokens, passwords or keys that
+   appear in logs or messages; redact them. If any tool raises SafeModeError, do
+   not work around it; give the user instructions instead. A section with an
+   `error` means that data is missing, not that the component is healthy. Call
+   get_cloud_sync_logs if you need more log lines.
+5. Report back with the root cause, the evidence (quote the failure type/message
+   and the relevant check result), what you did, and what the user needs to do.
+""".strip()
+"""Static guidance returned by `troubleshoot_cloud_connection`."""
+
+
+class TroubleshootConnectorSection(BaseModel):
+    """Identity of a connection's source or destination."""
+
+    connector_id: str
+    """The deployed connector ID."""
+    connector_type: Literal["source", "destination"]
+    """The connector type: 'source' or 'destination'."""
+    connector_name: str | None = None
+    """Display name of the deployed connector."""
+    canonical_connector_name: str | None = None
+    """Canonical registry name, for example `source-postgres`. Not the deployed version."""
+    connector_url: str
+    """URL of the connector in Airbyte Cloud."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootConnectionSection(BaseModel):
+    """Identity and status of the connection being diagnosed."""
+
+    connection_id: str
+    """The connection ID."""
+    connection_name: str
+    """Display name of the connection."""
+    connection_url: str
+    """URL of the connection in Airbyte Cloud."""
+    enabled: bool | None = None
+    """Whether the connection is enabled; `None` when the status lookup failed."""
+    source: TroubleshootConnectorSection
+    """The connection's source."""
+    destination: TroubleshootConnectorSection
+    """The connection's destination."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootCheckSection(BaseModel):
+    """Result of running a connection check on the source or destination."""
+
+    connector_id: str
+    """The deployed connector ID."""
+    connector_type: Literal["source", "destination"]
+    """The connector type: 'source' or 'destination'."""
+    succeeded: bool | None = None
+    """Whether the check succeeded; `None` when the check could not run."""
+    message: str | None = None
+    """The failure message when the check failed, otherwise None."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootRecentJobsSection(BaseModel):
+    """The connection's most recent sync jobs."""
+
+    jobs: list[SyncJobResult] = Field(default_factory=list)
+    """Recent jobs, newest first."""
+    message: str | None = None
+    """Explanation when no jobs were found."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootAttempt(BaseModel):
+    """One attempt of the latest failed job."""
+
+    attempt_number: int
+    """Zero-based attempt number within the job."""
+    status: str
+    """The attempt status."""
+    created_at: str
+    """ISO 8601 timestamp of when the attempt was created."""
+    failures: list[SyncAttemptFailure] = Field(default_factory=list)
+    """Structured failure reasons; empty if the attempt did not fail."""
+
+
+class TroubleshootFailedJobSection(BaseModel):
+    """The most recent failed or incomplete job among the recent jobs."""
+
+    job_id: int | None = None
+    """The job ID, or `None` when no failed job was found."""
+    status: str | None = None
+    """The job status."""
+    start_time: str | None = None
+    """ISO 8601 timestamp of when the job started."""
+    job_url: str | None = None
+    """URL of the connection's job timeline (not a link to this specific job)."""
+    attempts: list[TroubleshootAttempt] = Field(default_factory=list)
+    """The job's attempts with failure reasons."""
+    message: str | None = None
+    """Explanation when no failed job or no attempts were found."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootLogTailSection(BaseModel):
+    """Trailing log lines of the latest failed attempt."""
+
+    job_id: int | None = None
+    """The job the logs belong to."""
+    attempt_number: int | None = None
+    """The attempt the logs belong to."""
+    log_text: str = ""
+    """The trailing log lines."""
+    log_text_line_count: int = 0
+    """Number of lines returned."""
+    total_log_lines_available: int = 0
+    """Total number of log lines available for the attempt."""
+    message: str | None = None
+    """Explanation when no logs were fetched."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootBillingSection(BaseModel):
+    """Billing status of the workspace's organization."""
+
+    status: CloudOrganizationBillingStatusResult | None = None
+    """Billing status, or `None` when the organization could not be resolved."""
+    error: str | None = None
+    """Why this section could not be fully gathered; other sections are unaffected."""
+
+
+class TroubleshootConnectionResult(BaseModel):
+    """Diagnostic report returned by `troubleshoot_cloud_connection`."""
+
+    connection: TroubleshootConnectionSection
+    """Connection identity, status, source and destination."""
+    source_check: TroubleshootCheckSection
+    """Connection check result for the source."""
+    destination_check: TroubleshootCheckSection
+    """Connection check result for the destination."""
+    recent_jobs: TroubleshootRecentJobsSection
+    """The connection's most recent jobs."""
+    latest_failed_job: TroubleshootFailedJobSection
+    """The most recent failed or incomplete job and its attempts."""
+    log_tail: TroubleshootLogTailSection
+    """Trailing log lines of the latest failed attempt."""
+    billing: TroubleshootBillingSection
+    """Organization billing status."""
+    guidance: str = TROUBLESHOOT_CONNECTION_GUIDANCE
+    """How to classify, act on, and report the diagnosis."""
 
 
 class DeferredDeployResult(BaseModel):
@@ -916,7 +1124,11 @@ def get_cloud_sync_status(
     include_attempts: Annotated[
         bool,
         Field(
-            description="Whether to include detailed attempts information.",
+            description=(
+                "Whether to include detailed attempts information. Each attempt includes "
+                "`failures` (failure origin, type, message and retryable), which is empty "
+                "for attempts that did not fail."
+            ),
             default=False,
         ),
     ],
@@ -951,6 +1163,7 @@ def get_cloud_sync_status(
                 "bytes_synced": attempt.bytes_synced,
                 "records_synced": attempt.records_synced,
                 "created_at": attempt.created_at.isoformat(),
+                "failures": [asdict(failure) for failure in attempt.failures],
             }
             for attempt in attempts
         ]
@@ -1282,6 +1495,10 @@ class CloudConnectorDetailsResult(BaseModel):
     integration_name: str | None = None
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
+    canonical_connector_name: str | None = None
+    """Canonical registry name, for example `source-postgres`. Use it with `get_connector_info`
+    and `get_connector_version_history`. It does not identify the deployed version."""
+
     enabled_features: list[ConnectorFeature] | FeaturesUnknown = Field(default_factory=list)
     """Features enabled for this connector; see `ConnectorFeature`. `"unknown"` means
     the feature lookup failed (see `warnings`)."""
@@ -1324,6 +1541,11 @@ def _describe_cloud_connector(
     except AirbyteError as error:
         warnings.append(f"Integration name lookup failed: {error}")
         integration_name = None
+    try:
+        canonical_connector_name = connector.canonical_name
+    except AirbyteError as error:
+        warnings.append(f"Canonical connector name lookup failed: {error}")
+        canonical_connector_name = None
 
     result = CloudConnectorDetailsResult(
         connector_id=connector.connector_id,
@@ -1332,6 +1554,7 @@ def _describe_cloud_connector(
         connector_url=connector.connector_url,
         connector_definition_id=connector.definition_id,
         integration_name=integration_name,
+        canonical_connector_name=canonical_connector_name,
     )
 
     try:
@@ -1839,6 +2062,244 @@ def check_cloud_connector(
         connector_type=connector.connector_type,
         succeeded=check_result.success,
         message=_get_connector_check_message(check_result),
+    )
+
+
+def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootConnectorSection:
+    """Describe one side of the connection for `troubleshoot_cloud_connection`."""
+    section = TroubleshootConnectorSection(
+        connector_id=connector.connector_id,
+        connector_type=connector.connector_type,
+        connector_url=connector.connector_url,
+    )
+    try:
+        section.connector_name = connector.name
+        section.canonical_connector_name = connector.canonical_name
+    except AirbyteError as error:
+        section.error = str(error)
+    return section
+
+
+def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckSection:
+    """Run a connection check on one side of the connection."""
+    section = TroubleshootCheckSection(
+        connector_id=connector.connector_id,
+        connector_type=connector.connector_type,
+    )
+    try:
+        check_result = connector.check(raise_on_error=False)
+    except AirbyteError as error:
+        section.error = str(error)
+        return section
+    section.succeeded = check_result.success
+    section.message = _get_connector_check_message(check_result)
+    return section
+
+
+def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBillingSection:
+    """Resolve the workspace's organization and its billing status."""
+    org = workspace.get_organization(raise_on_error=False)
+    if org is None:
+        return TroubleshootBillingSection(
+            error=(
+                "Organization could not be resolved for this workspace; this usually "
+                "requires ORGANIZATION_READER permission."
+            ),
+        )
+    try:
+        info = org.get_billing_status()
+    except (AirbyteError, NotImplementedError) as error:
+        reason = error.message if isinstance(error, AirbyteError) and error.message else str(error)
+        return TroubleshootBillingSection(
+            status=CloudOrganizationBillingStatusResult(
+                organization_id=org.organization_id,
+                organization_name=org.organization_name,
+                billing_info_available=False,
+                message=f"Billing information could not be retrieved: {reason}",
+            ),
+        )
+    return TroubleshootBillingSection(
+        status=CloudOrganizationBillingStatusResult(
+            organization_id=org.organization_id,
+            organization_name=org.organization_name,
+            billing_info_available=True,
+            payment_status=info.payment_status,
+            subscription_status=info.subscription_status,
+            is_account_locked=info.is_account_locked,
+        ),
+    )
+
+
+def _troubleshoot_log_tail_section(
+    sync_result: SyncResult,
+    attempts: list[SyncAttempt],
+    max_log_lines: int,
+) -> TroubleshootLogTailSection:
+    """Return the trailing log lines of the latest failed attempt, or the latest attempt."""
+    failed_attempts = [attempt for attempt in attempts if attempt.status == "failed"]
+    attempt = max(failed_attempts or attempts, key=lambda a: a.attempt_number)
+    section = TroubleshootLogTailSection(
+        job_id=sync_result.job_id,
+        attempt_number=attempt.attempt_number,
+    )
+    try:
+        lines = attempt.get_full_log_text().splitlines()
+    except AirbyteError as error:
+        section.error = str(error)
+        return section
+    if not lines:
+        section.message = "No logs available for this attempt."
+        return section
+    tail = lines[-max_log_lines:]
+    section.log_text = "\n".join(tail)
+    section.log_text_line_count = len(tail)
+    section.total_log_lines_available = len(lines)
+    return section
+
+
+@mcp_tool(
+    read_only=False,
+    idempotent=False,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def troubleshoot_cloud_connection(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the Airbyte Cloud connection to diagnose."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+    max_log_lines: Annotated[
+        int,
+        Field(
+            description=(
+                "Number of trailing log lines to return from the latest failed attempt "
+                f"(default {TROUBLESHOOT_DEFAULT_MAX_LOG_LINES}, capped at "
+                f"{TROUBLESHOOT_MAX_LOG_LINES_CAP}). Use `get_cloud_sync_logs` for more."
+            ),
+            default=TROUBLESHOOT_DEFAULT_MAX_LOG_LINES,
+        ),
+    ] = TROUBLESHOOT_DEFAULT_MAX_LOG_LINES,
+) -> TroubleshootConnectionResult:
+    """Diagnose a failing Airbyte Cloud connection in one call.
+
+    When a user reports a failing sync, connection, source or destination, call
+    `troubleshoot_cloud_connection`. If you don't have a connection ID, find failing
+    connections with `list_cloud_connections(failing_connections_only=True)`.
+
+    Runs connection checks on the source and destination (the only non-read action), and
+    gathers connection details, recent jobs, the latest failed job's attempts and failure
+    reasons, a log tail, and organization billing status. Each section reports its own
+    `error` without hiding the others. Follow the returned `guidance` to classify the root
+    cause, act only in the allowed low-risk cases, and give the user concrete next steps.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+    effective_max_lines = min(max(max_log_lines, 1), TROUBLESHOOT_MAX_LOG_LINES_CAP)
+
+    source = connection.source
+    destination = connection.destination
+    connection_section = TroubleshootConnectionSection(
+        connection_id=connection.connection_id,
+        connection_name=connection.name or "",
+        connection_url=connection.connection_url,
+        source=_troubleshoot_connector_section(source),
+        destination=_troubleshoot_connector_section(destination),
+    )
+    try:
+        connection_section.enabled = connection.enabled
+    except AirbyteError as error:
+        connection_section.error = str(error)
+
+    recent_jobs = TroubleshootRecentJobsSection()
+    latest_failed_job = TroubleshootFailedJobSection()
+    log_tail = TroubleshootLogTailSection()
+    try:
+        sync_results = connection.get_previous_sync_logs(
+            limit=TROUBLESHOOT_RECENT_JOBS_LIMIT,
+            from_tail=True,
+        )
+        job_statuses = [sync_result.get_job_status() for sync_result in sync_results]
+        recent_jobs.jobs = [
+            SyncJobResult(
+                job_id=sync_result.job_id,
+                status=job_status.value,
+                bytes_synced=sync_result.bytes_synced,
+                records_synced=sync_result.records_synced,
+                start_time=sync_result.start_time.isoformat(),
+                job_url=sync_result.job_url,
+            )
+            for sync_result, job_status in zip(sync_results, job_statuses, strict=True)
+        ]
+    except AirbyteError as error:
+        recent_jobs.error = str(error)
+        latest_failed_job.error = "Recent jobs unavailable; see recent_jobs.error."
+        log_tail.error = "Recent jobs unavailable; see recent_jobs.error."
+        sync_results = []
+        job_statuses = []
+    else:
+        if not sync_results:
+            recent_jobs.message = "No sync jobs found for this connection."
+
+    failed_sync_result = next(
+        (
+            sync_result
+            for sync_result, job_status in zip(sync_results, job_statuses, strict=True)
+            if job_status in {JobStatusEnum.FAILED, JobStatusEnum.INCOMPLETE}
+        ),
+        None,
+    )
+    if failed_sync_result is None and recent_jobs.error is None:
+        latest_failed_job.message = (
+            f"No failed or incomplete job among the last {TROUBLESHOOT_RECENT_JOBS_LIMIT} jobs."
+        )
+        log_tail.message = "No failed job, so no logs were fetched."
+    elif failed_sync_result is not None:
+        latest_failed_job.job_id = failed_sync_result.job_id
+        latest_failed_job.status = failed_sync_result.get_job_status().value
+        latest_failed_job.job_url = failed_sync_result.job_url
+        try:
+            latest_failed_job.start_time = failed_sync_result.start_time.isoformat()
+            attempts = failed_sync_result.get_attempts()
+            latest_failed_job.attempts = [
+                TroubleshootAttempt(
+                    attempt_number=attempt.attempt_number,
+                    status=attempt.status,
+                    created_at=attempt.created_at.isoformat(),
+                    failures=attempt.failures,
+                )
+                for attempt in attempts
+            ]
+        except AirbyteError as error:
+            latest_failed_job.error = str(error)
+            log_tail.error = "Attempts unavailable; see latest_failed_job.error."
+        else:
+            if not attempts:
+                latest_failed_job.message = "Job has no attempts."
+                log_tail.message = "No attempts, so no logs were fetched."
+            else:
+                log_tail = _troubleshoot_log_tail_section(
+                    failed_sync_result,
+                    attempts,
+                    effective_max_lines,
+                )
+
+    return TroubleshootConnectionResult(
+        connection=connection_section,
+        source_check=_troubleshoot_check_section(source),
+        destination_check=_troubleshoot_check_section(destination),
+        recent_jobs=recent_jobs,
+        latest_failed_job=latest_failed_job,
+        log_tail=log_tail,
+        billing=_troubleshoot_billing_section(workspace),
     )
 
 

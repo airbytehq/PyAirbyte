@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import functools
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
+from airbyte.cloud.sync_results import SyncAttemptFailure
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -43,7 +45,9 @@ from airbyte.exceptions import (
     AirbyteError,
     PyAirbyteInputError,
 )
+from airbyte.mcp.server import MCP_SERVER_INSTRUCTIONS
 from fastmcp import Context
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
 
 @dataclass
@@ -1436,6 +1440,7 @@ class _DescribedConnector:
 
     def __post_init__(self) -> None:
         self._integration_name: str | AirbyteError = "GitHub"
+        self._canonical_name: str | AirbyteError = "source-github"
         self.workspace = SimpleNamespace(_has_context_layer_api=lambda: False)
         self.inspect_result: object | None = None
         self.inspect_error: AirbyteError | None = None
@@ -1449,6 +1454,13 @@ class _DescribedConnector:
         if isinstance(self._integration_name, AirbyteError):
             raise self._integration_name
         return self._integration_name
+
+    @property
+    def canonical_name(self) -> str:
+        """The canonical registry name, raising the stored error when set."""
+        if isinstance(self._canonical_name, AirbyteError):
+            raise self._canonical_name
+        return self._canonical_name
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         return feature in self.enabled_features
@@ -1513,6 +1525,7 @@ def test_describe_helper_reports_identity_and_enabled_features() -> None:
     assert result.connector_type == "source"
     assert result.connector_name == "GitHub"
     assert result.integration_name == "GitHub"
+    assert result.canonical_connector_name == "source-github"
     assert result.enabled_features == [
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_API_QUERY,
@@ -1539,6 +1552,18 @@ def test_describe_helper_integration_name_failure_warns() -> None:
 
     assert result.integration_name is None
     assert any("Integration name lookup failed" in w for w in result.warnings)
+
+
+def test_describe_helper_canonical_name_failure_warns() -> None:
+    """A canonical-name lookup failure warns and leaves the field unset."""
+    connector = _DescribedConnector()
+    connector._canonical_name = AirbyteError(message="lookup boom")  # noqa: SLF001
+
+    result = _describe(connector)
+
+    assert result.canonical_connector_name is None
+    assert result.integration_name == "GitHub"
+    assert any("Canonical connector name lookup failed" in w for w in result.warnings)
 
 
 def test_describe_helper_collects_inspect_warnings() -> None:
@@ -1956,3 +1981,481 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
 
     assert result.enabled_features == cloud_mcp.FEATURES_UNKNOWN
     assert any("enabled features are unknown" in w for w in result.warnings)
+
+
+@dataclass
+class _TroubleshootConnector:
+    """Subset of `CloudConnector` read by `troubleshoot_cloud_connection`."""
+
+    connector_id: str
+    connector_type: str
+    canonical_name: str
+    check_result: CheckResult | AirbyteError = dataclasses.field(
+        default_factory=lambda: CheckResult(success=True)
+    )
+    name: str | None = "Connector"
+
+    @property
+    def connector_url(self) -> str:
+        return f"https://cloud.example.com/{self.connector_type}s/{self.connector_id}"
+
+    def check(self, *, raise_on_error: bool = True) -> CheckResult:
+        assert raise_on_error is False
+        if isinstance(self.check_result, AirbyteError):
+            raise self.check_result
+        return self.check_result
+
+
+@dataclass
+class _TroubleshootAttempt:
+    """Subset of `SyncAttempt` read by `troubleshoot_cloud_connection`."""
+
+    attempt_number: int
+    status: str
+    log_text: str | AirbyteError = ""
+    failures: list[SyncAttemptFailure] = dataclasses.field(default_factory=list)
+    created_at: datetime = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def get_full_log_text(self) -> str:
+        if isinstance(self.log_text, AirbyteError):
+            raise self.log_text
+        return self.log_text
+
+
+@dataclass
+class _TroubleshootSyncResult(_SyncResultLike):
+    """`SyncResult` double that also returns attempts."""
+
+    attempts: list[_TroubleshootAttempt] | AirbyteError = dataclasses.field(
+        default_factory=list
+    )
+
+    def get_attempts(self) -> list[_TroubleshootAttempt]:
+        if isinstance(self.attempts, AirbyteError):
+            raise self.attempts
+        return self.attempts
+
+
+@dataclass
+class _TroubleshootConnection:
+    """Subset of `CloudConnection` read by `troubleshoot_cloud_connection`."""
+
+    jobs: list[_TroubleshootSyncResult] | AirbyteError = dataclasses.field(
+        default_factory=list
+    )
+    enabled: bool = True
+    connection_id: str = "connection-id"
+    name: str | None = "Postgres to Snowflake"
+    connection_url: str = "https://cloud.example.com/connections/connection-id"
+    source: _TroubleshootConnector = dataclasses.field(
+        default_factory=lambda: _TroubleshootConnector(
+            "source-id", "source", "source-postgres"
+        )
+    )
+    destination: _TroubleshootConnector = dataclasses.field(
+        default_factory=lambda: _TroubleshootConnector(
+            "destination-id", "destination", "destination-snowflake"
+        )
+    )
+
+    def get_previous_sync_logs(
+        self, *, limit: int, from_tail: bool
+    ) -> list[_TroubleshootSyncResult]:
+        assert limit == cloud_mcp.TROUBLESHOOT_RECENT_JOBS_LIMIT
+        assert from_tail is True
+        if isinstance(self.jobs, AirbyteError):
+            raise self.jobs
+        return self.jobs
+
+
+@dataclass
+class _TroubleshootWorkspace:
+    """Subset of `CloudWorkspace` read by `troubleshoot_cloud_connection`."""
+
+    connection: _TroubleshootConnection | AirbyteError
+    organization: object | None = None
+
+    def get_connection(self, *, connection_id: str) -> _TroubleshootConnection:
+        assert connection_id == "connection-id"
+        if isinstance(self.connection, AirbyteError):
+            raise self.connection
+        return self.connection
+
+    def get_organization(self, *, raise_on_error: bool = True) -> object | None:
+        assert raise_on_error is False
+        return self.organization
+
+
+def _healthy_organization() -> SimpleNamespace:
+    return SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=lambda: SimpleNamespace(
+            payment_status="okay",
+            subscription_status="subscribed",
+            is_account_locked=False,
+        ),
+    )
+
+
+def _job(
+    job_id: int, status: JobStatusEnum, **kwargs: object
+) -> _TroubleshootSyncResult:
+    return _TroubleshootSyncResult(
+        job_id=job_id,
+        status=status,
+        start_time=datetime(2026, 1, job_id, tzinfo=timezone.utc),
+        **kwargs,
+    )
+
+
+def _troubleshoot(
+    monkeypatch: pytest.MonkeyPatch,
+    connection: _TroubleshootConnection | AirbyteError,
+    *,
+    organization: object | None = None,
+    max_log_lines: int = cloud_mcp.TROUBLESHOOT_DEFAULT_MAX_LOG_LINES,
+) -> cloud_mcp.TroubleshootConnectionResult:
+    workspace = _TroubleshootWorkspace(
+        connection=connection,
+        organization=organization
+        if organization is not None
+        else _healthy_organization(),
+    )
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+    return cloud_mcp.troubleshoot_cloud_connection(
+        cast(Context, object()),
+        connection_id="connection-id",
+        workspace_id=None,
+        max_log_lines=max_log_lines,
+    )
+
+
+_CONFIG_FAILURE = SyncAttemptFailure(
+    failure_origin="source",
+    failure_type="config_error",
+    external_message="Invalid password.",
+    retryable=False,
+)
+
+
+def test_troubleshoot_healthy_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A healthy connection reports identity, passing checks, jobs and billing."""
+    connection = _TroubleshootConnection(jobs=[_job(2, JobStatusEnum.SUCCEEDED)])
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.connection.connection_id == "connection-id"
+    assert result.connection.enabled is True
+    assert result.connection.source.canonical_connector_name == "source-postgres"
+    assert (
+        result.connection.destination.canonical_connector_name
+        == "destination-snowflake"
+    )
+    assert result.connection.source.connector_url.endswith("/sources/source-id")
+    assert result.source_check.succeeded is True
+    assert result.destination_check.succeeded is True
+    assert [job.job_id for job in result.recent_jobs.jobs] == [2]
+    assert result.latest_failed_job.job_id is None
+    assert result.latest_failed_job.message is not None
+    assert result.log_tail.log_text == ""
+    assert result.billing.status is not None
+    assert result.billing.status.billing_info_available is True
+    assert result.billing.status.is_account_locked is False
+
+
+def test_troubleshoot_failed_check_reports_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed source check is reported with its message."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = CheckResult(
+        success=False, error_message="Authentication failed."
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.source_check.succeeded is False
+    assert result.source_check.message == "Authentication failed."
+    assert result.destination_check.succeeded is True
+
+
+def test_troubleshoot_failed_job_reports_attempts_and_log_tail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The newest failed job's attempts, failures and failed-attempt log tail are included."""
+    attempts = [
+        _TroubleshootAttempt(0, "failed", "early-1\nearly-2", [_CONFIG_FAILURE]),
+        _TroubleshootAttempt(1, "failed", "line-1\nline-2\nline-3", [_CONFIG_FAILURE]),
+        _TroubleshootAttempt(2, "running", "latest-running"),
+    ]
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(5, JobStatusEnum.SUCCEEDED),
+            _job(4, JobStatusEnum.FAILED, attempts=attempts),
+            _job(3, JobStatusEnum.FAILED),
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection, max_log_lines=2)
+
+    assert [job.job_id for job in result.recent_jobs.jobs] == [5, 4, 3]
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.status == "failed"
+    assert [a.attempt_number for a in result.latest_failed_job.attempts] == [0, 1, 2]
+    assert result.latest_failed_job.attempts[1].failures == [_CONFIG_FAILURE]
+    assert result.log_tail.job_id == 4
+    assert result.log_tail.attempt_number == 1
+    assert result.log_tail.log_text == "line-2\nline-3"
+    assert result.log_tail.log_text_line_count == 2
+    assert result.log_tail.total_log_lines_available == 3
+
+
+def test_troubleshoot_log_tail_falls_back_to_latest_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a failed attempt, the log tail comes from the highest-numbered attempt."""
+    attempts = [
+        _TroubleshootAttempt(0, "succeeded", "a"),
+        _TroubleshootAttempt(1, "running", "b"),
+    ]
+    connection = _TroubleshootConnection(
+        jobs=[_job(4, JobStatusEnum.INCOMPLETE, attempts=attempts)]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.status == "incomplete"
+    assert result.log_tail.attempt_number == 1
+    assert result.log_tail.log_text == "b"
+
+
+def test_troubleshoot_skips_cancelled_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cancelled job is not treated as the latest failure."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(3, JobStatusEnum.CANCELLED),
+            _job(2, JobStatusEnum.INCOMPLETE),
+            _job(1, JobStatusEnum.FAILED),
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.job_id == 2
+    assert result.latest_failed_job.message == "Job has no attempts."
+
+
+def test_troubleshoot_no_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A connection with no jobs still returns a full report."""
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(jobs=[]))
+
+    assert result.recent_jobs.jobs == []
+    assert result.recent_jobs.message == "No sync jobs found for this connection."
+    assert result.latest_failed_job.job_id is None
+    assert result.recent_jobs.error is None
+    assert result.source_check.succeeded is True
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    [
+        pytest.param(0, 1, id="below-minimum"),
+        pytest.param(-5, 1, id="negative"),
+        pytest.param(5000, cloud_mcp.TROUBLESHOOT_MAX_LOG_LINES_CAP, id="above-cap"),
+    ],
+)
+def test_troubleshoot_clamps_max_log_lines(
+    monkeypatch: pytest.MonkeyPatch, requested: int, expected: int
+) -> None:
+    """`max_log_lines` is clamped to 1..TROUBLESHOOT_MAX_LOG_LINES_CAP."""
+    total_lines = cloud_mcp.TROUBLESHOOT_MAX_LOG_LINES_CAP + 50
+    log_text = "\n".join(f"line-{i}" for i in range(total_lines))
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                1,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", log_text)],
+            )
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection, max_log_lines=requested)
+
+    assert result.log_tail.log_text_line_count == expected
+    assert result.log_tail.total_log_lines_available == total_lines
+    assert result.log_tail.log_text.splitlines()[-1] == f"line-{total_lines - 1}"
+
+
+def test_troubleshoot_isolates_section_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Failures in checks and job history are reported per section."""
+    connection = _TroubleshootConnection(jobs=AirbyteError(message="jobs boom"))
+    connection.destination.check_result = AirbyteError(message="check boom")
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.source_check.succeeded is True
+    assert result.destination_check.succeeded is None
+    assert result.destination_check.error is not None
+    assert "check boom" in result.destination_check.error
+    assert result.recent_jobs.error is not None
+    assert "jobs boom" in result.recent_jobs.error
+    assert result.latest_failed_job.error is not None
+    assert result.log_tail.error is not None
+    assert result.billing.status is not None
+    assert result.connection.source.canonical_connector_name == "source-postgres"
+
+
+def test_troubleshoot_isolates_attempt_and_log_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Attempt and log retrieval failures land in their own sections."""
+    attempts_failed = _TroubleshootConnection(
+        jobs=[
+            _job(
+                1, JobStatusEnum.FAILED, attempts=AirbyteError(message="attempts boom")
+            )
+        ]
+    )
+    result = _troubleshoot(monkeypatch, attempts_failed)
+    assert result.latest_failed_job.job_id == 1
+    assert result.latest_failed_job.error is not None
+    assert "attempts boom" in result.latest_failed_job.error
+    assert result.log_tail.error is not None
+
+    logs_failed = _TroubleshootConnection(
+        jobs=[
+            _job(
+                1,
+                JobStatusEnum.FAILED,
+                attempts=[
+                    _TroubleshootAttempt(
+                        0,
+                        "failed",
+                        AirbyteError(message="logs boom"),
+                        [_CONFIG_FAILURE],
+                    )
+                ],
+            )
+        ]
+    )
+    result = _troubleshoot(monkeypatch, logs_failed)
+    assert result.latest_failed_job.attempts[0].failures == [_CONFIG_FAILURE]
+    assert result.log_tail.error is not None
+    assert "logs boom" in result.log_tail.error
+
+
+def test_troubleshoot_billing_without_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A billing permission failure is reported in the billing section only."""
+
+    def get_billing_status() -> None:
+        raise AirbyteError(message="not allowed")
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=get_billing_status,
+    )
+
+    result = _troubleshoot(
+        monkeypatch, _TroubleshootConnection(), organization=organization
+    )
+
+    assert result.billing.status is not None
+    assert result.billing.status.billing_info_available is False
+    assert (
+        result.billing.status.message
+        == "Billing information could not be retrieved: not allowed"
+    )
+    assert result.source_check.succeeded is True
+
+
+def test_troubleshoot_billing_without_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unresolvable organization is reported as a billing error."""
+    workspace = _TroubleshootWorkspace(connection=_TroubleshootConnection())
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+
+    result = cloud_mcp.troubleshoot_cloud_connection(
+        cast(Context, object()), connection_id="connection-id", workspace_id=None
+    )
+
+    assert result.billing.status is None
+    assert result.billing.error is not None
+
+
+def test_troubleshoot_reports_disabled_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A disabled connection is reported as such."""
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(enabled=False))
+
+    assert result.connection.enabled is False
+
+
+def test_troubleshoot_propagates_connection_lookup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a connection there is nothing to diagnose, so the lookup error propagates."""
+    with pytest.raises(AirbyteError, match="no such connection"):
+        _troubleshoot(monkeypatch, AirbyteError(message="no such connection"))
+
+
+def test_troubleshoot_tool_annotations() -> None:
+    """The tool runs connector checks, so it is not advertised as read-only or idempotent."""
+    (annotations,) = [
+        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.troubleshoot_cloud_connection
+    ]
+    assert annotations["readOnlyHint"] is False
+    assert annotations["idempotentHint"] is False
+    assert annotations["openWorldHint"] is True
+
+
+def test_troubleshoot_guidance_classifies_and_restricts_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The returned guidance lists every root cause and the action guardrails."""
+    guidance = _troubleshoot(monkeypatch, _TroubleshootConnection()).guidance
+
+    for category in [
+        "credentials/auth",
+        "network/allowlist",
+        "permissions",
+        "invalid config",
+        "connector bug/regression",
+        "schema/state issue",
+        "rate limit/transient",
+        "billing/account locked",
+        "connection disabled",
+    ]:
+        assert f"- {category}:" in guidance
+    for tool_name in [
+        "run_cloud_sync",
+        "cancel_cloud_sync",
+        "get_connector_version_history",
+    ]:
+        assert tool_name in guidance
+    assert "never call update_cloud_connector_config" in guidance
+    assert "permanently_delete_*" in guidance
+    assert "set_cloud_connection_selected_streams" in guidance
+    assert "SafeModeError" in guidance
+    assert "secrets" in guidance
+    assert "not a specific job" in guidance
+
+
+def test_troubleshoot_is_discoverable() -> None:
+    """The tool docstring and server instructions point agents at the tool."""
+    hint = "list_cloud_connections(failing_connections_only=True)"
+    docstring = cloud_mcp.troubleshoot_cloud_connection.__doc__ or ""
+    assert hint in docstring
+    instructions = " ".join(MCP_SERVER_INSTRUCTIONS.split())
+    assert "call troubleshoot_cloud_connection" in instructions
+    assert hint in instructions

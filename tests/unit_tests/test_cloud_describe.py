@@ -774,3 +774,38 @@ def test_is_feature_enabled_wrong_connector_kind_short_circuits(
 
     assert connector.is_feature_enabled(feature) is False
     get_features.assert_not_called()
+
+
+def test_canonical_name_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`canonical_name` is the source definition's Docker repository without the org."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_source_definition",
+        lambda **_: SimpleNamespace(
+            name="Postgres",
+            docker_repository="airbyte/source-postgres",
+        ),
+    )
+    source = _seed_source(workspace, "source-1", "Postgres")
+
+    assert source.canonical_name == "source-postgres"
+
+
+def test_canonical_name_destination(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`canonical_name` is the destination definition's Docker repository without the org."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_destination_definition",
+        lambda **_: SimpleNamespace(
+            name="Snowflake",
+            docker_repository="airbyte/destination-snowflake",
+        ),
+    )
+    destination = _seed_destination(
+        workspace,
+        "dest-1",
+        SNOWFLAKE_DEFINITION_ID,
+        name="Warehouse",
+    )
+
+    assert destination.canonical_name == "destination-snowflake"
