@@ -434,8 +434,9 @@ class CloudWorkspace:
         A single Fusion enablement lookup reports whether agent access and search
         indexing are enabled for the connector. Agent access maps to `DIRECT_ACCESS`,
         plus `DIRECT_API_QUERY` for sources or `DIRECT_SQL_QUERY` for SQL passthrough
-        destinations; search indexing maps to `SEARCH_INDEXING`. A 403 or 404 means no
-        feature is enabled; any other lookup failure is raised to the caller.
+        destinations; search indexing maps to `SEARCH_INDEXING`. A 404 (no active
+        connector of this kind) means no feature is enabled; any other lookup failure,
+        including a 403 (no access to the workspace or connector), is raised.
         """
         if not self._has_context_layer_api():
             return frozenset()

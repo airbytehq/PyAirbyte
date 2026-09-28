@@ -1369,24 +1369,29 @@ def test_search_status_result_accepts_null_warnings() -> None:
 
 @pytest.mark.parametrize("method_name", ["execute_search_query", "execute_api_query"])
 @pytest.mark.parametrize(
-    ("enablement_response", "expect_not_enabled"),
+    ("enablement_response", "expected_outcome", "expected_enablement_calls"),
     [
-        pytest.param(404, False, id="enablement_404_is_wrong_id_or_type"),
-        pytest.param(403, True, id="enablement_403_is_not_enabled"),
+        # A 404 is cached, so the second failing call reuses it.
+        pytest.param(404, "wrong_id", 1, id="enablement_404_is_wrong_id_or_type"),
+        # A 403 is an access failure, never cached, so each re-check asks again.
+        pytest.param(403, "access", 2, id="enablement_403_is_access_failure"),
+        pytest.param(500, "unchanged", 2, id="enablement_500_reraises_original"),
         pytest.param(
             {"enable_agent_access": False, "enable_indexing": False},
-            True,
+            "not_enabled",
+            1,
             id="flags_off_is_not_enabled",
         ),
     ],
 )
-def test_forbidden_recheck_distinguishes_missing_connector(
+def test_forbidden_recheck_uses_enablement_outcome(
     monkeypatch: pytest.MonkeyPatch,
     method_name: str,
     enablement_response: int | dict[str, bool],
-    expect_not_enabled: bool,
+    expected_outcome: str,
+    expected_enablement_calls: int,
 ) -> None:
-    """An enablement 404 means a wrong ID or `connector_type`, not "not enabled"."""
+    """Only a 200 with the flag off means "not enabled"; lookup failures keep the error."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     seen_paths: list[str] = []
@@ -1403,29 +1408,56 @@ def test_forbidden_recheck_distinguishes_missing_connector(
     destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
     args = ("refunds",) if method_name == "execute_search_query" else ("issues",)
 
-    with pytest.raises((
-        AirbyteError,
-        AirbyteExternalAccessNotEnabledError,
-    )) as exc_info:
-        getattr(destination, method_name)(*args)
+    for _ in range(2):
+        with pytest.raises((
+            AirbyteError,
+            AirbyteExternalAccessNotEnabledError,
+        )) as exc_info:
+            getattr(destination, method_name)(*args)
 
-    if expect_not_enabled:
-        assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-    else:
-        assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-        assert isinstance(exc_info.value, AirbyteCloudApiError)
-        assert exc_info.value.status_code == 404
-        assert "connector_type" in (exc_info.value.guidance or "")
-        assert "destination" in (exc_info.value.guidance or "")
+        error = exc_info.value
+        if expected_outcome == "not_enabled":
+            assert isinstance(error, AirbyteExternalAccessNotEnabledError)
+            continue
+        # Otherwise the original execute/search 404 is re-raised.
+        assert not isinstance(error, AirbyteExternalAccessNotEnabledError)
+        assert isinstance(error, AirbyteCloudApiError)
+        assert error.status_code == 404
+        guidance = error.guidance or ""
+        if expected_outcome == "wrong_id":
+            assert "connector_type" in guidance
+            assert "destination" in guidance
+        elif expected_outcome == "access":
+            assert "have access to the workspace and connector" in guidance
+        else:
+            assert "connector_type" not in guidance
+            assert "have access" not in guidance
 
-    # A second failing call reuses the cached enablement result.
-    with pytest.raises((AirbyteError, AirbyteExternalAccessNotEnabledError)):
-        getattr(destination, method_name)(*args)
-    assert seen_paths.count("/destinations/destination-1/enablement") == 1
+    assert seen_paths.count("/destinations/destination-1/enablement") == (
+        expected_enablement_calls
+    )
 
 
-@pytest.mark.parametrize("status_code", [403, 404])
-def test_fetch_enablement_caches_not_enabled(
+def test_fetch_enablement_caches_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _make_workspace(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fail(**kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append(kwargs)
+        raise AirbyteCloudApiError(status_code=404)
+
+    monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    assert source._fetch_enablement() is None  # noqa: SLF001
+    assert source._fetch_enablement() is None  # noqa: SLF001
+    assert len(calls) == 1
+    assert isinstance(source._enablement_error, AirbyteCloudApiError)  # noqa: SLF001
+    assert source._enablement_error.status_code == 404  # noqa: SLF001
+
+
+@pytest.mark.parametrize("status_code", [403, 503])
+def test_fetch_enablement_does_not_cache_other_failures(
     monkeypatch: pytest.MonkeyPatch,
     status_code: int,
 ) -> None:
@@ -1439,27 +1471,28 @@ def test_fetch_enablement_caches_not_enabled(
     monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    assert source._fetch_enablement() is None  # noqa: SLF001
-    assert source._fetch_enablement() is None  # noqa: SLF001
-    assert len(calls) == 1
-    assert isinstance(source._enablement_error, AirbyteCloudApiError)  # noqa: SLF001
-    assert source._enablement_error.status_code == status_code  # noqa: SLF001
-
-
-def test_fetch_enablement_does_not_cache_other_failures(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    calls: list[dict[str, Any]] = []
-
-    def fail(**kwargs: Any) -> Any:  # noqa: ANN401
-        calls.append(kwargs)
-        raise AirbyteCloudApiError(status_code=503)
-
-    monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
-    source = _seed_source(workspace, "source-1", "GitHub Issues")
-
     for _ in range(2):
         with pytest.raises(AirbyteCloudApiError):
             source._fetch_enablement()  # noqa: SLF001
     assert len(calls) == 2
+    assert source._enablement_error is None  # noqa: SLF001
+
+
+@pytest.mark.parametrize("status_code", [403, 404])
+def test_docs_probe_not_enabled_handling_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    """The skills-docs probe still reads a 403 or 404 as "not enabled", with a warning."""
+    workspace = _make_workspace(monkeypatch)
+
+    def fail(**_: Any) -> Any:  # noqa: ANN401
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    warnings: list[str] = []
+
+    assert source._context_layer_inspect(warnings=warnings) is None  # noqa: SLF001
+    assert len(warnings) == 1
+    assert "docs lookup failed" in warnings[0]

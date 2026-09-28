@@ -2151,7 +2151,7 @@ def test_cloud_connector_features_map_from_enablement(
     assert calls["list"] == 0
 
 
-@pytest.mark.parametrize("status_code", [403, 404])
+@pytest.mark.parametrize("status_code", [404])
 def test_cloud_connector_features_empty_when_enablement_not_found(
     monkeypatch: pytest.MonkeyPatch,
     status_code: int,
@@ -2176,6 +2176,7 @@ def test_cloud_connector_features_empty_when_enablement_not_found(
 
 
 _ENABLEMENT_FAILURES = [
+    pytest.param(AirbyteCloudApiError(status_code=403), id="forbidden"),
     pytest.param(AirbyteCloudApiError(status_code=500), id="server_error"),
     pytest.param(AirbyteCloudApiError(status_code=503), id="service_unavailable"),
     pytest.param(requests.ConnectionError("connection reset"), id="transport"),
@@ -2368,7 +2369,9 @@ def test_mcp_list_cloud_connectors_enablement_failure_is_unknown(
         mcp_cloud.FEATURES_UNKNOWN if workspace_wide else source_features,
     ]
     assert any("enabled features are unknown" in w for w in results[1].warnings)
-    # A 502/503/504 or transport failure stops further enablement lookups.
+    is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
+    assert any("permission problem" in w for w in results[1].warnings) is is_forbidden
+    # A 502/503/504 or transport failure stops further enablement lookups; a 403 does not.
     assert calls["enablement"] == (2 if workspace_wide else 3)
 
 
@@ -2405,6 +2408,8 @@ def test_mcp_describe_cloud_connector_enablement_failure_is_unknown(
     assert result.enabled_features == mcp_cloud.FEATURES_UNKNOWN
     assert result.integration_name == "GitHub"
     assert any("enabled features are unknown" in w for w in result.warnings)
+    is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
+    assert any("permission problem" in w for w in result.warnings) is is_forbidden
     assert calls["list"] == 0
 
 

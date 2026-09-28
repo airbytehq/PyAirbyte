@@ -195,6 +195,18 @@ FEATURE_FILTER_TIP_TEXT = (
     "`warnings` entry, so they can still be inspected or tried."
 )
 
+
+def _feature_lookup_warning(error: Exception) -> str:
+    """Describe a failed connector feature lookup, calling out access denials."""
+    if isinstance(error, AirbyteCloudApiError) and error.status_code == HTTPStatus.FORBIDDEN:
+        return (
+            "Connector feature lookup was denied (403 Forbidden); enabled features are "
+            "unknown. This is a permission problem: check that the credentials have "
+            "access to this workspace and connector."
+        )
+    return f"Connector feature lookup failed; enabled features are unknown: {error}"
+
+
 FEATURES_NOT_CHECKED: Final = "not_checked"
 FeaturesNotChecked = Literal["not_checked"]
 FEATURES_UNKNOWN: Final = "unknown"
@@ -1219,7 +1231,7 @@ def list_cloud_connectors(
             try:
                 features = connector.enabled_features
             except (AirbyteError, requests.RequestException) as error:
-                warning = f"Connector feature lookup failed; enabled features are unknown: {error}"
+                warning = _feature_lookup_warning(error)
                 if isinstance(error, requests.RequestException) or (
                     isinstance(error, AirbyteCloudApiError)
                     and error.status_code
@@ -1349,7 +1361,7 @@ def _describe_cloud_connector(
         result.enabled_features = sorted(connector.enabled_features)
     except (AirbyteError, requests.RequestException) as error:
         result.enabled_features = FEATURES_UNKNOWN
-        warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
+        warnings.append(_feature_lookup_warning(error))
 
     if (
         result.enabled_features != FEATURES_UNKNOWN

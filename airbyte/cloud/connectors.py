@@ -180,6 +180,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
         Uses the cached feature set when available; otherwise resolves it with a single
         enablement lookup, unless `feature` can never be enabled for this connector.
+        Enablement lookup failures other than a 404, including a 403, are raised.
         """
         if self._enabled_features is not None:
             return feature in self._enabled_features
@@ -622,17 +623,26 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     ) -> None:
         """Map a forbidden or not-found `error` to a clear error, when one applies.
 
-        Only a 403 or 404 is re-checked against the connector's enablement. It raises
-        `AirbyteExternalAccessNotEnabledError` when `feature` is actually disabled, and
-        re-raises `error` with wrong-ID guidance when the enablement lookup itself
-        404s, because then the connector does not exist as this kind. Otherwise this
-        returns, or re-raises `error` when the enablement lookup fails.
+        Only a 403 or 404 is re-checked against the connector's enablement, and only an
+        enablement lookup reporting `feature` as disabled raises
+        `AirbyteExternalAccessNotEnabledError`. When the enablement lookup itself fails,
+        `error` is re-raised instead: with wrong-ID guidance on a 404 (no connector of
+        this kind), with access guidance on a 403, and as-is otherwise. When `feature` is
+        enabled, this returns.
         """
         if not agents_api_util.is_not_enabled_error(error):
             return
         try:
             enabled = self.is_feature_enabled(feature)
-        except (exc.AirbyteError, requests.RequestException, ValueError):
+        except (exc.AirbyteError, requests.RequestException, ValueError) as lookup_error:
+            if (
+                isinstance(lookup_error, exc.AirbyteCloudApiError)
+                and lookup_error.status_code == HTTPStatus.FORBIDDEN
+            ):
+                error.guidance = (
+                    "Airbyte Cloud denied access to this connector's settings. Check that "
+                    "the credentials have access to the workspace and connector."
+                )
             raise error from None
         if enabled:
             return
@@ -772,10 +782,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def _fetch_enablement(self) -> ConnectorEnablement | None:
         """Fetch and cache the Fusion features enabled for this connector.
 
-        A 403 or 404 `AirbyteError` means no Fusion feature is available to the caller
-        for this connector, so `None` is returned and the error is kept in
-        `_enablement_error`. Any other failure (auth, server, malformed response,
-        transport) is raised to the caller and not cached.
+        A 404 means Airbyte Cloud has no active connector of this kind with this ID, so
+        `None` is returned and the error is cached in `_enablement_error`. Any other
+        failure, including a 403 (the caller lacks access to the workspace or connector),
+        is raised to the caller and not cached.
         """
         if self._enablement is not None:
             return self._enablement
@@ -787,8 +797,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 connector_type=self.connector_type,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
-            if not agents_api_util.is_not_enabled_error(error):
+        except exc.AirbyteCloudApiError as error:
+            if error.status_code != HTTPStatus.NOT_FOUND:
                 raise
             self._enablement_error = error
             return None
