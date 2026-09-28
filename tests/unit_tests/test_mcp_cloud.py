@@ -2294,9 +2294,9 @@ class _TroubleshootConnector:
     connector_id: str
     connector_type: str
     canonical_name: str
-    check_result: CheckResult | AirbyteError | requests.RequestException = (
-        dataclasses.field(default_factory=lambda: CheckResult(success=True))
-    )
+    check_result: (
+        CheckResult | AirbyteError | requests.RequestException | NotImplementedError
+    ) = dataclasses.field(default_factory=lambda: CheckResult(success=True))
     name: str | None = "Connector"
 
     @property
@@ -2305,7 +2305,10 @@ class _TroubleshootConnector:
 
     def check(self, *, raise_on_error: bool = True) -> CheckResult:
         assert raise_on_error is False
-        if isinstance(self.check_result, (AirbyteError, requests.RequestException)):
+        if isinstance(
+            self.check_result,
+            (AirbyteError, requests.RequestException, NotImplementedError),
+        ):
             raise self.check_result
         return self.check_result
 
@@ -2330,12 +2333,18 @@ class _TroubleshootAttempt:
 class _TroubleshootSyncResult(_SyncResultLike):
     """`SyncResult` double that also returns attempts."""
 
-    attempts: list[_TroubleshootAttempt] | AirbyteError | requests.RequestException = (
-        dataclasses.field(default_factory=list)
-    )
+    attempts: (
+        list[_TroubleshootAttempt]
+        | AirbyteError
+        | requests.RequestException
+        | NotImplementedError
+    ) = dataclasses.field(default_factory=list)
 
     def get_attempts(self) -> list[_TroubleshootAttempt]:
-        if isinstance(self.attempts, (AirbyteError, requests.RequestException)):
+        if isinstance(
+            self.attempts,
+            (AirbyteError, requests.RequestException, NotImplementedError),
+        ):
             raise self.attempts
         return self.attempts
 
@@ -2512,7 +2521,9 @@ def test_troubleshoot_failed_job_reports_attempts_and_log_tail(
     assert result.latest_failed_job.job_id == 4
     assert result.latest_failed_job.status == "failed"
     assert [a.attempt_number for a in result.latest_failed_job.attempts] == [0, 1, 2]
-    assert result.latest_failed_job.attempts[1].failures == [_CONFIG_FAILURE]
+    assert result.latest_failed_job.attempts[1].failures == [
+        cloud_mcp.SyncAttemptFailureResult.from_failure(_CONFIG_FAILURE)
+    ]
     assert result.log_tail.job_id == 4
     assert result.log_tail.attempt_number == 1
     assert result.log_tail.log_text == "line-2\nline-3"
@@ -2650,7 +2661,9 @@ def test_troubleshoot_isolates_attempt_and_log_errors(
         ]
     )
     result = _troubleshoot(monkeypatch, logs_failed)
-    assert result.latest_failed_job.attempts[0].failures == [_CONFIG_FAILURE]
+    assert result.latest_failed_job.attempts[0].failures == [
+        cloud_mcp.SyncAttemptFailureResult.from_failure(_CONFIG_FAILURE)
+    ]
     assert result.log_tail.error is not None
     assert "logs boom" in result.log_tail.error
 
@@ -3003,3 +3016,184 @@ def test_troubleshoot_log_tail_under_character_cap_is_not_truncated(
 
     assert log_tail.log_text == "line-0\nline-1"
     assert log_tail.log_text_truncated is False
+
+
+_NO_CONFIG_API_ROOT = NotImplementedError(
+    "Configuration API root not found for api_root='https://custom.example.com'."
+)
+
+
+def test_troubleshoot_check_config_api_root_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-inferable Config API root fills only the affected check's error."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = _NO_CONFIG_API_ROOT
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.source_check.succeeded is None
+    assert result.source_check.error is not None
+    assert "Configuration API root not found" in result.source_check.error
+    assert result.destination_check.succeeded is True
+    assert result.billing.status is not None
+
+
+def test_troubleshoot_attempts_config_api_root_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-inferable Config API root while loading attempts fills latest_failed_job.error."""
+    connection = _TroubleshootConnection(
+        jobs=[_job(4, JobStatusEnum.FAILED, attempts=_NO_CONFIG_API_ROOT)]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.error is not None
+    assert "Configuration API root not found" in result.latest_failed_job.error
+    assert result.log_tail.error == "Attempts unavailable; see latest_failed_job.error."
+    assert result.recent_jobs.error is None
+
+
+@dataclass
+class _NoConfigApiStartTimeSyncResult(_TroubleshootSyncResult):
+    """Sync result whose `start_time` fallback needs an unavailable Config API root."""
+
+    @property
+    def start_time(self) -> datetime:  # type: ignore[override]
+        raise _NO_CONFIG_API_ROOT
+
+    @start_time.setter
+    def start_time(self, value: datetime) -> None:
+        pass
+
+
+def test_troubleshoot_recent_jobs_config_api_root_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Config API root failure while listing jobs fills recent_jobs.error only."""
+    job = _NoConfigApiStartTimeSyncResult(
+        job_id=4,
+        status=JobStatusEnum.FAILED,
+        start_time=datetime(2026, 1, 4, tzinfo=timezone.utc),
+    )
+
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(jobs=[job]))
+
+    assert result.recent_jobs.error is not None
+    assert "Configuration API root not found" in result.recent_jobs.error
+    assert result.source_check.succeeded is True
+    assert result.billing.status is not None
+
+
+def test_troubleshoot_failure_messages_are_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long failure messages are cut and flagged; short ones are untouched."""
+    long_failure = dataclasses.replace(_CONFIG_FAILURE, external_message="x" * 50_000)
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[
+                    _TroubleshootAttempt(
+                        0, "failed", "", [long_failure, _CONFIG_FAILURE]
+                    )
+                ],
+            )
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    long_result, short_result = result.latest_failed_job.attempts[0].failures
+    assert long_result.external_message is not None
+    assert len(long_result.external_message) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert long_result.external_message.endswith(cloud_mcp.TRUNCATION_MARKER)
+    assert long_result.external_message_truncated is True
+    assert short_result.external_message == "Invalid password."
+    assert short_result.external_message_truncated is False
+
+
+def test_troubleshoot_section_error_omits_error_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Section errors show only the message and status, never context or log text."""
+    error = AirbyteError(
+        message="API error occurred: forbidden",
+        context={
+            "status_code": 403,
+            "body": "internalMessage: leaked-internal stackTrace: leaked-stack",
+        },
+        log_text="leaked-log",
+    )
+
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(jobs=error))
+
+    assert result.recent_jobs.error == "API error occurred: forbidden (HTTP status 403)"
+    assert "leaked" not in result.model_dump_json()
+
+
+def test_troubleshoot_section_error_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Section errors are cut to the message cap."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=requests.RequestException("y" * 50_000),
+            )
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.error is not None
+    assert (
+        len(result.latest_failed_job.error) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    )
+    assert result.latest_failed_job.error.endswith(cloud_mcp.TRUNCATION_MARKER)
+
+
+def test_troubleshoot_check_message_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A long connector check message is cut to the message cap."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = CheckResult(
+        success=False, error_message="z" * 50_000
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.source_check.message is not None
+    assert len(result.source_check.message) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert result.source_check.message.endswith(cloud_mcp.TRUNCATION_MARKER)
+
+
+def test_troubleshoot_names_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Long connection and connector names are cut to the message cap."""
+    connection = _TroubleshootConnection(name="c" * 50_000)
+    connection.source.name = "s" * 50_000
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert (
+        len(result.connection.connection_name)
+        == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    )
+    assert result.connection.source.connector_name is not None
+    assert (
+        len(result.connection.source.connector_name)
+        == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    )
+
+
+def test_troubleshoot_guidance_requires_failed_job_to_be_newest() -> None:
+    """Guidance only allows a rerun when no newer job exists."""
+    assert "newest entry in" in cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE
+    assert "external_message_truncated" in cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE

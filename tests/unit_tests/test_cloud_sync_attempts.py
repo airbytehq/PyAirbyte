@@ -169,13 +169,60 @@ def test_get_cloud_sync_status_includes_attempt_failures(
             "failure_origin": "source",
             "failure_type": "config_error",
             "external_message": "Invalid credentials.",
+            "external_message_truncated": False,
             "retryable": False,
         },
         {
             "failure_origin": "replication",
             "failure_type": "transient_error",
             "external_message": "Connection reset.",
+            "external_message_truncated": False,
             "retryable": True,
         },
     ]
     assert succeeded["failures"] == []
+
+
+def test_get_cloud_sync_status_caps_failure_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long attempt failure messages are cut and flagged in `get_cloud_sync_status`."""
+    long_attempt = {
+        "attempt": {
+            "id": 1,
+            "status": "failed",
+            "createdAt": 1767225600,
+            "failureSummary": {
+                "failures": [
+                    {"failureOrigin": "source", "externalMessage": "x" * 50_000}
+                ]
+            },
+        }
+    }
+    sync_result = SimpleNamespace(
+        job_id=123,
+        bytes_synced=0,
+        records_synced=0,
+        start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        job_url="https://cloud.example.com/jobs",
+        get_job_status=lambda: JobStatusEnum.FAILED,
+        get_attempts=lambda: [_attempt(long_attempt, 0)],
+    )
+    connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
+    workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+
+    result = cloud_mcp.get_cloud_sync_status(
+        cast(Context, object()),
+        connection_id="connection-id",
+        job_id=None,
+        workspace_id=None,
+        include_attempts=True,
+    )
+
+    (failure,) = result["attempts"][0]["failures"]
+    assert len(failure["external_message"]) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert failure["external_message"].endswith(cloud_mcp.TRUNCATION_MARKER)
+    assert failure["external_message_truncated"] is True

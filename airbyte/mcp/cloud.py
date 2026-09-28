@@ -12,7 +12,6 @@ __all__: list[str] = []
 
 import re
 from collections.abc import Callable
-from dataclasses import asdict
 from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, TypeVar, cast
@@ -57,7 +56,7 @@ from airbyte.cloud.models import (
 )
 from airbyte.cloud.sync_results import (
     SyncAttempt,
-    SyncAttemptFailure,  # Needed at runtime for Pydantic field types.
+    SyncAttemptFailure,
     SyncResult,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -523,9 +522,14 @@ TROUBLESHOOT_RECENT_JOBS_LIMIT = 5
 TROUBLESHOOT_DEFAULT_MAX_LOG_LINES = 200
 """Default number of trailing log lines `troubleshoot_cloud_connection` returns."""
 TROUBLESHOOT_MAX_LOG_LINES_CAP = 1000
-TROUBLESHOOT_MAX_LOG_CHARS: Final[int] = 100_000
-_STACK_TRACE_LOG_LINE = re.compile(r"^\s*(?:\[[^\]]*\]\s*\w+:\s*)?stackTrace:")
 """Upper bound on the log lines `troubleshoot_cloud_connection` returns."""
+TROUBLESHOOT_MAX_LOG_CHARS: Final[int] = 100_000
+"""Upper bound on the log tail characters `troubleshoot_cloud_connection` returns."""
+TROUBLESHOOT_MAX_MESSAGE_CHARS: Final[int] = 2_000
+"""Upper bound on each free-text message or error in troubleshooting and attempt results."""
+TRUNCATION_MARKER: Final[str] = " [truncated]"
+"""Suffix marking a message cut to `TROUBLESHOOT_MAX_MESSAGE_CHARS`."""
+_STACK_TRACE_LOG_LINE = re.compile(r"^\s*(?:\[[^\]]*\]\s*\w+:\s*)?stackTrace:")
 
 TROUBLESHOOT_CONNECTION_GUIDANCE = """
 How to use this report:
@@ -561,10 +565,11 @@ How to use this report:
 2. Act yourself ONLY in these cases: re-run a sync with run_cloud_sync after a
    rate limit/transient or platform/infrastructure failure, or cancel a stuck sync
    (running far longer than usual) with cancel_cloud_sync. Only re-run when
-   latest_failed_job.status is failed: an incomplete job is still retrying, so
-   wait for it to finish (or cancel it first) rather than starting a competing
-   sync. If either raises SafeModeError, tell the user how to do it in the
-   Airbyte UI instead.
+   latest_failed_job.status is failed and it is the newest entry in
+   recent_jobs.jobs: an incomplete job is still retrying, a newer running or
+   pending job would compete, and a newer succeeded job means the failure has
+   already cleared. If either raises SafeModeError, tell the user how to do it
+   in the Airbyte UI instead.
 3. Otherwise, give the user concrete steps and link the relevant page:
    connector_url for credentials, allowlist, permission or config fixes, and
    connection_url for syncs, schema and enabling the connection. Link the
@@ -585,8 +590,10 @@ How to use this report:
    is not safely reversible. Never repeat secrets, tokens, passwords or keys that
    appear in logs or messages; redact them. If any tool raises SafeModeError, do
    not work around it; give the user instructions instead. A section with an
-   `error` means that data is missing, not that the component is healthy. Call
-   get_cloud_sync_logs if you need more log lines.
+   `error` means that data is missing, not that the component is healthy. Text
+   ending in " [truncated]", external_message_truncated or log_text_truncated
+   means the text was cut to keep the report small. Call get_cloud_sync_logs if
+   you need more log lines.
 5. Report back with the root cause, the evidence (quote the failure type/message
    and the relevant check result), what you did, and what the user needs to do.
    Only state facts this report supports; for example, do not claim the user
@@ -657,6 +664,37 @@ class TroubleshootRecentJobsSection(BaseModel):
     """Why this section could not be fully gathered; other sections are unaffected."""
 
 
+class SyncAttemptFailureResult(BaseModel):
+    """One structured failure of a sync attempt, with a bounded message."""
+
+    failure_origin: str | None
+    """Where the failure came from, e.g. `source`, `destination`, `replication`."""
+    failure_type: str | None
+    """Failure category, e.g. `config_error`, `system_error`, `transient_error`."""
+    external_message: str | None
+    """User-facing failure message, cut to `TROUBLESHOOT_MAX_MESSAGE_CHARS`."""
+    external_message_truncated: bool = False
+    """Whether `external_message` was cut."""
+    retryable: bool | None
+    """Whether the platform considers the failure retryable."""
+
+    @classmethod
+    def from_failure(cls, failure: SyncAttemptFailure) -> "SyncAttemptFailureResult":
+        """Build a bounded result from a `SyncAttemptFailure`."""
+        message, truncated = (
+            _cap_text(failure.external_message)
+            if failure.external_message is not None
+            else (None, False)
+        )
+        return cls(
+            failure_origin=failure.failure_origin,
+            failure_type=failure.failure_type,
+            external_message=message,
+            external_message_truncated=truncated,
+            retryable=failure.retryable,
+        )
+
+
 class TroubleshootAttempt(BaseModel):
     """One attempt of the latest failed job."""
 
@@ -666,7 +704,7 @@ class TroubleshootAttempt(BaseModel):
     """The attempt status."""
     created_at: str
     """ISO 8601 timestamp of when the attempt was created."""
-    failures: list[SyncAttemptFailure] = Field(default_factory=list)
+    failures: list[SyncAttemptFailureResult] = Field(default_factory=list)
     """Structured failure reasons; empty if the attempt did not fail."""
 
 
@@ -1204,7 +1242,10 @@ def get_cloud_sync_status(
                 "bytes_synced": attempt.bytes_synced,
                 "records_synced": attempt.records_synced,
                 "created_at": attempt.created_at.isoformat(),
-                "failures": [asdict(failure) for failure in attempt.failures],
+                "failures": [
+                    SyncAttemptFailureResult.from_failure(failure).model_dump()
+                    for failure in attempt.failures
+                ],
             }
             for attempt in attempts
         ]
@@ -2335,6 +2376,39 @@ def check_cloud_connector(
     )
 
 
+def _cap_text(text: str) -> tuple[str, bool]:
+    """Cut `text` to `TROUBLESHOOT_MAX_MESSAGE_CHARS`, returning it and whether it was cut."""
+    if len(text) <= TROUBLESHOOT_MAX_MESSAGE_CHARS:
+        return text, False
+    return text[: TROUBLESHOOT_MAX_MESSAGE_CHARS - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER, True
+
+
+def _bounded_text(text: str | None) -> str | None:
+    """Cut `text` to `TROUBLESHOOT_MAX_MESSAGE_CHARS`, marking any cut with `TRUNCATION_MARKER`."""
+    return None if text is None else _cap_text(text)[0]
+
+
+def _section_error_text(error: Exception, prefix: str = "") -> str:
+    """Render an error for a report section, bounded and without context or response bodies.
+
+    `str()` of an `AirbyteError` includes its context and log text, which may carry full API
+    responses (with internal messages and stack traces), so only its message and HTTP status
+    are used.
+    """
+    if isinstance(error, AirbyteError):
+        text = error.get_message()
+        status_code = (
+            error.status_code
+            if isinstance(error, AirbyteCloudApiError)
+            else (error.context or {}).get("status_code")
+        )
+        if status_code is not None and str(status_code) not in text:
+            text += f" (HTTP status {status_code})"
+    else:
+        text = str(error) or type(error).__name__
+    return _cap_text(prefix + text)[0]
+
+
 def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootConnectorSection:
     """Describe one side of the connection for `troubleshoot_cloud_connection`."""
     section = TroubleshootConnectorSection(
@@ -2343,10 +2417,10 @@ def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootCo
         connector_url=connector.connector_url,
     )
     try:
-        section.connector_name = connector.name
-        section.canonical_connector_name = connector.canonical_name
-    except (AirbyteError, requests.RequestException) as error:
-        section.error = str(error)
+        section.connector_name = _bounded_text(connector.name)
+        section.canonical_connector_name = _bounded_text(connector.canonical_name)
+    except (AirbyteError, requests.RequestException, ValueError) as error:
+        section.error = _section_error_text(error)
     return section
 
 
@@ -2357,8 +2431,10 @@ def _check_error_message(error: AirbyteError) -> str:
     failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
     if isinstance(failure, dict) and failure.get("externalMessage"):
         origin = failure.get("failureOrigin") or "unknown"
-        return f"Check did not complete (failure origin: {origin}): {failure['externalMessage']}"
-    return error.get_message()
+        return _cap_text(
+            f"Check did not complete (failure origin: {origin}): {failure['externalMessage']}"
+        )[0]
+    return _section_error_text(error)
 
 
 def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckSection:
@@ -2373,10 +2449,13 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
         section.error = _check_error_message(error)
         return section
     except requests.RequestException as error:
-        section.error = f"Check request failed: {error}"
+        section.error = _section_error_text(error, "Check request failed: ")
+        return section
+    except NotImplementedError as error:
+        section.error = _section_error_text(error, "Check could not run: ")
         return section
     section.succeeded = check_result.success
-    section.message = _get_connector_check_message(check_result)
+    section.message = _bounded_text(_get_connector_check_message(check_result))
     return section
 
 
@@ -2385,7 +2464,9 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
     try:
         org = workspace.get_organization(raise_on_error=False)
     except requests.RequestException as error:
-        return TroubleshootBillingSection(error=f"Organization lookup failed: {error}")
+        return TroubleshootBillingSection(
+            error=_section_error_text(error, "Organization lookup failed: ")
+        )
     if org is None:
         return TroubleshootBillingSection(
             error=(
@@ -2396,13 +2477,12 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
     try:
         info = org.get_billing_status()
     except (AirbyteError, NotImplementedError) as error:
-        reason = error.message if isinstance(error, AirbyteError) and error.message else str(error)
         return TroubleshootBillingSection(
             status=CloudOrganizationBillingStatusResult(
                 organization_id=org.organization_id,
                 organization_name=org.organization_name,
                 billing_info_available=False,
-                message=f"Billing information could not be retrieved: {reason}",
+                message=_section_error_text(error, "Billing information could not be retrieved: "),
             ),
         )
     return TroubleshootBillingSection(
@@ -2436,7 +2516,7 @@ def _troubleshoot_log_tail_section(
             if not _STACK_TRACE_LOG_LINE.match(line)
         ]
     except (AirbyteError, requests.RequestException) as error:
-        section.error = str(error)
+        section.error = _section_error_text(error)
         return section
     if not lines:
         section.message = "No logs available for this attempt."
@@ -2504,15 +2584,15 @@ def troubleshoot_cloud_connection(
     destination = connection.destination
     connection_section = TroubleshootConnectionSection(
         connection_id=connection.connection_id,
-        connection_name=connection.name or "",
+        connection_name=_bounded_text(connection.name) or "",
         connection_url=connection.connection_url,
         source=_troubleshoot_connector_section(source),
         destination=_troubleshoot_connector_section(destination),
     )
     try:
         connection_section.enabled = connection.enabled
-    except AirbyteError as error:
-        connection_section.error = str(error)
+    except (AirbyteError, requests.RequestException, ValueError) as error:
+        connection_section.error = _section_error_text(error)
 
     recent_jobs = TroubleshootRecentJobsSection()
     latest_failed_job = TroubleshootFailedJobSection()
@@ -2535,8 +2615,8 @@ def troubleshoot_cloud_connection(
             )
             for sync_result, job_status in zip(sync_results, job_statuses, strict=True)
         ]
-    except (AirbyteError, requests.RequestException) as error:
-        recent_jobs.error = str(error)
+    except (AirbyteError, requests.RequestException, NotImplementedError, ValueError) as error:
+        recent_jobs.error = _section_error_text(error)
         latest_failed_job.error = "Recent jobs unavailable; see recent_jobs.error."
         log_tail.error = "Recent jobs unavailable; see recent_jobs.error."
         sync_results = []
@@ -2570,12 +2650,21 @@ def troubleshoot_cloud_connection(
                     attempt_number=attempt.attempt_number,
                     status=attempt.status,
                     created_at=attempt.created_at.isoformat(),
-                    failures=attempt.failures,
+                    failures=[
+                        SyncAttemptFailureResult.from_failure(failure)
+                        for failure in attempt.failures
+                    ],
                 )
                 for attempt in attempts
             ]
-        except (AirbyteError, requests.RequestException) as error:
-            latest_failed_job.error = str(error)
+        except (
+            AirbyteError,
+            requests.RequestException,
+            NotImplementedError,
+            KeyError,
+            ValueError,
+        ) as error:
+            latest_failed_job.error = _section_error_text(error)
             log_tail.error = "Attempts unavailable; see latest_failed_job.error."
         else:
             if not attempts:
