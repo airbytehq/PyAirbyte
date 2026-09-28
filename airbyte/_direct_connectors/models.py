@@ -479,10 +479,35 @@ class ExternalSearchStatusResult(BaseModel):
     """The indexed sources: the connector itself for a source, or every indexed source
     synced to a destination."""
 
-    @property
-    def has_indexes(self) -> bool:
-        """Whether any stream has at least one search index."""
-        return any(stream.indexes for source in self.sources for stream in source.streams)
+
+class ConnectorEnablement(BaseModel):
+    """The Fusion features enabled for a deployed Cloud source or destination."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    enable_agent_access: bool
+    """Whether AI agents can access the connector through the Context layer."""
+
+    enable_indexing: bool
+    """Whether Airbyte indexes the connector's data for search. Requires agent access."""
+
+    organization_id: str | None = Field(default=None, alias="organizationId")
+    """The ID of the organization the connector belongs to."""
+
+    workspace_id: str | None = Field(default=None, alias="workspaceId")
+    """The ID of the workspace the connector belongs to."""
+
+    actor_id: str | None = Field(default=None, alias="actorId")
+    """The connector ID."""
+
+    actor_type: str | None = Field(default=None, alias="actorType")
+    """The connector kind, `source` or `destination`."""
+
+    enable_backfill: bool | None = None
+    """Destinations only: whether indexing backfills previously synced data."""
+
+    backfill_start_time: datetime | None = None
+    """Destinations only: the start of the backfilled time range, when set."""
 
 
 class CloudConnectorConnectionInfo(BaseModel):

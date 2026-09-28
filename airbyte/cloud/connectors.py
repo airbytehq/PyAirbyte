@@ -72,6 +72,7 @@ from airbyte._direct_connectors.actions import (
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
+    ConnectorEnablement,
     DirectAccessGuidance,
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
@@ -102,6 +103,10 @@ if TYPE_CHECKING:
 
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
+
+
+_MAX_SEARCH_LIMIT = 100
+"""The largest `limit` the Cloud search API accepts."""
 
 
 class _ConnectorDefinitionLike(Protocol):
@@ -139,6 +144,9 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._enabled_features: frozenset[ConnectorFeature] | None = None
         """Features enabled for this connector. (Cached; `None` until resolved.)"""
 
+        self._enablement: ConnectorEnablement | None = None
+        """Fusion enablement lookup result. (Cached; `None` until fetched.)"""
+
         self._context_layer_details: _DirectConnectorInspectResult | None = None
         """Context Layer `inspect` result. (Cached; `None` until fetched.)"""
 
@@ -160,15 +168,13 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.
 
-        Uses the cached feature set when available; otherwise makes only the lookup
-        needed to resolve `feature`.
+        Uses the cached feature set when available; otherwise resolves it with a single
+        enablement lookup, unless `feature` can never be enabled for this connector.
         """
         if self._enabled_features is not None:
             return feature in self._enabled_features
         if feature == ConnectorFeature.DIRECT_API_ACTION:
             return False
-        if feature == ConnectorFeature.SEARCH_INDEXING:
-            return self.workspace._is_connector_search_indexed(self)  # noqa: SLF001
         if (
             feature == ConnectorFeature.DIRECT_SQL_QUERY
             and self.connector_type == ConnectorType.SOURCE
@@ -510,8 +516,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 context={"search_type": search_type},
             ) from None
 
-        if limit is not None and limit <= 0:
-            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+        if limit is not None and not 1 <= limit <= _MAX_SEARCH_LIMIT:
+            raise exc.PyAirbyteInputError(
+                message=f"`limit` must be between 1 and {_MAX_SEARCH_LIMIT}.",
+                context={"limit": limit},
+            )
         if resolved_type == ExternalSearchType.KEYWORD and (
             min_similarity is not None or max_similarity_diff is not None
         ):
@@ -740,6 +749,28 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         )
         self._context_layer_details = parsed
         return parsed
+
+    def _fetch_enablement(self) -> ConnectorEnablement | None:
+        """Fetch and cache the Fusion features enabled for this connector.
+
+        A 403 or 404 `AirbyteError` means the connector is not enabled for any Fusion
+        feature, so `None` is returned. Any other failure (auth, server, malformed
+        response, transport) is raised to the caller.
+        """
+        if self._enablement is not None:
+            return self._enablement
+        try:
+            enablement = agents_api_util.get_cloud_connector_enablement(
+                connector_id=self.connector_id,
+                connector_type=self.connector_type,
+                credentials=self.workspace._credentials,  # noqa: SLF001
+            )
+        except exc.AirbyteError as error:
+            if not agents_api_util.is_not_enabled_error(error):
+                raise
+            return None
+        self._enablement = enablement
+        return enablement
 
     def _fetch_connector_definition(self) -> _ConnectorDefinitionLike:
         """Fetch and cache this connector's definition from the Cloud public API."""

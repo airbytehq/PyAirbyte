@@ -417,8 +417,9 @@ class CloudWorkspace:
     def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
         """Whether `feature` is enabled for this workspace.
 
-        Uses the cached feature set when available; search indexing has not launched yet,
-        so it always returns `False` without an API call.
+        Uses the cached feature set when available. There is no workspace-level search
+        indexing signal yet, so `SEARCH_INDEXING` always returns `False` without an API
+        call; check it per connector instead.
         """
         if feature == OrganizationFeature.SEARCH_INDEXING:
             return False
@@ -430,57 +431,30 @@ class CloudWorkspace:
     ) -> frozenset[ConnectorFeature]:
         """Resolve the enabled features for one connector in this workspace.
 
-        A docs probe against the Context layer reports whether the connector
-        is enabled for agent access, and a search-status probe reports whether any of
-        its streams is search-indexed.
+        A single Fusion enablement lookup reports whether agent access and search
+        indexing are enabled for the connector. Agent access maps to `DIRECT_ACCESS`,
+        plus `DIRECT_API_QUERY` for sources or `DIRECT_SQL_QUERY` for SQL passthrough
+        destinations; search indexing maps to `SEARCH_INDEXING`. A 403 or 404 means no
+        feature is enabled; any other lookup failure is raised to the caller.
         """
         if not self._has_context_layer_api():
             return frozenset()
 
-        features: set[ConnectorFeature] = set()
-        if connector.connector_type == ConnectorType.DESTINATION:
-            if (
-                connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
-                and connector._context_layer_inspect(warnings=[]) is not None  # noqa: SLF001
-            ):
-                features.update(
-                    {
-                        ConnectorFeature.DIRECT_ACCESS,
-                        ConnectorFeature.DIRECT_SQL_QUERY,
-                    }
-                )
-        elif connector._context_layer_inspect(warnings=[]) is not None:  # noqa: SLF001
-            features.update({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY})
+        enablement = connector._fetch_enablement()  # noqa: SLF001
+        if enablement is None:
+            return frozenset()
 
-        if self._is_connector_search_indexed(connector):
+        features: set[ConnectorFeature] = set()
+        if enablement.enable_agent_access:
+            features.add(ConnectorFeature.DIRECT_ACCESS)
+            if connector.connector_type == ConnectorType.SOURCE:
+                features.add(ConnectorFeature.DIRECT_API_QUERY)
+            elif connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
+                features.add(ConnectorFeature.DIRECT_SQL_QUERY)
+        if enablement.enable_indexing:
             features.add(ConnectorFeature.SEARCH_INDEXING)
 
         return frozenset(features)
-
-    def _is_connector_search_indexed(
-        self,
-        connector: cloud_connectors.CloudConnector,
-    ) -> bool:
-        """Return whether at least one of the connector's streams has a search index.
-
-        A 403 or 404 from the search-status probe means search indexing is not enabled;
-        any other failure is raised to the caller.
-        """
-        if not self._has_context_layer_api():
-            return False
-
-        try:
-            status = agents_api_util.get_cloud_connector_search_status(
-                connector_id=connector.connector_id,
-                connector_type=connector.connector_type,
-                credentials=self._credentials,
-            )
-        except AirbyteError as error:
-            if not agents_api_util.is_not_enabled_error(error):
-                raise
-            return False
-
-        return status.has_indexes
 
     # Test connection and creds
 

@@ -1048,7 +1048,6 @@ def test_search_status_parses_response(monkeypatch: pytest.MonkeyPatch) -> None:
     result = destination.get_search_status()
 
     assert isinstance(result, ExternalSearchStatusResult)
-    assert result.has_indexes
     stream = result.sources[0].streams[0]
     assert result.sources[0].connection_id == "connection-1"
     assert stream.backfill is not None
@@ -1094,6 +1093,7 @@ def test_search_rejects_malformed_response(
         ),
         pytest.param("source", {"limit": 0}, "`limit`", id="zero_limit"),
         pytest.param("source", {"limit": -1}, "`limit`", id="negative_limit"),
+        pytest.param("source", {"limit": 101}, "`limit`", id="limit_over_max"),
         pytest.param(
             "source",
             {"search_type": "keyword", "min_similarity": 0.5},
@@ -1226,3 +1226,64 @@ def test_search_methods_raise_without_context_layer(
             connector.get_search_status()
 
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("method_name", "enablement", "expect_not_enabled"),
+    [
+        pytest.param(
+            "execute_search_query",
+            {"enable_agent_access": True, "enable_indexing": False},
+            True,
+            id="search_indexing_disabled",
+        ),
+        pytest.param(
+            "execute_search_query",
+            {"enable_agent_access": True, "enable_indexing": True},
+            False,
+            id="search_indexing_enabled",
+        ),
+        pytest.param(
+            "execute_api_query",
+            {"enable_agent_access": False, "enable_indexing": False},
+            True,
+            id="agent_access_disabled",
+        ),
+        pytest.param(
+            "execute_api_query",
+            {"enable_agent_access": True, "enable_indexing": False},
+            False,
+            id="agent_access_enabled",
+        ),
+    ],
+)
+def test_forbidden_recheck_uses_enablement(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    enablement: dict[str, bool],
+    expect_not_enabled: bool,
+) -> None:
+    """A 403 re-checks the feature with one enablement call, not a docs or status probe."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    seen_paths: list[str] = []
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        seen_paths.append(kwargs["path"])
+        if kwargs["path"].endswith("/enablement"):
+            return enablement
+        raise AirbyteCloudApiError(status_code=403)
+
+    monkeypatch.setattr(agents_api_util, "make_cloud_agent_request", fake_request)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    args = ("refunds",) if method_name == "execute_search_query" else ("issues",)
+
+    expected_exc = (
+        AirbyteExternalAccessNotEnabledError
+        if expect_not_enabled
+        else AirbyteCloudApiError
+    )
+    with pytest.raises(expected_exc):
+        getattr(source, method_name)(*args)
+
+    assert seen_paths[1:] == ["/sources/source-1/enablement"]

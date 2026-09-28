@@ -1341,18 +1341,24 @@ def _describe_cloud_connector(
 
     try:
         result.enabled_features = sorted(connector.enabled_features)
-        if (
-            connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-            and connector.workspace._has_context_layer_api()  # noqa: SLF001
-        ):
-            context_layer = connector._context_layer_inspect(  # noqa: SLF001
-                warnings=warnings,
-            )
-            if context_layer is not None:
-                warnings.extend(str(warning) for warning in context_layer.warnings)
     except (AirbyteError, requests.RequestException) as error:
         result.enabled_features = FEATURES_UNKNOWN
         warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
+
+    if (
+        result.enabled_features != FEATURES_UNKNOWN
+        and ConnectorFeature.DIRECT_ACCESS in result.enabled_features
+        and connector.workspace._has_context_layer_api()  # noqa: SLF001
+    ):
+        try:
+            context_layer = connector._context_layer_inspect(  # noqa: SLF001
+                warnings=warnings,
+            )
+        except (AirbyteError, requests.RequestException) as error:
+            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+        else:
+            if context_layer is not None:
+                warnings.extend(str(warning) for warning in context_layer.warnings)
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:
@@ -1834,7 +1840,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     limit: Annotated[
         int | None,
         Field(
-            description="Maximum number of hits to return. Defaults to the backend's default.",
+            description="Maximum number of hits to return, 1 to 100. Defaults to the backend's.",
             default=None,
         ),
     ] = None,
