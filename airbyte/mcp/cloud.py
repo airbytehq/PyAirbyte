@@ -1548,6 +1548,19 @@ class CloudConnectorDetailsResult(BaseModel):
     """Fatal issues encountered while describing optional connector details."""
 
 
+def _lookup_definition_name(
+    lookup: Callable[[], str],
+    label: str,
+    warnings: list[str],
+) -> str | None:
+    """Return a connector-definition-derived name, or `None` with a warning on failure."""
+    try:
+        return lookup()
+    except AirbyteError as error:
+        warnings.append(f"{label} lookup failed: {error}")
+        return None
+
+
 def _describe_cloud_connector(
     connector: CloudConnector,
     *,
@@ -1559,16 +1572,12 @@ def _describe_cloud_connector(
     """Assemble the `describe_cloud_connector` MCP tool's result for a deployed connector."""
     connector_type = connector.connector_type
     warnings: list[str] = []
-    try:
-        integration_name = connector.integration_name
-    except AirbyteError as error:
-        warnings.append(f"Integration name lookup failed: {error}")
-        integration_name = None
-    try:
-        canonical_connector_name = connector.canonical_name
-    except AirbyteError as error:
-        warnings.append(f"Canonical connector name lookup failed: {error}")
-        canonical_connector_name = None
+    integration_name = _lookup_definition_name(
+        lambda: connector.integration_name, "Integration name", warnings
+    )
+    canonical_connector_name = _lookup_definition_name(
+        lambda: connector.canonical_name, "Canonical connector name", warnings
+    )
 
     result = CloudConnectorDetailsResult(
         connector_id=connector.connector_id,
