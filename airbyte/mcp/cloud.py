@@ -1826,6 +1826,13 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
         str,
         Field(description="The ID of the deployed source or destination to search."),
     ],
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     prompt: Annotated[
         str,
         Field(description="The search text, for example `refund requests from ACME`."),
@@ -1915,7 +1922,9 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     several enabled destinations; the IDs are listed by `get_cloud_search_status`.
     Per-index failures are reported in `warnings`.
     """
-    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    connector = _get_cloud_connector(
+        _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
+    )
     return connector.execute_search_query(
         prompt,
         search_type=search_type,
@@ -1942,6 +1951,13 @@ def get_cloud_search_status(
         str,
         Field(description="The ID of the deployed source or destination to check."),
     ],
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
     stream_name: Annotated[
         str | None,
         Field(
@@ -1963,7 +1979,9 @@ def get_cloud_search_status(
     with its destination and connection IDs, and each stream's backfill progress and
     search indexes. A stream is searchable once it has at least one index.
     """
-    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    connector = _get_cloud_connector(
+        _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
+    )
     status = connector.get_search_status()
     if stream_name is None:
         return status

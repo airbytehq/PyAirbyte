@@ -1370,7 +1370,7 @@ def test_execute_external_search_query_forwards_args(
         workspace_id=None,
     )
 
-    workspace.get_connector.assert_called_with("source-1")
+    workspace.get_connector.assert_called_with(connector_id="source-1")
     (kind, kwargs) = connector.calls[0]
     assert kind == "search"
     assert kwargs == {
@@ -1447,12 +1447,61 @@ def test_get_cloud_search_status_filters_by_stream_name(
         workspace_id=None,
     )
 
-    workspace.get_connector.assert_called_once_with("destination-1")
+    workspace.get_connector.assert_called_once_with(connector_id="destination-1")
     assert connector.calls == [("search_status", {})]
     assert [
         (source.source_id, [stream.name for stream in source.streams])
         for source in result.sources
     ] == expected
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "getter", "getter_kwarg"),
+    [
+        pytest.param(ConnectorType.SOURCE, "get_source", "source_id", id="source"),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            "get_destination",
+            "destination_id",
+            id="destination",
+        ),
+    ],
+)
+def test_search_tools_use_connector_type_without_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    getter: str,
+    getter_kwarg: str,
+) -> None:
+    """An explicit `connector_type` builds a typed connector, skipping the kind probe."""
+    connector = _RecordingExecuteConnector()
+    typed_getter = MagicMock(return_value=connector)
+    workspace = SimpleNamespace(
+        get_connector=MagicMock(side_effect=AssertionError("unexpected kind probe")),
+        **{getter: typed_getter},
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    cloud_mcp.execute_external_search_query(
+        None,
+        connector_id="connector-1",
+        connector_type=connector_type,
+        prompt="refund requests",
+        workspace_id=None,
+    )
+    cloud_mcp.get_cloud_search_status(
+        None,
+        connector_id="connector-1",
+        connector_type=connector_type,
+        workspace_id=None,
+    )
+
+    assert typed_getter.call_args_list == [
+        ((), {getter_kwarg: "connector-1"}),
+        ((), {getter_kwarg: "connector-1"}),
+    ]
+    workspace.get_connector.assert_not_called()
+    assert [kind for kind, _ in connector.calls] == ["search", "search_status"]
 
 
 def test_search_tools_are_advertised() -> None:
