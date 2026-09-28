@@ -107,6 +107,11 @@ fallback-version = "0.0.0"
 # identifies the commit it came from. Published releases pass an explicit version
 # via `UV_DYNAMIC_VERSIONING_BYPASS`, so they never carry a local segment.
 
+[tool.uv.sources]
+# TK-TODO: layered on airbytehq/fastmcp-extensions#129; remove this git source and
+# pin to the released fastmcp-extensions version before merging.
+fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", branch = "devin/1790630963-callable-segment-user-id" }
+
 [tool.hatch.metadata]
 allow-direct-references = true
 
