@@ -26,7 +26,7 @@ from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerPr
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, Status
 
-from airbyte._direct_connectors.models import ExternalApiReadOnlyAction
+from airbyte._direct_connectors.models import ExternalApiReadOnlyAction, ExternalSearchType
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
@@ -100,6 +100,9 @@ _AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
         member.value: member.value for member in ExternalApiReadOnlyAction
     },
     "execute_external_sql_query": {"sql_select": "sql_select"},
+    "execute_external_search_query": {
+        f"search_{member.value}": f"search_{member.value}" for member in ExternalSearchType
+    },
 }
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
 _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
@@ -288,13 +291,14 @@ class IntentCaptureMiddleware(Middleware):
         }
         if intent:
             attrs["airbyte.mcp.intent"] = intent
-        action = (
-            "sql_select"
-            if name == "execute_external_sql_query"
-            else (context.message.arguments or {}).get(
-                "action", ExternalApiReadOnlyAction.LIST.value
-            )
-        )
+        arguments = context.message.arguments or {}
+        if name == "execute_external_sql_query":
+            action = "sql_select"
+        elif name == "execute_external_search_query":
+            search_type = arguments.get("search_type", ExternalSearchType.HYBRID.value)
+            action = f"search_{search_type}" if isinstance(search_type, str) else None
+        else:
+            action = arguments.get("action", ExternalApiReadOnlyAction.LIST.value)
         if isinstance(action, str):
             canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
             if canonical_action is not None:
