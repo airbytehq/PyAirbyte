@@ -10,7 +10,9 @@ import socket
 from collections.abc import Iterator
 from unittest.mock import Mock
 
+import fastmcp.client.telemetry
 import fastmcp.telemetry
+import mcp.shared._otel
 import pytest
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -61,6 +63,11 @@ def otel_provider() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
             fastmcp.telemetry, "otel_get_tracer", provider.get_tracer
         )
         instrumentation.setattr(trace, "get_tracer", provider.get_tracer)
+        # In-process client spans would parent the server span; real clients are remote.
+        instrumentation.setattr(
+            fastmcp.client.telemetry, "get_tracer", lambda *_, **__: trace.NoOpTracer()
+        )
+        instrumentation.setattr(mcp.shared._otel, "_tracer", trace.NoOpTracer())
         yield provider, exporter
     provider.shutdown()
 
