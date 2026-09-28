@@ -547,6 +547,11 @@ How to use this report:
    - billing/account locked: billing.status.is_account_locked is true or the
      payment_status/subscription_status is not in good standing.
    - connection disabled: connection.enabled is false.
+   - platform/infrastructure: failure_origin airbyte_platform, or messages about
+     failing to create or launch pods/workloads, even when the checks fail too.
+     This is an Airbyte-side problem the user cannot fix by changing config;
+     retry once with run_cloud_sync, then direct the user to
+     https://status.airbyte.com and Airbyte support if it persists.
 2. Act yourself ONLY in these cases: re-run a sync with run_cloud_sync after a
    rate limit/transient failure, or cancel a stuck sync (running far longer than
    usual) with cancel_cloud_sync. If either raises SafeModeError, tell the user
@@ -575,6 +580,8 @@ How to use this report:
    get_cloud_sync_logs if you need more log lines.
 5. Report back with the root cause, the evidence (quote the failure type/message
    and the relevant check result), what you did, and what the user needs to do.
+   Only state facts this report supports; for example, do not claim the user
+   changed nothing, because this report does not include configuration history.
 """.strip()
 """Static guidance returned by `troubleshoot_cloud_connection`."""
 
@@ -2332,6 +2339,17 @@ def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootCo
     return section
 
 
+def _check_error_message(error: AirbyteError) -> str:
+    """Summarize a check that could not complete, using only public failure fields."""
+    response = (error.context or {}).get("response")
+    job_info = response.get("jobInfo") if isinstance(response, dict) else None
+    failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
+    if isinstance(failure, dict) and failure.get("externalMessage"):
+        origin = failure.get("failureOrigin") or "unknown"
+        return f"Check did not complete (failure origin: {origin}): {failure['externalMessage']}"
+    return error.get_message()
+
+
 def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckSection:
     """Run a connection check on one side of the connection."""
     section = TroubleshootCheckSection(
@@ -2341,7 +2359,7 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
     try:
         check_result = connector.check(raise_on_error=False)
     except AirbyteError as error:
-        section.error = str(error)
+        section.error = _check_error_message(error)
         return section
     section.succeeded = check_result.success
     section.message = _get_connector_check_message(check_result)
@@ -2395,7 +2413,11 @@ def _troubleshoot_log_tail_section(
         attempt_number=attempt.attempt_number,
     )
     try:
-        lines = attempt.get_full_log_text().splitlines()
+        lines = [
+            line
+            for line in attempt.get_full_log_text().splitlines()
+            if not line.lstrip().startswith("stackTrace:")
+        ]
     except AirbyteError as error:
         section.error = str(error)
         return section

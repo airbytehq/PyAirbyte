@@ -2722,6 +2722,55 @@ def test_troubleshoot_tool_annotations() -> None:
     assert annotations["openWorldHint"] is True
 
 
+def test_troubleshoot_check_error_exposes_only_public_failure_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A check that cannot complete reports its external message, not the raw response."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = AirbyteError(
+        context={
+            "response": {
+                "jobInfo": {
+                    "failureReason": {
+                        "failureOrigin": "airbyte_platform",
+                        "externalMessage": "Failed to create pod",
+                        "internalMessage": "launch",
+                        "stacktrace": "java.lang.Exception",
+                    }
+                }
+            }
+        },
+    )
+
+    error = _troubleshoot(monkeypatch, connection).source_check.error
+
+    assert (
+        error
+        == "Check did not complete (failure origin: airbyte_platform): Failed to create pod"
+    )
+
+
+def test_troubleshoot_log_tail_drops_stack_trace_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Java `stackTrace:` log lines are omitted from the log tail and its counts."""
+    log_text = "line-0\nstackTrace: [Ljava.lang.StackTraceElement;@4b6306e3\nline-1"
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", log_text)],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert log_tail.log_text == "line-0\nline-1"
+    assert log_tail.total_log_lines_available == 2
+
+
 def test_troubleshoot_guidance_classifies_and_restricts_actions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2738,6 +2787,7 @@ def test_troubleshoot_guidance_classifies_and_restricts_actions(
         "rate limit/transient",
         "billing/account locked",
         "connection disabled",
+        "platform/infrastructure",
     ]:
         assert f"- {category}:" in guidance
     for tool_name in [
@@ -2752,6 +2802,7 @@ def test_troubleshoot_guidance_classifies_and_restricts_actions(
     assert "SafeModeError" in guidance
     assert "secrets" in guidance
     assert "not a specific job" in guidance
+    assert "Only state facts this report supports" in guidance
 
 
 def test_troubleshoot_is_discoverable() -> None:
