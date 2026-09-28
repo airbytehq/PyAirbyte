@@ -417,8 +417,9 @@ class CloudWorkspace:
     def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
         """Whether `feature` is enabled for this workspace.
 
-        Uses the cached feature set when available; search indexing has not launched yet,
-        so it always returns `False` without an API call.
+        Uses the cached feature set when available. There is no workspace-level search
+        indexing signal yet, so `SEARCH_INDEXING` always returns `False` without an API
+        call; check it per connector instead.
         """
         if feature == OrganizationFeature.SEARCH_INDEXING:
             return False
@@ -430,24 +431,31 @@ class CloudWorkspace:
     ) -> frozenset[ConnectorFeature]:
         """Resolve the enabled features for one connector in this workspace.
 
-        A docs probe against the Context layer reports whether the connector
-        is enabled for agent access. Search indexing has not launched yet, so it is never
-        reported as enabled.
+        A single Fusion enablement lookup reports whether agent access and search
+        indexing are enabled for the connector. Agent access maps to `DIRECT_ACCESS`,
+        plus `DIRECT_API_QUERY` for sources or `DIRECT_SQL_QUERY` for SQL passthrough
+        destinations; search indexing maps to `SEARCH_INDEXING`. A 404 (no active
+        connector of this kind) means no feature is enabled; any other lookup failure,
+        including a 403 (no access to the workspace or connector), is raised.
         """
         if not self._has_context_layer_api():
             return frozenset()
 
-        if connector.connector_type == ConnectorType.DESTINATION:
-            if connector.definition_id not in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
-                return frozenset()
-            if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
-                return frozenset()
-            return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY})
-
-        if connector._context_layer_inspect(warnings=[]) is None:  # noqa: SLF001
+        enablement = connector._fetch_enablement()  # noqa: SLF001
+        if enablement is None:
             return frozenset()
 
-        return frozenset({ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY})
+        features: set[ConnectorFeature] = set()
+        if enablement.enable_agent_access:
+            features.add(ConnectorFeature.DIRECT_ACCESS)
+            if connector.connector_type == ConnectorType.SOURCE:
+                features.add(ConnectorFeature.DIRECT_API_QUERY)
+            elif connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
+                features.add(ConnectorFeature.DIRECT_SQL_QUERY)
+        if enablement.enable_indexing:
+            features.add(ConnectorFeature.SEARCH_INDEXING)
+
+        return frozenset(features)
 
     # Test connection and creds
 
