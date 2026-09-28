@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import mcp_types as types
 import pytest
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
@@ -33,6 +33,13 @@ UI_TOOL_NAMES = {
     "show_connection_sync_history",
 }
 REPO_ROOT = Path(__file__).parents[2]
+
+
+def test_mcp_types_aliases_mcp_types_package() -> None:
+    """`mcp.types` and `mcp_types` expose the same capability class in mcp 2."""
+    import mcp.types as shim_types
+
+    assert shim_types.ClientCapabilities is types.ClientCapabilities
 
 
 def test_mcp_extensions_header_matches_fastmcp_extensions() -> None:
@@ -163,7 +170,7 @@ async def _http_session(
             async with streamable_http_client(
                 "http://testserver/mcp",
                 http_client=http_client,
-            ) as (read_stream, write_stream, _):
+            ) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     yield session
 
