@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
+from airbyte_api.errors import SDKError
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
@@ -523,15 +524,19 @@ TROUBLESHOOT_RECENT_JOBS_LIMIT = 5
 TROUBLESHOOT_DEFAULT_MAX_LOG_LINES = 200
 """Default number of trailing log lines `troubleshoot_cloud_connection` returns."""
 TROUBLESHOOT_MAX_LOG_LINES_CAP = 1000
+TROUBLESHOOT_MAX_LOG_CHARS: Final[int] = 100_000
 _STACK_TRACE_LOG_LINE = re.compile(r"^\s*(?:\[[^\]]*\]\s*\w+:\s*)?stackTrace:")
 """Upper bound on the log lines `troubleshoot_cloud_connection` returns."""
 
 TROUBLESHOOT_CONNECTION_GUIDANCE = """
 How to use this report:
 1. Classify the root cause as exactly one of the following, using these signals:
-   - credentials/auth: a check fails with an auth error (401/403, invalid/expired
-     token, bad password, OAuth refresh failed), or failure_type is config_error
-     with an auth message.
+   - credentials/auth: a check's message (not its error) reports an auth failure
+     (401/403, invalid/expired token, bad password, OAuth refresh failed), or
+     failure_type is config_error with an auth message. A 401/403 in a section's
+     error field instead means the Airbyte credentials used by this tool lack
+     permission for that workspace; tell the user to use credentials with access
+     to it, not to change the connector's settings.
    - network/allowlist: timeouts, connection refused, unknown host, or SSL/TLS
      errors when connecting to the source or destination host.
    - permissions: authenticated but denied (permission denied, insufficient
@@ -698,6 +703,8 @@ class TroubleshootLogTailSection(BaseModel):
     """Number of lines returned."""
     total_log_lines_available: int = 0
     """Total number of log lines available for the attempt."""
+    log_text_truncated: bool = False
+    """Whether `log_text` was cut to its last `TROUBLESHOOT_MAX_LOG_CHARS` characters."""
     message: str | None = None
     """Explanation when no logs were fetched."""
     error: str | None = None
@@ -2339,7 +2346,7 @@ def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootCo
     try:
         section.connector_name = connector.name
         section.canonical_connector_name = connector.canonical_name
-    except AirbyteError as error:
+    except (AirbyteError, SDKError, requests.RequestException) as error:
         section.error = str(error)
     return section
 
@@ -2436,8 +2443,12 @@ def _troubleshoot_log_tail_section(
         section.message = "No logs available for this attempt."
         return section
     tail = lines[-max_log_lines:]
-    section.log_text = "\n".join(tail)
-    section.log_text_line_count = len(tail)
+    log_text = "\n".join(tail)
+    if len(log_text) > TROUBLESHOOT_MAX_LOG_CHARS:
+        log_text = log_text[-TROUBLESHOOT_MAX_LOG_CHARS:]
+        section.log_text_truncated = True
+    section.log_text = log_text
+    section.log_text_line_count = len(log_text.splitlines())
     section.total_log_lines_available = len(lines)
     return section
 
@@ -2535,22 +2546,22 @@ def troubleshoot_cloud_connection(
         if not sync_results:
             recent_jobs.message = "No sync jobs found for this connection."
 
-    failed_sync_result = next(
+    failed_sync_result, failed_job_status = next(
         (
-            sync_result
+            (sync_result, job_status)
             for sync_result, job_status in zip(sync_results, job_statuses, strict=True)
             if job_status in {JobStatusEnum.FAILED, JobStatusEnum.INCOMPLETE}
         ),
-        None,
+        (None, None),
     )
     if failed_sync_result is None and recent_jobs.error is None:
         latest_failed_job.message = (
             f"No failed or incomplete job among the last {TROUBLESHOOT_RECENT_JOBS_LIMIT} jobs."
         )
         log_tail.message = "No failed job, so no logs were fetched."
-    elif failed_sync_result is not None:
+    elif failed_sync_result is not None and failed_job_status is not None:
         latest_failed_job.job_id = failed_sync_result.job_id
-        latest_failed_job.status = failed_sync_result.get_job_status().value
+        latest_failed_job.status = failed_job_status.value
         latest_failed_job.job_url = failed_sync_result.job_url
         try:
             latest_failed_job.start_time = failed_sync_result.start_time.isoformat()

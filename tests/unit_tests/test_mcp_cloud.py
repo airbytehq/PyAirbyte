@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
+from airbyte_api.errors import SDKError
 from airbyte import Destination, Source
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
@@ -2808,6 +2809,11 @@ def test_troubleshoot_guidance_classifies_and_restricts_actions(
     assert "not a specific job" in guidance
     assert "Only state facts this report supports" in guidance
     assert "Only re-run when\n   latest_failed_job.status is failed" in guidance
+    flat_guidance = " ".join(guidance.split())
+    assert (
+        "A 401/403 in a section's error field instead means the Airbyte credentials"
+        in (flat_guidance)
+    )
 
 
 def test_troubleshoot_is_discoverable() -> None:
@@ -2902,3 +2908,101 @@ def test_troubleshoot_organization_transport_error_is_isolated(
     assert result.billing.error == "Organization lookup failed: dns failure"
     assert result.billing.status is None
     assert result.source_check.succeeded is True
+
+
+@dataclass
+class _RefreshingSyncResult(_TroubleshootSyncResult):
+    """Sync result whose status changes after the first lookup."""
+
+    refreshed_status: JobStatusEnum = JobStatusEnum.SUCCEEDED
+    _lookups: int = 0
+
+    def get_job_status(self) -> JobStatusEnum:
+        self._lookups += 1
+        return self.status if self._lookups == 1 else self.refreshed_status
+
+
+def test_troubleshoot_latest_failed_job_keeps_selection_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reported status is the one that qualified the job, not a later refresh."""
+    job = _RefreshingSyncResult(
+        job_id=4,
+        status=JobStatusEnum.INCOMPLETE,
+        start_time=datetime(2026, 1, 4, tzinfo=timezone.utc),
+    )
+
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(jobs=[job]))
+
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.status == "incomplete"
+
+
+class _SDKErrorConnector(_TroubleshootConnector):
+    """Connector whose definition lookup raises the generated client's `SDKError`."""
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "canonical_name":
+            raise SDKError("definition lookup failed", 500, "", requests.Response())
+        return super().__getattribute__(name)
+
+
+def test_troubleshoot_connector_definition_sdk_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An SDK error from the definition lookup fills only that connector's error."""
+    connection = _TroubleshootConnection(
+        source=_SDKErrorConnector("source-id", "source", "unused"),
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.connection.source.error is not None
+    assert "definition lookup failed" in result.connection.source.error
+    assert result.connection.source.canonical_connector_name is None
+    assert result.connection.destination.error is None
+    assert result.source_check.succeeded is True
+    assert result.billing.status is not None
+
+
+def test_troubleshoot_log_tail_is_bounded_by_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A huge log line is cut to the character cap and marked as truncated."""
+    huge_line = "x" * (cloud_mcp.TROUBLESHOOT_MAX_LOG_CHARS + 500)
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", f"first\n{huge_line}")],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert len(log_tail.log_text) == cloud_mcp.TROUBLESHOOT_MAX_LOG_CHARS
+    assert log_tail.log_text_truncated is True
+    assert log_tail.log_text_line_count == 1
+    assert log_tail.total_log_lines_available == 2
+
+
+def test_troubleshoot_log_tail_under_character_cap_is_not_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Normal-sized logs are returned whole with `log_text_truncated` false."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", "line-0\nline-1")],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert log_tail.log_text == "line-0\nline-1"
+    assert log_tail.log_text_truncated is False
