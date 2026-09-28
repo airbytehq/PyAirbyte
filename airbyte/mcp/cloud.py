@@ -10,6 +10,7 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import re
 from collections.abc import Callable
 from dataclasses import asdict
 from http import HTTPStatus
@@ -522,6 +523,7 @@ TROUBLESHOOT_RECENT_JOBS_LIMIT = 5
 TROUBLESHOOT_DEFAULT_MAX_LOG_LINES = 200
 """Default number of trailing log lines `troubleshoot_cloud_connection` returns."""
 TROUBLESHOOT_MAX_LOG_LINES_CAP = 1000
+_STACK_TRACE_LOG_LINE = re.compile(r"^\s*(?:\[[^\]]*\]\s*\w+:\s*)?stackTrace:")
 """Upper bound on the log lines `troubleshoot_cloud_connection` returns."""
 
 TROUBLESHOOT_CONNECTION_GUIDANCE = """
@@ -550,12 +552,15 @@ How to use this report:
    - platform/infrastructure: failure_origin airbyte_platform, or messages about
      failing to create or launch pods/workloads, even when the checks fail too.
      This is an Airbyte-side problem the user cannot fix by changing config;
-     retry once with run_cloud_sync, then direct the user to
+     retry once with run_cloud_sync (see rule 2), then direct the user to
      https://status.airbyte.com and Airbyte support if it persists.
 2. Act yourself ONLY in these cases: re-run a sync with run_cloud_sync after a
-   rate limit/transient failure, or cancel a stuck sync (running far longer than
-   usual) with cancel_cloud_sync. If either raises SafeModeError, tell the user
-   how to do it in the Airbyte UI instead.
+   rate limit/transient or platform/infrastructure failure, or cancel a stuck sync
+   (running far longer than usual) with cancel_cloud_sync. Only re-run when
+   latest_failed_job.status is failed: an incomplete job is still retrying, so
+   wait for it to finish (or cancel it first) rather than starting a competing
+   sync. If either raises SafeModeError, tell the user how to do it in the
+   Airbyte UI instead.
 3. Otherwise, give the user concrete steps and link the relevant page:
    connector_url for credentials, allowlist, permission or config fixes, and
    connection_url for syncs, schema and enabling the connection. Link the
@@ -2371,7 +2376,10 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
 
 def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBillingSection:
     """Resolve the workspace's organization and its billing status."""
-    org = workspace.get_organization(raise_on_error=False)
+    try:
+        org = workspace.get_organization(raise_on_error=False)
+    except requests.RequestException as error:
+        return TroubleshootBillingSection(error=f"Organization lookup failed: {error}")
     if org is None:
         return TroubleshootBillingSection(
             error=(
@@ -2419,9 +2427,9 @@ def _troubleshoot_log_tail_section(
         lines = [
             line
             for line in attempt.get_full_log_text().splitlines()
-            if not line.lstrip().startswith("stackTrace:")
+            if not _STACK_TRACE_LOG_LINE.match(line)
         ]
-    except AirbyteError as error:
+    except (AirbyteError, requests.RequestException) as error:
         section.error = str(error)
         return section
     if not lines:
@@ -2517,7 +2525,7 @@ def troubleshoot_cloud_connection(
             )
             for sync_result, job_status in zip(sync_results, job_statuses, strict=True)
         ]
-    except AirbyteError as error:
+    except (AirbyteError, requests.RequestException) as error:
         recent_jobs.error = str(error)
         latest_failed_job.error = "Recent jobs unavailable; see recent_jobs.error."
         log_tail.error = "Recent jobs unavailable; see recent_jobs.error."
@@ -2556,7 +2564,7 @@ def troubleshoot_cloud_connection(
                 )
                 for attempt in attempts
             ]
-        except AirbyteError as error:
+        except (AirbyteError, requests.RequestException) as error:
             latest_failed_job.error = str(error)
             log_tail.error = "Attempts unavailable; see latest_failed_job.error."
         else:

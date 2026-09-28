@@ -2330,12 +2330,12 @@ class _TroubleshootAttempt:
 class _TroubleshootSyncResult(_SyncResultLike):
     """`SyncResult` double that also returns attempts."""
 
-    attempts: list[_TroubleshootAttempt] | AirbyteError = dataclasses.field(
-        default_factory=list
+    attempts: list[_TroubleshootAttempt] | AirbyteError | requests.RequestException = (
+        dataclasses.field(default_factory=list)
     )
 
     def get_attempts(self) -> list[_TroubleshootAttempt]:
-        if isinstance(self.attempts, AirbyteError):
+        if isinstance(self.attempts, (AirbyteError, requests.RequestException)):
             raise self.attempts
         return self.attempts
 
@@ -2378,7 +2378,7 @@ class _TroubleshootWorkspace:
     """Subset of `CloudWorkspace` read by `troubleshoot_cloud_connection`."""
 
     connection: _TroubleshootConnection | AirbyteError
-    organization: object | None = None
+    organization: object | requests.RequestException | None = None
 
     def get_connection(self, *, connection_id: str) -> _TroubleshootConnection:
         assert connection_id == "connection-id"
@@ -2388,6 +2388,8 @@ class _TroubleshootWorkspace:
 
     def get_organization(self, *, raise_on_error: bool = True) -> object | None:
         assert raise_on_error is False
+        if isinstance(self.organization, requests.RequestException):
+            raise self.organization
         return self.organization
 
 
@@ -2418,7 +2420,7 @@ def _troubleshoot(
     monkeypatch: pytest.MonkeyPatch,
     connection: _TroubleshootConnection | AirbyteError,
     *,
-    organization: object | None = None,
+    organization: object | requests.RequestException | None = None,
     max_log_lines: int = cloud_mcp.TROUBLESHOOT_DEFAULT_MAX_LOG_LINES,
 ) -> cloud_mcp.TroubleshootConnectionResult:
     workspace = _TroubleshootWorkspace(
@@ -2805,6 +2807,7 @@ def test_troubleshoot_guidance_classifies_and_restricts_actions(
     assert "secrets" in guidance
     assert "not a specific job" in guidance
     assert "Only state facts this report supports" in guidance
+    assert "Only re-run when\n   latest_failed_job.status is failed" in guidance
 
 
 def test_troubleshoot_is_discoverable() -> None:
@@ -2838,3 +2841,64 @@ def test_troubleshoot_check_transport_error_is_isolated(
     assert result.destination_check.succeeded is None
     assert result.source_check.succeeded is True
     assert result.latest_failed_job.job_id == 4
+
+
+def test_troubleshoot_log_tail_drops_prefixed_stack_trace_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Event-formatted `[timestamp] LEVEL: stackTrace:` lines are also omitted."""
+    log_text = (
+        "[2026-09-28T11:54:32] INFO: line-0\n"
+        "[2026-09-28T11:54:33] ERROR: stackTrace: [Ljava.lang.StackTraceElement;@4b6306e3\n"
+        "[2026-09-28T11:54:34] INFO: line-1"
+    )
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", log_text)],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert log_tail.log_text == (
+        "[2026-09-28T11:54:32] INFO: line-0\n[2026-09-28T11:54:34] INFO: line-1"
+    )
+    assert log_tail.total_log_lines_available == 2
+
+
+def test_troubleshoot_attempts_transport_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A network failure loading attempts fills latest_failed_job.error only."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(4, JobStatusEnum.FAILED, attempts=requests.Timeout("read timed out"))
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.error == "read timed out"
+    assert result.log_tail.error == "Attempts unavailable; see latest_failed_job.error."
+    assert result.recent_jobs.error is None
+    assert result.billing.status is not None
+
+
+def test_troubleshoot_organization_transport_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A network failure resolving the organization fills billing.error only."""
+    result = _troubleshoot(
+        monkeypatch,
+        _TroubleshootConnection(),
+        organization=requests.ConnectionError("dns failure"),
+    )
+
+    assert result.billing.error == "Organization lookup failed: dns failure"
+    assert result.billing.status is None
+    assert result.source_check.succeeded is True
