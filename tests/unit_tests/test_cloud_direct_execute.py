@@ -198,7 +198,7 @@ def test_execute_api_query_forwards_action(
 
 
 @pytest.mark.parametrize("action", list(ExternalApiWriteAction))
-def test_execute_api_action_is_unsupported(
+def test_execute_api_action_forwards_to_cloud_api(
     monkeypatch: pytest.MonkeyPatch, action: ExternalApiWriteAction
 ) -> None:
     workspace = _make_workspace(monkeypatch)
@@ -206,14 +206,16 @@ def test_execute_api_action_is_unsupported(
     calls = _patch_execute(monkeypatch, {"data": {"id": 1}})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    with pytest.raises(
-        PyAirbyteInputError, match="write actions are not supported yet"
-    ):
-        source.execute_api_action(
-            "issues", action, {"title": "New issue"}, intent="file a bug"
-        )
+    result = source.execute_api_action(
+        "issues", action, {"title": "New issue"}, intent="file a bug"
+    )
 
-    assert calls == []
+    assert isinstance(result, ExternalApiExecuteResult)
+    body = calls[0]["request_body"]
+    assert body["entity"] == "issues"
+    assert body["action"] == action.value
+    assert body["params"] == {"title": "New issue"}
+    assert body["intent"] == "file a bug"
 
 
 @pytest.mark.parametrize(
@@ -306,12 +308,7 @@ def test_direct_methods_raise_without_context_layer(
     for connector in connectors:
         for method in (method_name, "execute_sql_query"):
             args = method_args if method == method_name else ("SELECT 1",)
-            expected_error = (
-                PyAirbyteInputError
-                if method == "execute_api_action"
-                else AirbyteExternalAccessNotEnabledError
-            )
-            with pytest.raises(expected_error):
+            with pytest.raises(AirbyteExternalAccessNotEnabledError):
                 getattr(connector, method)(*args)
 
     assert calls == []

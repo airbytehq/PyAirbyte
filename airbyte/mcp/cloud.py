@@ -1739,10 +1739,14 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
         ),
     ] = None,
 ) -> ExternalApiExecuteResult:
-    """Cloud connector write actions are not supported yet.
+    """Run a write action through a deployed Cloud connector's direct API.
 
-    Returns a clear error without executing a write. Use `execute_external_api_query`
-    for supported read actions (`list`, `get`, or `search`).
+    Creates, updates, or deletes data in the external system.
+
+    Before calling, read the connector's action docs with `get_agent_skill_docs`
+    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
+    learn the entity types, actions, and required `api_args`; argument names
+    differ per connector and are not guessable.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_action(

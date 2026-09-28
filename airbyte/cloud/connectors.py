@@ -432,10 +432,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         skip_truncation: bool = True,
         intent: str | None = None,
     ) -> ExternalApiExecuteResult:
-        """Reject unsupported Cloud writes (`create`, `update`, or `delete`).
+        """Run a write action (`create`, `update`, or `delete`) on one entity type.
 
-        Cloud connector execution currently supports read actions only. This method
-        raises `PyAirbyteInputError` without sending a request.
+        Requires external access to be enabled for this connector in its organization's
+        Context Layer settings. Connectors without an entity API fail with the Agents
+        API's own error.
         """
         try:
             resolved_action = ExternalApiWriteAction(action)
@@ -446,13 +447,15 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 context={"entity_type": entity_type, "action": action},
             ) from None
 
-        _ = api_args, select_fields, exclude_fields, skip_truncation, intent
-        raise exc.PyAirbyteInputError(
-            message="Cloud connector write actions are not supported yet.",
-            guidance=(
-                "Use execute_api_query (Python) or execute_external_api_query (MCP) for reads."
-            ),
-            context={"entity_type": entity_type, "action": resolved_action.value},
+        return self._execute_direct_action(
+            entity_type=entity_type,
+            action=resolved_action.value,
+            api_args=api_args,
+            select_fields=select_fields,
+            exclude_fields=exclude_fields,
+            skip_truncation=skip_truncation,
+            intent=intent,
+            read_only=False,
         )
 
     def execute_sql_query(
