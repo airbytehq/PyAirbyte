@@ -85,7 +85,7 @@ _SAFE_HTTP_URL = re.compile(
     r"workspaces/(?:list_by_organization_id|get_organization_info|get)|"
     r"state/(?:get|create_or_update_safe)|web_backend/connections/(?:get|update)|"
     r"users/(?:get_by_auth_id|update)|permissions/list_by_user|jobs/get|"
-    rf"(?:sources|destinations)/{_UUID_PATTERN}/execute|"
+    rf"(?:sources|destinations)/{_UUID_PATTERN}/(?:execute|search|search-status|enablement)|"
     rf"workspaces/{_UUID_PATTERN}/skills/docs)"
 )
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"

@@ -1385,11 +1385,31 @@ def test_tool_call_id_is_always_digested(app, otel_provider, request_id):
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
+_FUSION_ID = "326245c8-0000-4000-8000-000000000000"
+
+
 @pytest.mark.parametrize(
     "path,exported",
     [
         ("/jobs/get", "https://cloud.airbyte.com/api/v1/jobs/get"),
         ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
+        *[
+            (
+                f"/{kind}/{_FUSION_ID}/{route}",
+                f"https://cloud.airbyte.com/api/v1/{kind}/{_FUSION_ID}/{route}",
+            )
+            # `_Adapter` fails `/sources` requests; both kinds share one route pattern.
+            for kind in ("destinations",)
+            for route in ("execute", "search", "search-status", "enablement")
+        ],
+        (
+            "/destinations/not-a-uuid-SENTINEL/search",
+            observability.REDACTED_PLACEHOLDER,
+        ),
+        (
+            f"/destinations/{_FUSION_ID}/search-SENTINEL",
+            observability.REDACTED_PLACEHOLDER,
+        ),
     ],
 )
 def test_config_api_jobs_get_route_is_exported_and_unknown_routes_are_not(
