@@ -204,7 +204,7 @@ def _destination_connections(destination: _DestinationLike) -> list[_ConnectionL
 def build_direct_access_sql_guidance(
     destination: _DestinationLike,
     *,
-    sql_passthrough_notice: str | None = None,
+    sql_passthrough_warning: str | None = None,
 ) -> DirectAccessGuidance:
     """Build standalone sql guidance when there is no associated skill."""
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
@@ -215,12 +215,12 @@ def build_direct_access_sql_guidance(
         title=f"{destination.name} (SQL passthrough destination)",
         summary=f"Table layout and naming for the `{destination.name}` destination.",
         tags=["destination"],
-        warnings=[sql_passthrough_notice] if sql_passthrough_notice else [],
+        warnings=[sql_passthrough_warning] if sql_passthrough_warning else [],
     )
     connections = _destination_connections(destination)
     content: list[dict[str, Any]] = []
-    if sql_passthrough_notice:
-        content.append({"type": "paragraph", "text": sql_passthrough_notice})
+    if sql_passthrough_warning:
+        content.append({"type": "paragraph", "text": sql_passthrough_warning})
     content += _destination_layout_blocks(
         destination=destination,
         dialect=dialect,

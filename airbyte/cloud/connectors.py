@@ -699,7 +699,7 @@ class CloudConnector:
                     )
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
-                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
+                    sql_passthrough_warning=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
                 )
             skill_id = connector_docs.destination_skill_id(self.connector_id)
             try:
@@ -716,7 +716,7 @@ class CloudConnector:
                     raise
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
-                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+                    sql_passthrough_warning=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
                 )
             return connector_docs.merge_destination_skill_docs(server_docs, destination)
 
