@@ -63,7 +63,11 @@ class ConnectorFeature(StrEnum):
     """Optional capabilities a deployed Cloud connector may have enabled."""
 
     DIRECT_ACCESS = "direct_access"
-    """AI agents can access this connector directly (a superset of the other features)."""
+    """AI agents can access this connector directly (a superset of the other features).
+
+    Reported when agent access is enabled for the connector in its organization's
+    Context Layer settings. Search indexing requires agent access.
+    """
 
     DIRECT_API_QUERY = "direct_api_query"
     """Read-only queries against the connector's upstream API (`execute_api_query`)."""
@@ -81,9 +85,10 @@ class ConnectorFeature(StrEnum):
     """
 
     SEARCH_INDEXING = "search_indexing"
-    """Airbyte indexes the connector's data for fast search. Sources only.
+    """Airbyte indexes the connector's data for fast search (`execute_search_query`).
 
-    Not launched yet. Distinct from any native search the connector itself offers.
+    For a destination, the indexed data of the sources synced to it. Distinct from any
+    native search the connector itself offers.
     """
 
 
@@ -94,7 +99,10 @@ class OrganizationFeature(StrEnum):
     """AI agents can access the organization's connectors directly through the Context layer."""
 
     SEARCH_INDEXING = "search_indexing"
-    """Airbyte indexes connector data for fast search. Not launched yet."""
+    """Airbyte indexes connector data for fast search.
+
+    Not reported at this level yet; check `ConnectorFeature.SEARCH_INDEXING` per connector.
+    """
 
 
 class _SourceResponseLike(Protocol):

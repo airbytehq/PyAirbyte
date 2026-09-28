@@ -1450,8 +1450,11 @@ def get_connector(
 ) -> tuple[ConnectorType, models.SourceResponse | models.DestinationResponse]:
     """Get a connector of unknown kind, returning its kind with the API response.
 
-    Tries the source endpoint first, then the destination endpoint. Raises
-    `AirbyteMissingResourceError` when neither knows the ID.
+    Tries the source endpoint first, then the destination endpoint. The source lookup
+    falls through on a 404 or a 403, because the API hides a destination's existence
+    from the source endpoint behind a 403. Raises `AirbyteMissingResourceError` when
+    both lookups 404; otherwise re-raises the source lookup's error when the
+    destination lookup also 403s or 404s. Other failures (401, 5xx) raise as-is.
     """
     try:
         return ConnectorType.SOURCE, get_source(
@@ -1461,8 +1464,10 @@ def get_connector(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
-    except AirbyteMissingResourceError:
-        pass
+    except AirbyteError as error:
+        if not _is_not_found_or_forbidden(error):
+            raise
+        source_error = error
 
     try:
         return ConnectorType.DESTINATION, get_destination(
@@ -1472,11 +1477,35 @@ def get_connector(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
-    except AirbyteMissingResourceError as error:
-        raise AirbyteMissingResourceError(
-            resource_name_or_id=connector_id,
-            resource_type="connector",
-        ) from error
+    except AirbyteError as error:
+        if not _is_not_found_or_forbidden(error):
+            raise
+        if _status_code(source_error) == _status_code(error) == HTTPStatus.NOT_FOUND:
+            raise AirbyteMissingResourceError(
+                resource_name_or_id=connector_id,
+                resource_type="connector",
+            ) from error
+        raise source_error from error
+
+
+def _status_code(error: AirbyteError) -> object:
+    """Return the HTTP status code recorded in `error`'s context.
+
+    An `AirbyteMissingResourceError` without a recorded status counts as a 404.
+    """
+    status_code = (error.context or {}).get("status_code")
+    if status_code is None and isinstance(error, AirbyteMissingResourceError):
+        return HTTPStatus.NOT_FOUND
+    return status_code
+
+
+def _is_not_found_or_forbidden(error: AirbyteError) -> bool:
+    """Return whether `error` is a 404 or 403, which may just mean the other connector kind.
+
+    Checked by status code: `get_source`/`get_destination` raise
+    `AirbyteMissingResourceError` for any non-success response, including 5xx.
+    """
+    return _status_code(error) in {HTTPStatus.NOT_FOUND, HTTPStatus.FORBIDDEN}
 
 
 def get_source_definition(

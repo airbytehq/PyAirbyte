@@ -14,8 +14,14 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
+from pydantic import ValidationError
 
-from airbyte._direct_connectors.models import ExternalApiExecuteResult
+from airbyte._direct_connectors.models import (
+    ConnectorEnablement,
+    ExternalApiExecuteResult,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+)
 from airbyte._util import deployment
 from airbyte._util.api_util import (
     AIRBYTE_ANALYTIC_SOURCE_HEADER,
@@ -98,10 +104,11 @@ def _error_guidance(*, response: requests.Response) -> str | None:
 
 
 def is_not_enabled_error(error: AirbyteError) -> bool:
-    """Return whether `error` reports the connector is not enabled for agent access.
+    """Return whether `error` reports the connector is not enabled for a Fusion feature.
 
-    Only 403 and 404 responses mean that: a 404 says no docs skill exists for the
-    connector, and a 403 says the workspace or connector lacks Context layer access.
+    Only 403 and 404 responses mean that: a 404 says the Context layer has no such
+    connector (or no docs skill for it), and a 403 says the caller or connector lacks
+    Context layer access.
     Auth, server, and malformed-response failures carry other statuses and must not be
     read as "not enabled".
     """
@@ -243,6 +250,98 @@ def execute_cloud_connector_action(
         result=response["data"],
         connector_metadata=response.get("meta", {}),
     )
+
+
+def execute_cloud_connector_search(
+    *,
+    connector_id: str,
+    connector_type: ConnectorType,
+    request_body: dict[str, Any],
+    credentials: _AirbyteCredentials,
+) -> ExternalSearchResult:
+    """Search a deployed Cloud connector's indexed data via the Cloud Config API.
+
+    The connector kind selects the route: `/sources/{id}/search` for sources and
+    `/destinations/{id}/search` for destinations. The request body is forwarded as-is.
+    """
+    path = (
+        f"/sources/{connector_id}/search"
+        if connector_type == ConnectorType.SOURCE
+        else f"/destinations/{connector_id}/search"
+    )
+    response = make_cloud_agent_request(
+        method="POST",
+        path=path,
+        credentials=credentials,
+        json=request_body,
+    )
+    try:
+        return ExternalSearchResult.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud search response.",
+            context={"path": path, "errors": ex.errors(include_url=False)},
+        ) from ex
+
+
+def get_cloud_connector_search_status(
+    *,
+    connector_id: str,
+    connector_type: ConnectorType,
+    credentials: _AirbyteCredentials,
+) -> ExternalSearchStatusResult:
+    """Read a deployed Cloud connector's search indexing status via the Cloud Config API.
+
+    The connector kind selects the route: `/sources/{id}/search-status` for sources and
+    `/destinations/{id}/search-status` for destinations.
+    """
+    path = (
+        f"/sources/{connector_id}/search-status"
+        if connector_type == ConnectorType.SOURCE
+        else f"/destinations/{connector_id}/search-status"
+    )
+    response = make_cloud_agent_request(
+        method="GET",
+        path=path,
+        credentials=credentials,
+    )
+    try:
+        return ExternalSearchStatusResult.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud search-status response.",
+            context={"path": path, "errors": ex.errors(include_url=False)},
+        ) from ex
+
+
+def get_cloud_connector_enablement(
+    *,
+    connector_id: str,
+    connector_type: ConnectorType,
+    credentials: _AirbyteCredentials,
+) -> ConnectorEnablement:
+    """Read the Fusion features enabled for a deployed Cloud connector.
+
+    The connector kind selects the route: `/sources/{id}/enablement` for sources and
+    `/destinations/{id}/enablement` for destinations.
+    """
+    path = (
+        f"/sources/{connector_id}/enablement"
+        if connector_type == ConnectorType.SOURCE
+        else f"/destinations/{connector_id}/enablement"
+    )
+    response = make_cloud_agent_request(
+        method="GET",
+        path=path,
+        credentials=credentials,
+    )
+    try:
+        return ConnectorEnablement.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud enablement response.",
+            context={"path": path, "errors": ex.errors(include_url=False)},
+        ) from ex
 
 
 def read_cloud_skill_docs(
