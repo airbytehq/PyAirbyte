@@ -42,7 +42,6 @@ For the headless path, an agent mints an access token from its client id/secret
 single token both authenticates transport (verified here) and authorizes
 downstream Cloud API calls, because an Airbyte-Cloud-issued JWT is itself a valid
 Cloud API bearer.
-
 """
 
 from __future__ import annotations
