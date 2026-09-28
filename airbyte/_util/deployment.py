@@ -12,7 +12,15 @@ from typing import Literal
 
 from airbyte._util.api_util import get_config_api_root
 from airbyte.cloud.auth import resolve_cloud_api_url, resolve_cloud_config_api_url
-from airbyte.constants import AGENTS_API_ROOT_ENV_VAR, CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.constants import (
+    AGENTS_API_ROOT_ENV_VAR,
+    CLOUD_API_ROOT,
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
+)
 from airbyte.secrets.util import try_get_secret
 
 
@@ -42,20 +50,37 @@ def is_airbyte_cloud(
 DeploymentMode = Literal["CLOUD", "OSS"]
 
 
+def is_cloud_configured() -> bool:
+    """Return whether any Cloud credential or Cloud API root is configured."""
+    return any(
+        try_get_secret(env_var, default=None)
+        for env_var in (
+            CLOUD_CLIENT_ID_ENV_VAR,
+            CLOUD_BEARER_TOKEN_ENV_VAR,
+            CLOUD_API_ROOT_ENV_VAR,
+            CLOUD_CONFIG_API_ROOT_ENV_VAR,
+        )
+    )
+
+
 def get_deployment_mode(
     *,
     public_api_root: str | None = None,
     config_api_root: str | None = None,
-) -> DeploymentMode:
-    """Return "CLOUD" when the effective Cloud API roots are public Airbyte Cloud, else "OSS"."""
-    return (
-        "CLOUD"
-        if is_airbyte_cloud(
-            public_api_root=public_api_root,
-            config_api_root=config_api_root,
-        )
-        else "OSS"
-    )
+) -> DeploymentMode | None:
+    """Return "CLOUD" or "OSS" for the configured deployment, or None if unset.
+
+    Returns None when no Cloud configuration is present (local-only usage), "OSS" when
+    the effective Cloud API roots are not public Airbyte Cloud, and "CLOUD" otherwise.
+    """
+    if not is_cloud_configured():
+        return None
+    if not is_airbyte_cloud(
+        public_api_root=public_api_root,
+        config_api_root=config_api_root,
+    ):
+        return "OSS"
+    return "CLOUD"
 
 
 def is_agents_api_available(

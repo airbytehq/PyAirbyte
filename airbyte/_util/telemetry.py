@@ -26,7 +26,8 @@ Here is what is tracked:
 - The number of records processed.
 - The application hash, which is a hash of either the notebook name or Python script name.
 - Flags to help us understand if PyAirbyte is running on CI, Google Colab, or another environment.
-- Whether the configured Airbyte API is Airbyte Cloud or a self-managed (OSS) instance.
+- Whether the configured Airbyte API is Airbyte Cloud or a self-managed (OSS) instance
+  (only reported when Cloud credentials or Cloud API roots are configured).
 
 """
 
@@ -193,7 +194,7 @@ def get_env_flags() -> dict[str, Any]:
     # airbyte.cloud.auth, while this module is imported during airbyte package init.
     from airbyte._util.deployment import get_deployment_mode  # noqa: PLC0415
 
-    flags: dict[str, bool | str] = {
+    flags: dict[str, bool | str | None] = {
         "CI": meta.is_ci(),
         "DEPLOYMENT": get_deployment_mode(),
         "LANGCHAIN": meta.is_langchain(),

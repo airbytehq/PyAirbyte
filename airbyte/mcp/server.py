@@ -403,8 +403,12 @@ app = mcp_server(
         segment_write_key=segment_write_key,
         segment_user_id=SEGMENT_USER_ID,
         extra_properties=lambda: {
-            "is_hosted_mcp": is_hosted_mcp_mode(),
-            "deployment_mode": get_deployment_mode(),
+            key: value
+            for key, value in {
+                "is_hosted_mcp": is_hosted_mcp_mode(),
+                "deployment_mode": get_deployment_mode(),
+            }.items()
+            if value is not None
         },
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,

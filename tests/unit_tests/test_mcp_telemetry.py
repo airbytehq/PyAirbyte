@@ -199,6 +199,21 @@ def test_hosted_attribution_is_resolved_per_call(
     assert extra_properties() == {"is_hosted_mcp": True, "deployment_mode": "OSS"}
 
 
+def test_deployment_mode_key_omitted_when_no_cloud_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omit deployment_mode from extra properties when no Cloud config is present."""
+    monkeypatch.setattr(server, "get_deployment_mode", lambda: None)
+    telemetry = next(
+        middleware
+        for middleware in server.app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    extra_properties = telemetry._extra_properties
+    assert callable(extra_properties)
+    assert "deployment_mode" not in extra_properties()
+
+
 @pytest.mark.parametrize(
     ("disabled_env", "expected_segment"),
     [
