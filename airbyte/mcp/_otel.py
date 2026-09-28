@@ -99,6 +99,12 @@ _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
+_AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
+    "execute_external_api_query": {
+        member.value: member.value for member in ExternalApiReadOnlyAction
+    },
+    "execute_external_sql_query": {"sql_select": "sql_select"},
+}
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
 _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
     "mcp_intent", default=None
@@ -287,7 +293,15 @@ class IntentCaptureMiddleware(Middleware):
         if intent:
             attrs["airbyte.mcp.intent"] = intent
         arguments = context.message.arguments or {}
-        action = arguments.get("action", ExternalApiReadOnlyAction.LIST.value)
+        action = (
+            "sql_select"
+            if name == "execute_external_sql_query"
+            else arguments.get("action", ExternalApiReadOnlyAction.LIST.value)
+        )
+        if isinstance(action, str):
+            canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
+            if canonical_action is not None:
+                attrs["airbyte.mcp.agent.action"] = canonical_action
         if isinstance(action, str) and action in _ENTITY_TYPE_ACTIONS.get(name, ()):
             entity_type = arguments.get("entity_type")
             if (
@@ -416,14 +430,19 @@ class RedactingExporter(SpanExporter):
                 )
         attrs.update(late)
         entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
+        action = attrs.pop("airbyte.mcp.agent.action", None)
         tool_name = span.name.removeprefix("tools/call ")
-        is_execution_root = (
+        root_tool_span = (
             span.kind == SpanKind.SERVER
             and span.parent is None
             and span.name.startswith("tools/call ")
             and tool_name in _TOOL_MODULES
-            and tool_name in _ENTITY_TYPE_ACTIONS
         )
+        if root_tool_span and isinstance(action, str):
+            canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
+            if canonical_action is not None:
+                attrs["airbyte.mcp.agent.action"] = canonical_action
+        is_execution_root = root_tool_span and tool_name in _ENTITY_TYPE_ACTIONS
         if (
             is_execution_root
             and isinstance(entity_type, str)
@@ -444,6 +463,7 @@ class RedactingExporter(SpanExporter):
                     "workspace_id",
                     "organization_id",
                     "error_type",
+                    "agent.action",
                     "agent.entity_type",
                 )
                 if f"airbyte.mcp.{key}" in attrs
