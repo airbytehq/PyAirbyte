@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastmcp.server.middleware import Middleware
+from fastmcp.server.telemetry import _active_seam_span  # noqa: PLC2701
 from fastmcp_extensions import get_mcp_config
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -26,7 +27,7 @@ from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerPr
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, Status
 
-from airbyte._direct_connectors.models import ExternalApiReadOnlyAction
+from airbyte._direct_connectors.models import ExternalApiReadOnlyAction, ExternalSearchType
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
@@ -86,7 +87,7 @@ _SAFE_HTTP_URL = re.compile(
     r"workspaces/(?:list_by_organization_id|get_organization_info|get)|"
     r"state/(?:get|create_or_update_safe)|web_backend/connections/(?:get|update)|"
     r"users/(?:get_by_auth_id|update)|permissions/list_by_user|jobs/get|"
-    rf"(?:sources|destinations)/{_UUID_PATTERN}/execute|"
+    rf"(?:sources|destinations)/{_UUID_PATTERN}/(?:execute|search|search-status|enablement)|"
     rf"workspaces/{_UUID_PATTERN}/skills/docs)"
 )
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
@@ -101,6 +102,9 @@ _AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
         member.value: member.value for member in ExternalApiReadOnlyAction
     },
     "execute_external_sql_query": {"sql_select": "sql_select"},
+    "execute_external_search_query": {
+        f"search_{member.value}": f"search_{member.value}" for member in ExternalSearchType
+    },
 }
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
 _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
@@ -311,12 +315,16 @@ class IntentCaptureMiddleware(Middleware):
         # FastMCP 4 opens a single seam SERVER span *above* the middleware
         # chain (later renamed to `tools/call <name>`), so `on_start` stamping
         # runs before this middleware exists; stamp the in-flight span here.
+        nested = _INTENT_ATTRIBUTES.get() is not None
         try:
             current_span = trace.get_current_span()
-            if current_span.is_recording():
+            if current_span.is_recording() and not nested:
                 current_span.set_attributes(attrs)
         except Exception:
             logger.debug("Intent stamping skipped")
+        # FastMCP enriches the active seam span for in-process calls; give nested
+        # calls their own child span so they cannot rename or relabel the outer one.
+        seam_token = _active_seam_span.set(None) if nested else None
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
             return await call_next(context)
@@ -337,6 +345,8 @@ class IntentCaptureMiddleware(Middleware):
             raise
         finally:
             _INTENT_ATTRIBUTES.reset(token)
+            if seam_token is not None:
+                _active_seam_span.reset(seam_token)
 
     @staticmethod
     def _attributes(
@@ -360,13 +370,14 @@ class IntentCaptureMiddleware(Middleware):
         }
         if intent:
             attrs["airbyte.mcp.intent"] = intent
-        action = (
-            "sql_select"
-            if name == "execute_external_sql_query"
-            else (context.message.arguments or {}).get(
-                "action", ExternalApiReadOnlyAction.LIST.value
-            )
-        )
+        arguments = context.message.arguments or {}
+        if name == "execute_external_sql_query":
+            action = "sql_select"
+        elif name == "execute_external_search_query":
+            search_type = arguments.get("search_type", ExternalSearchType.HYBRID.value)
+            action = f"search_{search_type}" if isinstance(search_type, str) else None
+        else:
+            action = arguments.get("action", ExternalApiReadOnlyAction.LIST.value)
         if isinstance(action, str):
             canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
             if canonical_action is not None:
