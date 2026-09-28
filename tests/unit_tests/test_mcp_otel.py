@@ -960,6 +960,12 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         else:
             assert f"airbyte.mcp.{field}" not in attributes
             assert field not in metadata
+    if valid_ids:
+        assert attributes["airbyte.mcp.scope_source"] == "header"
+        if vendor == "datadog":
+            assert metadata["scope_source"] == "header"
+    else:
+        assert "airbyte.mcp.scope_source" not in attributes
     if vendor == "datadog":
         assert metadata["intent"] == "Inspect state"
         assert metadata["intent_present"] is True
@@ -1475,6 +1481,6 @@ def test_default_workspace_resolved_by_the_tool_is_exported(
         )
     )
     assert not result.json()["result"].get("isError")
-    assert (
-        _tool_span(otel_provider).attributes["airbyte.mcp.workspace_id"] == workspace_id
-    )
+    attributes = _tool_span(otel_provider).attributes
+    assert attributes["airbyte.mcp.workspace_id"] == workspace_id
+    assert attributes["airbyte.mcp.scope_source"] == "default"

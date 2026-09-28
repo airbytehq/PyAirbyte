@@ -396,6 +396,7 @@ class IntentCaptureMiddleware(Middleware):
                 for attribute, value in (
                     ("airbyte.mcp.workspace_id", scope.workspace_id),
                     ("airbyte.mcp.organization_id", scope.organization_id),
+                    ("airbyte.mcp.scope_source", scope.scope_source),
                 )
                 if value
             }
@@ -408,7 +409,12 @@ def _record_default_workspace() -> None:
     scope = current_call_scope()
     if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
         try:
-            _record_late_attributes({"airbyte.mcp.workspace_id": scope.workspace_id})
+            _record_late_attributes(
+                {
+                    "airbyte.mcp.workspace_id": scope.workspace_id,
+                    "airbyte.mcp.scope_source": "default",
+                }
+            )
         except Exception:
             logger.debug("Default workspace capture skipped")
 
@@ -539,6 +545,7 @@ class RedactingExporter(SpanExporter):
                     "tool_module",
                     "workspace_id",
                     "organization_id",
+                    "scope_source",
                     "error_type",
                     "agent.action",
                 )
