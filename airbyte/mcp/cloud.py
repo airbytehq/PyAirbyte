@@ -1349,7 +1349,7 @@ def _describe_cloud_connector(
         integration_name = None
 
     try:
-        features = connector.get_enabled_features(warnings=warnings)
+        features = connector._get_enabled_features(warnings=warnings)  # noqa: SLF001
         enabled_features: list[ConnectorFeature] | FeaturesUnknown = (
             FEATURES_UNKNOWN if features is None else sorted(features)
         )

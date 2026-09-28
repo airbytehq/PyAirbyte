@@ -1763,7 +1763,7 @@ class _DescribedConnector:
             raise self._integration_name
         return self._integration_name
 
-    def get_enabled_features(
+    def _get_enabled_features(
         self, *, warnings: list[str]
     ) -> frozenset[ConnectorFeature]:
         if self.workspace._has_context_layer_api():
@@ -2266,7 +2266,7 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
     """A feature-probe failure marks `enabled_features` `"unknown"` with a warning."""
 
     class _FailingFeaturesConnector(_DescribedConnector):
-        def get_enabled_features(
+        def _get_enabled_features(
             self, *, warnings: list[str]
         ) -> frozenset[ConnectorFeature]:
             raise AirbyteCloudApiError(status_code=504)

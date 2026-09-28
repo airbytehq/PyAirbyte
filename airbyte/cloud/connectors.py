@@ -163,7 +163,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._connector_definition: _ConnectorDefinitionLike | None = None
         """The connector definition lookup result. (Cached; `None` until fetched.)"""
 
-    def get_enabled_features(
+    def _get_enabled_features(
         self, *, warnings: list[str] | None = None
     ) -> frozenset[ConnectorFeature] | None:
         """Resolve connector features, optionally collecting unavailable-docs warnings.
@@ -184,11 +184,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     @property
     def enabled_features(self) -> frozenset[ConnectorFeature]:
-        """Known enabled features; unavailable probes yield an empty set.
-
-        Use `get_enabled_features()` to distinguish unknown support from no features.
-        """
-        return self.get_enabled_features() or frozenset()
+        """Known enabled features; unavailable probes yield an empty set."""
+        return self._get_enabled_features() or frozenset()
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.

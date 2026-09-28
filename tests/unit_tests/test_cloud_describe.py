@@ -837,7 +837,7 @@ def test_unavailable_features_warn_without_caching_absence(
     source = _seed_source(workspace, "source-1", "GitHub")
     warnings: list[str] = []
 
-    assert source.get_enabled_features(warnings=warnings) is None
+    assert source._get_enabled_features(warnings=warnings) is None  # noqa: SLF001
     assert source._enabled_features is None  # noqa: SLF001
     assert len(warnings) == 1
     assert "unavailable" in warnings[0]
@@ -979,7 +979,7 @@ def test_describe_stringifies_structured_probe_warnings(
     if cache_path == "inspect":
         source._context_layer_inspect(warnings=[])  # noqa: SLF001
     elif cache_path == "features":
-        source.get_enabled_features()
+        source._get_enabled_features()  # noqa: SLF001
 
     result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
         source,
