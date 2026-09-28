@@ -35,15 +35,33 @@ else:
     # Stringify the check result to get the error message
     print(f"Check failed: {check_result}")
 ```
+
+Search a source's indexed data, once search indexing is enabled for it:
+
+```python
+from airbyte.cloud import ExternalSearchType
+
+print(cloud_source.get_search_status())
+
+search_result = cloud_source.execute_search_query(
+    "refund requests from ACME",
+    search_type=ExternalSearchType.KEYWORD,
+    limit=5,
+)
+for hit in search_result.hits:
+    print(hit.stream_name, hit.entity_id, hit.score)
+```
 """
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
 import requests
 import yaml
+from pydantic import ValidationError
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
@@ -55,10 +73,15 @@ from airbyte._direct_connectors.actions import (
 from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
     _SQL_PASSTHROUGH_DESTINATION_NAMES,
+    ConnectorEnablement,
     DirectAccessGuidance,
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+    ExternalSearchStreamFilter,
+    ExternalSearchType,
     _DirectConnectorInspectResult,
 )
 from airbyte._util import api_util, text_util
@@ -77,8 +100,20 @@ from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
+
+
+_MAX_SEARCH_LIMIT = 100
+"""The largest `limit` the Cloud search API accepts."""
+
+_SEARCH_NOT_ENABLED_GUIDANCE = (
+    "Search requires search indexing to be enabled for this connector, or for a source "
+    "synced to this destination. Check `enabled_features` on the connector for "
+    "`search_indexing`."
+)
 
 
 class _ConnectorDefinitionLike(Protocol):
@@ -116,6 +151,13 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._enabled_features: frozenset[ConnectorFeature] | None = None
         """Features enabled for this connector. (Cached; `None` until resolved.)"""
 
+        self._enablement: ConnectorEnablement | None = None
+        """Fusion enablement lookup result. (Cached; `None` until fetched.)"""
+
+        self._enablement_error: exc.AirbyteError | None = None
+        """The 404 (no active connector of this kind) that answered the enablement
+        lookup, if any. (Cached; other failures, including 403s, are never cached.)"""
+
         self._context_layer_details: _DirectConnectorInspectResult | None = None
         """Context Layer `inspect` result. (Cached; `None` until fetched.)"""
 
@@ -137,15 +179,13 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.
 
-        Uses the cached feature set when available; otherwise makes only the lookup
-        needed to resolve `feature`.
+        Uses the cached feature set when available; otherwise resolves it with a single
+        enablement lookup, unless `feature` can never be enabled for this connector.
+        Enablement lookup failures other than a 404, including a 403, are raised.
         """
         if self._enabled_features is not None:
             return feature in self._enabled_features
-        if feature in {
-            ConnectorFeature.DIRECT_API_ACTION,
-            ConnectorFeature.SEARCH_INDEXING,
-        }:
+        if feature == ConnectorFeature.DIRECT_API_ACTION:
             return False
         if (
             feature == ConnectorFeature.DIRECT_SQL_QUERY
@@ -456,6 +496,175 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             read_only=True,
         )
 
+    def execute_search_query(  # noqa: PLR0913  # Explicit args are the point of this public API.
+        self,
+        prompt: str,
+        *,
+        search_type: ExternalSearchType = ExternalSearchType.HYBRID,
+        limit: int | None = None,
+        streams: Sequence[ExternalSearchStreamFilter | dict[str, Any]] | None = None,
+        lookback_seconds: int | None = None,
+        max_context_chars: int | None = None,
+        min_similarity: float | None = None,
+        max_similarity_diff: float | None = None,
+        destination_id: str | None = None,
+    ) -> ExternalSearchResult:
+        """Search this connector's indexed data.
+
+        A source searches its own indexed streams; a destination searches every indexed
+        source synced to it. `min_similarity` and `max_similarity_diff` apply only to
+        `semantic` and `hybrid` searches. `destination_id` selects the destination for a
+        source synced to more than one enabled destination. Arguments left as `None` are
+        omitted so the backend defaults apply. Requires search indexing to be enabled for
+        this connector.
+        """
+        self._require_context_layer_api()
+        try:
+            resolved_type = ExternalSearchType(search_type)
+        except ValueError:
+            raise exc.PyAirbyteInputError(
+                message=f"The {search_type!r} search type is not valid.",
+                guidance="Use one of: keyword, semantic, hybrid.",
+                context={"search_type": search_type},
+            ) from None
+
+        if limit is not None and not 1 <= limit <= _MAX_SEARCH_LIMIT:
+            raise exc.PyAirbyteInputError(
+                message=f"`limit` must be between 1 and {_MAX_SEARCH_LIMIT}.",
+                context={"limit": limit},
+            )
+        if resolved_type == ExternalSearchType.KEYWORD and (
+            min_similarity is not None or max_similarity_diff is not None
+        ):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "`min_similarity` and `max_similarity_diff` do not apply to keyword search."
+                ),
+                guidance="Use a `semantic` or `hybrid` search, or omit these arguments.",
+            )
+        if destination_id is not None and self.connector_type == ConnectorType.DESTINATION:
+            raise exc.PyAirbyteInputError(
+                message="`destination_id` applies only to source-level search.",
+                guidance="Omit `destination_id` when searching a destination.",
+                context={"connector_id": self.connector_id},
+            )
+
+        try:
+            resolved_streams = (
+                None
+                if streams is None
+                else [
+                    ExternalSearchStreamFilter.model_validate(stream).model_dump(exclude_none=True)
+                    for stream in streams
+                ]
+            )
+        except ValidationError as ex:
+            raise exc.PyAirbyteInputError(
+                message="A `streams` entry is invalid.",
+                guidance=(
+                    "Each stream needs a `stream_name`, plus optional `source_id`, "
+                    "`namespace`, and `fields`."
+                ),
+                context={"errors": ex.errors(include_url=False)},
+            ) from None
+
+        optional_fields: dict[str, Any] = {
+            "limit": limit,
+            "streams": resolved_streams,
+            "lookback_s": lookback_seconds,
+            "max_context_chars": max_context_chars,
+            "min_similarity": min_similarity,
+            "max_similarity_diff": max_similarity_diff,
+            "destination_id": destination_id,
+        }
+        request_body: dict[str, Any] = {
+            "type": resolved_type.value,
+            "prompt": prompt,
+            **{key: value for key, value in optional_fields.items() if value is not None},
+        }
+
+        try:
+            return agents_api_util.execute_cloud_connector_search(
+                connector_id=self.connector_id,
+                connector_type=self.connector_type,
+                request_body=request_body,
+                credentials=self.workspace._credentials,  # noqa: SLF001
+            )
+        except exc.AirbyteError as error:
+            self._raise_if_feature_not_enabled(
+                error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
+            )
+            raise
+
+    def get_search_status(self) -> ExternalSearchStatusResult:
+        """Report search indexing status for this connector.
+
+        A source reports its own indexed streams; a destination reports every indexed
+        source synced to it. Requires search indexing to be enabled for this connector.
+        """
+        self._require_context_layer_api()
+        try:
+            return agents_api_util.get_cloud_connector_search_status(
+                connector_id=self.connector_id,
+                connector_type=self.connector_type,
+                credentials=self.workspace._credentials,  # noqa: SLF001
+            )
+        except exc.AirbyteError as error:
+            self._raise_if_feature_not_enabled(
+                error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
+            )
+            raise
+
+    def _raise_if_feature_not_enabled(
+        self,
+        error: exc.AirbyteError,
+        feature: ConnectorFeature,
+        *,
+        guidance: str | None = None,
+    ) -> None:
+        """Map a forbidden or not-found `error` to a clear error, when one applies.
+
+        Only a 403 or 404 is re-checked against the connector's enablement, and only an
+        enablement lookup reporting `feature` as disabled raises
+        `AirbyteExternalAccessNotEnabledError`. When the enablement lookup itself fails,
+        `error` is re-raised instead: with wrong-ID guidance on a 404 (no connector of
+        this kind), with access guidance on a 403, and as-is otherwise. When `feature` is
+        enabled, this returns.
+        """
+        if not agents_api_util.is_not_enabled_error(error):
+            return
+        try:
+            enabled = self.is_feature_enabled(feature)
+        except (exc.AirbyteError, requests.RequestException, ValueError) as lookup_error:
+            if (
+                isinstance(lookup_error, exc.AirbyteCloudApiError)
+                and lookup_error.status_code == HTTPStatus.FORBIDDEN
+            ):
+                error.guidance = (
+                    "Airbyte Cloud denied access to this connector's settings. Check that "
+                    "the credentials have access to the workspace and connector."
+                )
+            raise error from None
+        if enabled:
+            return
+        if (
+            isinstance(self._enablement_error, exc.AirbyteCloudApiError)
+            and self._enablement_error.status_code == HTTPStatus.NOT_FOUND
+        ):
+            error.guidance = (
+                f"Airbyte Cloud has no active {self.connector_type} with ID "
+                f"{self.connector_id!r}. Check the connector ID, and that `connector_type` "
+                "(when given) matches the connector's actual type."
+            )
+            raise error
+        not_enabled = exc.AirbyteExternalAccessNotEnabledError(
+            connector_name=(self._connector_info.name if self._connector_info else None),
+            connector_id=self.connector_id,
+        )
+        if guidance is not None:
+            not_enabled.guidance = guidance
+        raise not_enabled from error
+
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
         *,
@@ -518,19 +727,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
         except exc.AirbyteError as error:
-            if agents_api_util.is_not_enabled_error(error):
-                try:
-                    enabled = self.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-                except (exc.AirbyteError, requests.RequestException, ValueError):
-                    raise error from None
-                if not enabled:
-                    raise exc.AirbyteExternalAccessNotEnabledError(
-                        connector_name=(
-                            self._connector_info.name if self._connector_info else None
-                        ),
-                        connector_id=self.connector_id,
-                    ) from error
-
+            self._raise_if_feature_not_enabled(error, ConnectorFeature.DIRECT_ACCESS)
             raise
 
         return response
@@ -582,6 +779,32 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         )
         self._context_layer_details = parsed
         return parsed
+
+    def _fetch_enablement(self) -> ConnectorEnablement | None:
+        """Fetch and cache the Fusion features enabled for this connector.
+
+        A 404 means Airbyte Cloud has no active connector of this kind with this ID, so
+        `None` is returned and the error is cached in `_enablement_error`. Any other
+        failure, including a 403 (the caller lacks access to the workspace or connector),
+        is raised to the caller and not cached.
+        """
+        if self._enablement is not None:
+            return self._enablement
+        if self._enablement_error is not None:
+            return None
+        try:
+            enablement = agents_api_util.get_cloud_connector_enablement(
+                connector_id=self.connector_id,
+                connector_type=self.connector_type,
+                credentials=self.workspace._credentials,  # noqa: SLF001
+            )
+        except exc.AirbyteCloudApiError as error:
+            if error.status_code != HTTPStatus.NOT_FOUND:
+                raise
+            self._enablement_error = error
+            return None
+        self._enablement = enablement
+        return enablement
 
     def _fetch_connector_definition(self) -> _ConnectorDefinitionLike:
         """Fetch and cache this connector's definition from the Cloud public API."""
