@@ -125,7 +125,7 @@ def test_requested_action_survives_real_tool_execution(
         arguments.update(sql=SENTINEL, sql_dialect="snowflake")
     else:
         arguments.update(
-            action=action, entity_type=SENTINEL, api_args={"credential": SENTINEL}
+            action=action, entity_type="contacts", api_args={"credential": SENTINEL}
         )
     asyncio.run(_call(agents_app, arguments, name=name))
     assert execute.call_args.kwargs["request_body"]["action"] == action
@@ -153,7 +153,7 @@ def test_valid_request_is_recorded_despite_later_failure(
     monkeypatch.setattr(
         cloud, "_get_cloud_workspace", Mock(return_value=Mock(get_connector=lookup))
     )
-    arguments = {"action": "list", "connector_id": SENTINEL, "entity_type": SENTINEL}
+    arguments = {"action": "list", "connector_id": SENTINEL, "entity_type": "contacts"}
     if failure == "validation":
         arguments.pop("connector_id")
     elif failure == "lookup":
