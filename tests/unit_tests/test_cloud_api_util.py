@@ -1474,6 +1474,40 @@ def test_get_connector_error_fallback(
     assert get_destination.called is expect_destination_call
 
 
+def test_get_connector_does_not_fall_back_on_non_raised_5xx_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 5xx the SDK returns instead of raising is not read as "maybe a destination"."""
+    get_destination = Mock()
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(
+                return_value=SimpleNamespace(
+                    status_code=500,
+                    source_response=None,
+                    raw_response=SimpleNamespace(text="boom", url="https://api"),
+                ),
+            ),
+        ),
+        destinations=SimpleNamespace(get_destination=get_destination),
+    )
+    monkeypatch.setattr(
+        api_util, "get_airbyte_server_instance", lambda **_: airbyte_instance
+    )
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        api_util.get_connector(
+            "connector-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert (exc_info.value.context or {})["status_code"] == 500
+    get_destination.assert_not_called()
+
+
 def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
