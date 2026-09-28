@@ -14,14 +14,11 @@ from fastmcp_extensions import ToolCallTelemetryMiddleware
 from segment import analytics
 
 from airbyte import constants
-from airbyte._util import meta
+from airbyte._util import meta, telemetry
 from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp import server
 from airbyte.secrets import config as secrets_config
 from airbyte.secrets.prompt import SecretsPrompt
-
-
-_DUMMY_SEGMENT_WRITE_KEY = "dummy-segment-write-key"
 
 
 @pytest.fixture(autouse=True)
@@ -30,24 +27,13 @@ def force_online_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", False)
 
 
-def test_segment_write_key_defaults_to_app_tracking_key(
+def test_segment_write_key_uses_mcp_tracking_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The telemetry key defaults to PyAirbyte's application key."""
-    monkeypatch.delenv(server.SEGMENT_WRITE_KEY_ENV, raising=False)
+    """The MCP server uses PyAirbyte's MCP application key."""
     monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
 
-    assert server._segment_write_key() == server.PYAIRBYTE_APP_TRACKING_KEY
-
-
-def test_segment_write_key_uses_env_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The MCP server can use a deployment-specific Segment key."""
-    monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert server._segment_write_key() == _DUMMY_SEGMENT_WRITE_KEY
+    assert server._segment_write_key() == server.PYAIRBYTE_MCP_TRACKING_KEY
 
 
 def test_segment_write_key_respects_do_not_track(
@@ -55,7 +41,6 @@ def test_segment_write_key_respects_do_not_track(
 ) -> None:
     """The telemetry sink is disabled when tracking is opted out."""
     monkeypatch.setenv(server.DO_NOT_TRACK, "1")
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
 
     assert server._segment_write_key() is None
 
@@ -65,7 +50,6 @@ def test_segment_write_key_respects_offline_mode(
 ) -> None:
     """Offline mode disables the external Segment sink."""
     monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(server.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
     monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", True)
 
     assert server._segment_write_key() is None
@@ -77,7 +61,6 @@ def test_segment_write_key_rechecks_runtime_offline_mode() -> None:
     child_env.pop("AIRBYTE_OFFLINE_MODE", None)
     child_env.pop("AIRBYTE_MCP_ENV_FILE", None)
     child_env.pop(server.DO_NOT_TRACK, None)
-    child_env[server.SEGMENT_WRITE_KEY_ENV] = _DUMMY_SEGMENT_WRITE_KEY
     child_script = f"""
 import os
 
@@ -94,7 +77,7 @@ if server._segment_write_key() is not None:
     raise SystemExit("runtime offline mode did not disable Segment")
 
 os.environ["AIRBYTE_OFFLINE_MODE"] = "false"
-if server._segment_write_key() != {_DUMMY_SEGMENT_WRITE_KEY!r}:
+if server._segment_write_key() != {server.PYAIRBYTE_MCP_TRACKING_KEY!r}:
     raise SystemExit("runtime false offline mode did not restore the Segment key")
 """
     result = subprocess.run(
@@ -111,6 +94,61 @@ if server._segment_write_key() != {_DUMMY_SEGMENT_WRITE_KEY!r}:
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+
+
+@pytest.mark.parametrize("mcp_mode", [False, True])
+def test_get_segment_write_key_uses_runtime_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_mode: bool,
+) -> None:
+    """The telemetry key follows the active runtime mode."""
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
+
+    expected_key = (
+        telemetry.PYAIRBYTE_MCP_TRACKING_KEY
+        if mcp_mode
+        else telemetry.PYAIRBYTE_APP_TRACKING_KEY
+    )
+    assert telemetry.get_segment_write_key() == expected_key
+
+
+def test_get_env_flags_reflects_mcp_mode_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP mode is refreshed even after environment flags are first read."""
+    telemetry._get_static_env_flags.cache_clear()
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", False)
+
+    assert "MCP" not in telemetry.get_env_flags()
+
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+
+    assert telemetry.get_env_flags()["MCP"] is True
+
+
+def test_send_telemetry_uses_mcp_tracking_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP telemetry is sent with the MCP application's Segment key."""
+    post_calls: list[dict[str, object]] = []
+
+    def fake_post(*_: object, **kwargs: object) -> None:
+        post_calls.append(kwargs)
+
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+    monkeypatch.setattr(telemetry, "AIRBYTE_OFFLINE_MODE", False)
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(telemetry.requests, "post", fake_post)
+
+    telemetry.send_telemetry(
+        source=None,
+        destination=None,
+        cache=None,
+        state=telemetry.EventState.STARTED,
+        event_type=telemetry.EventType.SYNC,
+    )
+
+    assert post_calls[0]["auth"] == (telemetry.PYAIRBYTE_MCP_TRACKING_KEY, "")
 
 
 def test_importing_server_does_not_enable_mcp_mode() -> None:
@@ -214,7 +252,6 @@ def test_module_level_registration_configures_telemetry(
     child_env = os.environ.copy()
     child_env.pop(server.DO_NOT_TRACK, None)
     child_env.pop("AIRBYTE_OFFLINE_MODE", None)
-    child_env[server.SEGMENT_WRITE_KEY_ENV] = _DUMMY_SEGMENT_WRITE_KEY
     if disabled_env is not None:
         child_env[disabled_env] = "1"
 
