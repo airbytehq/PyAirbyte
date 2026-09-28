@@ -24,6 +24,7 @@ from airbyte.constants import MCP_EXTENSIONS_HEADER
 from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
+from fastmcp_extensions.capability_tokens import decode_capability_token
 
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
@@ -218,10 +219,10 @@ def test_stateless_http_initialize_capabilities_survive_via_session_token(
     assert UI_TOOL_NAMES <= names
 
 
-def test_stateless_http_without_extensions_mints_no_session_token(
+def test_stateless_http_without_extensions_mints_extensionless_session_token(
     configure_client_capabilities: Any,
 ) -> None:
-    """Clients without extensions receive no session token or UI tools."""
+    """Clients without extensions get a session token that grants no UI tools."""
     response_headers: list[list[tuple[bytes, bytes]]] = []
     names = asyncio.run(
         _tool_names(
@@ -233,11 +234,14 @@ def test_stateless_http_without_extensions_mints_no_session_token(
         )
     )
     assert UI_TOOL_NAMES.isdisjoint(names)
-    assert all(
-        header_name.lower() != b"mcp-session-id"
+    tokens = [
+        value.decode("latin-1")
         for headers in response_headers
-        for header_name, _ in headers
-    )
+        for header_name, value in headers
+        if header_name.lower() == b"mcp-session-id"
+    ]
+    assert tokens
+    assert all(decode_capability_token(token) == set() for token in tokens)
 
 
 @pytest.mark.parametrize(
