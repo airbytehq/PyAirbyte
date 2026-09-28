@@ -191,11 +191,13 @@ def test_hosted_attribution_is_resolved_per_call(
     )
     extra_properties = telemetry._extra_properties
     assert callable(extra_properties)
-    assert extra_properties() == {"is_hosted_mcp": False}
+    assert extra_properties()["is_hosted_mcp"] is False
+    assert extra_properties()["transport"] == "stdio"
 
     set_hosted_mcp_mode()
 
-    assert extra_properties() == {"is_hosted_mcp": True}
+    assert extra_properties()["is_hosted_mcp"] is True
+    assert extra_properties()["transport"] == "streamable-http"
 
 
 @pytest.mark.parametrize(

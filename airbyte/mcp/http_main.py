@@ -146,6 +146,7 @@ from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
 )
+from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
     HostOriginGuardMiddleware,
@@ -158,6 +159,7 @@ from airbyte.mcp.server import (
     MCP_SERVER_URL_ENV,
     _env_or_default,
     app,
+    lifecycle_telemetry_sinks,
 )
 from airbyte.version import get_version
 
@@ -322,7 +324,11 @@ def main() -> None:
 
     def wrap_http_app(http_app: ASGIApp) -> ASGIApp:
         return HostOriginGuardMiddleware(
-            wrap_if_enabled(SessionIdHeaderDigest(http_app)),
+            McpRequestTelemetryMiddleware(
+                wrap_if_enabled(SessionIdHeaderDigest(http_app)),
+                sinks=lifecycle_telemetry_sinks,
+                mcp_path=mcp_path,
+            ),
             allowed_hosts,
         )
 

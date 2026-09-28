@@ -1049,6 +1049,7 @@ def test_wrap_http_app_places_session_digest_innermost(
         assert wrapped is not None, chain
     assert chain[-1] == "SessionIdHeaderDigest"
     assert chain.count("SessionIdHeaderDigest") == 1
+    assert chain[1] == "McpRequestTelemetryMiddleware"
     assert captured["stateless_http"] is True
 
 
