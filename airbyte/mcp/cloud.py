@@ -29,6 +29,7 @@ from airbyte._direct_connectors.models import (
     ExternalApiWriteAction,
     ExternalSearchResult,
     ExternalSearchStatusResult,
+    ExternalSearchStreamStatus,
     ExternalSearchType,
 )
 from airbyte._util import api_util
@@ -204,6 +205,11 @@ CONNECTOR_TYPE_TIP_TEXT = (
     "Optional: `source` or `destination`. When omitted, the connector type is "
     "resolved automatically from the connector ID (one extra API call)."
 )
+SEARCH_CONNECTOR_TYPE_TIP_TEXT = (
+    CONNECTOR_TYPE_TIP_TEXT + " When given, it must match the connector's actual type."
+)
+_MAX_LISTED_STREAMS = 20
+"""The most stream names listed in a stream-filter warning."""
 
 
 def _get_cloud_connector(
@@ -1829,7 +1835,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     connector_type: Annotated[
         ConnectorType | None,
         Field(
-            description=CONNECTOR_TYPE_TIP_TEXT,
+            description=SEARCH_CONNECTOR_TYPE_TIP_TEXT,
             default=None,
         ),
     ] = None,
@@ -1954,7 +1960,7 @@ def get_cloud_search_status(
     connector_type: Annotated[
         ConnectorType | None,
         Field(
-            description=CONNECTOR_TYPE_TIP_TEXT,
+            description=SEARCH_CONNECTOR_TYPE_TIP_TEXT,
             default=None,
         ),
     ] = None,
@@ -1962,6 +1968,13 @@ def get_cloud_search_status(
         str | None,
         Field(
             description="Optional stream name to report. Omit to report every stream.",
+            default=None,
+        ),
+    ] = None,
+    namespace: Annotated[
+        str | None,
+        Field(
+            description="Optional stream namespace to report. Omit to report every namespace.",
             default=None,
         ),
     ] = None,
@@ -1978,29 +1991,46 @@ def get_cloud_search_status(
     A destination reports every indexed source synced to it. Lists each indexed source
     with its destination and connection IDs, and each stream's backfill progress and
     search indexes. A stream is searchable once it has at least one index.
+
+    `stream_name` and `namespace` filter the report client-side; a filter that matches
+    no stream returns a `warnings` entry listing the indexed streams.
     """
     connector = _get_cloud_connector(
         _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
     )
     status = connector.get_search_status()
-    if stream_name is None:
+    if stream_name is None and namespace is None:
         return status
 
-    return status.model_copy(
-        update={
-            "sources": [
-                source.model_copy(
-                    update={
-                        "streams": [
-                            stream for stream in source.streams if stream.name == stream_name
-                        ]
-                    }
-                )
+    def matches(stream: ExternalSearchStreamStatus) -> bool:
+        return (stream_name is None or stream.name == stream_name) and (
+            namespace is None or stream.namespace == namespace
+        )
+
+    sources = [
+        source.model_copy(update={"streams": [s for s in source.streams if matches(s)]})
+        for source in status.sources
+        if any(matches(stream) for stream in source.streams)
+    ]
+    warnings = list(status.warnings)
+    if not sources:
+        available = sorted(
+            {
+                f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
                 for source in status.sources
-                if any(stream.name == stream_name for stream in source.streams)
-            ]
-        }
-    )
+                for stream in source.streams
+            }
+        )
+        shown = ", ".join(available[:_MAX_LISTED_STREAMS]) or "none"
+        if len(available) > _MAX_LISTED_STREAMS:
+            shown += f" (and {len(available) - _MAX_LISTED_STREAMS} more)"
+        filters = ", ".join(
+            f"{name}={value!r}"
+            for name, value in (("stream_name", stream_name), ("namespace", namespace))
+            if value is not None
+        )
+        warnings.append(f"No indexed stream matches {filters}. Indexed streams: {shown}.")
+    return status.model_copy(update={"sources": sources, "warnings": warnings})
 
 
 @mcp_tool(

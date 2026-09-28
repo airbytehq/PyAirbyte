@@ -320,6 +320,13 @@ class ExternalSearchHit(BaseModel):
     context: str | None = None
     """The matched text, truncated to `max_context_chars` when requested."""
 
+    @field_validator("entity_id", mode="before")
+    @classmethod
+    def _numeric_entity_id_to_str(cls, value: object) -> object:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return value
+
 
 class ExternalSearchIndexMetadata(BaseModel):
     """Per-index details about how a search ran."""
@@ -363,17 +370,32 @@ class ExternalSearchResult(BaseModel):
     """The server-side response time, in milliseconds."""
 
     warnings: list[str] = Field(default_factory=list)
-    """Per-index search errors, collected from `metadata` so partial failures stand out."""
+    """Server warnings, plus per-index search errors collected from `metadata` so partial
+    failures stand out, and a notice when no index was searched at all."""
+
+    @field_validator("warnings", mode="before")
+    @classmethod
+    def _none_to_empty(cls, value: object) -> object:
+        return [] if value is None else value
 
     @model_validator(mode="after")
     def _collect_index_errors(self) -> ExternalSearchResult:
-        if not self.warnings:
-            self.warnings = [
-                f"Search of stream {entry.stream_name!r} (index {entry.index_name!r}) "
-                f"failed: {entry.error}"
-                for entry in self.metadata
-                if entry.error
-            ]
+        collected = [
+            f"Search of stream {entry.stream_name!r} (index {entry.index_name!r}) "
+            f"failed: {entry.error}"
+            for entry in self.metadata
+            if entry.error
+        ]
+        if not self.metadata:
+            collected.append(
+                "No index matched this search type and stream selection, so empty results "
+                "do not mean there are no matches. Call `get_cloud_search_status` to see "
+                "which streams have which index types."
+            )
+        self.warnings = [
+            *self.warnings,
+            *(warning for warning in collected if warning not in self.warnings),
+        ]
         return self
 
 
@@ -478,6 +500,14 @@ class ExternalSearchStatusResult(BaseModel):
     sources: list[ExternalSearchSourceStatus] = Field(default_factory=list)
     """The indexed sources: the connector itself for a source, or every indexed source
     synced to a destination."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues, for example a stream filter that matched no indexed stream."""
+
+    @field_validator("warnings", mode="before")
+    @classmethod
+    def _none_to_empty(cls, value: object) -> object:
+        return [] if value is None else value
 
 
 class ConnectorEnablement(BaseModel):

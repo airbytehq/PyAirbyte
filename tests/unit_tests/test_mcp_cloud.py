@@ -1199,7 +1199,10 @@ class _RecordingExecuteConnector:
                     "source_id": "source-1",
                     "streams": [{"name": "issues"}, {"name": "users"}],
                 },
-                {"source_id": "source-2", "streams": [{"name": "deals"}]},
+                {
+                    "source_id": "source-2",
+                    "streams": [{"name": "deals", "namespace": "crm"}],
+                },
             ]
         })
 
@@ -1453,6 +1456,85 @@ def test_get_cloud_search_status_filters_by_stream_name(
         (source.source_id, [stream.name for stream in source.streams])
         for source in result.sources
     ] == expected
+
+
+@pytest.mark.parametrize(
+    ("stream_name", "namespace", "expected", "expected_warning"),
+    [
+        pytest.param(None, "crm", [("source-2", ["deals"])], None, id="namespace"),
+        pytest.param(
+            "deals", "crm", [("source-2", ["deals"])], None, id="name_and_namespace"
+        ),
+        pytest.param(
+            "issues",
+            "crm",
+            [],
+            "No indexed stream matches stream_name='issues', namespace='crm'. "
+            "Indexed streams: crm.deals, issues, users.",
+            id="namespace_miss",
+        ),
+        pytest.param(
+            "missing",
+            None,
+            [],
+            "No indexed stream matches stream_name='missing'. "
+            "Indexed streams: crm.deals, issues, users.",
+            id="stream_miss",
+        ),
+    ],
+)
+def test_get_cloud_search_status_namespace_filter_and_miss_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_name: str | None,
+    namespace: str | None,
+    expected: list[tuple[str, list[str]]],
+    expected_warning: str | None,
+) -> None:
+    """A filter that matches nothing returns a warning listing the indexed streams."""
+    connector = _RecordingExecuteConnector()
+    _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.get_cloud_search_status(
+        None,
+        connector_id="destination-1",
+        stream_name=stream_name,
+        namespace=namespace,
+        workspace_id=None,
+    )
+
+    assert [
+        (source.source_id, [stream.name for stream in source.streams])
+        for source in result.sources
+    ] == expected
+    assert result.warnings == ([expected_warning] if expected_warning else [])
+
+
+def test_get_cloud_search_status_miss_warning_caps_stream_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connector = _RecordingExecuteConnector()
+    status = ExternalSearchStatusResult.model_validate({
+        "sources": [
+            {
+                "source_id": "source-1",
+                "streams": [{"name": f"stream_{index:02d}"} for index in range(25)],
+            }
+        ]
+    })
+    monkeypatch.setattr(connector, "get_search_status", lambda: status)
+    _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.get_cloud_search_status(
+        None,
+        connector_id="source-1",
+        stream_name="missing",
+        workspace_id=None,
+    )
+
+    (warning,) = result.warnings
+    assert "stream_19" in warning
+    assert "stream_20" not in warning
+    assert warning.endswith("(and 5 more).")
 
 
 @pytest.mark.parametrize(

@@ -10,11 +10,13 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from pydantic import ValidationError
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
+    ExternalSearchHit,
     ExternalSearchResult,
     ExternalSearchStatusResult,
     ExternalSearchStreamFilter,
@@ -1287,3 +1289,177 @@ def test_forbidden_recheck_uses_enablement(
         getattr(source, method_name)(*args)
 
     assert seen_paths[1:] == ["/sources/source-1/enablement"]
+
+
+_HIT = {"source_id": "source-1", "stream_name": "issues", "score": 0.5}
+_INDEX_METADATA = {"stream_name": "issues", "index_name": "issues_keyword"}
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "expected"),
+    [
+        pytest.param("cus_123", "cus_123", id="string"),
+        pytest.param(42, "42", id="int"),
+        pytest.param(4.5, "4.5", id="float"),
+    ],
+)
+def test_search_hit_coerces_numeric_entity_id(entity_id: object, expected: str) -> None:
+    hit = ExternalSearchHit.model_validate({**_HIT, "entity_id": entity_id})
+
+    assert hit.entity_id == expected
+
+
+@pytest.mark.parametrize("field", ["source_id", "score"])
+def test_search_hit_keeps_strict_fields(field: str) -> None:
+    payload = {**_HIT, "entity_id": "1", field: None}
+
+    with pytest.raises(ValidationError):
+        ExternalSearchHit.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_warnings"),
+    [
+        pytest.param(
+            {"metadata": [_INDEX_METADATA], "warnings": None},
+            [],
+            id="null_warnings",
+        ),
+        pytest.param(
+            {
+                "metadata": [
+                    _INDEX_METADATA,
+                    {**_INDEX_METADATA, "error": "index offline"},
+                ],
+                "warnings": ["server note"],
+            },
+            [
+                "server note",
+                "Search of stream 'issues' (index 'issues_keyword') failed: index offline",
+            ],
+            id="merges_server_and_index_warnings",
+        ),
+    ],
+)
+def test_search_result_warnings(
+    payload: dict[str, Any],
+    expected_warnings: list[str],
+) -> None:
+    result = ExternalSearchResult.model_validate(payload)
+
+    assert result.warnings == expected_warnings
+    # Re-validating a dumped result does not duplicate collected warnings.
+    assert (
+        ExternalSearchResult.model_validate(result.model_dump()).warnings
+        == expected_warnings
+    )
+
+
+def test_search_result_warns_when_no_index_was_searched() -> None:
+    result = ExternalSearchResult.model_validate({"hits": [], "metadata": []})
+
+    assert len(result.warnings) == 1
+    assert "No index matched" in result.warnings[0]
+    assert "get_cloud_search_status" in result.warnings[0]
+
+
+def test_search_status_result_accepts_null_warnings() -> None:
+    assert ExternalSearchStatusResult.model_validate({"warnings": None}).warnings == []
+
+
+@pytest.mark.parametrize("method_name", ["execute_search_query", "execute_api_query"])
+@pytest.mark.parametrize(
+    ("enablement_response", "expect_not_enabled"),
+    [
+        pytest.param(404, False, id="enablement_404_is_wrong_id_or_type"),
+        pytest.param(403, True, id="enablement_403_is_not_enabled"),
+        pytest.param(
+            {"enable_agent_access": False, "enable_indexing": False},
+            True,
+            id="flags_off_is_not_enabled",
+        ),
+    ],
+)
+def test_forbidden_recheck_distinguishes_missing_connector(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    enablement_response: int | dict[str, bool],
+    expect_not_enabled: bool,
+) -> None:
+    """An enablement 404 means a wrong ID or `connector_type`, not "not enabled"."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    seen_paths: list[str] = []
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        seen_paths.append(kwargs["path"])
+        if not kwargs["path"].endswith("/enablement"):
+            raise AirbyteCloudApiError(status_code=404)
+        if isinstance(enablement_response, int):
+            raise AirbyteCloudApiError(status_code=enablement_response)
+        return enablement_response
+
+    monkeypatch.setattr(agents_api_util, "make_cloud_agent_request", fake_request)
+    destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
+    args = ("refunds",) if method_name == "execute_search_query" else ("issues",)
+
+    with pytest.raises((
+        AirbyteError,
+        AirbyteExternalAccessNotEnabledError,
+    )) as exc_info:
+        getattr(destination, method_name)(*args)
+
+    if expect_not_enabled:
+        assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+    else:
+        assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+        assert isinstance(exc_info.value, AirbyteCloudApiError)
+        assert exc_info.value.status_code == 404
+        assert "connector_type" in (exc_info.value.guidance or "")
+        assert "destination" in (exc_info.value.guidance or "")
+
+    # A second failing call reuses the cached enablement result.
+    with pytest.raises((AirbyteError, AirbyteExternalAccessNotEnabledError)):
+        getattr(destination, method_name)(*args)
+    assert seen_paths.count("/destinations/destination-1/enablement") == 1
+
+
+@pytest.mark.parametrize("status_code", [403, 404])
+def test_fetch_enablement_caches_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fail(**kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append(kwargs)
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    assert source._fetch_enablement() is None  # noqa: SLF001
+    assert source._fetch_enablement() is None  # noqa: SLF001
+    assert len(calls) == 1
+    assert isinstance(source._enablement_error, AirbyteCloudApiError)  # noqa: SLF001
+    assert source._enablement_error.status_code == status_code  # noqa: SLF001
+
+
+def test_fetch_enablement_does_not_cache_other_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fail(**kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append(kwargs)
+        raise AirbyteCloudApiError(status_code=503)
+
+    monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    for _ in range(2):
+        with pytest.raises(AirbyteCloudApiError):
+            source._fetch_enablement()  # noqa: SLF001
+    assert len(calls) == 2
