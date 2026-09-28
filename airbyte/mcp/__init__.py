@@ -285,7 +285,14 @@ exports the supplied intent (capped at 4096 characters), tool name, outcome clas
 validated workspace/organization UUIDs, tool annotations and outbound HTTP
 methods, recognized public Airbyte API routes with validated UUID/numeric IDs,
 and statuses. URL queries, unknown routes and custom origins are redacted.
-Tool arguments and results,
+For `execute_external_api_query`, `airbyte.mcp.agent.entity_type` records the
+requested entity name for `list`, `get`, or `search`, including the default
+`list` action. Names must be nonempty printable strings of at most 256 characters
+with no surrounding whitespace; accepted names are exported unchanged. This
+caller-supplied field can include customer-defined names or sensitive text:
+format checks do not establish public provenance or anonymize the value. It
+describes the request, including failed attempts, rather than verified access
+to records. Other tool arguments and results,
 error messages/stacks, HTTP header values, request/response bodies, JWTs and
 caller identity are not exported. Calls to unregistered tool names are dropped.
 Session grouping uses a SHA-256 digest of the unsigned, client-echoed
@@ -293,7 +300,8 @@ Session grouping uses a SHA-256 digest of the unsigned, client-echoed
 text and may contain customer information, so keep it free of sensitive data.
 
 Any OTLP backend can receive these spans. With `AIRBYTE_MCP_OTEL_VENDOR=datadog`,
-intent is also supplied as Datadog metadata. Export is best effort and does not
+intent and the requested entity name are also supplied as Datadog metadata.
+Export is best effort and does not
 determine whether a tool call succeeds; the backend controls retention and
 access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
 export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.

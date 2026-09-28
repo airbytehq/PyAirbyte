@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""AGENTIC-2260: bounded requested categories at the final exporter boundary."""
+"""AGENTIC-2260: exact bounded caller entity names at the final exporter boundary."""
 
 from __future__ import annotations
 
@@ -43,6 +43,16 @@ ENTITIES = (
     "teams",
     "users",
     "workflow_states",
+    "contacts",
+    "accounts",
+    "customer_private_table",
+    "Issues",
+    "ISSUES",
+    "Équipes 東京 🚀",
+    "custom.namespace/contact-records (v2)",
+    "x",
+    "x" * 256,
+    "界" * 256,
 )
 
 
@@ -108,9 +118,14 @@ async def _call(app, tool, arguments):
 
 
 @pytest.mark.parametrize("tool", TOOLS)
-@pytest.mark.parametrize("entity", ENTITIES)
-def test_real_execution_tools_keep_requested_category_on_success_and_error(
-    agents_app, entity_export, monkeypatch, vendor, tool, entity
+@pytest.mark.parametrize("action", ["list", "get", "search"])
+@pytest.mark.parametrize(
+    ("entity", "expected"),
+    [(entity, entity) for entity in ENTITIES]
+    + [("x" * 257, None), (" contacts", None), ("contacts\n", None), ("", None)],
+)
+def test_real_execution_tools_keep_exact_requested_name_on_success_and_error(
+    agents_app, entity_export, monkeypatch, vendor, tool, action, entity, expected
 ):
     connector = CloudConnector(
         workspace=Mock(),
@@ -131,7 +146,7 @@ def test_real_execution_tools_keep_requested_category_on_success_and_error(
     arguments = {
         "connector_id": "connector-SENTINEL",
         "entity_type": entity,
-        "action": "list",
+        "action": action,
         "api_args": {"token": "credential-SENTINEL", "sql": "sql-SENTINEL"},
         "cursor": "cursor-SENTINEL",
     }
@@ -142,11 +157,12 @@ def test_real_execution_tools_keep_requested_category_on_success_and_error(
     execute.assert_called_once()
     body = execute.call_args.kwargs["request_body"]
     assert body["entity"] == entity
+    assert body["action"] == action
     assert body["params"]["token"] == "credential-SENTINEL"
     assert body["params"]["cursor"] == "cursor-SENTINEL"
     success = _finished(entity_export)
     assert len(success) == 1
-    _assert_entity(success[0], entity, vendor)
+    _assert_entity(success[0], expected, vendor)
     assert success[0].parent is None
 
     execute.side_effect = ValueError("exception-SENTINEL")
@@ -154,7 +170,7 @@ def test_real_execution_tools_keep_requested_category_on_success_and_error(
         asyncio.run(_call(agents_app, tool, arguments))
     spans = _finished(entity_export)
     assert len(spans) == 2
-    _assert_entity(spans[-1], entity, vendor)
+    _assert_entity(spans[-1], expected, vendor)
     assert observability._INTENT_ATTRIBUTES.get() is None
     assert "SENTINEL" not in "\n".join(span.to_json() for span in spans)
 
@@ -218,7 +234,7 @@ def test_action_matrix_including_sql_and_read_only_write_actions(
 
 
 @pytest.mark.parametrize("tool", TOOLS)
-def test_invalid_categories_are_omitted_without_mutating_tool_input(
+def test_invalid_entity_names_are_omitted_without_mutating_tool_input(
     flexible_app, entity_export, vendor, tool
 ):
     values = [
@@ -233,14 +249,16 @@ def test_invalid_categories_are_omitted_without_mutating_tool_input(
         {},
         {"name": "issues"},
         " ",
-        "Issues",
-        "ISSUES",
+        "\t\n",
         " issues",
         "issues ",
         "issues\n",
         "issues\x00",
-        "issues-SENTINEL@example.com",
-        "customer_private_table",
+        "issues\tcomments",
+        "issues\x7f",
+        "issues\u200b",
+        "issues\u00a0comments",
+        "x" * 257,
         "x" * 10_000,
     ]
 
@@ -257,7 +275,6 @@ def test_invalid_categories_are_omitted_without_mutating_tool_input(
         _assert_entity(span, None, vendor)
     exported = "\n".join(span.to_json() for span in spans)
     assert "SENTINEL" not in exported
-    assert "customer_private_table" not in exported
     assert "x" * 10_000 not in exported
 
 
@@ -288,7 +305,27 @@ def test_exporter_validates_injected_type_value_and_root_scope(entity_export, ve
     cases = [
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "issues", "issues"),
         (f"tools/call {SQL_TOOL}", SpanKind.SERVER, "projects", None),
-        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "injected-SENTINEL", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "contacts", "contacts"),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "accounts", "accounts"),
+        (
+            f"tools/call {TOOLS[0]}",
+            SpanKind.SERVER,
+            "customer_private_table",
+            "customer_private_table",
+        ),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "Issues", "Issues"),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "東京 / Équipes", "東京 / Équipes"),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 256, "x" * 256),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "界" * 256, "界" * 256),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "x" * 257, None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, " ", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, " contacts", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "contacts ", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "injected-SENTINEL\n", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "contacts\x00", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "contacts\taccounts", None),
+        (f"tools/call {TOOLS[0]}", SpanKind.SERVER, "contacts\u200b", None),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, 42, None),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, True, None),
         (f"tools/call {TOOLS[0]}", SpanKind.SERVER, ["issues"], None),
@@ -327,8 +364,22 @@ def test_exporter_validates_injected_type_value_and_root_scope(entity_export, ve
 
 
 @pytest.mark.parametrize("tool", TOOLS)
-@pytest.mark.parametrize("entity", [None, "issues", "native-SENTINEL"])
-def test_exporter_rebuilds_prepopulated_metadata(entity_export, vendor, tool, entity):
+@pytest.mark.parametrize(
+    ("entity", "expected"),
+    [
+        (None, None),
+        ("issues", "issues"),
+        ("customer_private_table", "customer_private_table"),
+        ("Contacts 東京", "Contacts 東京"),
+        ("x" * 256, "x" * 256),
+        ("x" * 257, None),
+        ("native-SENTINEL\n", None),
+        (42, None),
+    ],
+)
+def test_exporter_rebuilds_prepopulated_metadata(
+    entity_export, vendor, tool, entity, expected
+):
     provider, _ = entity_export
     observability._build_tool_maps()
     attributes = {
@@ -344,7 +395,6 @@ def test_exporter_rebuilds_prepopulated_metadata(entity_export, vendor, tool, en
     spans = _finished(entity_export)
     assert len(spans) == 1
     span = spans[0]
-    expected = "issues" if entity == "issues" else None
     _assert_entity(span, expected, vendor)
     if vendor == "datadog" and expected is not None:
         assert json.loads(span.attributes["_dd.ml_obs.metadata"]) == {
@@ -513,9 +563,10 @@ def test_tracing_disabled_preserves_default_schema_and_execution(
     assert not _finished(otel_provider)
 
 
+@pytest.mark.parametrize("entity", ["contacts", "accounts", "Customer Data/東京"])
 @pytest.mark.parametrize("explicit_null", [False, True])
-def test_api_query_public_default_and_explicit_null_action(
-    monkeypatch, agents_app, entity_export, vendor, explicit_null
+def test_api_query_default_and_explicit_null_action(
+    monkeypatch, agents_app, entity_export, vendor, explicit_null, entity
 ):
     connector = CloudConnector(
         workspace=Mock(),
@@ -529,7 +580,7 @@ def test_api_query_public_default_and_explicit_null_action(
         "_get_cloud_workspace",
         Mock(return_value=Mock(get_connector=Mock(return_value=connector))),
     )
-    arguments = {"connector_id": "connector-SENTINEL", "entity_type": "issues"}
+    arguments = {"connector_id": "connector-SENTINEL", "entity_type": entity}
     if explicit_null:
         arguments["action"] = None
         with pytest.raises(ToolError):
@@ -538,6 +589,7 @@ def test_api_query_public_default_and_explicit_null_action(
     else:
         asyncio.run(_call(agents_app, TOOLS[0], arguments))
         assert execute.call_args.kwargs["request_body"]["action"] == "list"
+        assert execute.call_args.kwargs["request_body"]["entity"] == entity
     [span] = _finished(entity_export)
-    _assert_entity(span, None if explicit_null else "issues", vendor)
+    _assert_entity(span, None if explicit_null else entity, vendor)
     assert "SENTINEL" not in span.to_json()

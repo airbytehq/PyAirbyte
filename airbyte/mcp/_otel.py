@@ -91,16 +91,7 @@ _SAFE_HTTP_URL = re.compile(
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
 _MAX_INTENT_LENGTH = 4096
 _MAX_LATE_ATTRIBUTES = 4096
-_AGENT_ENTITY_TYPES = {
-    "issues": "issues",
-    "comments": "comments",
-    "projects": "projects",
-    "repositories": "repositories",
-    "pull_requests": "pull_requests",
-    "teams": "teams",
-    "users": "users",
-    "workflow_states": "workflow_states",
-}
+_MAX_ENTITY_TYPE_LENGTH = 256
 _ENTITY_TYPE_ACTIONS = {
     "execute_external_api_query": tuple(member.value for member in ExternalApiReadOnlyAction),
 }
@@ -298,13 +289,13 @@ class IntentCaptureMiddleware(Middleware):
         arguments = context.message.arguments or {}
         action = arguments.get("action", ExternalApiReadOnlyAction.LIST.value)
         if isinstance(action, str) and action in _ENTITY_TYPE_ACTIONS.get(name, ()):
-            raw_entity_type = arguments.get("entity_type")
-            entity_type = (
-                _AGENT_ENTITY_TYPES.get(raw_entity_type)
-                if isinstance(raw_entity_type, str)
-                else None
-            )
-            if entity_type is not None:
+            entity_type = arguments.get("entity_type")
+            if (
+                isinstance(entity_type, str)
+                and 0 < len(entity_type) <= _MAX_ENTITY_TYPE_LENGTH
+                and entity_type.isprintable()
+                and entity_type == entity_type.strip()
+            ):
                 attrs["airbyte.mcp.agent.entity_type"] = entity_type
         if name in _TOOL_MODULES:
             hints = _TOOL_ANNOTATIONS.get(name, {})
@@ -375,7 +366,7 @@ class IntentStampProcessor(SpanProcessor):
 
 
 class RedactingExporter(SpanExporter):
-    """The sole exporter boundary: only public, rebuilt spans can leave the process."""
+    """The sole exporter boundary: only validated, rebuilt spans can leave the process."""
 
     def __init__(self, exporter: SpanExporter, *, environ: Mapping[str, str] | None = None) -> None:
         """Wrap the destination exporter without exposing it to a span processor."""
@@ -423,7 +414,6 @@ class RedactingExporter(SpanExporter):
                 )
         attrs.update(late)
         entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
-        entity_type = _AGENT_ENTITY_TYPES.get(entity_type) if isinstance(entity_type, str) else None
         tool_name = span.name.removeprefix("tools/call ")
         is_execution_root = (
             span.kind == SpanKind.SERVER
@@ -432,7 +422,13 @@ class RedactingExporter(SpanExporter):
             and tool_name in _TOOL_MODULES
             and tool_name in _ENTITY_TYPE_ACTIONS
         )
-        if entity_type is not None and is_execution_root:
+        if (
+            is_execution_root
+            and isinstance(entity_type, str)
+            and 0 < len(entity_type) <= _MAX_ENTITY_TYPE_LENGTH
+            and entity_type.isprintable()
+            and entity_type == entity_type.strip()
+        ):
             attrs["airbyte.mcp.agent.entity_type"] = entity_type
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
