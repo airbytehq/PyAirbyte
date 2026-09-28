@@ -14,7 +14,6 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
-from airbyte_api.errors import SDKError
 from airbyte import Destination, Source
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
@@ -2938,24 +2937,22 @@ def test_troubleshoot_latest_failed_job_keeps_selection_status(
     assert result.latest_failed_job.status == "incomplete"
 
 
-class _SDKErrorConnector(_TroubleshootConnector):
-    """Connector whose definition lookup raises the generated client's `SDKError`."""
+class _DefinitionErrorConnector(_TroubleshootConnector):
+    """Connector whose definition lookup fails."""
 
     def __getattribute__(self, name: str) -> object:
         if name == "canonical_name":
-            raise SDKError("definition lookup failed", 500, "", requests.Response())
+            raise AirbyteError(message="API error occurred: definition lookup failed")
         return super().__getattribute__(name)
 
 
-def test_troubleshoot_connector_definition_sdk_error_is_isolated(
+def test_troubleshoot_connector_definition_error_is_isolated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An SDK error from the definition lookup fills only that connector's error."""
-    connection = _TroubleshootConnection(
-        source=_SDKErrorConnector("source-id", "source", "unused"),
-    )
+    """A failed definition lookup fills only that connector's error."""
+    source = _DefinitionErrorConnector("source-id", "source", "unused")
 
-    result = _troubleshoot(monkeypatch, connection)
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(source=source))
 
     assert result.connection.source.error is not None
     assert "definition lookup failed" in result.connection.source.error

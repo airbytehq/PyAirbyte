@@ -10,9 +10,11 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
+from airbyte_api.errors import SDKError
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
+from airbyte._util import api_util
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -842,3 +844,44 @@ def test_canonical_name_destination(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     assert destination.canonical_name == "destination-snowflake"
+
+
+@pytest.mark.parametrize(
+    ("lookup_name", "client_attr", "method_name"),
+    [
+        ("get_source_definition", "source_definitions", "get_source_definition"),
+        (
+            "get_destination_definition",
+            "destination_definitions",
+            "get_destination_definition",
+        ),
+    ],
+)
+def test_definition_lookup_wraps_sdk_error(
+    monkeypatch: pytest.MonkeyPatch,
+    lookup_name: str,
+    client_attr: str,
+    method_name: str,
+) -> None:
+    """Generated-client `SDKError`s from definition lookups surface as `AirbyteError`."""
+    sdk_error = SDKError("server exploded", 500, "", requests.Response())
+
+    def _raise(_request: object) -> None:
+        raise sdk_error
+
+    instance = SimpleNamespace(**{
+        client_attr: SimpleNamespace(**{method_name: _raise})
+    })
+    monkeypatch.setattr(api_util, "get_airbyte_server_instance", lambda **_: instance)
+
+    with pytest.raises(AirbyteError, match="server exploded") as exc_info:
+        getattr(api_util, lookup_name)(
+            "definition-id",
+            "workspace-id",
+            api_root="https://api.example.com",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+
+    assert exc_info.value.__cause__ is sdk_error

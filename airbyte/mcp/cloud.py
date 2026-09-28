@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
-from airbyte_api.errors import SDKError
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
@@ -2346,7 +2345,7 @@ def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootCo
     try:
         section.connector_name = connector.name
         section.canonical_connector_name = connector.canonical_name
-    except (AirbyteError, SDKError, requests.RequestException) as error:
+    except (AirbyteError, requests.RequestException) as error:
         section.error = str(error)
     return section
 

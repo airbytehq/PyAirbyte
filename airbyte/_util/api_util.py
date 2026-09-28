@@ -1524,12 +1524,17 @@ def get_source_definition(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.source_definitions.get_source_definition(
-        api.GetSourceDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.source_definitions.get_source_definition(
+            api.GetSourceDefinitionRequest(
+                definition_id=definition_id,
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(
+            e, {"definition_id": definition_id, "workspace_id": workspace_id}
+        ) from e
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -1560,12 +1565,17 @@ def get_destination_definition(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destination_definitions.get_destination_definition(
-        api.GetDestinationDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.destination_definitions.get_destination_definition(
+            api.GetDestinationDefinitionRequest(
+                definition_id=definition_id,
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(
+            e, {"definition_id": definition_id, "workspace_id": workspace_id}
+        ) from e
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
