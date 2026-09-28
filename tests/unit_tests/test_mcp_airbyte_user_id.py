@@ -201,10 +201,13 @@ def test_slow_lookup_times_out_without_blocking_the_call(
         return {"userId": AUTH_USERS[auth_user_id]}
 
     monkeypatch.setattr(api_util, "get_user_by_auth_id", get_user_by_auth_id)
-    started = time.monotonic()
-    _call("keycloak-a")
 
-    assert time.monotonic() - started < 1.5
+    async def timed_call() -> float:
+        started = time.monotonic()
+        await _call_as("keycloak-a")
+        return time.monotonic() - started
+
+    assert asyncio.run(timed_call()) < 1.5
     assert _identities(segment) == [(server.SEGMENT_USER_ID, None)]
 
 

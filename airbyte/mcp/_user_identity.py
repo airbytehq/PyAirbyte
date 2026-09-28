@@ -11,16 +11,14 @@ reported as `None`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
 from collections import OrderedDict
 from contextvars import ContextVar
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
-import anyio
-import anyio.to_thread
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import get_mcp_config
@@ -153,17 +151,16 @@ async def resolve_airbyte_user_id(ctx: Context | None) -> str | None:
     user_id: str | None = None
     ttl_seconds = USER_ID_FAILURE_TTL_SECONDS
     try:
-        with anyio.fail_after(USER_ID_LOOKUP_TIMEOUT_SECONDS):
-            user_id = await anyio.to_thread.run_sync(
-                partial(
-                    _lookup_airbyte_user_id,
-                    auth_user_id,
-                    bearer_token=bearer_token,
-                    api_root=api_root,
-                    config_api_root=config_api_root,
-                ),
-                abandon_on_cancel=True,
-            )
+        user_id = await asyncio.wait_for(
+            asyncio.to_thread(
+                _lookup_airbyte_user_id,
+                auth_user_id,
+                bearer_token=bearer_token,
+                api_root=api_root,
+                config_api_root=config_api_root,
+            ),
+            timeout=USER_ID_LOOKUP_TIMEOUT_SECONDS,
+        )
     except Exception:
         logger.debug("Airbyte user lookup for MCP telemetry failed", exc_info=True)
     else:
