@@ -27,6 +27,7 @@ from airbyte._util.api_util import (
 )
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
+    AirbyteCloudApiError,
     AirbyteError,
     PyAirbyteInputError,
 )
@@ -83,6 +84,16 @@ def _error_guidance(*, response: requests.Response) -> str | None:
             "Authentication succeeded but access was denied; the workspace or connector "
             "may not be enabled for agent access in Airbyte Cloud."
         )
+    if response.status_code in {
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.GATEWAY_TIMEOUT,
+    }:
+        return (
+            "Airbyte Cloud accepted the request but its upstream direct-access "
+            "service failed or timed out. This is not a credentials or permissions "
+            "problem; retry later or contact Airbyte support if it persists."
+        )
     return None
 
 
@@ -94,7 +105,7 @@ def is_not_enabled_error(error: AirbyteError) -> bool:
     Auth, server, and malformed-response failures carry other statuses and must not be
     read as "not enabled".
     """
-    return (error.context or {}).get("status_code") in {
+    return isinstance(error, AirbyteCloudApiError) and error.status_code in {
         HTTPStatus.FORBIDDEN,
         HTTPStatus.NOT_FOUND,
     }
@@ -115,8 +126,8 @@ def make_cloud_agent_request(
     workspace, so no organization header is sent.
 
     Raises `AirbyteAgentsUnavailableError` when the credentials' API roots have no
-    Context layer API, and `AirbyteError` with the status code and response text on
-    non-2xx responses, or when the response is not a JSON object.
+    Context layer API, `AirbyteCloudApiError` with the status code and response text on
+    non-2xx responses, or `AirbyteError` when the response is not a JSON object.
     """
     if not deployment.is_agents_api_available(
         public_api_root=credentials.public_api_root,
@@ -151,7 +162,8 @@ def make_cloud_agent_request(
         timeout=_REQUEST_TIMEOUT_SECONDS,
     )
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudApiError(
+            status_code=response.status_code,
             message=_error_message(response=response, full_url=full_url),
             guidance=_error_guidance(response=response),
             context={

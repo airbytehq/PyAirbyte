@@ -30,7 +30,9 @@ from airbyte.cloud.models import (
     CloudSourceInfo,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteError,
     AirbyteExternalAccessNotEnabledError,
     AirbyteMissingResourceError,
@@ -308,7 +310,10 @@ def test_execute_error_handling(
     _patch_execute(
         monkeypatch,
         {},
-        error=AirbyteError(context={"status_code": execute_status}),
+        error=AirbyteCloudApiError(
+            status_code=execute_status,
+            context={"status_code": execute_status},
+        ),
     )
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
@@ -331,7 +336,8 @@ def test_execute_error_handling(
     else:
         assert isinstance(exc_info.value, AirbyteError)
         assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
-        assert (exc_info.value.context or {})["status_code"] == expected_status
+        assert isinstance(exc_info.value, AirbyteCloudApiError)
+        assert exc_info.value.status_code == expected_status
 
 
 @pytest.mark.parametrize("method_name", ["execute_api_query", "execute_api_action"])
@@ -691,6 +697,70 @@ def test_untyped_connector_execute_resolves_kind_for_routing(
     assert len(calls) == 1
     assert calls[0]["connector_type"] is ConnectorType.SOURCE
     assert probes == ["source"]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_phrase", "expects_upstream_guidance"),
+    [
+        pytest.param(502, None, True, id="bad_gateway"),
+        pytest.param(503, None, True, id="service_unavailable"),
+        pytest.param(504, None, True, id="gateway_timeout"),
+        pytest.param(401, "Unauthorized", False, id="unauthorized"),
+        pytest.param(403, "Forbidden", False, id="forbidden"),
+    ],
+)
+def test_agent_request_error_message_and_guidance(
+    status_code: int,
+    expected_phrase: str | None,
+    expects_upstream_guidance: bool,
+) -> None:
+    """Upstream 5xx failures get non-credentials guidance and no status phrase."""
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://cloud.airbyte.com/api/v1/sources/source-1/execute"
+
+    message = agents_api_util._error_message(  # noqa: SLF001
+        response=raw_response, full_url=raw_response.url
+    )
+    guidance = agents_api_util._error_guidance(response=raw_response)  # noqa: SLF001
+
+    if expected_phrase is None:
+        assert f"{status_code} when accessing" in message
+    else:
+        assert f"({expected_phrase})" in message
+    if expects_upstream_guidance:
+        assert guidance is not None
+        assert "upstream" in guidance
+    else:
+        assert guidance is None or "upstream" not in guidance
+
+
+def test_agent_request_non_2xx_raises_cloud_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-2xx Config API response raises `AirbyteCloudApiError` with `status_code`."""
+    _patch_context_layer(monkeypatch)
+    raw_response = requests.Response()
+    raw_response.status_code = 503
+    raw_response.url = "https://cloud.airbyte.com/api/v1/sources/source-1/execute"
+    monkeypatch.setattr(agents_api_util.requests, "request", lambda **_: raw_response)
+
+    credentials = _AirbyteCredentials.from_auth(
+        bearer_token="token",
+        public_api_root="https://api.airbyte.com/v1",
+        env_vars=False,
+    )
+    with pytest.raises(AirbyteCloudApiError) as exc_info:
+        agents_api_util.make_cloud_agent_request(
+            method="POST",
+            path="/sources/source-1/execute",
+            credentials=credentials,
+            json={},
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "(Service Unavailable)" not in exc_info.value.get_message()
+    assert "upstream" in (exc_info.value.guidance or "")
 
 
 @pytest.mark.parametrize("kind", ["source", "destination"])

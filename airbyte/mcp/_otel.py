@@ -26,6 +26,7 @@ from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerPr
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, Status
 
+from airbyte._direct_connectors.models import ExternalApiReadOnlyAction
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
@@ -95,6 +96,12 @@ _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
+_AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
+    "execute_external_api_query": {
+        member.value: member.value for member in ExternalApiReadOnlyAction
+    },
+    "execute_external_sql_query": {"sql_select": "sql_select"},
+}
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
 _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
     "mcp_intent", default=None
@@ -353,6 +360,17 @@ class IntentCaptureMiddleware(Middleware):
         }
         if intent:
             attrs["airbyte.mcp.intent"] = intent
+        action = (
+            "sql_select"
+            if name == "execute_external_sql_query"
+            else (context.message.arguments or {}).get(
+                "action", ExternalApiReadOnlyAction.LIST.value
+            )
+        )
+        if isinstance(action, str):
+            canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
+            if canonical_action is not None:
+                attrs["airbyte.mcp.agent.action"] = canonical_action
         if name in _TOOL_MODULES:
             hints = _TOOL_ANNOTATIONS.get(name, {})
             attrs.update(
@@ -470,6 +488,19 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        action = attrs.pop("airbyte.mcp.agent.action", None)
+        tool_name = span.name.removeprefix("tools/call ")
+        if (
+            span.kind == SpanKind.SERVER
+            and span.parent is None
+            and span.name.startswith("tools/call ")
+            and tool_name in _TOOL_MODULES
+            and isinstance(action, str)
+        ):
+            canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
+            if canonical_action is not None:
+                attrs["airbyte.mcp.agent.action"] = canonical_action
+        attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
@@ -481,6 +512,7 @@ class RedactingExporter(SpanExporter):
                     "workspace_id",
                     "organization_id",
                     "error_type",
+                    "agent.action",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }

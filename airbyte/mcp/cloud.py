@@ -66,6 +66,7 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteConnectorNotRegisteredError,
     AirbyteDeferredSetupError,
     AirbyteError,
@@ -120,6 +121,15 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
+SKILL_DOCS_SECTION_HINT = """\
+Skill doc sections for direct API queries and actions are named with the pattern
+`actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
+`execute_external_api_query` tool. Call `get_agent_skill_docs` with no `section` input to list all
+available sections, and/or retrieve the relevant section(s) with `get_agent_skill_docs` before
+calling an action. E.g. for GitHub `entity_type='issues'`, `action='list'`, the
+`'actions.issues.list'` section will teach that its expected `api_args` keys are `owner`,
+`repo`, `states`, etc.\
+"""
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
     "Create a draft connector so a person can complete OAuth or enter "
@@ -174,11 +184,15 @@ FEATURE_FILTER_TIP_TEXT = (
     "query. `enabled_features` is only resolved and returned when this filter is set; "
     "use `direct_access` to find every connector with any external-access feature "
     "enabled and see its full feature list. Omit to list every connector with "
-    "`enabled_features='not_checked'` (no feature check performed)."
+    "`enabled_features='not_checked'` (no feature check performed). Connectors whose "
+    "feature lookup fails are returned with `enabled_features='unknown'` and a "
+    "`warnings` entry, so they can still be inspected or tried."
 )
 
 FEATURES_NOT_CHECKED: Final = "not_checked"
 FeaturesNotChecked = Literal["not_checked"]
+FEATURES_UNKNOWN: Final = "unknown"
+FeaturesUnknown = Literal["unknown"]
 
 
 CONNECTOR_TYPE_TIP_TEXT = (
@@ -1094,9 +1108,15 @@ class CloudConnectorResult(BaseModel):
     """The connector's display name."""
     url: str
     """The connector's page in the Airbyte Cloud UI."""
-    enabled_features: list[ConnectorFeature] | FeaturesNotChecked = FEATURES_NOT_CHECKED
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked | FeaturesUnknown = (
+        FEATURES_NOT_CHECKED
+    )
     """Features enabled for this connector. `"not_checked"` means no feature check was
-    performed (no `feature_filter`); an empty list means checked with nothing enabled."""
+    performed (no `feature_filter`); `"unknown"` means the feature lookup failed (see
+    `warnings`); an empty list means checked with nothing enabled."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal issues encountered while resolving this connector's features."""
 
 
 @mcp_tool(
@@ -1151,33 +1171,95 @@ def list_cloud_connectors(
     matching connectors with their `enabled_features` resolved; without it,
     `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
     feature check was performed; `[]` means checked and no features enabled.
+
+    When a connector's feature lookup fails for a reason other than "not enabled",
+    it is returned with `enabled_features="unknown"` plus a `warnings` entry. A
+    502/503/504 or transport failure means the endpoint is down for the whole
+    workspace, so remaining connectors are returned as `"unknown"` without further
+    probes; other failures mark only that connector `"unknown"`. `"unknown"`
+    results can still be inspected or tried via `describe_cloud_connector` or the
+    execute tools.
     """
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connectors = workspace.list_connectors(
         connector_type=connector_type,
-        feature_filter=feature_filter,
         name_contains=name_contains,
-        limit=limit,
+        limit=None if feature_filter is not None else limit,
     )
-    # Note: name and url are guaranteed non-null from list API responses
-    return [
-        CloudConnectorResult(
-            id=connector.connector_id,
-            connector_type=connector.connector_type.value,
-            name=cast(str, connector.name),
-            url=connector.connector_url,
-            enabled_features=sorted(connector.enabled_features)
-            if feature_filter is not None
-            else FEATURES_NOT_CHECKED,
+    if feature_filter is None:
+        # Note: name and url are guaranteed non-null from list API responses
+        return [
+            CloudConnectorResult(
+                id=connector.connector_id,
+                connector_type=connector.connector_type.value,
+                name=cast(str, connector.name),
+                url=connector.connector_url,
+            )
+            for connector in connectors
+        ]
+
+    results: list[CloudConnectorResult] = []
+    probe_failure: str | None = None
+    for connector in connectors:
+        features: frozenset[ConnectorFeature] | None = None
+        if probe_failure is None:
+            try:
+                features = connector.enabled_features
+            except (AirbyteError, requests.RequestException) as error:
+                warning = f"Connector feature lookup failed; enabled features are unknown: {error}"
+                if isinstance(error, requests.RequestException) or (
+                    isinstance(error, AirbyteCloudApiError)
+                    and error.status_code
+                    in {
+                        HTTPStatus.BAD_GATEWAY,
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        HTTPStatus.GATEWAY_TIMEOUT,
+                    }
+                ):
+                    probe_failure = warning
+                else:
+                    results.append(
+                        CloudConnectorResult(
+                            id=connector.connector_id,
+                            connector_type=connector.connector_type.value,
+                            name=cast(str, connector.name),
+                            url=connector.connector_url,
+                            enabled_features=FEATURES_UNKNOWN,
+                            warnings=[warning],
+                        )
+                    )
+                    if limit is not None and len(results) >= limit:
+                        break
+                    continue
+        if probe_failure is not None:
+            enabled_features: list[ConnectorFeature] | FeaturesUnknown = FEATURES_UNKNOWN
+            connector_warnings = [probe_failure]
+        elif features is not None and feature_filter in features:
+            enabled_features = sorted(features)
+            connector_warnings = []
+        else:
+            continue
+        results.append(
+            CloudConnectorResult(
+                id=connector.connector_id,
+                connector_type=connector.connector_type.value,
+                name=cast(str, connector.name),
+                url=connector.connector_url,
+                enabled_features=enabled_features,
+                warnings=connector_warnings,
+            )
         )
-        for connector in connectors
-    ]
+        if limit is not None and len(results) >= limit:
+            break
+    return results
 
 
 class CloudConnectorDetailsResult(BaseModel):
     """A description of a deployed Cloud connector.
 
-    As returned by the `describe_cloud_*` MCP tools.
+    As returned by the `describe_cloud_connector` MCP tool.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -1200,8 +1282,9 @@ class CloudConnectorDetailsResult(BaseModel):
     integration_name: str | None = None
     """Name of the underlying integration, for example `GitHub` or `Snowflake`."""
 
-    enabled_features: list[ConnectorFeature] = Field(default_factory=list)
-    """Features enabled for this connector; see `ConnectorFeature`."""
+    enabled_features: list[ConnectorFeature] | FeaturesUnknown = Field(default_factory=list)
+    """Features enabled for this connector; see `ConnectorFeature`. `"unknown"` means
+    the feature lookup failed (see `warnings`)."""
 
     config: dict[str, Any] | None = None
     """The connector configuration, populated only by `with_config`.
@@ -1233,7 +1316,7 @@ def _describe_cloud_connector(
     with_direct_access_guidance: bool,
     with_data_replication_docs: bool,
 ) -> CloudConnectorDetailsResult:
-    """Assemble the `describe_cloud_*` MCP tools' result for a deployed connector."""
+    """Assemble the `describe_cloud_connector` MCP tool's result for a deployed connector."""
     connector_type = connector.connector_type
     warnings: list[str] = []
     try:
@@ -1249,18 +1332,22 @@ def _describe_cloud_connector(
         connector_url=connector.connector_url,
         connector_definition_id=connector.definition_id,
         integration_name=integration_name,
-        enabled_features=sorted(connector.enabled_features),
     )
 
-    if (
-        connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-        and connector.workspace._has_context_layer_api()  # noqa: SLF001
-    ):
-        context_layer = connector._context_layer_inspect(  # noqa: SLF001
-            warnings=warnings,
-        )
-        if context_layer is not None:
-            warnings.extend(str(warning) for warning in context_layer.warnings)
+    try:
+        result.enabled_features = sorted(connector.enabled_features)
+        if (
+            connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+            and connector.workspace._has_context_layer_api()  # noqa: SLF001
+        ):
+            context_layer = connector._context_layer_inspect(  # noqa: SLF001
+                warnings=warnings,
+            )
+            if context_layer is not None:
+                warnings.extend(str(warning) for warning in context_layer.warnings)
+    except (AirbyteError, requests.RequestException) as error:
+        result.enabled_features = FEATURES_UNKNOWN
+        warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:
@@ -1375,7 +1462,7 @@ def describe_cloud_connector(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def get_agent_skill_docs(
     ctx: Context,
@@ -1384,7 +1471,7 @@ def get_agent_skill_docs(
         str | None,
         Field(
             description=(
-                "Fully-qualified skill ID, e.g. from `describe_cloud_*` `skill_id`. "
+                "Fully-qualified skill ID, e.g. from `describe_cloud_connector` `skill_id`. "
                 "Provide this or `connector_id`."
             ),
             default=None,
@@ -1405,7 +1492,7 @@ def get_agent_skill_docs(
         Field(
             description=(
                 "Optional exact section ID from the guidance's outline to read a single "
-                "section. Omit for the overview, metadata, and outline."
+                "section. Omit for the overview, metadata, and outline. " + SKILL_DOCS_SECTION_HINT
             ),
             default=None,
         ),
@@ -1436,21 +1523,21 @@ def get_agent_skill_docs(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
     *,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the deployed source connector to query."),
+        Field(description="The ID of the deployed connector to query."),
     ],
     entity_type: Annotated[
         str,
         Field(
             description=(
                 "The type of entity to query, for example 'issues'. Call "
-                "`describe_cloud_*` or `get_agent_skill_docs` for supported entity types."
+                "`get_agent_skill_docs` for supported entity types."
             ),
         ),
     ],
@@ -1466,7 +1553,8 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
         Field(
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
-                "object string. For example {'repository': 'airbytehq/PyAirbyte'}."
+                "object string. Argument names differ per connector and action; read "
+                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_HINT
             ),
             default=None,
         ),
@@ -1523,9 +1611,10 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 ) -> ExternalApiExecuteResult:
     """Read data from an external system through a deployed Cloud connector's direct API.
 
-    Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
-    `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
-    connector supports.
+    Before calling, read the connector's action docs with `get_agent_skill_docs`
+    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
+    learn the entity types, actions, and required `api_args`; argument names
+    differ per connector and are not guessable.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_query(
@@ -1541,23 +1630,22 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     )
 
 
-@mcp_tool(
-    open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
+# Not yet registered as an MCP tool: write actions are not supported by the backend.
+# Restore the `@mcp_tool(open_world=True, extra_help_text=...)` decorator and revert the
+# `_` prefix when these are live. Tracked in https://linear.app/airbyteio/issue/AGENTIC-2280
+def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
     *,
     connector_id: Annotated[
         str,
-        Field(description="The ID of the deployed source connector to act on."),
+        Field(description="The ID of the deployed connector to act on."),
     ],
     entity_type: Annotated[
         str,
         Field(
             description=(
                 "The type of entity to act on, for example 'issues'. Call "
-                "`describe_cloud_*` or `get_agent_skill_docs` for supported entity types."
+                "`get_agent_skill_docs` for supported entity types."
             ),
         ),
     ],
@@ -1570,7 +1658,8 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
         Field(
             description=(
                 "Connector-specific arguments for the action, as an object or a JSON "
-                "object string. For example {'repository': 'airbytehq/PyAirbyte'}."
+                "object string. Argument names differ per connector and action; read "
+                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_HINT
             ),
             default=None,
         ),
@@ -1615,9 +1704,10 @@ def execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the co
 
     Creates, updates, or deletes data in the external system.
 
-    Use `describe_cloud_*` (with `with_direct_access_guidance=True`) or
-    `get_agent_skill_docs` to learn the entity types, actions, and `api_args` a
-    connector supports.
+    Before calling, read the connector's action docs with `get_agent_skill_docs`
+    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
+    learn the entity types, actions, and required `api_args`; argument names
+    differ per connector and are not guessable.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_action(

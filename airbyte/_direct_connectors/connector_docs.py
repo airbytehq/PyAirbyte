@@ -17,7 +17,7 @@ Three paths serve destination docs:
 
 This module also builds `_DirectConnectorInspectResult` payloads locally from the
 Cloud workspace objects and summarizes the connections touching a connector for
-the `describe_cloud_*` MCP tools.
+the `describe_cloud_connector` MCP tool.
 """
 
 from __future__ import annotations
