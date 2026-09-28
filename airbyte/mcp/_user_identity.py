@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 import time
 from collections import OrderedDict
@@ -38,9 +39,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-USER_ID_CACHE_TTL_SECONDS = 3600.0
-"""How long a resolved Airbyte user ID is reused for the same auth user."""
-
 USER_ID_FAILURE_TTL_SECONDS = 300.0
 """How long a failed lookup is remembered, so an outage doesn't add a call per request."""
 
@@ -57,7 +55,7 @@ _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
 
 
 class _UserIdCache:
-    """Thread-safe, size-bounded TTL cache of auth user ID to Airbyte user ID."""
+    """Thread-safe, size-bounded cache of auth user ID to Airbyte user ID."""
 
     def __init__(self, *, max_entries: int) -> None:
         self._max_entries = max_entries
@@ -77,7 +75,7 @@ class _UserIdCache:
             self._entries.move_to_end(auth_user_id)
             return True, user_id
 
-    def set(self, auth_user_id: str, user_id: str | None, *, ttl_seconds: float) -> None:
+    def set(self, auth_user_id: str, user_id: str | None, *, ttl_seconds: float = math.inf) -> None:
         with self._lock:
             self._entries[auth_user_id] = (user_id, time.monotonic() + ttl_seconds)
             self._entries.move_to_end(auth_user_id)
@@ -149,7 +147,6 @@ async def resolve_airbyte_user_id(ctx: Context | None) -> str | None:
         config_api_root = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL) or None
 
     user_id: str | None = None
-    ttl_seconds = USER_ID_FAILURE_TTL_SECONDS
     try:
         user_id = await asyncio.wait_for(
             asyncio.to_thread(
@@ -163,11 +160,11 @@ async def resolve_airbyte_user_id(ctx: Context | None) -> str | None:
         )
     except Exception:
         logger.debug("Airbyte user lookup for MCP telemetry failed", exc_info=True)
-    else:
-        if user_id is not None:
-            ttl_seconds = USER_ID_CACHE_TTL_SECONDS
 
-    _user_id_cache.set(auth_user_id, user_id, ttl_seconds=ttl_seconds)
+    if user_id is None:
+        _user_id_cache.set(auth_user_id, None, ttl_seconds=USER_ID_FAILURE_TTL_SECONDS)
+    else:
+        _user_id_cache.set(auth_user_id, user_id)
     return user_id
 
 
