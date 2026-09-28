@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastmcp.server.middleware import Middleware
+from fastmcp.server.telemetry import _active_seam_span  # noqa: PLC2701
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
@@ -311,12 +312,16 @@ class IntentCaptureMiddleware(Middleware):
         # FastMCP 4 opens a single seam SERVER span *above* the middleware
         # chain (later renamed to `tools/call <name>`), so `on_start` stamping
         # runs before this middleware exists; stamp the in-flight span here.
+        nested = _INTENT_ATTRIBUTES.get() is not None
         try:
             current_span = trace.get_current_span()
-            if current_span.is_recording():
+            if current_span.is_recording() and not nested:
                 current_span.set_attributes(attrs)
         except Exception:
             logger.debug("Intent stamping skipped")
+        # FastMCP enriches the active seam span for in-process calls; give nested
+        # calls their own child span so they cannot rename or relabel the outer one.
+        seam_token = _active_seam_span.set(None) if nested else None
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
             return await call_next(context)
@@ -331,14 +336,10 @@ class IntentCaptureMiddleware(Middleware):
                 logger.debug("Exception class capture skipped")
             raise
         finally:
-            # A default workspace is only known once the tool has resolved it.
-            scope = current_call_scope()
-            if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
-                try:
-                    _record_late_attributes({"airbyte.mcp.workspace_id": scope.workspace_id})
-                except Exception:
-                    logger.debug("Default workspace capture skipped")
+            _record_default_workspace()
             _INTENT_ATTRIBUTES.reset(token)
+            if seam_token is not None:
+                _active_seam_span.reset(seam_token)
 
     @staticmethod
     def _attributes(
@@ -400,6 +401,16 @@ class IntentCaptureMiddleware(Middleware):
             }
         )
         return attrs
+
+
+def _record_default_workspace() -> None:
+    """Attach the default workspace, which is only known once the tool has resolved it."""
+    scope = current_call_scope()
+    if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
+        try:
+            _record_late_attributes({"airbyte.mcp.workspace_id": scope.workspace_id})
+        except Exception:
+            logger.debug("Default workspace capture skipped")
 
 
 def _record_late_attributes(attributes: dict[str, str]) -> None:
