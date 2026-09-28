@@ -1422,3 +1422,39 @@ def test_config_api_jobs_get_route_is_exported_and_unknown_routes_are_not(
     (child,) = [span for span in _spans(otel_provider) if span.kind == SpanKind.CLIENT]
     assert child.attributes["http.url"] == exported
     assert "SENTINEL" not in _export_text(otel_provider)
+
+
+def test_default_workspace_resolved_by_the_tool_is_exported(
+    agents_app, monkeypatch, otel_provider
+):
+    """A call that names no workspace exports the default workspace the tool used."""
+    from airbyte.cloud.client import CloudClient
+
+    workspace_id = "12345678-1234-1234-1234-123456789abc"
+
+    class _Workspace:
+        def list_custom_source_definitions(self, **_):
+            return []
+
+    for name in (
+        "AIRBYTE_CLOUD_WORKSPACE_ID",
+        "AIRBYTE_CLOUD_CLIENT_ID",
+        "AIRBYTE_CLOUD_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AIRBYTE_CLOUD_BEARER_TOKEN", "cloud-bearer-SENTINEL")
+    monkeypatch.setattr(
+        CloudClient, "resolve_default_workspace_id", lambda self: workspace_id
+    )
+    monkeypatch.setattr(CloudClient, "get_workspace", lambda self, _: _Workspace())
+    result = asyncio.run(
+        _http_rpc(
+            agents_app,
+            "tools/call",
+            {"name": "list_custom_source_definitions", "arguments": {}},
+        )
+    )
+    assert not result.json()["result"].get("isError")
+    assert (
+        _tool_span(otel_provider).attributes["airbyte.mcp.workspace_id"] == workspace_id
+    )

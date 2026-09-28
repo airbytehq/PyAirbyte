@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastmcp.server.middleware import Middleware
-from fastmcp_extensions import get_mcp_config
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
@@ -30,9 +29,8 @@ from airbyte._direct_connectors.models import ExternalApiReadOnlyAction
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
-    MCP_CONFIG_ORGANIZATION_ID,
-    MCP_CONFIG_WORKSPACE_ID,
 )
+from airbyte.mcp._scope import current_call_scope, scope_from_request
 from airbyte.version import get_version
 
 
@@ -69,7 +67,6 @@ _INTENT_SCHEMA = {
     ),
 }
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
-_UUID_RE = re.compile(rf"\A{_UUID_PATTERN}\Z")
 # Only literal routes and validated IDs may survive export. Keep these aligned with
 # _util/api_util.py, _direct_connectors/api_util.py and their Public API SDK calls. Unknown
 # routes (including registry and custom API roots) retain status, but redact the URL.
@@ -324,18 +321,20 @@ class IntentCaptureMiddleware(Middleware):
             # FastMCP 4 wraps tool failures in `ToolError` below the span's
             # `on_end`, so the cause class is captured here, at the middleware.
             try:
-                span = trace.get_current_span()
-                span_context = span.get_span_context()
-                if span.is_recording() and span_context.is_valid:
-                    if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
-                        _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-                    _LATE_ATTRIBUTES[span_context.span_id] = {
-                        "airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__
-                    }
+                _record_late_attributes(
+                    {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
+                )
             except Exception:
                 logger.debug("Exception class capture skipped")
             raise
         finally:
+            # A default workspace is only known once the tool has resolved it.
+            scope = current_call_scope()
+            if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
+                try:
+                    _record_late_attributes({"airbyte.mcp.workspace_id": scope.workspace_id})
+                except Exception:
+                    logger.debug("Default workspace capture skipped")
             _INTENT_ATTRIBUTES.reset(token)
 
     @staticmethod
@@ -385,17 +384,31 @@ class IntentCaptureMiddleware(Middleware):
             attrs["gen_ai.conversation.id"] = digest
         if context.fastmcp_context is not None:
             attrs["gen_ai.tool.call.id"] = _call_id_digest(context.fastmcp_context.request_id)
-            for attribute, config in (
-                ("airbyte.mcp.workspace_id", MCP_CONFIG_WORKSPACE_ID),
-                ("airbyte.mcp.organization_id", MCP_CONFIG_ORGANIZATION_ID),
-            ):
-                try:
-                    value = get_mcp_config(context.fastmcp_context, config) or ""
-                except Exception:
-                    continue
-                if _UUID_RE.fullmatch(value):
-                    attrs[attribute] = value.lower()
+        scope = current_call_scope() or scope_from_request(context)
+        attrs.update(
+            {
+                attribute: value
+                for attribute, value in (
+                    ("airbyte.mcp.workspace_id", scope.workspace_id),
+                    ("airbyte.mcp.organization_id", scope.organization_id),
+                )
+                if value
+            }
+        )
         return attrs
+
+
+def _record_late_attributes(attributes: dict[str, str]) -> None:
+    """Attach attributes to the in-flight span at export, after it has ended."""
+    span = trace.get_current_span()
+    span_context = span.get_span_context()
+    if not (span.is_recording() and span_context.is_valid):
+        return
+    if span_context.span_id not in _LATE_ATTRIBUTES and len(_LATE_ATTRIBUTES) >= (
+        _MAX_LATE_ATTRIBUTES
+    ):
+        _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
+    _LATE_ATTRIBUTES.setdefault(span_context.span_id, {}).update(attributes)
 
 
 def _call_id_digest(request_id: object) -> str:
