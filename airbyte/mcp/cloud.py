@@ -2361,6 +2361,9 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
     except AirbyteError as error:
         section.error = _check_error_message(error)
         return section
+    except requests.RequestException as error:
+        section.error = f"Check request failed: {error}"
+        return section
     section.succeeded = check_result.success
     section.message = _get_connector_check_message(check_result)
     return section
@@ -2500,6 +2503,7 @@ def troubleshoot_cloud_connection(
         sync_results = connection.get_previous_sync_logs(
             limit=TROUBLESHOOT_RECENT_JOBS_LIMIT,
             from_tail=True,
+            job_type=JobTypeEnum.SYNC,
         )
         job_statuses = [sync_result.get_job_status() for sync_result in sync_results]
         recent_jobs.jobs = [

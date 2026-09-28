@@ -35,6 +35,7 @@ from airbyte.cloud.models import (
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
     JobStatusEnum,
+    JobTypeEnum,
 )
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
@@ -2293,8 +2294,8 @@ class _TroubleshootConnector:
     connector_id: str
     connector_type: str
     canonical_name: str
-    check_result: CheckResult | AirbyteError = dataclasses.field(
-        default_factory=lambda: CheckResult(success=True)
+    check_result: CheckResult | AirbyteError | requests.RequestException = (
+        dataclasses.field(default_factory=lambda: CheckResult(success=True))
     )
     name: str | None = "Connector"
 
@@ -2304,7 +2305,7 @@ class _TroubleshootConnector:
 
     def check(self, *, raise_on_error: bool = True) -> CheckResult:
         assert raise_on_error is False
-        if isinstance(self.check_result, AirbyteError):
+        if isinstance(self.check_result, (AirbyteError, requests.RequestException)):
             raise self.check_result
         return self.check_result
 
@@ -2362,10 +2363,11 @@ class _TroubleshootConnection:
     )
 
     def get_previous_sync_logs(
-        self, *, limit: int, from_tail: bool
+        self, *, limit: int, from_tail: bool, job_type: JobTypeEnum
     ) -> list[_TroubleshootSyncResult]:
         assert limit == cloud_mcp.TROUBLESHOOT_RECENT_JOBS_LIMIT
         assert from_tail is True
+        assert job_type == JobTypeEnum.SYNC
         if isinstance(self.jobs, AirbyteError):
             raise self.jobs
         return self.jobs
@@ -2813,3 +2815,26 @@ def test_troubleshoot_is_discoverable() -> None:
     instructions = " ".join(MCP_SERVER_INSTRUCTIONS.split())
     assert "call troubleshoot_cloud_connection" in instructions
     assert hint in instructions
+
+
+def test_troubleshoot_check_transport_error_is_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A network failure during a connector check fills only that section's error."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", "log")],
+            )
+        ]
+    )
+    connection.destination.check_result = requests.ConnectionError("connection reset")
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.destination_check.error == "Check request failed: connection reset"
+    assert result.destination_check.succeeded is None
+    assert result.source_check.succeeded is True
+    assert result.latest_failed_job.job_id == 4
