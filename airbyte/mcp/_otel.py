@@ -32,6 +32,7 @@ from airbyte.constants import (
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
 )
+from airbyte.mcp._args_digest import args_digest
 from airbyte.version import get_version
 
 
@@ -68,6 +69,7 @@ _INTENT_SCHEMA = {
 }
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _UUID_RE = re.compile(rf"\A{_UUID_PATTERN}\Z")
+_ARGS_DIGEST_RE = re.compile(r"[0-9a-f]{32}")
 # Only literal routes and validated IDs may survive export. Keep these aligned with
 # _util/api_util.py, _direct_connectors/api_util.py and their Public API SDK calls. Unknown
 # routes (including registry and custom API roots) retain status, but redact the URL.
@@ -148,7 +150,16 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
                 raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
     # Set the guard only once ownership is established, so a refused startup stays refused.
     _INSTALLED, _ENVIRON = True, environ
-    app.add_middleware(IntentCaptureMiddleware(app, environ=environ))
+    digest_key = None
+    if provider is not None:
+        try:
+            key_text = environment.get("AIRBYTE_MCP_OTEL_DIGEST_KEY", "")
+            if key_text.strip():
+                digest_key = key_text.encode("utf-8")
+        except Exception:
+            # Invalid key configuration silently disables fingerprinting.
+            pass
+    app.add_middleware(IntentCaptureMiddleware(app, environ=environ, digest_key=digest_key))
     if _flag(
         environ, "AIRBYTE_MCP_INTENT_CAPTURE"
     ) and INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or ""):
@@ -195,9 +206,16 @@ def _build_tool_maps() -> None:
 class IntentCaptureMiddleware(Middleware):
     """Advertise optional intent and carry it into FastMCP's existing tool span."""
 
-    def __init__(self, app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        app: FastMCP,
+        *,
+        environ: Mapping[str, str] | None = None,
+        digest_key: bytes | None = None,
+    ) -> None:
         """Retain the app to distinguish synthetic intent from real parameters."""
         self._app, self._environ = app, environ
+        self._digest_key = digest_key
 
     async def on_list_tools(
         self,
@@ -230,29 +248,44 @@ class IntentCaptureMiddleware(Middleware):
         """Strip synthetic arguments and untrusted tracing context before dispatch."""
         attrs: dict[str, str | bool] = {}
         intent = None
+        digest_ready = False
+        digest_arguments: object = None
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
                 if meta is not None and meta.model_extra:
                     meta.model_extra.pop("traceparent", None)
                     meta.model_extra.pop("tracestate", None)
-            args = dict(context.message.arguments or {})
+            supplied = context.message.arguments
+            args = dict(supplied or {})
             intent = args.get(INTENT_ARG)
-            if INTENT_ARG in args or _LEGACY_TELEMETRY_ARG in args:
+            synthetic_candidates = INTENT_ARG in args or _LEGACY_TELEMETRY_ARG in args
+            classified = False
+            if synthetic_candidates or self._digest_key is not None:
                 tool = await self._app.get_tool(context.message.name)
                 properties = tool.parameters.get("properties", {}) if tool is not None else {}
-                if _LEGACY_TELEMETRY_ARG not in properties:
-                    telemetry = args.pop(_LEGACY_TELEMETRY_ARG, None)
-                    if INTENT_ARG not in args and isinstance(telemetry, dict):
-                        intent = telemetry.get(INTENT_ARG)
-                if INTENT_ARG not in properties:
-                    args.pop(INTENT_ARG, None)
-                context = context.copy(
-                    message=context.message.model_copy(update={"arguments": args})
+                classified = (
+                    tool is not None and type(tool.parameters) is dict and type(properties) is dict
                 )
+                if synthetic_candidates:
+                    if _LEGACY_TELEMETRY_ARG not in properties:
+                        telemetry = args.pop(_LEGACY_TELEMETRY_ARG, None)
+                        if INTENT_ARG not in args and isinstance(telemetry, dict):
+                            intent = telemetry.get(INTENT_ARG)
+                    if INTENT_ARG not in properties:
+                        args.pop(INTENT_ARG, None)
+                    context = context.copy(
+                        message=context.message.model_copy(update={"arguments": args})
+                    )
+            digest_ready = classified and (supplied is None or type(supplied) is dict)
+            digest_arguments = context.message.arguments
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
+        if digest_ready and self._digest_key is not None:
+            digest = args_digest(context.message.name, digest_arguments, self._digest_key)
+            if digest is not None:
+                attrs["airbyte.mcp.args_digest"] = digest
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
             return await call_next(context)
@@ -397,7 +430,17 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        digest = attrs.pop("airbyte.mcp.args_digest", None)
+        root_tool_span = (
+            span.kind == SpanKind.SERVER
+            and span.parent is None
+            and span.name.startswith("tools/call ")
+            and span.name.removeprefix("tools/call ") in _TOOL_MODULES
+        )
+        if root_tool_span and type(digest) is str and _ARGS_DIGEST_RE.fullmatch(digest):
+            attrs["airbyte.mcp.args_digest"] = digest
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
+        attrs.pop("_dd.ml_obs.metadata", None)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
             metadata = {
                 key: attrs[f"airbyte.mcp.{key}"]
@@ -408,6 +451,7 @@ class RedactingExporter(SpanExporter):
                     "workspace_id",
                     "organization_id",
                     "error_type",
+                    "args_digest",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }
