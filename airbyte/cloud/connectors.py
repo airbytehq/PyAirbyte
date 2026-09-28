@@ -155,7 +155,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Fusion enablement lookup result. (Cached; `None` until fetched.)"""
 
         self._enablement_error: exc.AirbyteError | None = None
-        """The 403/404 that answered the enablement lookup, if any. (Cached.)"""
+        """The 404 (no active connector of this kind) that answered the enablement
+        lookup, if any. (Cached; other failures, including 403s, are never cached.)"""
 
         self._context_layer_details: _DirectConnectorInspectResult | None = None
         """Context Layer `inspect` result. (Cached; `None` until fetched.)"""
