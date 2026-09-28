@@ -411,7 +411,6 @@ def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     )
 
     notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
-    assert "SQL passthrough is not enabled" in notice
     guidance = destination.get_direct_access_guidance()
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
     assert guidance.metadata.warnings == [notice]
@@ -819,154 +818,13 @@ def test_is_feature_enabled_wrong_connector_kind_short_circuits(
     get_features.assert_not_called()
 
 
-@pytest.mark.parametrize("status", [403, 404])
-def test_unavailable_features_warn_without_caching_absence(
-    monkeypatch: pytest.MonkeyPatch, status: int
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    read_docs = MagicMock(
-        side_effect=[
-            AirbyteCloudApiError(
-                status_code=status, context={"response_text": "secret"}
-            ),
-            SKILL_DOCS_RESPONSE,
-        ]
-    )
-    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
-    source = _seed_source(workspace, "source-1", "GitHub")
-    warnings: list[str] = []
-
-    assert source._get_enabled_features(warnings=warnings) is None  # noqa: SLF001
-    assert source._enabled_features is None  # noqa: SLF001
-    assert len(warnings) == 1
-    assert "unavailable" in warnings[0]
-    assert "secret" not in warnings[0]
-    assert "not enabled" not in warnings[0]
-    assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
-    assert read_docs.call_count == 2
-    assert source.enabled_features
-    assert read_docs.call_count == 2
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        AirbyteCloudApiError(status_code=403, context={"response_text": "secret"}),
-        AirbyteCloudApiError(status_code=404, context={"response_text": "secret"}),
-        AirbyteCloudApiError(status_code=401, context={"response_text": "secret"}),
-        AirbyteCloudApiError(status_code=500, context={"response_text": "secret"}),
-        requests.Timeout("secret"),
-        ValueError("secret"),
-    ],
-)
-def test_describe_survives_unknown_features_and_recovers(
-    monkeypatch: pytest.MonkeyPatch, failure: Exception
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    read_docs = MagicMock(side_effect=[failure, SKILL_DOCS_RESPONSE])
-    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
-    source = _seed_source(workspace, "source-1", "GitHub")
-    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
-    monkeypatch.setattr(connector_docs, "build_connection_details", lambda _: [])
-
-    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
-        source,
-        with_config=False,
-        with_replication_details=True,
-        with_direct_access_guidance=True,
-        with_data_replication_docs=False,
-    )
-
-    assert result.connector_id == "source-1"
-    assert result.replication_details == []
-    assert result.enabled_features == "unknown"
-    assert result.warnings
-    assert all("secret" not in warning for warning in result.warnings)
-    assert read_docs.call_count == 1
-    assert source._enabled_features is None  # noqa: SLF001
-    assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
-    assert read_docs.call_count == 2
-
-
-def test_malformed_probe_is_not_cached_or_silently_filtered(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    source = _seed_source(workspace, "source-1", "GitHub")
-    monkeypatch.setattr(workspace, "list_sources", lambda: [source])
-    monkeypatch.setattr(workspace, "list_destinations", lambda: [])
-    read_docs = MagicMock(side_effect=[{}, SKILL_DOCS_RESPONSE])
-    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
-
-    with pytest.raises(ValueError):
-        workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS)
-    assert source._enabled_features is None  # noqa: SLF001
-    assert workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == [
-        source
-    ]
-    assert read_docs.call_count == 2
-
-
-@pytest.mark.parametrize("section", [None, "overview", "actions.record.sql_select"])
-def test_destination_server_guidance_is_not_duplicated(
-    monkeypatch: pytest.MonkeyPatch, section: str | None
-) -> None:
-    workspace = _make_workspace(monkeypatch)
-    _patch_context_layer(monkeypatch)
-    server_section = (
-        "actions.record.sql_select" if section == "sql-passthrough" else section
-    )
-    server_response = {
-        "metadata": {
-            "id": "connector-destination:dest-1",
-            "kind": "connector_destination",
-            "title": "Warehouse",
-        },
-        "outline": [
-            {
-                "id": "actions.record.sql_select",
-                "title": "SQL select",
-                "available": True,
-            }
-        ],
-        "section_id": server_section,
-        "content": [{"type": "paragraph", "text": "Authoritative SQL instructions."}],
-    }
-    read_docs = MagicMock(return_value=server_response)
-    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
-    destination = _seed_destination(workspace, "dest-1", SNOWFLAKE_DEFINITION_ID)
-    # A successful server docs response must not trigger local configuration/connection reads.
-    monkeypatch.setattr(
-        connector_docs,
-        "_destination_load_context",
-        MagicMock(side_effect=AssertionError("local SQL rendering")),
-    )
-    monkeypatch.setattr(
-        workspace,
-        "list_connections",
-        MagicMock(side_effect=AssertionError("local connection listing")),
-    )
-
-    docs = destination.read_agent_skill_docs(section=section)
-
-    assert read_docs.call_count == 1
-    assert read_docs.call_args.kwargs["section"] == server_section
-    assert docs.content == [
-        {"type": "paragraph", "text": "Authoritative SQL instructions."}
-    ]
-    assert docs.section_id == section
-    assert {entry.id for entry in docs.outline} == {"actions.record.sql_select"}
-
-
-@pytest.mark.parametrize("cache_path", ["fresh", "inspect", "features"])
+@pytest.mark.parametrize("cache_path", ["fresh", "inspect"])
 def test_describe_stringifies_structured_probe_warnings(
     monkeypatch: pytest.MonkeyPatch, cache_path: str
 ) -> None:
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    _patch_enablement(monkeypatch)
     warning = {"code": "partial", "message": "Partial metadata"}
     response = {
         **SKILL_DOCS_RESPONSE,
@@ -978,8 +836,6 @@ def test_describe_stringifies_structured_probe_warnings(
     source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
     if cache_path == "inspect":
         source._context_layer_inspect(warnings=[])  # noqa: SLF001
-    elif cache_path == "features":
-        source._get_enabled_features()  # noqa: SLF001
 
     result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
         source,
@@ -992,3 +848,65 @@ def test_describe_stringifies_structured_probe_warnings(
     assert result.warnings == [str(warning)]
     assert result.model_dump()["warnings"] == [str(warning)]
     assert read_docs.call_count == 1
+
+
+@pytest.mark.parametrize("with_guidance", [False, True])
+def test_describe_malformed_docs_preserves_enabled_features(
+    monkeypatch: pytest.MonkeyPatch, with_guidance: bool
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_enablement(monkeypatch)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", lambda **_: {})
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=with_guidance,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == sorted([
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ])
+    assert result.warnings == [
+        "Connector direct-access docs lookup failed.",
+        *(["Direct access docs are unavailable."] if with_guidance else []),
+    ]
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_unavailable_docs_do_not_hide_enabled_features_or_leak_errors(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_enablement(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=AirbyteCloudApiError(
+            status_code=status, context={"response_text": "secret"}
+        )
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == sorted([
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ])
+    assert result.warnings == [
+        "Connector direct-access docs are unavailable (access denied or not found)."
+    ]

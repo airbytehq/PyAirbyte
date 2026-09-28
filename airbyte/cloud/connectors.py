@@ -59,6 +59,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
+import requests
 import yaml
 from pydantic import ValidationError
 
@@ -163,29 +164,17 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._connector_definition: _ConnectorDefinitionLike | None = None
         """The connector definition lookup result. (Cached; `None` until fetched.)"""
 
-    def _get_enabled_features(
-        self, *, warnings: list[str] | None = None
-    ) -> frozenset[ConnectorFeature] | None:
-        """Resolve connector features, optionally collecting unavailable-docs warnings.
+    def _get_enabled_features(self) -> frozenset[ConnectorFeature]:
+        """Return the enabled features, resolving them through the workspace on first use."""
+        if self._enabled_features is None:
+            self._enabled_features = self.workspace._get_connector_features(self)  # noqa: SLF001
 
-        Successful features are cached. Unavailable docs (403/404) return `None`
-        without caching absence; other probe failures propagate so callers can distinguish
-        unknown support from an empty feature set.
-        """
-        if self._enabled_features is not None:
-            if warnings is not None and self._context_layer_details is not None:
-                warnings.extend(str(warning) for warning in self._context_layer_details.warnings)
-            return self._enabled_features
-
-        features = self.workspace._get_connector_features(self, warnings=warnings)  # noqa: SLF001
-        if features:
-            self._enabled_features = features
-        return features
+        return self._enabled_features
 
     @property
     def enabled_features(self) -> frozenset[ConnectorFeature]:
-        """Known enabled features; unavailable probes yield an empty set."""
-        return self._get_enabled_features() or frozenset()
+        """The features enabled for this connector. Resolved on first access and cached."""
+        return self._get_enabled_features()
 
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         """Whether `feature` is enabled for this connector.
@@ -693,8 +682,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Execute a single entity/action operation through the Cloud Config API.
 
         Raises `AirbyteExternalAccessNotEnabledError` without any network call when the
-        workspace's API roots have no Context layer API. Execution errors propagate
-        unchanged: an unavailable docs probe cannot establish disabled access.
+        workspace's API roots have no Context layer API. When the Cloud Config API
+        reports the connector as forbidden or not found, the error is re-raised as
+        `AirbyteExternalAccessNotEnabledError` only when external access is actually
+        disabled for the connector; the original `AirbyteError` propagates otherwise,
+        including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
         if read_only and action in {write_action.value for write_action in ExternalApiWriteAction}:
@@ -755,7 +747,6 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         response, transport) is raised to the caller.
         """
         if self._context_layer_details is not None and not force_refresh:
-            warnings.extend(str(warning) for warning in self._context_layer_details.warnings)
             return self._context_layer_details
         skill_id = (
             connector_docs.source_skill_id(self.connector_id)
@@ -789,7 +780,6 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             warnings=list(docs.metadata.warnings),
         )
         self._context_layer_details = parsed
-        warnings.extend(str(warning) for warning in parsed.warnings)
         return parsed
 
     def _fetch_enablement(self) -> ConnectorEnablement | None:
@@ -949,8 +939,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             except exc.AirbyteError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
-                # Keep the not-enabled notice for this fallback. A rare missing-docs
-                # 404 is indistinguishable from disabled access without an explicit signal.
+                # Keep the not-enabled notice for this docs fallback. A rare missing-docs
+                # 404 can reach it even when access is enabled.
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,

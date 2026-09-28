@@ -27,11 +27,7 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
-from airbyte.cloud.connectors import (
-    CheckResult,
-    ConnectorFeature,
-    ConnectorType,
-)
+from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -1757,15 +1753,6 @@ class _DescribedConnector:
             raise self._integration_name
         return self._integration_name
 
-    def _get_enabled_features(
-        self, *, warnings: list[str]
-    ) -> frozenset[ConnectorFeature]:
-        if self.workspace._has_context_layer_api():
-            details = self._context_layer_inspect(warnings=warnings)
-            if details is not None:
-                warnings.extend(details.warnings)
-        return self.enabled_features
-
     def is_feature_enabled(self, feature: ConnectorFeature) -> bool:
         return feature in self.enabled_features
 
@@ -2260,10 +2247,13 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
     """A feature-probe failure marks `enabled_features` `"unknown"` with a warning."""
 
     class _FailingFeaturesConnector(_DescribedConnector):
-        def _get_enabled_features(
-            self, *, warnings: list[str]
-        ) -> frozenset[ConnectorFeature]:
+        @property
+        def enabled_features(self) -> frozenset[ConnectorFeature]:
             raise AirbyteCloudApiError(status_code=504)
+
+        @enabled_features.setter
+        def enabled_features(self, value: frozenset[ConnectorFeature]) -> None:
+            pass
 
     result = _describe(_FailingFeaturesConnector())
 

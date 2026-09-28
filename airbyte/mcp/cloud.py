@@ -1348,15 +1348,6 @@ def _describe_cloud_connector(
         warnings.append(f"Integration name lookup failed: {error}")
         integration_name = None
 
-    try:
-        features = connector._get_enabled_features(warnings=warnings)  # noqa: SLF001
-        enabled_features: list[ConnectorFeature] | FeaturesUnknown = (
-            FEATURES_UNKNOWN if features is None else sorted(features)
-        )
-    except (AirbyteError, requests.RequestException, ValueError):
-        enabled_features = FEATURES_UNKNOWN
-        warnings.append("Connector feature lookup failed; enabled features are unknown.")
-
     result = CloudConnectorDetailsResult(
         connector_id=connector.connector_id,
         connector_type=connector_type.value,
@@ -1364,12 +1355,11 @@ def _describe_cloud_connector(
         connector_url=connector.connector_url,
         connector_definition_id=connector.definition_id,
         integration_name=integration_name,
-        enabled_features=enabled_features,
     )
 
     try:
         result.enabled_features = sorted(connector.enabled_features)
-    except (AirbyteError, requests.RequestException) as error:
+    except (AirbyteError, requests.RequestException, ValueError) as error:
         result.enabled_features = FEATURES_UNKNOWN
         warnings.append(_feature_lookup_warning(error))
 
@@ -1382,8 +1372,8 @@ def _describe_cloud_connector(
             context_layer = connector._context_layer_inspect(  # noqa: SLF001
                 warnings=warnings,
             )
-        except (AirbyteError, requests.RequestException) as error:
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+        except (AirbyteError, requests.RequestException, ValueError):
+            warnings.append("Connector direct-access docs lookup failed.")
         else:
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
@@ -1400,7 +1390,7 @@ def _describe_cloud_connector(
         except AirbyteError as error:
             warnings.append(f"Connection listing failed: {error}")
 
-    if with_direct_access_guidance and enabled_features != FEATURES_UNKNOWN:
+    if with_direct_access_guidance:
         try:
             docs = connector.get_direct_access_guidance()
         except (PyAirbyteError, requests.RequestException, ValueError):
