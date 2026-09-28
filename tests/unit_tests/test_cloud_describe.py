@@ -885,3 +885,26 @@ def test_definition_lookup_wraps_sdk_error(
         )
 
     assert exc_info.value.__cause__ is sdk_error
+
+
+def test_get_job_info_wraps_sdk_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Generated-client `SDKError`s from job lookups surface as `AirbyteError`."""
+    sdk_error = SDKError("server exploded", 500, "", requests.Response())
+
+    def _raise(_request: object) -> None:
+        raise sdk_error
+
+    instance = SimpleNamespace(jobs=SimpleNamespace(get_job=_raise))
+    monkeypatch.setattr(api_util, "get_airbyte_server_instance", lambda **_: instance)
+
+    with pytest.raises(AirbyteError, match="server exploded") as exc_info:
+        api_util.get_job_info(
+            123,
+            api_root="https://api.example.com",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+
+    assert exc_info.value.__cause__ is sdk_error
+    assert exc_info.value.context["job_id"] == 123
