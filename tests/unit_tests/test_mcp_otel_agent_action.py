@@ -28,6 +28,7 @@ from airbyte.registry import ConnectorType
 from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
+    ExternalSearchResult,
 )
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import cloud
@@ -46,6 +47,7 @@ agents_app = otel_tests.agents_app
 ACTION = "airbyte.mcp.agent.action"
 GENERAL = "execute_external_api_query"
 SQL = "execute_external_sql_query"
+SEARCH = "execute_external_search_query"
 SENTINEL = "private-payload-must-not-export"
 VALID_ACTIONS = [(GENERAL, action) for action in ("list", "get", "search")] + [
     (SQL, "sql_select")
@@ -501,3 +503,56 @@ def test_api_query_public_action_default_and_explicit_null(
         assert execute.call_args.kwargs["request_body"]["action"] == "list"
         assert _tool_span(otel_provider).attributes[ACTION] == "list"
     assert SENTINEL not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize(
+    ("search_type", "action"),
+    [
+        (None, "search_hybrid"),
+        ("hybrid", "search_hybrid"),
+        ("keyword", "search_keyword"),
+        ("semantic", "search_semantic"),
+    ],
+)
+@pytest.mark.parametrize("vendor", ["", "datadog"])
+def test_search_type_is_recorded_as_action(
+    monkeypatch, agents_app, otel_provider, search_type, action, vendor
+):
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
+    agents_app.middleware = []
+    _capture(agents_app)
+    connector = CloudConnector(
+        workspace=Mock(), connector_id=SENTINEL, connector_type=ConnectorType.SOURCE
+    )
+    search = Mock(
+        return_value=ExternalSearchResult(hits=[], metadata=[], response_time_ms=1)
+    )
+    monkeypatch.setattr(agents_api, "execute_cloud_connector_search", search)
+    monkeypatch.setattr(
+        cloud,
+        "_get_cloud_workspace",
+        Mock(return_value=Mock(get_connector=Mock(return_value=connector))),
+    )
+    arguments = {"connector_id": SENTINEL, "prompt": SENTINEL}
+    if search_type is not None:
+        arguments["search_type"] = search_type
+    asyncio.run(_call(agents_app, arguments, name=SEARCH))
+    search.assert_called_once()
+    attrs = _tool_span(otel_provider).attributes
+    assert attrs[ACTION] == action
+    if vendor:
+        assert json.loads(attrs["_dd.ml_obs.metadata"])["agent.action"] == action
+    assert SENTINEL not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("search_type", ["fuzzy", "search_keyword", "KEYWORD", 0, None])
+def test_invalid_search_type_is_omitted(agents_app, otel_provider, search_type):
+    with pytest.raises(ToolError):
+        asyncio.run(
+            _call(
+                agents_app,
+                {"connector_id": SENTINEL, "prompt": "x", "search_type": search_type},
+                name=SEARCH,
+            )
+        )
+    assert ACTION not in _tool_span(otel_provider).attributes

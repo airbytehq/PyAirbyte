@@ -10,15 +10,24 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from pydantic import ValidationError
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
-from airbyte._direct_connectors.models import ExternalApiExecuteResult
+from airbyte._direct_connectors.models import (
+    ExternalApiExecuteResult,
+    ExternalSearchHit,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+    ExternalSearchStreamFilter,
+    ExternalSearchType,
+)
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.connectors import (
     CloudConnector,
     CloudDestination,
     CloudSource,
+    ConnectorFeature,
     ConnectorType,
     ExternalApiReadOnlyAction,
 )
@@ -845,3 +854,658 @@ def test_cloud_execute_rejects_malformed_envelope(
         source.execute_api_query("records")
 
     assert (exc_info.value.context or {})["path"] == "/sources/source-1/execute"
+
+
+_SEARCH_RESPONSE: dict[str, Any] = {
+    "hits": [
+        {
+            "source_id": "source-1",
+            "stream_name": "issues",
+            "entity_id": "42",
+            "entity_data": {"title": "Refund request"},
+            "score": 0.91,
+            "context": "Refund request from ACME",
+        }
+    ],
+    "metadata": [
+        {
+            "source_id": "source-1",
+            "destination_id": "destination-1",
+            "stream_name": "issues",
+            "index_name": "issues_semantic",
+            "search_time_ms": 12,
+        },
+        {
+            "source_id": "source-1",
+            "destination_id": "destination-1",
+            "stream_name": "users",
+            "index_name": "users_keyword",
+            "error": "index unavailable",
+            "search_time_ms": 3,
+        },
+    ],
+    "response_time_ms": 20,
+}
+
+_SEARCH_STATUS_RESPONSE: dict[str, Any] = {
+    "sources": [
+        {
+            "source_id": "source-1",
+            "destination_id": "destination-1",
+            "connection_id": "connection-1",
+            "streams": [
+                {
+                    "namespace": None,
+                    "name": "issues",
+                    "backfill": {
+                        "expected_total_records": 100,
+                        "collected_records": 100,
+                        "indexed_records": 100,
+                        "started_at": "2026-09-01T00:00:00Z",
+                        "completed_at": "2026-09-01T01:00:00Z",
+                        "status": "complete",
+                    },
+                    "indexes": [
+                        {
+                            "type": "semantic",
+                            "name": "issues_semantic",
+                            "indexed_records": 100,
+                            "physical_rows": 100,
+                            "optimized_physical_rows": 100,
+                            "updated_at": "2026-09-01T01:00:00Z",
+                            "status": "idle",
+                            "storage_size_mb": 1.5,
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+}
+
+
+def _patch_search(
+    monkeypatch: pytest.MonkeyPatch,
+    response: dict[str, Any],
+    *,
+    error: Exception | None = None,
+) -> list[dict[str, Any]]:
+    """Stub HTTP responses for the Cloud search and search-status routes.
+
+    Returns the recorded `requests.request` kwargs, one per HTTP call.
+    """
+    calls: list[dict[str, Any]] = []
+
+    def fake_request(**kwargs: Any) -> requests.Response:
+        calls.append(kwargs)
+        if error is not None:
+            raise error
+        raw_response = requests.Response()
+        raw_response.status_code = 200
+        raw_response.headers["Content-Type"] = "application/json"
+        raw_response._content = json.dumps(response).encode()  # noqa: SLF001
+        return raw_response
+
+    monkeypatch.setattr(requests, "request", fake_request)
+    return calls
+
+
+@pytest.mark.parametrize("kind", ["source", "destination"])
+def test_search_routes_by_connector_type(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    connector = (
+        _seed_source(workspace, "connector-1", "GitHub Issues")
+        if kind == "source"
+        else _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
+    )
+    route = "sources" if kind == "source" else "destinations"
+
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    connector.execute_search_query("refunds")
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"].endswith(f"/{route}/connector-1/search")
+
+    calls = _patch_search(monkeypatch, _SEARCH_STATUS_RESPONSE)
+    connector.get_search_status()
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"].endswith(f"/{route}/connector-1/search-status")
+    assert calls[0]["json"] is None
+
+
+def test_search_request_body_omits_none_and_maps_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    source.execute_search_query("refunds")
+    source.execute_search_query(
+        "refunds",
+        search_type=ExternalSearchType.SEMANTIC,
+        limit=5,
+        streams=[
+            {"stream_name": "issues", "fields": ["title"]},
+            ExternalSearchStreamFilter(stream_name="users", namespace="public"),
+        ],
+        lookback_seconds=3600,
+        max_context_chars=200,
+        min_similarity=0.3,
+        max_similarity_diff=0.1,
+        destination_id="destination-1",
+    )
+
+    assert calls[0]["json"] == {"type": "hybrid", "prompt": "refunds"}
+    assert calls[1]["json"] == {
+        "type": "semantic",
+        "prompt": "refunds",
+        "limit": 5,
+        "streams": [
+            {"stream_name": "issues", "fields": ["title"]},
+            {"stream_name": "users", "namespace": "public"},
+        ],
+        "lookback_s": 3600,
+        "max_context_chars": 200,
+        "min_similarity": 0.3,
+        "max_similarity_diff": 0.1,
+        "destination_id": "destination-1",
+    }
+
+
+def test_search_parses_response_and_collects_index_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    result = source.execute_search_query("refunds", search_type="keyword")  # type: ignore[arg-type]
+
+    assert isinstance(result, ExternalSearchResult)
+    assert [hit.entity_id for hit in result.hits] == ["42"]
+    assert result.hits[0].entity_data == {"title": "Refund request"}
+    assert result.hits[0].score == pytest.approx(0.91)
+    assert result.response_time_ms == 20
+    assert [entry.index_name for entry in result.metadata] == [
+        "issues_semantic",
+        "users_keyword",
+    ]
+    assert len(result.warnings) == 1
+    assert "users" in result.warnings[0]
+    assert "index unavailable" in result.warnings[0]
+
+
+def test_search_status_parses_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, _SEARCH_STATUS_RESPONSE)
+    destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
+
+    result = destination.get_search_status()
+
+    assert isinstance(result, ExternalSearchStatusResult)
+    stream = result.sources[0].streams[0]
+    assert result.sources[0].connection_id == "connection-1"
+    assert stream.backfill is not None
+    assert stream.backfill.status == "complete"
+    assert stream.backfill.backfill_start_time is None
+    assert stream.indexes[0].status == "idle"
+    assert stream.indexes[0].storage_size_mb == pytest.approx(1.5)
+
+
+@pytest.mark.parametrize(
+    ("method_name", "payload"),
+    [
+        pytest.param(
+            "execute_search_query", {"hits": [{"entity_id": "1"}]}, id="search"
+        ),
+        pytest.param("get_search_status", {"sources": [{"streams": []}]}, id="status"),
+        # A truncated payload is malformed, not an empty result.
+        pytest.param("execute_search_query", {}, id="search_empty_payload"),
+        pytest.param(
+            "execute_search_query", {"hits": []}, id="search_missing_metadata"
+        ),
+        pytest.param("get_search_status", {}, id="status_empty_payload"),
+    ],
+)
+def test_search_rejects_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    payload: dict[str, Any],
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, payload)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    args = ("refunds",) if method_name == "execute_search_query" else ()
+
+    with pytest.raises(
+        AirbyteError, match="Malformed Airbyte Cloud search"
+    ) as exc_info:
+        getattr(source, method_name)(*args)
+
+    assert (exc_info.value.context or {})["path"].startswith("/sources/source-1/search")
+
+
+@pytest.mark.parametrize(
+    ("kind", "kwargs", "match"),
+    [
+        pytest.param(
+            "source", {"search_type": "fuzzy"}, "not valid", id="bad_search_type"
+        ),
+        pytest.param("source", {"limit": 0}, "`limit`", id="zero_limit"),
+        pytest.param("source", {"limit": -1}, "`limit`", id="negative_limit"),
+        pytest.param("source", {"limit": 101}, "`limit`", id="limit_over_max"),
+        pytest.param(
+            "source",
+            {"search_type": "keyword", "min_similarity": 0.5},
+            "keyword",
+            id="min_similarity_with_keyword",
+        ),
+        pytest.param(
+            "source",
+            {"search_type": ExternalSearchType.KEYWORD, "max_similarity_diff": 0.1},
+            "keyword",
+            id="max_similarity_diff_with_keyword",
+        ),
+        pytest.param(
+            "destination",
+            {"destination_id": "destination-2"},
+            "source-level",
+            id="destination_id_on_destination",
+        ),
+        pytest.param(
+            "source", {"streams": [{"fields": ["id"]}]}, "`streams`", id="bad_stream"
+        ),
+    ],
+)
+def test_search_input_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    kwargs: dict[str, Any],
+    match: str,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    connector = (
+        _seed_source(workspace, "connector-1", "GitHub Issues")
+        if kind == "source"
+        else _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
+    )
+
+    with pytest.raises(PyAirbyteInputError, match=match):
+        connector.execute_search_query("refunds", **kwargs)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("method_name", ["execute_search_query", "get_search_status"])
+@pytest.mark.parametrize(
+    ("status_code", "search_flag", "expected_exc", "expected_status"),
+    [
+        pytest.param(
+            403,
+            False,
+            AirbyteExternalAccessNotEnabledError,
+            None,
+            id="forbidden_disabled_raises_not_enabled",
+        ),
+        pytest.param(404, True, AirbyteError, 404, id="not_found_enabled_reraises"),
+        pytest.param(
+            403,
+            _FLAG_LOOKUP_ERROR,
+            AirbyteError,
+            403,
+            id="flag_lookup_failure_reraises",
+        ),
+        pytest.param(500, True, AirbyteError, 500, id="other_error_propagates"),
+    ],
+)
+def test_search_error_handling(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    status_code: int,
+    search_flag: Any,  # noqa: ANN401
+    expected_exc: type[Exception],
+    expected_status: int | None,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(
+        monkeypatch,
+        {},
+        error=AirbyteCloudApiError(status_code=status_code),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    args = ("refunds",) if method_name == "execute_search_query" else ()
+
+    flag_patch = (
+        patch.object(CloudConnector, "is_feature_enabled", return_value=search_flag)
+        if isinstance(search_flag, bool)
+        else patch.object(
+            CloudConnector,
+            "is_feature_enabled",
+            side_effect=AirbyteError(context={"status_code": 500}),
+        )
+    )
+    with flag_patch as flag_mock, pytest.raises(expected_exc) as exc_info:
+        getattr(source, method_name)(*args)
+
+    if status_code in {403, 404}:
+        flag_mock.assert_called_once_with(ConnectorFeature.SEARCH_INDEXING)
+    else:
+        flag_mock.assert_not_called()
+    if expected_exc is AirbyteExternalAccessNotEnabledError:
+        assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+        assert exc_info.value.connector_id == "source-1"
+        assert exc_info.value.connector_name == "GitHub Issues"
+        assert "search_indexing" in (exc_info.value.guidance or "")
+    else:
+        assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+        assert isinstance(exc_info.value, AirbyteCloudApiError)
+        assert exc_info.value.status_code == expected_status
+
+
+def test_search_methods_raise_without_context_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch, available=False)
+    calls = _patch_search(monkeypatch, _SEARCH_RESPONSE)
+    # `_connector_info` stays unset so any `connector_type`/`name` lookup would hit the
+    # public API; the Context layer gate must fire first.
+    connectors = (
+        CloudSource(workspace=workspace, connector_id="source-1"),
+        CloudDestination(workspace=workspace, connector_id="destination-1"),
+        workspace.get_connector("connector-1"),
+    )
+
+    for connector in connectors:
+        with pytest.raises(AirbyteExternalAccessNotEnabledError):
+            connector.execute_search_query("refunds", search_type="fuzzy")  # type: ignore[arg-type]
+        with pytest.raises(AirbyteExternalAccessNotEnabledError):
+            connector.get_search_status()
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("method_name", "enablement", "expect_not_enabled"),
+    [
+        pytest.param(
+            "execute_search_query",
+            {"enable_agent_access": True, "enable_indexing": False},
+            True,
+            id="search_indexing_disabled",
+        ),
+        pytest.param(
+            "execute_search_query",
+            {"enable_agent_access": True, "enable_indexing": True},
+            False,
+            id="search_indexing_enabled",
+        ),
+        pytest.param(
+            "execute_api_query",
+            {"enable_agent_access": False, "enable_indexing": False},
+            True,
+            id="agent_access_disabled",
+        ),
+        pytest.param(
+            "execute_api_query",
+            {"enable_agent_access": True, "enable_indexing": False},
+            False,
+            id="agent_access_enabled",
+        ),
+    ],
+)
+def test_forbidden_recheck_uses_enablement(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    enablement: dict[str, bool],
+    expect_not_enabled: bool,
+) -> None:
+    """A 403 re-checks the feature with one enablement call, not a docs or status probe."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    seen_paths: list[str] = []
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        seen_paths.append(kwargs["path"])
+        if kwargs["path"].endswith("/enablement"):
+            return enablement
+        raise AirbyteCloudApiError(status_code=403)
+
+    monkeypatch.setattr(agents_api_util, "make_cloud_agent_request", fake_request)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    args = ("refunds",) if method_name == "execute_search_query" else ("issues",)
+
+    expected_exc = (
+        AirbyteExternalAccessNotEnabledError
+        if expect_not_enabled
+        else AirbyteCloudApiError
+    )
+    with pytest.raises(expected_exc):
+        getattr(source, method_name)(*args)
+
+    assert seen_paths[1:] == ["/sources/source-1/enablement"]
+
+
+_HIT = {"source_id": "source-1", "stream_name": "issues", "score": 0.5}
+_INDEX_METADATA = {"stream_name": "issues", "index_name": "issues_keyword"}
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "expected"),
+    [
+        pytest.param("cus_123", "cus_123", id="string"),
+        pytest.param(42, "42", id="int"),
+        pytest.param(4.5, "4.5", id="float"),
+    ],
+)
+def test_search_hit_coerces_numeric_entity_id(entity_id: object, expected: str) -> None:
+    hit = ExternalSearchHit.model_validate({**_HIT, "entity_id": entity_id})
+
+    assert hit.entity_id == expected
+
+
+@pytest.mark.parametrize("field", ["source_id", "score"])
+def test_search_hit_keeps_strict_fields(field: str) -> None:
+    payload = {**_HIT, "entity_id": "1", field: None}
+
+    with pytest.raises(ValidationError):
+        ExternalSearchHit.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_warnings"),
+    [
+        pytest.param(
+            {"hits": [], "metadata": [_INDEX_METADATA], "warnings": None},
+            [],
+            id="null_warnings",
+        ),
+        pytest.param(
+            {
+                "hits": [],
+                "metadata": [
+                    _INDEX_METADATA,
+                    {**_INDEX_METADATA, "error": "index offline"},
+                ],
+                "warnings": ["server note"],
+            },
+            [
+                "server note",
+                "Search of stream 'issues' (index 'issues_keyword') failed: index offline",
+            ],
+            id="merges_server_and_index_warnings",
+        ),
+    ],
+)
+def test_search_result_warnings(
+    payload: dict[str, Any],
+    expected_warnings: list[str],
+) -> None:
+    result = ExternalSearchResult.model_validate(payload)
+
+    assert result.warnings == expected_warnings
+    # Re-validating a dumped result does not duplicate collected warnings.
+    assert (
+        ExternalSearchResult.model_validate(result.model_dump()).warnings
+        == expected_warnings
+    )
+
+
+def test_search_result_warns_when_no_index_was_searched() -> None:
+    result = ExternalSearchResult.model_validate({"hits": [], "metadata": []})
+
+    assert len(result.warnings) == 1
+    assert "No index matched" in result.warnings[0]
+    assert "get_cloud_search_status" in result.warnings[0]
+
+
+def test_search_status_result_accepts_null_warnings() -> None:
+    assert (
+        ExternalSearchStatusResult.model_validate({
+            "sources": [],
+            "warnings": None,
+        }).warnings
+        == []
+    )
+
+
+@pytest.mark.parametrize("method_name", ["execute_search_query", "execute_api_query"])
+@pytest.mark.parametrize(
+    ("enablement_response", "expected_outcome", "expected_enablement_calls"),
+    [
+        # A 404 is cached, so the second failing call reuses it.
+        pytest.param(404, "wrong_id", 1, id="enablement_404_is_wrong_id_or_type"),
+        # A 403 is an access failure, never cached, so each re-check asks again.
+        pytest.param(403, "access", 2, id="enablement_403_is_access_failure"),
+        pytest.param(500, "unchanged", 2, id="enablement_500_reraises_original"),
+        pytest.param(
+            {"enable_agent_access": False, "enable_indexing": False},
+            "not_enabled",
+            1,
+            id="flags_off_is_not_enabled",
+        ),
+    ],
+)
+def test_forbidden_recheck_uses_enablement_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    enablement_response: int | dict[str, bool],
+    expected_outcome: str,
+    expected_enablement_calls: int,
+) -> None:
+    """Only a 200 with the flag off means "not enabled"; lookup failures keep the error."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    seen_paths: list[str] = []
+
+    def fake_request(**kwargs: Any) -> dict[str, Any]:
+        seen_paths.append(kwargs["path"])
+        if not kwargs["path"].endswith("/enablement"):
+            raise AirbyteCloudApiError(status_code=404)
+        if isinstance(enablement_response, int):
+            raise AirbyteCloudApiError(status_code=enablement_response)
+        return enablement_response
+
+    monkeypatch.setattr(agents_api_util, "make_cloud_agent_request", fake_request)
+    destination = _seed_destination(workspace, "destination-1", SNOWFLAKE_DEFINITION_ID)
+    args = ("refunds",) if method_name == "execute_search_query" else ("issues",)
+
+    for _ in range(2):
+        with pytest.raises((
+            AirbyteError,
+            AirbyteExternalAccessNotEnabledError,
+        )) as exc_info:
+            getattr(destination, method_name)(*args)
+
+        error = exc_info.value
+        if expected_outcome == "not_enabled":
+            assert isinstance(error, AirbyteExternalAccessNotEnabledError)
+            continue
+        # Otherwise the original execute/search 404 is re-raised.
+        assert not isinstance(error, AirbyteExternalAccessNotEnabledError)
+        assert isinstance(error, AirbyteCloudApiError)
+        assert error.status_code == 404
+        guidance = error.guidance or ""
+        if expected_outcome == "wrong_id":
+            assert "connector_type" in guidance
+            assert "destination" in guidance
+        elif expected_outcome == "access":
+            assert "have access to the workspace and connector" in guidance
+        else:
+            assert "connector_type" not in guidance
+            assert "have access" not in guidance
+
+    assert seen_paths.count("/destinations/destination-1/enablement") == (
+        expected_enablement_calls
+    )
+
+
+def test_fetch_enablement_caches_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = _make_workspace(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fail(**kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append(kwargs)
+        raise AirbyteCloudApiError(status_code=404)
+
+    monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    assert source._fetch_enablement() is None  # noqa: SLF001
+    assert source._fetch_enablement() is None  # noqa: SLF001
+    assert len(calls) == 1
+    assert isinstance(source._enablement_error, AirbyteCloudApiError)  # noqa: SLF001
+    assert source._enablement_error.status_code == 404  # noqa: SLF001
+
+
+@pytest.mark.parametrize("status_code", [403, 503])
+def test_fetch_enablement_does_not_cache_other_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    calls: list[dict[str, Any]] = []
+
+    def fail(**kwargs: Any) -> Any:  # noqa: ANN401
+        calls.append(kwargs)
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(agents_api_util, "get_cloud_connector_enablement", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    for _ in range(2):
+        with pytest.raises(AirbyteCloudApiError):
+            source._fetch_enablement()  # noqa: SLF001
+    assert len(calls) == 2
+    assert source._enablement_error is None  # noqa: SLF001
+
+
+@pytest.mark.parametrize("status_code", [403, 404])
+def test_docs_probe_not_enabled_handling_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    """The skills-docs probe still reads a 403 or 404 as "not enabled", with a warning."""
+    workspace = _make_workspace(monkeypatch)
+
+    def fail(**_: Any) -> Any:  # noqa: ANN401
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    warnings: list[str] = []
+
+    assert source._context_layer_inspect(warnings=warnings) is None  # noqa: SLF001
+    assert len(warnings) == 1
+    assert "docs lookup failed" in warnings[0]
