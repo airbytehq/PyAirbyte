@@ -14,8 +14,13 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import requests
+from pydantic import ValidationError
 
-from airbyte._direct_connectors.models import ExternalApiExecuteResult
+from airbyte._direct_connectors.models import (
+    ExternalApiExecuteResult,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+)
 from airbyte._util import deployment
 from airbyte._util.api_util import (
     AIRBYTE_ANALYTIC_SOURCE_HEADER,
@@ -243,6 +248,68 @@ def execute_cloud_connector_action(
         result=response["data"],
         connector_metadata=response.get("meta", {}),
     )
+
+
+def execute_cloud_connector_search(
+    *,
+    connector_id: str,
+    connector_type: ConnectorType,
+    request_body: dict[str, Any],
+    credentials: _AirbyteCredentials,
+) -> ExternalSearchResult:
+    """Search a deployed Cloud connector's indexed data via the Cloud Config API.
+
+    The connector kind selects the route: `/sources/{id}/search` for sources and
+    `/destinations/{id}/search` for destinations. The request body is forwarded as-is.
+    """
+    path = (
+        f"/sources/{connector_id}/search"
+        if connector_type == ConnectorType.SOURCE
+        else f"/destinations/{connector_id}/search"
+    )
+    response = make_cloud_agent_request(
+        method="POST",
+        path=path,
+        credentials=credentials,
+        json=request_body,
+    )
+    try:
+        return ExternalSearchResult.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud search response.",
+            context={"path": path, "errors": ex.errors(include_url=False)},
+        ) from ex
+
+
+def get_cloud_connector_search_status(
+    *,
+    connector_id: str,
+    connector_type: ConnectorType,
+    credentials: _AirbyteCredentials,
+) -> ExternalSearchStatusResult:
+    """Read a deployed Cloud connector's search indexing status via the Cloud Config API.
+
+    The connector kind selects the route: `/sources/{id}/search-status` for sources and
+    `/destinations/{id}/search-status` for destinations.
+    """
+    path = (
+        f"/sources/{connector_id}/search-status"
+        if connector_type == ConnectorType.SOURCE
+        else f"/destinations/{connector_id}/search-status"
+    )
+    response = make_cloud_agent_request(
+        method="GET",
+        path=path,
+        credentials=credentials,
+    )
+    try:
+        return ExternalSearchStatusResult.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteError(
+            message="Malformed Airbyte Cloud search-status response.",
+            context={"path": path, "errors": ex.errors(include_url=False)},
+        ) from ex
 
 
 def read_cloud_skill_docs(

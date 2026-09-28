@@ -81,9 +81,10 @@ class ConnectorFeature(StrEnum):
     """
 
     SEARCH_INDEXING = "search_indexing"
-    """Airbyte indexes the connector's data for fast search. Sources only.
+    """Airbyte indexes the connector's data for fast search (`execute_search_query`).
 
-    Not launched yet. Distinct from any native search the connector itself offers.
+    For a destination, the indexed data of the sources synced to it. Distinct from any
+    native search the connector itself offers.
     """
 
 

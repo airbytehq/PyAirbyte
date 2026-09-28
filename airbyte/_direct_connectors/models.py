@@ -13,9 +13,10 @@ payloads that PyAirbyte deliberately does not attempt to model exhaustively.
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003  # Needed at runtime for Pydantic field types.
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from airbyte._util.compat import StrEnum
 from airbyte.exceptions import PyAirbyteInputError
@@ -268,6 +269,220 @@ class ExternalApiExecuteResult(BaseModel):
     def end_cursor(self) -> str | None:
         """The cursor for the next page, or `None` when there is no next page."""
         return self.connector_metadata.end_cursor
+
+
+class ExternalSearchType(StrEnum):
+    """Search types accepted by `CloudConnector.execute_search_query`."""
+
+    KEYWORD = "keyword"
+    SEMANTIC = "semantic"
+    HYBRID = "hybrid"
+
+
+class ExternalSearchStreamFilter(BaseModel):
+    """A stream to search, with an optional projection of the returned entity fields."""
+
+    model_config = ConfigDict(extra="allow")
+
+    stream_name: str
+    """The stream to search."""
+
+    source_id: str | None = None
+    """The source the stream belongs to. May be omitted on a source-level search."""
+
+    namespace: str | None = None
+    """The stream namespace, when the stream has one."""
+
+    fields: list[str] | None = None
+    """Fields of `entity_data` to return. An output projection, not a match filter."""
+
+
+class ExternalSearchHit(BaseModel):
+    """A single entity matched by a search."""
+
+    model_config = ConfigDict(extra="allow")
+
+    source_id: str
+    """The source the matched entity was synced from."""
+
+    stream_name: str
+    """The stream the matched entity belongs to."""
+
+    entity_id: str
+    """The matched entity's ID."""
+
+    entity_data: dict[str, Any] = Field(default_factory=dict)
+    """The matched entity's data, projected to the requested `fields` when given."""
+
+    score: float
+    """The match score. Higher is a better match."""
+
+    context: str | None = None
+    """The matched text, truncated to `max_context_chars` when requested."""
+
+
+class ExternalSearchIndexMetadata(BaseModel):
+    """Per-index details about how a search ran."""
+
+    model_config = ConfigDict(extra="allow")
+
+    source_id: str | None = None
+    """The source whose index was searched."""
+
+    destination_id: str | None = None
+    """The destination the searched data syncs to."""
+
+    namespace: str | None = None
+    """The searched stream's namespace, when it has one."""
+
+    stream_name: str | None = None
+    """The searched stream."""
+
+    index_name: str | None = None
+    """The searched index."""
+
+    error: str | None = None
+    """The error that stopped this index from being searched, if any."""
+
+    search_time_ms: int | None = None
+    """The time spent searching this index, in milliseconds."""
+
+
+class ExternalSearchResult(BaseModel):
+    """The result of searching a connector's indexed data."""
+
+    model_config = ConfigDict(extra="allow")
+
+    hits: list[ExternalSearchHit] = Field(default_factory=list)
+    """The matched entities, best match first."""
+
+    metadata: list[ExternalSearchIndexMetadata] = Field(default_factory=list)
+    """Per-index details about how the search ran."""
+
+    response_time_ms: int | None = None
+    """The server-side response time, in milliseconds."""
+
+    warnings: list[str] = Field(default_factory=list)
+    """Per-index search errors, collected from `metadata` so partial failures stand out."""
+
+    @model_validator(mode="after")
+    def _collect_index_errors(self) -> ExternalSearchResult:
+        if not self.warnings:
+            self.warnings = [
+                f"Search of stream {entry.stream_name!r} (index {entry.index_name!r}) "
+                f"failed: {entry.error}"
+                for entry in self.metadata
+                if entry.error
+            ]
+        return self
+
+
+class ExternalSearchBackfillStatus(BaseModel):
+    """Progress of the initial indexing backfill for one stream."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: str
+    """The backfill status, for example `running` or `complete`."""
+
+    backfill_start_time: datetime | None = None
+    """The start of the backfilled time range."""
+
+    expected_total_records: int | None = None
+    """The number of records the backfill expects to collect."""
+
+    collected_records: int | None = None
+    """The number of records collected so far."""
+
+    indexed_records: int | None = None
+    """The number of records indexed so far."""
+
+    started_at: datetime | None = None
+    """When the backfill started."""
+
+    completed_at: datetime | None = None
+    """When the backfill completed."""
+
+
+class ExternalSearchIndexStatus(BaseModel):
+    """The status of one search index for a stream."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    """The index type, for example `keyword` or `semantic`."""
+
+    status: str
+    """The index status, for example `updating` or `idle`."""
+
+    name: str | None = None
+    """The index name."""
+
+    indexed_records: int | None = None
+    """The number of records indexed."""
+
+    physical_rows: int | None = None
+    """The number of physical rows stored in the index."""
+
+    optimized_physical_rows: int | None = None
+    """The number of physical rows already optimized."""
+
+    updated_at: datetime | None = None
+    """When the index was last updated."""
+
+    storage_size_mb: float | None = None
+    """The index storage size, in megabytes."""
+
+
+class ExternalSearchStreamStatus(BaseModel):
+    """Search indexing status for one stream."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    """The stream name."""
+
+    namespace: str | None = None
+    """The stream namespace, when it has one."""
+
+    backfill: ExternalSearchBackfillStatus | None = None
+    """The initial indexing backfill, when one is tracked."""
+
+    indexes: list[ExternalSearchIndexStatus] = Field(default_factory=list)
+    """The stream's search indexes."""
+
+
+class ExternalSearchSourceStatus(BaseModel):
+    """Search indexing status for one indexed source."""
+
+    model_config = ConfigDict(extra="allow")
+
+    source_id: str
+    """The indexed source."""
+
+    destination_id: str | None = None
+    """The destination the indexed data syncs to."""
+
+    connection_id: str | None = None
+    """The connection syncing the indexed data."""
+
+    streams: list[ExternalSearchStreamStatus] = Field(default_factory=list)
+    """The source's indexed streams."""
+
+
+class ExternalSearchStatusResult(BaseModel):
+    """Search indexing status for a connector."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sources: list[ExternalSearchSourceStatus] = Field(default_factory=list)
+    """The indexed sources: the connector itself for a source, or every indexed source
+    synced to a destination."""
+
+    @property
+    def has_indexes(self) -> bool:
+        """Whether any stream has at least one search index."""
+        return any(stream.indexes for source in self.sources for stream in source.streams)
 
 
 class CloudConnectorConnectionInfo(BaseModel):

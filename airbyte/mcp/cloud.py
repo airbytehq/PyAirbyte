@@ -27,6 +27,9 @@ from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+    ExternalSearchType,
 )
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
@@ -78,6 +81,7 @@ from airbyte.exceptions import (
 from airbyte.mcp._arg_resolvers import (
     resolve_api_args,
     resolve_connector_config,
+    resolve_list_of_dicts,
     resolve_list_of_strings,
 )
 from airbyte.mcp._docs_results import (
@@ -181,7 +185,8 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
 FEATURE_FILTER_TIP_TEXT = (
     "Optional feature filter: `direct_access` returns only connectors AI agents can use "
     "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
-    "query. `enabled_features` is only resolved and returned when this filter is set; "
+    "query; `search_indexing` narrows to sources and destinations with search-indexed "
+    "data. `enabled_features` is only resolved and returned when this filter is set; "
     "use `direct_access` to find every connector with any external-access feature "
     "enabled and see its full feature list. Omit to list every connector with "
     "`enabled_features='not_checked'` (no feature check performed). Connectors whose "
@@ -1167,9 +1172,9 @@ def list_cloud_connectors(
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
     Pass `feature_filter` (for example `direct_api_query` for sources,
-    `direct_sql_query` for destinations, or `direct_access` for either) to return only
-    matching connectors with their `enabled_features` resolved; without it,
-    `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
+    `direct_sql_query` for destinations, or `direct_access` or `search_indexing` for
+    either) to return only matching connectors with their `enabled_features`
+    resolved; without it, `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
     feature check was performed; `[]` means checked and no features enabled.
 
     When a connector's feature lookup fails for a reason other than "not enabled",
@@ -1799,6 +1804,178 @@ def execute_external_sql_query(
         page_size=page_size,
         cursor=cursor,
         dry_run=dry_run,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source or destination to search."),
+    ],
+    prompt: Annotated[
+        str,
+        Field(description="The search text, for example `refund requests from ACME`."),
+    ],
+    search_type: Annotated[
+        ExternalSearchType,
+        Field(
+            description="The search type: `keyword`, `semantic`, or `hybrid`.",
+            default=ExternalSearchType.HYBRID,
+        ),
+    ] = ExternalSearchType.HYBRID,
+    limit: Annotated[
+        int | None,
+        Field(
+            description="Maximum number of hits to return. Defaults to the backend's default.",
+            default=None,
+        ),
+    ] = None,
+    streams: Annotated[
+        list[dict[str, Any]] | str | None,
+        Field(
+            description=(
+                "Streams to search, as a list of objects or a JSON array string. Each "
+                "object takes `stream_name` plus optional `source_id`, `namespace`, and "
+                "`fields` (the `entity_data` fields to return; an output projection, not "
+                "a match filter). Omit to search every indexed stream."
+            ),
+            default=None,
+        ),
+    ] = None,
+    lookback_seconds: Annotated[
+        int | None,
+        Field(
+            description="Only match records from the last `lookback_seconds` seconds.",
+            default=None,
+        ),
+    ] = None,
+    max_context_chars: Annotated[
+        int | None,
+        Field(
+            description="Truncate each hit's `context` to this many characters.",
+            default=None,
+        ),
+    ] = None,
+    min_similarity: Annotated[
+        float | None,
+        Field(
+            description="Minimum similarity score for a hit. Semantic and hybrid only.",
+            default=None,
+        ),
+    ] = None,
+    max_similarity_diff: Annotated[
+        float | None,
+        Field(
+            description=("Maximum similarity gap from the best hit. Semantic and hybrid only."),
+            default=None,
+        ),
+    ] = None,
+    destination_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Source search only: the destination to search through, required when "
+                "the source syncs to more than one enabled destination."
+            ),
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalSearchResult:
+    """Search indexed data for a deployed Cloud source or destination.
+
+    A source searches its own indexed data; a destination searches every indexed source
+    synced to it. When results are empty, call `get_cloud_search_status` to check which
+    streams are indexed and whether their backfill is complete.
+
+    Keep responses small: use `streams[].fields` to project each hit's `entity_data`
+    (an output projection, not a match filter) and `max_context_chars` to truncate
+    each hit's `context`. `min_similarity` and `max_similarity_diff` apply only to
+    `semantic` and `hybrid` searches. Pass `destination_id` for a source synced to
+    several enabled destinations; the IDs are listed by `get_cloud_search_status`.
+    Per-index failures are reported in `warnings`.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    return connector.execute_search_query(
+        prompt,
+        search_type=search_type,
+        limit=limit,
+        streams=resolve_list_of_dicts(streams, arg_name="streams"),
+        lookback_seconds=lookback_seconds,
+        max_context_chars=max_context_chars,
+        min_similarity=min_similarity,
+        max_similarity_diff=max_similarity_diff,
+        destination_id=destination_id,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_cloud_search_status(
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source or destination to check."),
+    ],
+    stream_name: Annotated[
+        str | None,
+        Field(
+            description="Optional stream name to report. Omit to report every stream.",
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalSearchStatusResult:
+    """Report search indexing status for a deployed Cloud source or destination.
+
+    A destination reports every indexed source synced to it. Lists each indexed source
+    with its destination and connection IDs, and each stream's backfill progress and
+    search indexes. A stream is searchable once it has at least one index.
+    """
+    connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
+    status = connector.get_search_status()
+    if stream_name is None:
+        return status
+
+    return status.model_copy(
+        update={
+            "sources": [
+                source.model_copy(
+                    update={
+                        "streams": [
+                            stream for stream in source.streams if stream.name == stream_name
+                        ]
+                    }
+                )
+                for source in status.sources
+                if any(stream.name == stream_name for stream in source.streams)
+            ]
+        }
     )
 
 

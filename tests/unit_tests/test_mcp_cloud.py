@@ -22,6 +22,9 @@ from airbyte._direct_connectors.models import (
     DirectAccessGuidanceSection,
     ExternalApiExecuteResult,
     ExternalApiWriteAction,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+    ExternalSearchType,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
@@ -32,6 +35,7 @@ from airbyte.cloud.models import (
     JobStatusEnum,
 )
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
     CloudConnectorDetailsResult,
@@ -1183,6 +1187,22 @@ class _RecordingExecuteConnector:
         self.calls.append(("sql", {"sql": sql, **kwargs}))
         return self.result
 
+    def execute_search_query(self, prompt: str, **kwargs: object) -> object:
+        self.calls.append(("search", {"prompt": prompt, **kwargs}))
+        return ExternalSearchResult()
+
+    def get_search_status(self) -> object:
+        self.calls.append(("search_status", {}))
+        return ExternalSearchStatusResult.model_validate({
+            "sources": [
+                {
+                    "source_id": "source-1",
+                    "streams": [{"name": "issues"}, {"name": "users"}],
+                },
+                {"source_id": "source-2", "streams": [{"name": "deals"}]},
+            ]
+        })
+
 
 def _execute_workspace(
     monkeypatch: pytest.MonkeyPatch, connector: _RecordingExecuteConnector
@@ -1319,6 +1339,158 @@ def test_execute_external_sql_query_forwards_args(
     (kind, kwargs) = connector.calls[1]
     assert kind == "sql"
     assert kwargs["dry_run"] is True
+
+
+def test_execute_external_search_query_forwards_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The search tool forwards every arg, parsing a JSON `streams` string."""
+    connector = _RecordingExecuteConnector()
+    workspace = _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.execute_external_search_query(
+        None,
+        connector_id="source-1",
+        prompt="refund requests",
+        search_type=ExternalSearchType.SEMANTIC,
+        limit=5,
+        streams='[{"stream_name": "issues", "fields": ["title"]}]',
+        lookback_seconds=3600,
+        max_context_chars=200,
+        min_similarity=0.3,
+        max_similarity_diff=0.1,
+        destination_id="destination-1",
+        workspace_id=None,
+    )
+    cloud_mcp.execute_external_search_query(
+        None,
+        connector_id="source-1",
+        prompt="refund requests",
+        streams=[{"stream_name": "users"}],
+        workspace_id=None,
+    )
+
+    workspace.get_connector.assert_called_with("source-1")
+    (kind, kwargs) = connector.calls[0]
+    assert kind == "search"
+    assert kwargs == {
+        "prompt": "refund requests",
+        "search_type": ExternalSearchType.SEMANTIC,
+        "limit": 5,
+        "streams": [{"stream_name": "issues", "fields": ["title"]}],
+        "lookback_seconds": 3600,
+        "max_context_chars": 200,
+        "min_similarity": 0.3,
+        "max_similarity_diff": 0.1,
+        "destination_id": "destination-1",
+    }
+    (kind, kwargs) = connector.calls[1]
+    assert kind == "search"
+    assert kwargs["search_type"] is ExternalSearchType.HYBRID
+    assert kwargs["streams"] == [{"stream_name": "users"}]
+    assert kwargs["limit"] is None
+    assert isinstance(result, ExternalSearchResult)
+
+
+@pytest.mark.parametrize(
+    "streams",
+    [
+        pytest.param("not json", id="invalid_json"),
+        pytest.param('{"stream_name": "issues"}', id="object_not_array"),
+        pytest.param('["issues"]', id="array_of_strings"),
+    ],
+)
+def test_execute_external_search_query_rejects_bad_streams(
+    monkeypatch: pytest.MonkeyPatch,
+    streams: str,
+) -> None:
+    """A `streams` string that is not a JSON array of objects raises `PyAirbyteInputError`."""
+    connector = _RecordingExecuteConnector()
+    _execute_workspace(monkeypatch, connector)
+
+    with pytest.raises(PyAirbyteInputError, match="`streams`"):
+        cloud_mcp.execute_external_search_query(
+            None,
+            connector_id="source-1",
+            prompt="refund requests",
+            streams=streams,
+            workspace_id=None,
+        )
+    assert connector.calls == []
+
+
+@pytest.mark.parametrize(
+    ("stream_name", "expected"),
+    [
+        pytest.param(
+            None,
+            [("source-1", ["issues", "users"]), ("source-2", ["deals"])],
+            id="no_filter",
+        ),
+        pytest.param("users", [("source-1", ["users"])], id="filters_streams"),
+        pytest.param("missing", [], id="no_match"),
+    ],
+)
+def test_get_cloud_search_status_filters_by_stream_name(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_name: str | None,
+    expected: list[tuple[str, list[str]]],
+) -> None:
+    """`stream_name` filters streams client-side and drops sources left without any."""
+    connector = _RecordingExecuteConnector()
+    workspace = _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.get_cloud_search_status(
+        None,
+        connector_id="destination-1",
+        stream_name=stream_name,
+        workspace_id=None,
+    )
+
+    workspace.get_connector.assert_called_once_with("destination-1")
+    assert connector.calls == [("search_status", {})]
+    assert [
+        (source.source_id, [stream.name for stream in source.streams])
+        for source in result.sources
+    ] == expected
+
+
+def test_search_tools_are_advertised() -> None:
+    """The search tools register like the other Cloud tools."""
+    from airbyte.mcp import server
+
+    names = {tool.name for tool in asyncio.run(server.app.list_tools())}
+    assert {"execute_external_search_query", "get_cloud_search_status"} <= names
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(None, None, id="none"),
+        pytest.param([], [], id="empty_list"),
+        pytest.param([{"a": 1}], [{"a": 1}], id="list"),
+        pytest.param('[{"a": 1}, {"b": 2}]', [{"a": 1}, {"b": 2}], id="json_string"),
+    ],
+)
+def test_resolve_list_of_dicts(
+    value: list[dict[str, object]] | str | None,
+    expected: list[dict[str, object]] | None,
+) -> None:
+    assert resolve_list_of_dicts(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "match"),
+    [
+        pytest.param("[{", "not valid JSON", id="invalid_json"),
+        pytest.param('{"a": 1}', "not a JSON array of objects", id="object"),
+        pytest.param("[1, 2]", "not a JSON array of objects", id="array_of_ints"),
+    ],
+)
+def test_resolve_list_of_dicts_rejects_invalid(value: str, match: str) -> None:
+    with pytest.raises(PyAirbyteInputError, match=match) as exc_info:
+        resolve_list_of_dicts(value, arg_name="streams")
+    assert "`streams`" in exc_info.value.get_message()
 
 
 def _describe_details() -> CloudConnectorDetailsResult:

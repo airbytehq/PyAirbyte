@@ -21,6 +21,7 @@ from airbyte.cloud.connectors import (
     ConnectorType,
 )
 from airbyte._direct_connectors.models import (
+    ExternalSearchStatusResult,
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
 )
 from airbyte.cloud.models import (
@@ -1661,14 +1662,17 @@ def _patch_workspace_connectors(
     context_layer: bool = True,
     external_access_source_ids: list[str] | None = None,
     enabled_destination_ids: list[str] | None = None,
+    search_indexed_ids: list[str] | None = None,
 ) -> dict[str, int]:
-    """Stub the Cloud listings and Context layer docs probes for `workspace`.
+    """Stub the Cloud listings, Context layer docs, and search-status probes for `workspace`.
 
     Sources in `external_access_source_ids` and destinations in
     `enabled_destination_ids` get a successful docs probe; other connectors
-    get a 404. Returns a counter of docs-probe calls so tests can assert on lookups.
+    get a 404. Connectors in `search_indexed_ids` report one indexed stream; other
+    connectors get a 404 from the search-status probe. Returns counters of docs
+    (`list`) and search-status (`search`) probe calls so tests can assert on lookups.
     """
-    calls = {"list": 0}
+    calls = {"list": 0, "search": 0}
     enabled_ids = set(external_access_source_ids or []) | (
         {"snowflake"}
         if enabled_destination_ids is None
@@ -1720,6 +1724,31 @@ def _patch_workspace_connectors(
         cloud_workspaces.agents_api_util,
         "read_cloud_skill_docs",
         fake_read_cloud_skill_docs,
+    )
+
+    def fake_get_search_status(**kwargs: object) -> ExternalSearchStatusResult:
+        calls["search"] += 1
+        connector_id = str(kwargs["connector_id"])
+        if connector_id not in set(search_indexed_ids or []):
+            raise AirbyteCloudApiError(status_code=404)
+        return ExternalSearchStatusResult.model_validate({
+            "sources": [
+                {
+                    "source_id": connector_id,
+                    "streams": [
+                        {
+                            "name": "issues",
+                            "indexes": [{"type": "keyword", "status": "idle"}],
+                        }
+                    ],
+                }
+            ]
+        })
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_search_status",
+        fake_get_search_status,
     )
     return calls
 
@@ -1996,7 +2025,7 @@ def test_cloud_workspace_features_false_without_context_layer(
     assert (
         workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == []
     )
-    assert calls == {"list": 0}
+    assert calls == {"list": 0, "search": 0}
 
 
 def test_cloud_connector_features_resolve_lazily_and_cache(
@@ -2011,19 +2040,157 @@ def test_cloud_connector_features_resolve_lazily_and_cache(
     source = _seed_source(workspace, "source-1", "GitHub Issues")
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
 
-    assert calls == {"list": 0}
+    assert calls == {"list": 0, "search": 0}
     assert source.enabled_features == frozenset({
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_API_QUERY,
     })
     assert not source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING)
-    assert calls["list"] == 1
+    assert calls == {"list": 1, "search": 1}
     assert destination.enabled_features == frozenset({
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_SQL_QUERY,
     })
     # SQL passthrough destinations resolve features through a docs probe, like sources.
-    assert calls["list"] == 2
+    assert calls == {"list": 2, "search": 2}
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "expected"),
+    [
+        pytest.param(
+            ConnectorType.SOURCE,
+            [
+                (
+                    "source-1",
+                    {
+                        ConnectorFeature.DIRECT_ACCESS,
+                        ConnectorFeature.DIRECT_API_QUERY,
+                        ConnectorFeature.SEARCH_INDEXING,
+                    },
+                ),
+                ("source-3", {ConnectorFeature.SEARCH_INDEXING}),
+            ],
+            id="sources",
+        ),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            [("postgres", {ConnectorFeature.SEARCH_INDEXING})],
+            id="non_passthrough_destination",
+        ),
+    ],
+)
+def test_cloud_workspace_list_connectors_search_indexing(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    expected: list[tuple[str, set[ConnectorFeature]]],
+) -> None:
+    """Search indexing is resolved from search-status for sources and all destinations."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch,
+        workspace,
+        external_access_source_ids=["source-1"],
+        search_indexed_ids=["source-1", "source-3", "postgres"],
+    )
+
+    connectors = workspace.list_connectors(
+        connector_type=connector_type,
+        feature_filter=ConnectorFeature.SEARCH_INDEXING,
+    )
+
+    assert [(c.connector_id, set(c.enabled_features)) for c in connectors] == expected
+
+
+@pytest.mark.parametrize(
+    ("status_payload", "expected"),
+    [
+        pytest.param({"sources": []}, False, id="no_sources"),
+        pytest.param(
+            {"sources": [{"source_id": "source-1", "streams": [{"name": "issues"}]}]},
+            False,
+            id="streams_without_indexes",
+        ),
+        pytest.param(
+            {
+                "sources": [
+                    {
+                        "source_id": "source-1",
+                        "streams": [
+                            {"name": "users", "indexes": []},
+                            {
+                                "name": "issues",
+                                "indexes": [
+                                    {"type": "semantic", "status": "backfilling"}
+                                ],
+                            },
+                        ],
+                    }
+                ]
+            },
+            True,
+            id="one_indexed_stream",
+        ),
+    ],
+)
+def test_is_feature_enabled_search_indexing_probes_only_search_status(
+    monkeypatch: pytest.MonkeyPatch,
+    status_payload: dict[str, object],
+    expected: bool,
+) -> None:
+    """`SEARCH_INDEXING` needs at least one index and skips the docs probe."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(monkeypatch, workspace)
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_search_status",
+        lambda **_: ExternalSearchStatusResult.model_validate(status_payload),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    assert source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING) is expected
+    assert calls["list"] == 0
+    assert source._enabled_features is None  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_exc"),
+    [
+        pytest.param(403, None, id="forbidden_is_not_enabled"),
+        pytest.param(404, None, id="not_found_is_not_enabled"),
+        pytest.param(500, AirbyteCloudApiError, id="server_error_propagates"),
+    ],
+)
+def test_cloud_connector_search_indexing_probe_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    expected_exc: type[Exception] | None,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
+    )
+
+    def fail(**_: object) -> ExternalSearchStatusResult:
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_search_status", fail
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    if expected_exc is None:
+        assert ConnectorFeature.SEARCH_INDEXING not in source.enabled_features
+        assert ConnectorFeature.DIRECT_API_QUERY in source.enabled_features
+    else:
+        with pytest.raises(expected_exc):
+            _ = source.enabled_features
 
 
 def test_cloud_destination_external_access_requires_context_layer(

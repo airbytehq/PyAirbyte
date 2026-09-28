@@ -115,6 +115,15 @@ def _patch_context_layer(
     )
 
 
+def _patch_search_status_not_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer every search-status probe with a 404, as for a connector with no search."""
+
+    def not_found(**_: object) -> None:
+        raise AirbyteCloudApiError(status_code=404)
+
+    monkeypatch.setattr(agents_api_util, "get_cloud_connector_search_status", not_found)
+
+
 def _seed_source(workspace: CloudWorkspace, source_id: str, name: str) -> CloudSource:
     source = CloudSource(workspace=workspace, connector_id=source_id)
     source._connector_info = CloudSourceInfo(  # noqa: SLF001
@@ -660,6 +669,7 @@ def test_enabled_features_context_layer_source(
     """A Context-Layer-enabled source reports `direct_access` and `direct_api_query`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    _patch_search_status_not_enabled(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
@@ -679,6 +689,7 @@ def test_enabled_features_sql_passthrough_destination(
     """A SQL passthrough destination reports `direct_access` and `direct_sql_query`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    _patch_search_status_not_enabled(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
@@ -703,6 +714,7 @@ def test_enabled_features_disabled_connector(
     """A source whose docs probe fails reports no features."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    _patch_search_status_not_enabled(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
@@ -728,13 +740,8 @@ def test_is_feature_enabled_uses_cached_features(
     get_features.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "feature",
-    [ConnectorFeature.DIRECT_API_ACTION, ConnectorFeature.SEARCH_INDEXING],
-)
 def test_is_feature_enabled_never_enabled_features_short_circuit(
     monkeypatch: pytest.MonkeyPatch,
-    feature: ConnectorFeature,
 ) -> None:
     """Features no connector can report return `False` without a workspace call."""
     workspace = _make_workspace(monkeypatch)
@@ -742,7 +749,23 @@ def test_is_feature_enabled_never_enabled_features_short_circuit(
     monkeypatch.setattr(CloudWorkspace, "_get_connector_features", get_features)
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    assert source.is_feature_enabled(feature) is False
+    assert source.is_feature_enabled(ConnectorFeature.DIRECT_API_ACTION) is False
+    get_features.assert_not_called()
+
+
+def test_is_feature_enabled_search_indexing_skips_full_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`SEARCH_INDEXING` makes only the search-status lookup, not full feature resolution."""
+    workspace = _make_workspace(monkeypatch)
+    get_features = MagicMock()
+    monkeypatch.setattr(CloudWorkspace, "_get_connector_features", get_features)
+    search_indexed = MagicMock(return_value=True)
+    monkeypatch.setattr(CloudWorkspace, "_is_connector_search_indexed", search_indexed)
+    source = _seed_source(workspace, "source-1", "GitHub")
+
+    assert source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING) is True
+    search_indexed.assert_called_once_with(source)
     get_features.assert_not_called()
 
 
