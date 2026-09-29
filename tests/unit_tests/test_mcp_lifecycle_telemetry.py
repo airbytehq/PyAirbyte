@@ -181,17 +181,19 @@ async def _stateless_session(
     app: FastMCP,
     requests: list[tuple[str, dict[str, object], dict[str, str]]],
 ) -> list[httpx.Response]:
-    """Send JSON-RPC requests through the hosted HTTP middleware stack."""
+    """Send JSON-RPC requests through the hosted HTTP middleware stack, in production order."""
     raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
     sinks = next(
         m._sinks
         for m in app.middleware
         if isinstance(m, ServerConnectedTelemetryMiddleware)
     )
-    wrapped = McpRequestTelemetryMiddleware(
-        CapabilityTokenMiddleware(SessionIdHeaderDigest(raw)),
-        sinks=sinks,
-        mcp_path="/mcp",
+    wrapped = CapabilityTokenMiddleware(
+        McpRequestTelemetryMiddleware(
+            SessionIdHeaderDigest(raw),
+            sinks=sinks,
+            mcp_path="/mcp",
+        )
     )
     responses = []
     async with raw.router.lifespan_context(raw):
