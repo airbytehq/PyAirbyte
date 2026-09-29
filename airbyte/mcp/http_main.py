@@ -108,7 +108,8 @@ hosted redaction boundary and continue exporting after rollback.
   Bounded supplied arguments, exact tool name and canonicalization version
   determine equality. Synthetic top-level intent and legacy telemetry are excluded;
   declared parameters and nested fields are retained. Invalid/oversized input
-  omits the field. Datadog opt-in also mirrors it as `args_digest`.
+  omits the field. Datadog opt-in also mirrors it as `args_digest` in metadata
+  and Input, including calls without intent. Raw arguments remain excluded.
   This is pseudonymization, not anonymity: equality, frequency, chosen-input
   correlation, contextual inference and key compromise remain risks. Matching
   digests do not identify a user/session. Removing or rotating the key requires

@@ -296,12 +296,11 @@ class IntentCaptureMiddleware(Middleware):
         else:
             return result
 
-    async def on_call_tool(
+    async def _prepare_call(
         self,
         context: MiddlewareContext[CallToolRequestParams],
-        call_next: CallNext[CallToolRequestParams, ToolResult],
-    ) -> ToolResult:
-        """Strip synthetic arguments and untrusted tracing context before dispatch."""
+    ) -> tuple[MiddlewareContext[CallToolRequestParams], dict[str, str | bool]]:
+        """Strip synthetic arguments and capture observations before tool coercion."""
         attrs: dict[str, str | bool] = {}
         intent = None
         digest_ready = False
@@ -342,6 +341,15 @@ class IntentCaptureMiddleware(Middleware):
             digest = args_digest(context.message.name, digest_arguments, self._digest_key)
             if digest is not None:
                 attrs["airbyte.mcp.args_digest"] = digest
+        return context, attrs
+
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
+        """Strip untrusted context and stamp observations before dispatch."""
+        context, attrs = await self._prepare_call(context)
         # FastMCP 4 opens a single seam SERVER span *above* the middleware
         # chain (later renamed to `tools/call <name>`), so `on_start` stamping
         # runs before this middleware exists; stamp the in-flight span here.
@@ -595,7 +603,11 @@ class RedactingExporter(SpanExporter):
                 attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
             tool_input = {
                 label: metadata[key]
-                for label, key in (("intent", "intent"), ("action", "agent.action"))
+                for label, key in (
+                    ("intent", "intent"),
+                    ("action", "agent.action"),
+                    ("args_digest", "args_digest"),
+                )
                 if isinstance(metadata.get(key), str) and metadata[key]
             }
             if (

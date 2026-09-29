@@ -282,6 +282,12 @@ def test_real_tool_span_exports_only_digest_for_success_and_error(
         if (vendor == "datadog")
         else "_dd.ml_obs.metadata" not in attrs
     )
+    if vendor == "datadog":
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
+            "args_digest": attrs[ATTRIBUTE]
+        }
+    else:
+        assert "gen_ai.tool.call.arguments" not in attrs
     text = spans[0].to_json()
     assert SENTINEL not in text
     assert KEY.decode() not in text
@@ -340,6 +346,10 @@ def test_http_synthetic_intent_does_not_change_digest_or_tool_input(
     assert attrs.get("airbyte.mcp.intent") == expected_intent
     assert attrs["airbyte.mcp.intent_present"] == bool(expected_intent)
     assert json.loads(attrs["_dd.ml_obs.metadata"])["args_digest"] == attrs[ATTRIBUTE]
+    assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
+        "args_digest": attrs[ATTRIBUTE],
+        **({"intent": expected_intent} if expected_intent else {}),
+    }
 
 
 def test_declared_and_nested_intent_are_preserved_and_change_digest(
@@ -399,7 +409,7 @@ def test_declared_and_nested_intent_are_preserved_and_change_digest(
 def test_registered_external_api_keeps_full_declared_intent_in_digest_and_request(
     harness, monkeypatch
 ):
-    app, provider, exporter, _ = harness()
+    app, provider, exporter, _ = harness(vendor="datadog")
     monkeypatch.setenv("AIRBYTE_MCP_INSIDERS", "1")
     cloud.register_cloud_tools(app)
     connector = CloudConnector(
@@ -447,15 +457,25 @@ def test_registered_external_api_keeps_full_declared_intent_in_digest_and_reques
         roots[0].attributes["airbyte.mcp.intent"]
         == roots[1].attributes["airbyte.mcp.intent"]
     )
+    for span in roots:
+        assert json.loads(span.attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": span.attributes["airbyte.mcp.intent"],
+            "action": "list",
+            "args_digest": span.attributes[ATTRIBUTE],
+        }
+        assert "connector-SENTINEL" not in span.to_json()
 
 
 @pytest.mark.parametrize("key", [None, "", " \t\n", "\ud800"])
 def test_unusable_key_omits_digest_without_hashing(harness, monkeypatch, key):
-    app, provider, exporter, _ = harness(key=key)
+    app, provider, exporter, _ = harness(key=key, vendor="datadog")
     digest = Mock(side_effect=AssertionError("must not hash"))
     monkeypatch.setattr(observability, "args_digest", digest)
     asyncio.run(app.call_tool("echo", {"value": SENTINEL}))
-    assert ATTRIBUTE not in finished(provider, exporter)[0].attributes
+    attrs = finished(provider, exporter)[0].attributes
+    assert ATTRIBUTE not in attrs
+    assert "args_digest" not in json.loads(attrs.get("_dd.ml_obs.metadata", "{}"))
+    assert "gen_ai.tool.call.arguments" not in attrs
     digest.assert_not_called()
 
 
@@ -646,6 +666,7 @@ def test_rejected_arguments_preserve_other_telemetry_and_never_export_input(
     assert ATTRIBUTE not in span.attributes
     assert span.attributes["airbyte.mcp.tool_module"] == "cloud"
     assert "args_digest" not in json.loads(span.attributes["_dd.ml_obs.metadata"])
+    assert "gen_ai.tool.call.arguments" not in span.attributes
     assert SENTINEL not in span.to_json()
 
 
@@ -662,6 +683,7 @@ def test_exporter_rejects_bad_digest_values(harness, bad, vendor):
     attrs = finished(provider, exporter)[0].attributes
     assert ATTRIBUTE not in attrs
     assert "args_digest" not in json.loads(attrs.get("_dd.ml_obs.metadata", "{}"))
+    assert "gen_ai.tool.call.arguments" not in attrs
     assert SENTINEL not in json.dumps(dict(attrs))
 
 
@@ -680,6 +702,10 @@ def test_exporter_rebuilds_injected_metadata_from_validated_digest(
             "_dd.ml_obs.metadata",
             json.dumps({"args_digest": "b" * 32, "raw_arguments": SENTINEL}),
         )
+        span.set_attribute(
+            "gen_ai.tool.call.arguments", json.dumps({"secret": SENTINEL})
+        )
+        span.set_attribute("gen_ai.tool.call.result", SENTINEL)
     exported = finished(provider, exporter)[0]
     attrs = exported.attributes
     if candidate == "a" * 32:
@@ -688,8 +714,13 @@ def test_exporter_rebuilds_injected_metadata_from_validated_digest(
         assert ATTRIBUTE not in attrs
     if vendor == "datadog" and candidate == "a" * 32:
         assert json.loads(attrs["_dd.ml_obs.metadata"]) == {"args_digest": candidate}
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
+            "args_digest": candidate
+        }
     else:
         assert "_dd.ml_obs.metadata" not in attrs
+        assert "gen_ai.tool.call.arguments" not in attrs
+    assert "gen_ai.tool.call.result" not in attrs
     assert SENTINEL not in exported.to_json()
     assert "b" * 32 not in exported.to_json()
 
@@ -726,6 +757,7 @@ def test_exporter_rejects_digest_on_child_client_internal_and_unknown_spans(harn
         for span in spans
     )
     assert all(SENTINEL not in span.to_json() for span in spans)
+    assert all("gen_ai.tool.call.arguments" not in span.attributes for span in spans)
 
 
 def test_concurrency_nesting_cancellation_and_context_reset(harness):
