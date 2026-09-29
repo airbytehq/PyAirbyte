@@ -45,7 +45,7 @@ USER_ID_FAILURE_TTL_SECONDS = 60.0
 USER_ID_CACHE_MAX_ENTRIES = 4096
 """Upper bound on cached auth users per process; the least recently used are evicted."""
 
-USER_ID_LOOKUP_TIMEOUT_SECONDS = 5.0
+USER_ID_LOOKUP_TIMEOUT_SECONDS = 30.0
 """Longest a tool call waits on the user lookup before proceeding without a user ID."""
 
 _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
