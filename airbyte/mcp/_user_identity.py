@@ -82,6 +82,14 @@ class _UserIdCache:
             while len(self._entries) > self._max_entries:
                 self._entries.popitem(last=False)
 
+    def set_failure(self, auth_user_id: str, *, ttl_seconds: float) -> None:
+        """Remember a failed lookup, unless a concurrent lookup already resolved the user."""
+        with self._lock:
+            entry = self._entries.get(auth_user_id)
+            if entry is not None and entry[0] is not None:
+                return
+        self.set(auth_user_id, None, ttl_seconds=ttl_seconds)
+
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
@@ -163,7 +171,7 @@ async def resolve_airbyte_user_id(ctx: Context | None) -> str | None:
         logger.debug("Airbyte user lookup for MCP telemetry failed", exc_info=True)
 
     if user_id is None:
-        _user_id_cache.set(auth_user_id, None, ttl_seconds=USER_ID_FAILURE_TTL_SECONDS)
+        _user_id_cache.set_failure(auth_user_id, ttl_seconds=USER_ID_FAILURE_TTL_SECONDS)
     else:
         _user_id_cache.set(auth_user_id, user_id)
     return user_id

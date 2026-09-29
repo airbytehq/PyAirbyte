@@ -238,3 +238,15 @@ def test_lookup_request_has_a_finite_http_timeout(
         _user_identity.USER_ID_LOOKUP_TIMEOUT_SECONDS,
     )
     assert _identities(segment) == [(USER_A, USER_A)]
+
+
+def test_failed_lookup_does_not_overwrite_a_concurrent_success() -> None:
+    """A slower failed lookup can't replace the user a concurrent lookup resolved."""
+    cache = _user_identity._UserIdCache(max_entries=4)
+    cache.set("keycloak-a", USER_A)
+
+    cache.set_failure("keycloak-a", ttl_seconds=60.0)
+    cache.set_failure("keycloak-b", ttl_seconds=60.0)
+
+    assert cache.get("keycloak-a") == (True, USER_A)
+    assert cache.get("keycloak-b") == (True, None)
