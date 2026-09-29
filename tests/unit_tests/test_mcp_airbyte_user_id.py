@@ -88,9 +88,11 @@ def _call(*auth_users: str | None) -> None:
 
 
 def _identities(track: MagicMock) -> list[tuple[str, object]]:
-    """Return `(segment_user_id, airbyte_user_id)` for each tracked event."""
+    """Return `(segment_user_id, airbyte_user_id)` for each tracked tool-call event."""
     return [
-        (call.args[0], call.args[2]["airbyte_user_id"]) for call in track.call_args_list
+        (call.args[0], call.args[2]["airbyte_user_id"])
+        for call in track.call_args_list
+        if call.args[1] == "mcp_tool_call"
     ]
 
 
