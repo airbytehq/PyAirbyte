@@ -157,7 +157,7 @@ def test_token_without_user_claim_falls_back(
     assert lookups == []
 
 
-def test_failed_lookup_does_not_break_the_call_and_is_not_retried(
+def test_failed_lookup_does_not_break_the_call_and_is_retried(
     monkeypatch: pytest.MonkeyPatch, segment: MagicMock
 ) -> None:
     calls: list[str] = []
@@ -171,26 +171,7 @@ def test_failed_lookup_does_not_break_the_call_and_is_not_retried(
     _call("keycloak-a")
 
     assert _identities(segment) == [(server.SEGMENT_USER_ID, None)] * 2
-    assert calls == ["keycloak-a"]
-
-
-def test_failed_lookup_is_retried_after_failure_ttl(
-    monkeypatch: pytest.MonkeyPatch, segment: MagicMock, lookups: list[str]
-) -> None:
-    monkeypatch.setattr(_user_identity, "USER_ID_FAILURE_TTL_SECONDS", 0.0)
-    monkeypatch.setattr(api_util, "get_user_by_auth_id", lambda *_, **__: {})
-    _call("keycloak-a")
-    assert _identities(segment) == [(server.SEGMENT_USER_ID, None)]
-
-    def get_user_by_auth_id(auth_user_id: str, **_: Any) -> dict[str, Any]:
-        lookups.append(auth_user_id)
-        return {"userId": AUTH_USERS[auth_user_id]}
-
-    monkeypatch.setattr(api_util, "get_user_by_auth_id", get_user_by_auth_id)
-    _call("keycloak-a")
-
-    assert _identities(segment)[-1] == (USER_A, USER_A)
-    assert lookups == ["keycloak-a"]
+    assert calls == ["keycloak-a", "keycloak-a"]
 
 
 def test_slow_lookup_times_out_without_blocking_the_call(
@@ -238,15 +219,3 @@ def test_lookup_request_has_a_finite_http_timeout(
         _user_identity.USER_ID_LOOKUP_TIMEOUT_SECONDS,
     )
     assert _identities(segment) == [(USER_A, USER_A)]
-
-
-def test_failed_lookup_does_not_overwrite_a_concurrent_success() -> None:
-    """A slower failed lookup can't replace the user a concurrent lookup resolved."""
-    cache = _user_identity._UserIdCache(max_entries=4)
-    cache.set("keycloak-a", USER_A)
-
-    cache.set_failure("keycloak-a", ttl_seconds=60.0)
-    cache.set_failure("keycloak-b", ttl_seconds=60.0)
-
-    assert cache.get("keycloak-a") == (True, USER_A)
-    assert cache.get("keycloak-b") == (True, None)

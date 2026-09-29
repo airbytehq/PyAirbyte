@@ -3,19 +3,17 @@
 
 The verified access token only carries the auth provider's user ID (`sub`), which
 is not the Airbyte user UUID used by the rest of Airbyte's analytics. The
-middleware here maps it to the Airbyte user via `/users/get_by_auth_id` once per
-auth user per process, and exposes the result to telemetry for the duration of
-the call. Resolution never blocks a tool call on failure: an unresolved user is
-reported as `None`.
+middleware here maps it to the Airbyte user via `/users/get_by_auth_id`, caches
+each resolved user per process (failed lookups are retried on the next call), and
+exposes the result to telemetry for the duration of the call. Resolution never
+blocks a tool call on failure: an unresolved user is reported as `None`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import threading
-import time
 from collections import OrderedDict
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
@@ -39,9 +37,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-USER_ID_FAILURE_TTL_SECONDS = 60.0
-"""How long a failed lookup is remembered, so an outage doesn't add a call per request."""
-
 USER_ID_CACHE_MAX_ENTRIES = 4096
 """Upper bound on cached auth users per process; the least recently used are evicted."""
 
@@ -55,44 +50,26 @@ _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
 
 
 class _UserIdCache:
-    """Thread-safe, size-bounded cache of auth user ID to Airbyte user ID."""
+    """Thread-safe, size-bounded cache of auth user ID to resolved Airbyte user ID."""
 
     def __init__(self, *, max_entries: int) -> None:
         self._max_entries = max_entries
-        self._entries: OrderedDict[str, tuple[str | None, float]] = OrderedDict()
+        self._entries: OrderedDict[str, str] = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, auth_user_id: str) -> tuple[bool, str | None]:
-        """Return `(hit, user_id)`, where a hit may still carry an unresolved `None`."""
+    def get(self, auth_user_id: str) -> str | None:
         with self._lock:
-            entry = self._entries.get(auth_user_id)
-            if entry is None:
-                return False, None
-            user_id, expires_at = entry
-            if expires_at <= time.monotonic():
-                del self._entries[auth_user_id]
-                return False, None
-            self._entries.move_to_end(auth_user_id)
-            return True, user_id
+            user_id = self._entries.get(auth_user_id)
+            if user_id is not None:
+                self._entries.move_to_end(auth_user_id)
+            return user_id
 
     def set(self, auth_user_id: str, user_id: str) -> None:
-        """Remember a resolved user until it is evicted by the size bound."""
         with self._lock:
-            self._put_locked(auth_user_id, user_id, expires_at=math.inf)
-
-    def set_failure(self, auth_user_id: str, *, ttl_seconds: float) -> None:
-        """Remember a failed lookup, unless a concurrent lookup already resolved the user."""
-        with self._lock:
-            entry = self._entries.get(auth_user_id)
-            if entry is not None and entry[0] is not None:
-                return
-            self._put_locked(auth_user_id, None, expires_at=time.monotonic() + ttl_seconds)
-
-    def _put_locked(self, auth_user_id: str, user_id: str | None, *, expires_at: float) -> None:
-        self._entries[auth_user_id] = (user_id, expires_at)
-        self._entries.move_to_end(auth_user_id)
-        while len(self._entries) > self._max_entries:
-            self._entries.popitem(last=False)
+            self._entries[auth_user_id] = user_id
+            self._entries.move_to_end(auth_user_id)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
 
     def clear(self) -> None:
         with self._lock:
@@ -149,8 +126,8 @@ async def resolve_airbyte_user_id(ctx: Context | None) -> str | None:
     except exc.PyAirbyteInputError:
         return None
 
-    hit, cached_user_id = _user_id_cache.get(auth_user_id)
-    if hit:
+    cached_user_id = _user_id_cache.get(auth_user_id)
+    if cached_user_id is not None:
         return cached_user_id
 
     api_root = CLOUD_API_ROOT
@@ -174,9 +151,7 @@ async def resolve_airbyte_user_id(ctx: Context | None) -> str | None:
     except Exception:
         logger.debug("Airbyte user lookup for MCP telemetry failed", exc_info=True)
 
-    if user_id is None:
-        _user_id_cache.set_failure(auth_user_id, ttl_seconds=USER_ID_FAILURE_TTL_SECONDS)
-    else:
+    if user_id is not None:
         _user_id_cache.set(auth_user_id, user_id)
     return user_id
 
