@@ -202,8 +202,9 @@ JWT_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_ALGORITHM"
 
 # Optional second headless verifier for user-realm tokens forwarded by a
 # trusted first-party app (e.g. the Ops Webapp session token). Activated by
-# `USER_JWKS_URI_ENV`; `aud` is not checked (Keycloak user-token audiences
-# vary by client) — the `azp` allowlist is the trust boundary.
+# `USER_JWKS_URI_ENV`, which also requires `USER_ISSUER_ENV` (pinned issuer)
+# and `USER_TOKEN_CLIENT_IDS_ENV`; `aud` is not checked (Keycloak user-token
+# audiences vary by client) — the `azp` allowlist is the trust boundary.
 USER_JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_USER_JWKS_URI"
 USER_ISSUER_ENV = "AIRBYTE_MCP_AUTH_USER_ISSUER"
 USER_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_USER_ALGORITHM"
@@ -378,10 +379,17 @@ def _create_auth() -> AuthProvider | None:
                 "comma-separated azp allowlist."
             )
             raise ValueError(msg)
+        user_issuer = os.getenv(USER_ISSUER_ENV, "").strip()
+        if not user_issuer:
+            msg = (
+                f"{USER_JWKS_URI_ENV} is set but {USER_ISSUER_ENV} is empty; "
+                "the user-realm verifier must pin the token issuer."
+            )
+            raise ValueError(msg)
         jwt_configs.append(
             JWTAuthConfig(
                 jwks_uri=user_jwks_uri,
-                issuer=os.getenv(USER_ISSUER_ENV, "").strip() or None,
+                issuer=user_issuer,
                 algorithm=os.getenv(USER_ALGORITHM_ENV, "").strip() or None,
                 base_url=base_url,
                 allowed_client_ids=client_ids,

@@ -401,6 +401,25 @@ def test_create_auth_user_jwks_without_client_ids_raises(
     assert server.USER_JWKS_URI_ENV in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "issuer_value",
+    [pytest.param(None, id="unset"), pytest.param("  ", id="whitespace")],
+)
+def test_create_auth_user_jwks_without_issuer_raises(
+    issuer_value: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI without a pinned issuer fails closed, naming both vars."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, "web-client")
+    if issuer_value is not None:
+        monkeypatch.setenv(server.USER_ISSUER_ENV, issuer_value)
+    with pytest.raises(ValueError, match=server.USER_ISSUER_ENV) as excinfo:
+        server._create_auth()
+    assert server.USER_JWKS_URI_ENV in str(excinfo.value)
+
+
 def test_create_auth_without_user_jwks_yields_single_config(
     monkeypatch: MonkeyPatch,
 ) -> None:
