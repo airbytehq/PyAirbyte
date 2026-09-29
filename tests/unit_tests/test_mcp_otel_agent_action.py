@@ -111,8 +111,9 @@ def uninitialized_provider(monkeypatch: pytest.MonkeyPatch) -> Mock:
 @pytest.mark.parametrize(("name", "action"), VALID_ACTIONS)
 @pytest.mark.parametrize("capture", [True, False])
 @pytest.mark.parametrize("vendor", ["", "datadog"])
+@pytest.mark.parametrize("intent", [None, "Inspect state"])
 def test_requested_action_survives_real_tool_execution(
-    monkeypatch, agents_app, otel_provider, name, action, capture, vendor
+    monkeypatch, agents_app, otel_provider, name, action, capture, vendor, intent
 ):
     monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
     agents_app.middleware = []
@@ -130,6 +131,8 @@ def test_requested_action_survives_real_tool_execution(
         Mock(return_value=Mock(get_connector=Mock(return_value=connector))),
     )
     arguments = {"connector_id": SENTINEL, "cursor": SENTINEL}
+    if intent is not None:
+        arguments["intent"] = intent
     if name == SQL:
         arguments.update(sql=SENTINEL, sql_dialect="snowflake")
     else:
@@ -142,8 +145,13 @@ def test_requested_action_survives_real_tool_execution(
     assert attrs[ACTION] == action
     if vendor:
         assert json.loads(attrs["_dd.ml_obs.metadata"])["agent.action"] == action
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
+            "action": action,
+            **({"intent": intent} if intent is not None else {}),
+        }
     else:
         assert "_dd.ml_obs.metadata" not in attrs
+        assert "gen_ai.tool.call.arguments" not in attrs
     assert SENTINEL not in _export_text(otel_provider)
 
 
@@ -329,7 +337,12 @@ def test_exporter_revalidates_action_and_root_span_scope(
             with tracer.start_as_current_span(
                 f"tools/call {name}",
                 kind=kind,
-                attributes={ACTION: value, "safe": "kept"},
+                attributes={
+                    ACTION: value,
+                    "safe": "kept",
+                    "_dd.ml_obs.metadata": json.dumps({"agent.action": SENTINEL}),
+                    "gen_ai.tool.call.arguments": json.dumps({"secret": SENTINEL}),
+                },
             ):
                 pass
             assert provider.force_flush()
@@ -338,6 +351,12 @@ def test_exporter_revalidates_action_and_root_span_scope(
             assert span.attributes["safe"] == "kept"
             metadata = json.loads(span.attributes.get("_dd.ml_obs.metadata", "{}"))
             assert metadata.get("agent.action") == (expected if vendor else None)
+            if vendor and expected:
+                assert json.loads(span.attributes["gen_ai.tool.call.arguments"]) == {
+                    "action": expected
+                }
+            else:
+                assert "gen_ai.tool.call.arguments" not in span.attributes
         with tracer.start_as_current_span(
             "HTTP", kind=SpanKind.CLIENT, attributes={ACTION: "get"}
         ):
@@ -350,6 +369,10 @@ def test_exporter_revalidates_action_and_root_span_scope(
         assert provider.force_flush()
         assert all(
             ACTION not in span.attributes for span in sink.get_finished_spans()[-2:]
+        )
+        assert all(
+            "gen_ai.tool.call.arguments" not in span.attributes
+            for span in sink.get_finished_spans()[-2:]
         )
         assert SENTINEL not in "\n".join(
             span.to_json() for span in sink.get_finished_spans()
@@ -549,6 +572,9 @@ def test_search_type_is_recorded_as_action(
     assert attrs[ACTION] == action
     if vendor:
         assert json.loads(attrs["_dd.ml_obs.metadata"])["agent.action"] == action
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {"action": action}
+    else:
+        assert "gen_ai.tool.call.arguments" not in attrs
     assert SENTINEL not in _export_text(otel_provider)
 
 

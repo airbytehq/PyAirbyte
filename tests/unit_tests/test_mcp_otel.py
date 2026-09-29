@@ -693,6 +693,8 @@ def test_exporter_drops_enduser_and_user_agent(otel_provider):
             "enduser.scope": "scope-SENTINEL",
             "user_agent.original": "useragent-SENTINEL",
             "url.query": "query-SENTINEL",
+            "gen_ai.tool.call.arguments": '{"secret": "argument-SENTINEL"}',
+            "gen_ai.tool.call.result": "result-SENTINEL",
             "url.full": "https://user-SENTINEL:password-SENTINEL@api.airbyte.com/v1/connections?q=SENTINEL#SENTINEL",
         },
     ):
@@ -968,6 +970,9 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         assert "airbyte.mcp.scope_source" not in attributes
     if vendor == "datadog":
         assert metadata["intent"] == "Inspect state"
+        assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": "Inspect state"
+        }
         assert metadata["intent_present"] is True
         assert (
             metadata["tool_module"]
@@ -975,6 +980,53 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         )
     else:
         assert "_dd.ml_obs.metadata" not in attributes
+        assert "gen_ai.tool.call.arguments" not in attributes
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("intent", [None, "  ", "  Inspect state  ", "x" * 5000])
+def test_datadog_input_contains_only_bounded_intent(
+    app, monkeypatch, otel_provider, intent
+):
+    """Render the safe intent copy, even when instrumentation captures raw data."""
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+
+    @app.tool()
+    def input_probe(secret: str) -> str:
+        trace.get_current_span().set_attributes({
+            "gen_ai.tool.call.arguments": json.dumps({"secret": secret}),
+            "gen_ai.tool.call.result": "result-SENTINEL",
+        })
+        return "result-SENTINEL"
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "input_probe", "cloud")
+    response = asyncio.run(
+        _http_rpc(
+            app,
+            "tools/call",
+            {
+                "name": "input_probe",
+                "arguments": {
+                    "secret": "argument-SENTINEL",
+                    **({"intent": intent} if intent is not None else {}),
+                },
+            },
+        )
+    )
+    assert not response.json()["result"].get("isError")
+    attributes = _tool_span(otel_provider).attributes
+    if intent and intent.strip():
+        expected = intent.strip()
+        if len(expected) > 4096:
+            expected = expected[: 4096 - len("...[truncated]")] + "...[truncated]"
+        assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": expected
+        }
+        assert json.loads(attributes["_dd.ml_obs.metadata"])["intent"] == expected
+    else:
+        assert "gen_ai.tool.call.arguments" not in attributes
+        assert "intent" not in json.loads(attributes["_dd.ml_obs.metadata"])
+    assert "gen_ai.tool.call.result" not in attributes
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
