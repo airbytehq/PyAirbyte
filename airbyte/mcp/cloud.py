@@ -91,6 +91,7 @@ from airbyte.mcp._docs_results import (
     render_agent_skill_docs_result,
     render_connector_docs_result,
 )
+from airbyte.mcp._scope import record_default_workspace
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
@@ -559,6 +560,8 @@ def _get_cloud_workspace(
     """
     client = _get_cloud_client(ctx, organization_id=organization_id)
     resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
+    if not workspace_id:
+        record_default_workspace(resolved_workspace_id)
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError
 
