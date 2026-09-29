@@ -42,12 +42,6 @@ For the headless path, an agent mints an access token from its client id/secret
 single token both authenticates transport (verified here) and authorizes
 downstream Cloud API calls, because an Airbyte-Cloud-issued JWT is itself a valid
 Cloud API bearer.
-
-Environment variables:
-
-- `AIRBYTE_MCP_SEGMENT_WRITE_KEY`: Segment write key for MCP tool-call telemetry
-  across all transports. Defaults to the PyAirbyte application key and is
-  ignored when `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set.
 """
 
 from __future__ import annotations
@@ -64,6 +58,7 @@ from fastmcp_extensions import (
     JWTAuthConfig,
     OIDCAuthConfig,
     TelemetryConfig,
+    TelemetrySinks,
     build_mcp_auth,
     mcp_server,
 )
@@ -79,8 +74,8 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
-from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
+from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_MCP_TRACKING_KEY
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -88,6 +83,7 @@ from airbyte.mcp._error_handling import (
 )
 from airbyte.mcp._scope import CallScopeMiddleware, call_scope_properties
 from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
+from airbyte.mcp._telemetry import ServerConnectedTelemetryMiddleware, request_properties
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -394,8 +390,6 @@ def _create_auth() -> AuthProvider | None:
     return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=base_url)
 
 
-SEGMENT_WRITE_KEY_ENV = "AIRBYTE_MCP_SEGMENT_WRITE_KEY"
-
 SEGMENT_USER_ID = "airbyte-mcp"
 """Identifies the PyAirbyte MCP server as the event source.
 
@@ -412,7 +406,7 @@ def _segment_write_key() -> str | None:
     if os.environ.get(DO_NOT_TRACK) or offline_mode:
         return None
 
-    return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
+    return PYAIRBYTE_MCP_TRACKING_KEY
 
 
 load_secrets_to_env_vars()
@@ -420,6 +414,13 @@ load_secrets_to_env_vars()
 segment_write_key = _segment_write_key()
 if segment_write_key is None:
     logger.info("Segment telemetry is disabled; MCP tool-call telemetry remains log-only.")
+
+lifecycle_telemetry_sinks = TelemetrySinks(
+    package_name="airbyte",
+    segment_write_key=segment_write_key,
+    segment_user_id=SEGMENT_USER_ID,
+)
+"""Sinks for MCP session lifecycle events, configured like tool-call telemetry."""
 
 
 @asynccontextmanager
@@ -463,16 +464,14 @@ app = mcp_server(
         package_name="airbyte",
         segment_write_key=segment_write_key,
         segment_user_id=SEGMENT_USER_ID,
-        extra_properties=lambda: {
-            "is_hosted_mcp": is_hosted_mcp_mode(),
-            **call_scope_properties(),
-        },
+        extra_properties=lambda: {**request_properties(), **call_scope_properties()},
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,
 )
 """The Airbyte MCP Server application instance."""
 
+app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
 app.middleware.insert(0, CallScopeMiddleware())
 
 # Register tools from each module
