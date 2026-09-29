@@ -305,6 +305,25 @@ without advertising it, with top-level `intent` taking precedence when supplied.
 Real tool parameters named `intent` or `telemetry` retain their normal validation
 and dispatch behavior.
 
+## Usage Telemetry
+
+Unless `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set, the server sends anonymous
+usage events to Segment: one per tool call, `Airbyte.MCP.ServerConnected` on each
+`initialize` or `server/discover` handshake, and, on hosted HTTP,
+`Airbyte.MCP.AuthFailed` when supplied credentials are rejected (`401`/`403` on
+the MCP endpoint or an OAuth callback error). Requests that carry no credentials,
+such as the first step of OAuth discovery, are not reported.
+
+Every event carries the same context: `is_hosted_mcp`, `edition` (`cloud` or
+`oss`), `transport`, `auth_method` (`bearer`, `client_credentials` or `none`),
+`session_id`, `mcp_client_name`, `mcp_client_version`, `mcp_protocol_version`,
+`organization_id` and `workspace_id`. Over hosted HTTP, `session_id` is the SHA-256
+digest of the client-echoed `Mcp-Session-Id`, and client info is recovered from the
+session token minted on `initialize`. Over stdio, `session_id` is a random ID for
+the server process. Organization and workspace IDs come from the MCP config
+headers or environment and are `null` when not configured. Tokens, secrets, tool
+arguments and results are never sent.
+
 ## Troubleshooting
 
 ### Troubleshooting Local Connector Installation Issues
