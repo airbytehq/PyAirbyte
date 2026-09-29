@@ -41,6 +41,7 @@ from airbyte.constants import (
     is_hosted_mcp_mode,
 )
 from airbyte.mcp._user_identity import (
+    DEFAULT_WORKSPACE_CACHE_TTL_SECONDS,
     airbyte_user_context,
     resolve_airbyte_user_for_token,
     resolve_workspace_organization_id,
@@ -509,6 +510,7 @@ class McpRequestTelemetryMiddleware:
                 pending.bearer_token,
                 api_root=pending.api_root,
                 config_api_root=pending.config_api_root,
+                max_age_seconds=DEFAULT_WORKSPACE_CACHE_TTL_SECONDS,
             )
             if user is not None:
                 airbyte_user_id = user.user_id

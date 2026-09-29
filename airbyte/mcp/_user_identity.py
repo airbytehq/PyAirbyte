@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -49,6 +50,9 @@ USER_ID_CACHE_MAX_ENTRIES = 4096
 USER_ID_LOOKUP_TIMEOUT_SECONDS = 30.0
 """Longest an MCP request waits on identity or scope lookup before proceeding."""
 
+DEFAULT_WORKSPACE_CACHE_TTL_SECONDS = 300.0
+"""Refresh cached default workspace data after this interval."""
+
 _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
     "airbyte_mcp_airbyte_user_id",
     default=None,
@@ -61,6 +65,12 @@ class AirbyteUser:
 
     user_id: str
     default_workspace_id: str | None
+
+
+@dataclass(frozen=True)
+class _CachedAirbyteUser:
+    user: AirbyteUser
+    fetched_at: float
 
 
 class _LruCache(Generic[_ValueT]):
@@ -90,7 +100,7 @@ class _LruCache(Generic[_ValueT]):
             self._entries.clear()
 
 
-_user_id_cache = _LruCache[AirbyteUser](max_entries=USER_ID_CACHE_MAX_ENTRIES)
+_user_id_cache = _LruCache[_CachedAirbyteUser](max_entries=USER_ID_CACHE_MAX_ENTRIES)
 _workspace_organization_id_cache = _LruCache[str](max_entries=USER_ID_CACHE_MAX_ENTRIES)
 
 
@@ -139,6 +149,7 @@ async def resolve_airbyte_user_for_token(
     *,
     api_root: str,
     config_api_root: str | None,
+    max_age_seconds: float | None = None,
 ) -> AirbyteUser | None:
     """Resolve the canonical Airbyte user and default workspace for a bearer token."""
     try:
@@ -147,8 +158,10 @@ async def resolve_airbyte_user_for_token(
         return None
 
     cached_user = _user_id_cache.get(auth_user_id)
-    if cached_user is not None:
-        return cached_user
+    if cached_user is not None and (
+        max_age_seconds is None or time.monotonic() - cached_user.fetched_at <= max_age_seconds
+    ):
+        return cached_user.user
 
     user: AirbyteUser | None = None
     try:
@@ -166,8 +179,12 @@ async def resolve_airbyte_user_for_token(
         logger.debug("Airbyte user lookup for MCP telemetry failed", exc_info=True)
 
     if user is not None:
-        _user_id_cache.set(auth_user_id, user)
-    return user
+        _user_id_cache.set(
+            auth_user_id,
+            _CachedAirbyteUser(user=user, fetched_at=time.monotonic()),
+        )
+        return user
+    return cached_user.user if cached_user is not None else None
 
 
 async def resolve_airbyte_user(ctx: Context | None) -> AirbyteUser | None:

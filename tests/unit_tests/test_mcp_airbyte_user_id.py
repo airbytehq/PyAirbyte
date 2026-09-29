@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import time
+from collections.abc import Iterator
 from contextvars import ContextVar
 from typing import Any
 from unittest.mock import MagicMock
@@ -43,7 +44,7 @@ def _verified_token() -> AccessToken | None:
 
 
 @pytest.fixture
-def segment(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+def segment(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
     """Capture Segment `track` calls for every tool-call event."""
     telemetry = next(
         middleware
@@ -116,6 +117,26 @@ def test_lookup_is_cached_per_auth_user(segment: MagicMock, lookups: list[str]) 
         (USER_B, USER_B),
     ]
     assert lookups == ["keycloak-a", "keycloak-b"]
+
+
+def test_tool_call_reuses_stale_cached_user_without_refresh(
+    segment: MagicMock, lookups: list[str]
+) -> None:
+    _user_identity._user_id_cache.set(
+        "keycloak-a",
+        _user_identity._CachedAirbyteUser(
+            user=_user_identity.AirbyteUser(
+                user_id=USER_A,
+                default_workspace_id="stale-workspace",
+            ),
+            fetched_at=time.monotonic() - 3600,
+        ),
+    )
+
+    _call("keycloak-a")
+
+    assert _identities(segment) == [(USER_A, USER_A)]
+    assert lookups == []
 
 
 def test_concurrent_calls_keep_their_own_user(
