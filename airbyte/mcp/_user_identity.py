@@ -75,12 +75,10 @@ class _UserIdCache:
             self._entries.move_to_end(auth_user_id)
             return True, user_id
 
-    def set(self, auth_user_id: str, user_id: str | None, *, ttl_seconds: float = math.inf) -> None:
+    def set(self, auth_user_id: str, user_id: str) -> None:
+        """Remember a resolved user until it is evicted by the size bound."""
         with self._lock:
-            self._entries[auth_user_id] = (user_id, time.monotonic() + ttl_seconds)
-            self._entries.move_to_end(auth_user_id)
-            while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
+            self._put_locked(auth_user_id, user_id, expires_at=math.inf)
 
     def set_failure(self, auth_user_id: str, *, ttl_seconds: float) -> None:
         """Remember a failed lookup, unless a concurrent lookup already resolved the user."""
@@ -88,7 +86,13 @@ class _UserIdCache:
             entry = self._entries.get(auth_user_id)
             if entry is not None and entry[0] is not None:
                 return
-        self.set(auth_user_id, None, ttl_seconds=ttl_seconds)
+            self._put_locked(auth_user_id, None, expires_at=time.monotonic() + ttl_seconds)
+
+    def _put_locked(self, auth_user_id: str, user_id: str | None, *, expires_at: float) -> None:
+        self._entries[auth_user_id] = (user_id, expires_at)
+        self._entries.move_to_end(auth_user_id)
+        while len(self._entries) > self._max_entries:
+            self._entries.popitem(last=False)
 
     def clear(self) -> None:
         with self._lock:
