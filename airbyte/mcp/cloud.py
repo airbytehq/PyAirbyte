@@ -652,9 +652,11 @@ How to use this report:
    pending job would compete, and a newer succeeded job means the failure has
    already cleared. Also require recent_jobs.error to be null, because a job
    that could not be read may be newer. recent_jobs lists sync jobs only, so
-   before run_cloud_sync also confirm with list_cloud_sync_jobs (no job_type
-   filter) that the newest job of any type is latest_failed_job.job_id and that
-   no other job, such as a reset, clear or refresh, is running or pending.
+   before run_cloud_sync also call list_cloud_sync_jobs three times: with no
+   job_type (which returns sync and reset jobs only), with job_type='refresh'
+   and with job_type='clear'. Compare the newest job across all three results:
+   it must be latest_failed_job.job_id, and no reset, clear or refresh job may
+   be running or pending.
    If either raises SafeModeError, tell the user how to do it in the Airbyte UI
    instead.
 3. Otherwise, give the user concrete steps and link the relevant page:
@@ -694,9 +696,12 @@ How to use this report:
    dropped to fit the character limit, and log_text_line_count lower than
    total_log_lines_available minus filtered_line_count means earlier lines were
    omitted. Known stack-trace and internal-detail formats are removed; never
-   quote any that remain. Call get_cloud_sync_logs if you need more log lines;
-   its output is unfiltered, so never quote stack traces, internal messages or
-   secrets from it.
+   quote any that remain. If you need more log lines, call get_cloud_sync_logs
+   with job_id=log_tail.job_id and attempt_number=log_tail.attempt_number (its
+   defaults are the latest job and attempt, which may differ);
+   total_log_lines_available counts that job and attempt's lines. Its output
+   is unfiltered, so never quote stack traces, internal messages or secrets
+   from it.
 5. Report back with the root cause, the evidence (quote the failure type/message
    and the relevant check result), what you did, and what the user needs to do.
    Only state facts this report supports; for example, do not claim the user
@@ -1765,7 +1770,9 @@ def _describe_cloud_connector(
             )
         else:
             if context_layer is not None:
-                warnings.extend(str(warning) for warning in context_layer.warnings)
+                warnings.extend(
+                    _bounded_text(str(warning)) or "" for warning in context_layer.warnings
+                )
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:
@@ -2487,12 +2494,17 @@ def _bounded_text(text: str | None) -> str | None:
 
 
 def _error_status_code(error: Exception) -> object | None:
-    """Return the HTTP status code carried by an Airbyte error, if any."""
+    """Return the HTTP status code carried by an error or its cause, if any."""
+    status_code: object | None = None
     if isinstance(error, AirbyteCloudApiError):
-        return error.status_code
-    if isinstance(error, PyAirbyteError):
-        return (error.context or {}).get("status_code")
-    return None
+        status_code = error.status_code
+    elif isinstance(error, PyAirbyteError):
+        status_code = (error.context or {}).get("status_code")
+    elif isinstance(error, requests.RequestException) and error.response is not None:
+        status_code = error.response.status_code
+    if status_code is None and isinstance(error.__cause__, requests.RequestException):
+        return _error_status_code(error.__cause__)
+    return status_code
 
 
 def _section_error_text(error: Exception, prefix: str = "") -> str:
@@ -2532,8 +2544,11 @@ def _check_failure_reason(error: AirbyteError) -> tuple[str, str] | None:
     response = (error.context or {}).get("response")
     job_info = response.get("jobInfo") if isinstance(response, dict) else None
     failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
-    if isinstance(failure, dict) and failure.get("externalMessage"):
-        return str(failure.get("failureOrigin") or "unknown"), str(failure["externalMessage"])
+    if not isinstance(failure, dict):
+        return None
+    origin, message = failure.get("failureOrigin"), failure.get("externalMessage")
+    if isinstance(message, str) and message:
+        return (origin if isinstance(origin, str) and origin else "unknown"), message
     return None
 
 
@@ -2568,18 +2583,24 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
     return section
 
 
+_ORGANIZATION_ACCESS_DENIED: Final[str] = (
+    "Organization lookup was denied for this workspace; this requires "
+    "ORGANIZATION_READER permission."
+)
+
+
+def _is_access_denied(error: Exception) -> bool:
+    """Whether an error carries an HTTP 401 or 403 status."""
+    return _error_status_code(error) in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
+
+
 def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBillingSection:
     """Resolve the workspace's organization and its billing status."""
     try:
         org = workspace.get_organization(raise_on_error=True)
     except (AirbyteError, NotImplementedError, requests.RequestException) as error:
-        if _error_status_code(error) in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
-            return TroubleshootBillingSection(
-                error=(
-                    "Organization lookup was denied for this workspace; this requires "
-                    "ORGANIZATION_READER permission."
-                ),
-            )
+        if _is_access_denied(error):
+            return TroubleshootBillingSection(error=_ORGANIZATION_ACCESS_DENIED)
         return TroubleshootBillingSection(
             error=_section_error_text(error, "Organization lookup failed: ")
         )
@@ -2593,6 +2614,7 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
                 billing_info_available=False,
                 message=_section_error_text(error, "Billing information could not be retrieved: "),
             ),
+            error=_ORGANIZATION_ACCESS_DENIED if _is_access_denied(error) else None,
         )
     return TroubleshootBillingSection(
         status=CloudOrganizationBillingStatusResult(
@@ -2620,7 +2642,7 @@ def _troubleshoot_log_tail_section(
     )
     try:
         raw_lines = attempt.get_full_log_text().splitlines()
-    except (AirbyteError, requests.RequestException) as error:
+    except (AirbyteError, requests.RequestException, AttributeError, TypeError) as error:
         section.error = _section_error_text(error)
         return section
     lines = _filter_log_lines(raw_lines)
@@ -2809,6 +2831,7 @@ def troubleshoot_cloud_connection(
             KeyError,
             ValueError,
             TypeError,
+            AttributeError,
         ) as error:
             latest_failed_job.error = _section_error_text(error)
             log_tail.error = "Attempts unavailable; see latest_failed_job.error."

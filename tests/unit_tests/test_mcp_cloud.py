@@ -2319,12 +2319,12 @@ class _TroubleshootAttempt:
 
     attempt_number: int
     status: str
-    log_text: str | AirbyteError = ""
+    log_text: str | AirbyteError | TypeError = ""
     failures: list[SyncAttemptFailure] = dataclasses.field(default_factory=list)
     created_at: datetime = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
     def get_full_log_text(self) -> str:
-        if isinstance(self.log_text, AirbyteError):
+        if isinstance(self.log_text, (AirbyteError, TypeError)):
             raise self.log_text
         return self.log_text
 
@@ -3406,7 +3406,7 @@ def test_troubleshoot_guidance_forbids_configuration_changes() -> None:
         assert tool_name in guidance
     assert "Never change connector, connection or definition configuration" in guidance
     assert "do not enable it yourself" in guidance
-    assert "its output is unfiltered" in guidance
+    assert "Its output is unfiltered" in guidance
     assert "log_text_line_count lower than total_log_lines_available" in guidance
 
 
@@ -3415,7 +3415,7 @@ def test_troubleshoot_guidance_checks_non_sync_jobs_before_rerun() -> None:
     guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
 
     assert "recent_jobs lists sync jobs only" in guidance
-    assert "list_cloud_sync_jobs (no job_type filter)" in guidance
+    assert "call list_cloud_sync_jobs three times" in guidance
     assert callable(cloud_mcp.list_cloud_sync_jobs)
 
 
@@ -3623,7 +3623,7 @@ def test_troubleshoot_guidance_round_two_rules() -> None:
     guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
 
     assert "require recent_jobs.error to be null" in guidance
-    assert "the newest job of any type is latest_failed_job.job_id" in guidance
+    assert "it must be latest_failed_job.job_id" in guidance
     assert (
         "only call read-only tools, plus run_cloud_sync and cancel_cloud_sync under the "
         "conditions in rule 2" in guidance
@@ -3687,3 +3687,87 @@ def test_get_cloud_sync_status_uses_one_job_snapshot(
     assert result["bytes_synced"] == 42
     assert result["records_synced"] == 7
     assert result["start_time"] == start_time.isoformat()
+
+
+def test_troubleshoot_isolates_malformed_log_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed log payload fills log_tail.error only."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[
+                    _TroubleshootAttempt(0, "failed", TypeError("bad log payload"))
+                ],
+            )
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.log_tail.error == "bad log payload"
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.error is None
+
+
+def test_troubleshoot_billing_status_access_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 403 from get_billing_status, even wrapped from a token-mint HTTPError, sets billing.error."""
+    response = requests.Response()
+    response.status_code = 403
+    http_error = requests.HTTPError("403 Client Error", response=response)
+
+    def get_billing_status() -> None:
+        raise AirbyteError(
+            message="Failed to retrieve organization billing information."
+        ) from http_error
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=get_billing_status,
+    )
+
+    billing = _troubleshoot(
+        monkeypatch, _TroubleshootConnection(), organization=organization
+    ).billing
+
+    assert billing.error == (
+        "Organization lookup was denied for this workspace; this requires "
+        "ORGANIZATION_READER permission."
+    )
+    assert billing.status is not None
+    assert billing.status.billing_info_available is False
+
+
+def test_describe_passthrough_warnings_are_bounded() -> None:
+    """Context-layer warnings passed through to describe output are capped."""
+    connector = _DescribedConnector(
+        enabled_features=frozenset({ConnectorFeature.DIRECT_ACCESS})
+    )
+    connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
+    connector.inspect_result = SimpleNamespace(
+        warnings=["w" * (cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS * 2)]
+    )
+
+    warnings = _describe(connector).warnings
+
+    assert len(warnings) == 1
+    assert len(warnings[0]) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert warnings[0].endswith(cloud_mcp.TRUNCATION_MARKER)
+
+
+def test_troubleshoot_guidance_round_three_rules() -> None:
+    """Rerun checks refresh and clear jobs; log follow-ups target the same job and attempt."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert "with job_type='refresh' and with job_type='clear'" in guidance
+    assert "which returns sync and reset jobs only" in guidance
+    assert (
+        "call get_cloud_sync_logs with job_id=log_tail.job_id and "
+        "attempt_number=log_tail.attempt_number" in guidance
+    )
+    assert "total_log_lines_available counts that job and attempt's lines" in guidance
