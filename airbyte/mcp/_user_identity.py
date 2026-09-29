@@ -114,6 +114,7 @@ def _lookup_airbyte_user_id(
         client_id=None,
         client_secret=None,
         bearer_token=bearer_token,
+        timeout=(USER_ID_LOOKUP_TIMEOUT_SECONDS, USER_ID_LOOKUP_TIMEOUT_SECONDS),
     )
     user_id = user.get("userId")
     return user_id if isinstance(user_id, str) and user_id else None

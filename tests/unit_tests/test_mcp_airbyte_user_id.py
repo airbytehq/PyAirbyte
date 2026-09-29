@@ -219,3 +219,22 @@ def test_user_id_is_not_left_in_context_after_the_call(
     _call("keycloak-a")
 
     assert _user_identity.current_airbyte_user_id() is None
+
+
+def test_lookup_request_has_a_finite_http_timeout(
+    monkeypatch: pytest.MonkeyPatch, segment: MagicMock
+) -> None:
+    """A hung Config API can't pin the lookup's worker thread indefinitely."""
+    request = MagicMock()
+    request.return_value.status_code = 200
+    request.return_value.json.return_value = {"userId": USER_A}
+    monkeypatch.setattr(api_util.requests, "request", request)
+
+    _call("keycloak-a")
+
+    timeout = request.call_args.kwargs["timeout"]
+    assert timeout == (
+        _user_identity.USER_ID_LOOKUP_TIMEOUT_SECONDS,
+        _user_identity.USER_ID_LOOKUP_TIMEOUT_SECONDS,
+    )
+    assert _identities(segment) == [(USER_A, USER_A)]
