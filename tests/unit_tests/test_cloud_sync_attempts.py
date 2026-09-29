@@ -312,3 +312,51 @@ def test_failures_skip_non_dict_items() -> None:
 
     assert [f.external_message for f in attempt.failures] == ["Real failure."]
     assert malformed_summary.failures == []
+
+
+@pytest.mark.parametrize(
+    ("logs", "expected"),
+    [
+        pytest.param({"events": [None, "oops"]}, "", id="non-dict-events"),
+        pytest.param({"events": {}}, "", id="events-dict"),
+        pytest.param({"logLines": ["a", None]}, "a", id="non-str-log-line"),
+        pytest.param("not-a-dict", "", id="logs-not-dict"),
+    ],
+)
+def test_get_full_log_text_tolerates_malformed_logs(
+    logs: object, expected: str
+) -> None:
+    """Malformed log payloads yield the readable lines instead of raising."""
+    attempt = _attempt({"attempt": {"id": 1, "status": "failed"}, "logs": logs})
+
+    assert attempt.get_full_log_text() == expected
+
+
+def test_failures_coerce_field_types() -> None:
+    """Non-string text fields and non-bool `retryable` become `None`."""
+    attempt = _attempt({
+        "attempt": {
+            "id": 1,
+            "status": "failed",
+            "createdAt": 1767225600,
+            "failureSummary": {
+                "failures": [
+                    {
+                        "failureOrigin": 7,
+                        "failureType": ["x"],
+                        "externalMessage": {"text": "nested"},
+                        "retryable": "yes",
+                    }
+                ]
+            },
+        }
+    })
+
+    assert attempt.failures == [
+        SyncAttemptFailure(
+            failure_origin=None,
+            failure_type=None,
+            external_message=None,
+            retryable=None,
+        )
+    ]

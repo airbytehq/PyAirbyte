@@ -188,14 +188,19 @@ class SyncAttempt:
         failure_summary = self._get_attempt_data().get("failureSummary")
         if not isinstance(failure_summary, dict):
             return []
+        failures = failure_summary.get("failures")
+        if not isinstance(failures, list):
+            return []
         return [
             SyncAttemptFailure(
-                failure_origin=failure.get("failureOrigin"),
-                failure_type=failure.get("failureType"),
-                external_message=failure.get("externalMessage"),
-                retryable=failure.get("retryable"),
+                failure_origin=_str_or_none(failure.get("failureOrigin")),
+                failure_type=_str_or_none(failure.get("failureType")),
+                external_message=_str_or_none(failure.get("externalMessage")),
+                retryable=(
+                    failure.get("retryable") if isinstance(failure.get("retryable"), bool) else None
+                ),
             )
-            for failure in failure_summary.get("failures") or []
+            for failure in failures
             if isinstance(failure, dict)
         ]
 
@@ -218,29 +223,28 @@ class SyncAttempt:
             return ""
 
         logs_data = self._attempt_data.get("logs")
-        if not logs_data:
+        if not isinstance(logs_data, dict):
             return ""
-
-        result = ""
 
         if "events" in logs_data:
             log_events = logs_data["events"]
-            if log_events:
-                log_lines = []
-                for event in log_events:
-                    timestamp = event.get("timestamp", "")
-                    level = event.get("level", "INFO")
-                    message = event.get("message", "")
-                    log_lines.append(
-                        f"[{timestamp}] {level}: {message}"  # pyrefly: ignore[bad-argument-type]
-                    )
-                result = "\n".join(log_lines)
-        elif "logLines" in logs_data:
-            log_lines = logs_data["logLines"]
-            if log_lines:
-                result = "\n".join(log_lines)
+            if not isinstance(log_events, list):
+                return ""
+            return "\n".join(
+                f"[{event.get('timestamp', '')}] {event.get('level', 'INFO')}: "
+                f"{event.get('message', '')}"
+                for event in log_events
+                if isinstance(event, dict)
+            )
+        log_lines = logs_data.get("logLines")
+        if not isinstance(log_lines, list):
+            return ""
+        return "\n".join(line for line in log_lines if isinstance(line, str))
 
-        return result
+
+def _str_or_none(value: object) -> str | None:
+    """Return `value` if it is a string, else `None`."""
+    return value if isinstance(value, str) else None
 
 
 @dataclass(frozen=True)

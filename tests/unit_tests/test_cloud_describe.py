@@ -971,3 +971,84 @@ def test_check_connector_platform_failure_without_message_raises(
         )
 
     assert exc_info.value.get_message() == "Connector check did not complete."
+
+
+def test_context_layer_inspect_warning_omits_error_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A not-enabled docs probe warns with the message and status only, never the response."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    probe_error = AirbyteCloudApiError(
+        message="Forbidden.",
+        status_code=403,
+        context={"response_text": '{"internalMessage": "leaked-internal-detail"}'},
+    )
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(probe_error),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub")
+    warnings: list[str] = []
+
+    assert source._context_layer_inspect(warnings=warnings) is None  # noqa: SLF001
+    assert warnings == [
+        "Connector direct-access docs lookup failed: Forbidden. (HTTP status 403)"
+    ]
+
+
+def test_check_connector_non_dict_response_raises_without_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-object check response raises without carrying the body."""
+    monkeypatch.setattr(
+        api_util, "_make_config_api_request", lambda **_: ["leaked-body"]
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util.check_connector(
+            actor_id="source-id",
+            connector_type="source",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+            config_api_root="https://config.example.com",
+        )
+
+    assert exc_info.value.get_message() == "Unexpected check response."
+    assert "leaked-body" not in str(exc_info.value.context)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(
+            {"status": "failed", "message": {"nested": 1}}, id="non-str-message"
+        ),
+        pytest.param(
+            {
+                "status": "failed",
+                "message": None,
+                "jobInfo": {"failureReason": {"externalMessage": ["not", "a", "str"]}},
+            },
+            id="non-str-external-message",
+        ),
+    ],
+)
+def test_check_connector_non_str_message_is_none(
+    monkeypatch: pytest.MonkeyPatch, response: dict[str, Any]
+) -> None:
+    """Non-string check messages are treated as missing."""
+    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: response)
+
+    result = api_util.check_connector(
+        actor_id="source-id",
+        connector_type="source",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        config_api_root="https://config.example.com",
+    )
+
+    assert result == (False, None)

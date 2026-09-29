@@ -115,9 +115,13 @@ class CloudOrganization:
                 bearer_token=self._credentials.bearer_token,
             )
         except (requests.RequestException, ValueError) as ex:
+            response = ex.response if isinstance(ex, requests.RequestException) else None
             raise AirbyteError(
                 message="Failed to retrieve organization billing information.",
-                context={"organization_id": self.organization_id},
+                context={
+                    "organization_id": self.organization_id,
+                    "status_code": response.status_code if response is not None else None,
+                },
             ) from ex
         billing = info.get("billing")
         if not isinstance(billing, dict):

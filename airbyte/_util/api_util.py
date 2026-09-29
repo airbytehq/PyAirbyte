@@ -2242,7 +2242,14 @@ def check_connector(
                 "finish setup in Airbyte Cloud.",
             )
         raise
+    if not isinstance(json_result, dict):
+        raise AirbyteError(
+            message="Unexpected check response.",
+            context={"actor_id": actor_id, "connector_type": str(connector_type)},
+        )
     result, message = json_result.get("status"), json_result.get("message")
+    if not isinstance(message, str):
+        message = None
 
     if result == "succeeded":
         return True, None
@@ -2261,7 +2268,8 @@ def check_connector(
                             "response": json_result,
                         },
                     )
-                message = failure.get("externalMessage")
+                external_message = failure.get("externalMessage")
+                message = external_message if isinstance(external_message, str) else None
         return False, message
 
     raise AirbyteError(

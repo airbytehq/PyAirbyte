@@ -764,7 +764,15 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         except exc.AirbyteError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+            status_code = (
+                error.status_code
+                if isinstance(error, exc.AirbyteCloudApiError)
+                else (error.context or {}).get("status_code")
+            )
+            warnings.append(
+                f"Connector direct-access docs lookup failed: {error.get_message()}"
+                + (f" (HTTP status {status_code})" if status_code is not None else "")
+            )
             return None
         parsed = _DirectConnectorInspectResult(
             connector_id=self.connector_id,
