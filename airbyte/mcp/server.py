@@ -149,10 +149,6 @@ Operational modes:
 - Local operations: Run connectors locally for data extraction (requires
   AIRBYTE_PROJECT_DIR for artifact storage)
 
-Troubleshooting: When a user reports a failing sync, connection, source or
-destination, call troubleshoot_cloud_connection. If you don't have a connection
-ID, find failing connections with list_cloud_connections(failing_connections_only=True).
-
 Safety features:
 - Safe mode (default): Restricts destructive operations to objects created in
   the current session
