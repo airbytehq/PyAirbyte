@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import sys
+import unicodedata
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
@@ -247,6 +248,15 @@ def _install_meta_trace_context_middleware(app: FastMCP) -> None:
     low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
 
 
+def _client_label(value: object) -> str | None:
+    """Bound reported application labels; this is not arbitrary-text sanitization."""
+    if not isinstance(value, str) or any(
+        unicodedata.category(char).startswith("C") for char in value
+    ):
+        return None
+    return value.strip()[:256] or None
+
+
 class IntentCaptureMiddleware(Middleware):
     """Advertise optional intent and carry it into FastMCP's existing tool span."""
 
@@ -349,6 +359,7 @@ class IntentCaptureMiddleware(Middleware):
         from fastmcp.server.dependencies import get_http_headers
 
         from airbyte._util.meta import get_cloud_api_analytic_source
+        from airbyte.mcp._telemetry import request_properties
 
         name = context.message.name
         intent = intent.strip() if isinstance(intent, str) else ""
@@ -361,6 +372,13 @@ class IntentCaptureMiddleware(Middleware):
             "airbyte.mcp.intent_present": bool(intent),
             "airbyte.mcp.analytic_source": get_cloud_api_analytic_source(),
         }
+        try:
+            properties = request_properties()
+            for key in ("client_name", "client_version"):
+                if value := _client_label(properties.get(f"mcp_{key}")):
+                    attrs[f"airbyte.mcp.{key}"] = value
+        except Exception:
+            logger.debug("Client trace attributes unavailable")
         if intent:
             attrs["airbyte.mcp.intent"] = intent
         arguments = context.message.arguments or {}
@@ -537,6 +555,15 @@ class RedactingExporter(SpanExporter):
             canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
             if canonical_action is not None:
                 attrs["airbyte.mcp.agent.action"] = canonical_action
+        for key in ("client_name", "client_version"):
+            value = _client_label(attrs.pop(f"airbyte.mcp.{key}", None))
+            if (
+                value is not None
+                and span.kind == SpanKind.SERVER
+                and span.name.startswith("tools/call ")
+                and tool_name in _TOOL_MODULES
+            ):
+                attrs[f"airbyte.mcp.{key}"] = value
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
@@ -551,6 +578,8 @@ class RedactingExporter(SpanExporter):
                     "scope_source",
                     "error_type",
                     "agent.action",
+                    "client_name",
+                    "client_version",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }

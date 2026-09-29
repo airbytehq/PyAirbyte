@@ -118,6 +118,19 @@ tool names are dropped. Segment requests are excluded from instrumentation.
 Session tokens are hashed before FastMCP sees them, while their extension
 declarations are preserved. Intent is free text capped at 4096 characters.
 
+Tool spans include `airbyte.mcp.client_name` and `airbyte.mcp.client_version` when
+available from the existing request context, even with intent advertisement off.
+They are also exported as `client_name` and `client_version` in Datadog metadata, not
+Input. In APM, filter with `@airbyte.mcp.client_name:"Claude Code"` and group by
+`@airbyte.mcp.client_version`, `@gen_ai.tool.name`, and error status to compare
+client-specific failures. Legacy session tokens and modern per-request client
+info use the same resolution as analytics. Missing identity is omitted.
+These are self-reported application labels, not verified identities or model
+names. Labels retain case, are trimmed and capped at 256 characters, and are
+omitted if they contain control characters. These bounds do not sanitize
+arbitrary text or secrets; clients must not put customer data in these labels
+(or in free-text intent).
+
 Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
 to disable export. The hosted entrypoint still strips
 synthetic `intent` arguments for cached clients and hashes session tokens.
