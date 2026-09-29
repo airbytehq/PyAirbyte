@@ -336,10 +336,9 @@ def _create_auth() -> AuthProvider | None:
     configured; setting `AIRBYTE_MCP_AUTH_USER_JWKS_URI` adds a second,
     `azp`-allowlisted headless verifier for user-realm tokens forwarded by a
     trusted first-party app; the interactive path activates once the OIDC
-    client credentials
-    are supplied, and gains the SSO identifier-entry page (an `OIDCProxy`
-    subclass supplied through `OIDCAuthConfig.proxy_factory`) once
-    `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set too. Returns `None` when
+    client credentials are supplied, and gains the SSO identifier-entry page
+    (an `OIDCProxy` subclass supplied through `OIDCAuthConfig.proxy_factory`)
+    once `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set too. Returns `None` when
     neither path is configured, so the server falls back to unauthenticated
     local behavior. The `stdio` transport ignores the provider entirely.
 
