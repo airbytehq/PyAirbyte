@@ -1147,3 +1147,30 @@ def test_check_connector_platform_failure_with_message_raises(
     assert exc_info.value.get_message() == "Connector check did not complete."
     assert (exc_info.value.context or {})["failure_origin"] == "airbyte_platform"
     assert (exc_info.value.context or {})["external_message"] == "Check failed"
+
+
+@pytest.mark.parametrize(
+    "docker_repository",
+    [
+        "docker.io/airbyte/source-postgres",
+        "index.docker.io/airbyte/source-postgres",
+        "airbyte/source-postgres:3.6.1",
+        "docker.io/airbyte/source-postgres:latest",
+        "airbyte/source-postgres@sha256:abcd",
+        "airbyte/source-postgres:3.6.1@sha256:abcd",
+    ],
+)
+def test_canonical_name_ignores_docker_hub_host_and_tag(
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str
+) -> None:
+    """A Docker Hub host or a tag does not make an official connector look custom."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_source_definition",
+        lambda **_: SimpleNamespace(
+            name="Postgres", docker_repository=docker_repository
+        ),
+    )
+    source = _seed_source(workspace, "source-1", "Postgres")
+
+    assert source.canonical_name == "source-postgres"

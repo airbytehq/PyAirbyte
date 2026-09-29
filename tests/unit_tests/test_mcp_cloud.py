@@ -4830,3 +4830,283 @@ def test_organization_billing_status_ignores_non_str_values(
     assert not isinstance(info.payment_status, (list, dict))
     assert not isinstance(info.subscription_status, (list, dict))
     assert info.is_account_locked is False
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        pytest.param(
+            [
+                "before",
+                "internalMessage: private details",
+                "  request payload with leaked-credentials",
+                "",
+                "\tleaked-second-line",
+                "after",
+            ],
+            id="indented",
+        ),
+        pytest.param(
+            [
+                "2026-01-01 00:00:00 platform > before",
+                '2026-01-01 00:00:01 platform > "stackTrace": "leaked-first',
+                "leaked-unindented-continuation",
+                'leaked-last"',
+                "2026-01-01 00:00:02 platform > after",
+            ],
+            id="unprefixed-lines-in-prefixed-log",
+        ),
+    ],
+)
+def test_filter_log_lines_drops_multiline_internal_details(lines: list[str]) -> None:
+    """The continuation lines of a multi-line internal-detail value are dropped with it."""
+    kept = cloud_mcp._filter_log_lines(lines)  # noqa: SLF001
+
+    assert kept == [lines[0], lines[-1]]
+
+
+def test_bounded_message_drops_multiline_internal_detail() -> None:
+    """A message keeps its text but not an internal detail's continuation lines."""
+    message, truncated = cloud_mcp._bounded_message(  # noqa: SLF001
+        "Sync failed.\ninternalMessage: private details\n  leaked-payload\nCheck the host."
+    )
+
+    assert message == "Sync failed.\nCheck the host. [stack trace removed]"
+    assert truncated is False
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Failure boom\\u000a\\u0009at com.foo.Bar.baz(Bar.java:12)",
+        "Failure boom\\n\\u0009at com.foo.Bar.baz(Bar.java:12)",
+        "Failure boom\\\\\\n\\\\\\tat com.foo.Bar.baz(Bar.java:12)",
+        "Failure boom\\r\\tat com.foo.Bar.baz(Bar.java:12)",
+        'Failure\\n  File \\"/app/x.py\\", line 12, in foo\\n    leaked(token)',
+        '{\\\\\\"message\\\\\\":\\\\\\"bad\\\\\\",\\\\\\"internalMessage\\\\\\":\\\\\\"leaked\\\\\\"}',
+        "{\\u0022internalMessage\\u0022:\\u0022leaked\\u0022}",
+        "{\\u0022exception\\u0022:\\u0022leaked\\u0022}",
+        "Internal Message: 'leaked'",
+        "internal-message: leaked",
+        "Stack Trace: java.lang.X at com.foo.Bar(Bar.java:1)",
+    ],
+)
+def test_filter_log_lines_drops_escaped_and_spaced_forms(line: str) -> None:
+    """Escaped line breaks and quotes, and spaced key names, do not hide internal details."""
+    assert cloud_mcp._filter_log_lines(["before", line, "after"]) == [  # noqa: SLF001
+        "before",
+        "after",
+    ]
+
+
+def test_section_error_text_hides_validation_error_input() -> None:
+    """A model validation error is reported without echoing the rejected value."""
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
+        cloud_mcp.TroubleshootAttempt(
+            attempt_number=cast(int, "leaked-value"), status="failed", created_at="x"
+        )
+
+    text = cloud_mcp._section_error_text(exc_info.value)  # noqa: SLF001
+
+    assert text == "Unexpected API response."
+
+
+def test_troubleshoot_bounds_organization_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A huge organization ID is cut like every other free-text field."""
+    organization = _healthy_organization()
+    organization.organization_id = "o" * 100_000
+
+    billing = _troubleshoot(
+        monkeypatch, _TroubleshootConnection(), organization=organization
+    ).billing
+
+    assert billing.status is not None
+    assert (
+        len(billing.status.organization_id) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    )
+    assert billing.status.organization_id.endswith(cloud_mcp.TRUNCATION_MARKER)
+
+
+def test_troubleshoot_guidance_limits_reruns_to_active_unlocked_connections() -> None:
+    """Guidance does not allow a rerun on a disabled connection or a locked account."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert "connection.status to be active" in guidance
+    assert "billing.status.is_account_locked to be false" in guidance
+    assert "do not enable it yourself" in guidance
+
+
+def test_filter_log_lines_keeps_records_after_prefixed_internal_detail() -> None:
+    """Lines that start a new log record are kept, whatever their prefix format."""
+    lines = [
+        "2026-01-01 12:00:00 source > ERROR failure stack_trace: leaked",
+        "leaked-continuation",
+        "2026-01-01 12:00:01 INFO i.a.w.Worker(run):123 - Source thread complete.",
+        "2026-01-01 12:00:02 UTC source > password authentication failed",
+        "[2026-01-01T12:00:03] platform summary",
+    ]
+
+    assert cloud_mcp._filter_log_lines(lines) == lines[2:]  # noqa: SLF001
+
+
+def test_filter_log_lines_keeps_sibling_keys_of_internal_detail() -> None:
+    """Only lines indented deeper than an internal-detail key continue its value."""
+    lines = [
+        "{",
+        '  "stackTrace": [',
+        '    "leaked.Frame(Frame.java:1)",',
+        "  ],",
+        '  "externalMessage": "Invalid credentials"',
+        "}",
+    ]
+
+    kept = cloud_mcp._filter_log_lines(lines)  # noqa: SLF001
+
+    assert kept == ["{", "  ],", '  "externalMessage": "Invalid credentials"', "}"]
+
+
+@pytest.mark.parametrize("filler", ["\\", " ", '\\"'])
+def test_bounded_message_handles_long_repetitive_lines(filler: str) -> None:
+    """A long run of backslashes, spaces or escaped quotes is capped without stalling."""
+    message, truncated = cloud_mcp._bounded_message(  # noqa: SLF001
+        filler * 200_000 + "\n\tat io.airbyte.Foo.bar(Foo.java:12)"
+    )
+
+    assert message is not None
+    assert len(message) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert message.endswith(
+        cloud_mcp.TRUNCATION_MARKER + cloud_mcp.STACK_TRACE_REMOVED_MARKER
+    )
+    assert truncated is True
+
+
+def test_troubleshoot_guidance_limits_cancel_to_confirmed_job() -> None:
+    """Guidance only allows cancelling a specific job the user confirmed is stuck."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert "Only cancel after the user confirms" in guidance
+    assert "pass that job's job_id" in guidance
+
+
+def test_troubleshoot_missing_connection_status_is_not_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection without a status is reported as unknown, not as disabled."""
+    connection = _TroubleshootConnection(status=cast(str, None))
+
+    section = _troubleshoot(monkeypatch, connection).connection
+
+    assert section.status is None
+    assert section.enabled is None
+    assert section.error == "Connection status is missing from the API response."
+
+
+def test_bounded_message_drops_traceback_started_on_internal_detail_line() -> None:
+    """A traceback that starts on an internal-detail line is dropped with its exception line."""
+    message, _ = cloud_mcp._bounded_message(  # noqa: SLF001
+        "Check failed.\n"
+        "stack_trace: Traceback (most recent call last):\n"
+        '  File "x.py", line 3, in f\n'
+        "KeyError: 'leaked'\n"
+        "Check the host."
+    )
+
+    assert message == "Check failed.\nCheck the host. [stack trace removed]"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        '  "exception" : "java.lang.RuntimeException: leaked",',
+        '  "stack" : "leaked.Frame(Frame.java:12)"',
+        '{"log":"{\\n  \\"throwable\\": \\"leaked\\"\\n}"}',
+    ],
+)
+def test_filter_log_lines_drops_pretty_printed_detail_keys(line: str) -> None:
+    """Quoted detail keys are dropped at the start of a line and after an escaped line break."""
+    assert cloud_mcp._filter_log_lines(["before", line, "after"]) == [  # noqa: SLF001
+        "before",
+        "after",
+    ]
+
+
+def test_filter_log_lines_keeps_record_after_prefixed_traceback_detail() -> None:
+    """The log record after a traceback held in an internal-detail value is kept."""
+    lines = [
+        "2026-01-01 00:00:00 source > stack_trace: Traceback (most recent call last):",
+        '  File "a.py", line 1, in f',
+        "ValueError: leaked",
+        "2026-01-01 00:00:01 source > Sync failed: check your API key",
+    ]
+
+    assert cloud_mcp._filter_log_lines(lines) == lines[3:]  # noqa: SLF001
+
+
+def test_check_error_outcome_filters_platform_exception_header() -> None:
+    """A platform check error drops the exception header along with its stack frames."""
+    error = AirbyteError(
+        message="Connector check did not complete.",
+        context={
+            "failure_origin": "airbyte_platform",
+            "external_message": (
+                "Workload launch failed.\n"
+                "java.lang.IllegalStateException: leaked-host\n"
+                "\tat io.airbyte.Foo.bar(Foo.java:12)"
+            ),
+        },
+    )
+
+    assert cloud_mcp._check_error_outcome(error) == (  # noqa: SLF001
+        None,
+        None,
+        "Check did not complete (failure origin: airbyte_platform): "
+        "Workload launch failed. [stack trace removed]",
+    )
+
+
+def test_troubleshoot_failed_token_request_is_not_a_missing_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 401 from the token endpoint is reported as such, not as a missing role."""
+    response = requests.Response()
+    response.status_code = 401
+    response.url = "https://api.airbyte.com/v1/applications/token"
+    error = requests.HTTPError(
+        "Token request failed with status 401", response=response
+    )
+
+    billing = _troubleshoot(
+        monkeypatch, _TroubleshootConnection(), organization=error
+    ).billing
+
+    assert billing.error == (
+        "Organization lookup failed: Token request failed with status 401"
+    )
+
+
+def test_troubleshoot_guidance_classifies_connector_system_errors() -> None:
+    """A connector system error is classified without needing a stack-trace marker."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert (
+        "connector bug/regression: failure_type system_error from origin source or "
+        "destination, especially" in guidance
+    )
+    assert "troubleshoot_cloud_connection and check_cloud_connector again" in guidance
+
+
+def test_check_error_outcome_ignores_multiline_failure_origin() -> None:
+    """A failure origin carrying more than a name is not rendered."""
+    error = AirbyteError(
+        message="Connector check did not complete.",
+        context={
+            "failure_origin": "platform\n\tat io.airbyte.Leaked.frame(Leaked.java:1)",
+            "external_message": "Workload launch failed.",
+        },
+    )
+
+    assert cloud_mcp._check_error_outcome(error) == (  # noqa: SLF001
+        None,
+        None,
+        "Check did not complete (failure origin: unknown): Workload launch failed.",
+    )

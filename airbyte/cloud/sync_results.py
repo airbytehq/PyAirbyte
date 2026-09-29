@@ -183,7 +183,10 @@ class SyncAttempt:
     def created_at(self) -> datetime:
         """Return the creation time of the attempt."""
         timestamp = self._get_attempt_data()["createdAt"]
-        return ab_datetime_parse(timestamp)
+        try:
+            return ab_datetime_parse(timestamp)
+        except ArithmeticError:
+            raise ValueError("Attempt creation time is out of range.") from None
 
     @property
     def failures(self) -> list[SyncAttemptFailure]:
@@ -385,9 +388,11 @@ class SyncResult:
         parse_error: ValueError | TypeError | None = None
         if job_info.start_time is not None:
             try:
-                return ab_datetime_parse(job_info.start_time)
+                return ab_datetime_parse(job_info.start_time).astimezone(UTC)
             except (ValueError, TypeError) as error:
                 parse_error = error
+            except ArithmeticError:
+                parse_error = ValueError(f"Job {self.job_id} start time is out of range.")
         job = self._fetch_job_with_attempts().get("job")
         if isinstance(job, dict):
             for key in ("startedAt", "createdAt"):
@@ -423,15 +428,22 @@ class SyncResult:
         self._job_with_attempts_info = job_with_attempts
         return job_with_attempts
 
+    def _fetch_attempts_data(self) -> list[Any]:
+        """Return the job's raw attempt entries; a missing or null list is empty."""
+        attempts_data = self._fetch_job_with_attempts().get("attempts")
+        if attempts_data is None:
+            return []
+        if not isinstance(attempts_data, list):
+            raise AirbyteError(message="Unexpected API response.", context={"job_id": self.job_id})
+        return attempts_data
+
     def get_raw_attempt_count(self) -> int:
         """Return how many attempts the API returned, including ones `get_attempts` skips."""
-        attempts_data = self._fetch_job_with_attempts().get("attempts")
-        return len(attempts_data) if isinstance(attempts_data, list) else 0
+        return len(self._fetch_attempts_data())
 
     def get_attempts(self) -> list[SyncAttempt]:
         """Return a list of attempts for this sync job."""
-        job_with_attempts = self._fetch_job_with_attempts()
-        attempts_data = job_with_attempts.get("attempts") or []
+        attempts_data = self._fetch_attempts_data()
 
         return [
             SyncAttempt(

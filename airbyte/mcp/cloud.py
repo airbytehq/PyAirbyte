@@ -19,7 +19,7 @@ from typing import Annotated, Any, Final, Literal, TypeVar, cast
 import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from airbyte import Destination, Source, get_destination, get_source
 from airbyte._direct_connectors import connector_docs
@@ -552,19 +552,28 @@ _LOG_LINE_PREFIX = re.compile(
 """Matches the event prefix of a log line; one following space is part of the prefix."""
 _INTERNAL_DETAIL_KEY = re.compile(
     r"""
-    (?:\\?["'])?(?:internal_?message|stack_?trace)(?:\\?["'])?\s*[:=]
-    | \\?["'](?:exception|throwable|stack)\\?["']\s*:           # quoted JSON keys only
+    (?:internal[\s_-]?message|stack[\s_-]?trace)(?:\\*(?:["']|u002[27]))?\s*[:=]
+    | (?:["']|\\u002[27])(?:exception|throwable|stack)
+      (?:\\*["']|\\+u002[27])\s*:                             # quoted JSON keys only
     """,
     re.IGNORECASE | re.VERBOSE,
 )
 """Matches internal-detail keys anywhere in a line: `internalMessage`/`stacktrace` quoted or not,
-and `exception`/`throwable`/`stack` as quoted JSON keys."""
+and `exception`/`throwable`/`stack` as quoted JSON keys. Quotes may be escaped any number of
+times or written as `\\u0022`/`\\u0027`."""
 _SERIALIZED_TRACE = re.compile(
-    r"\\{1,2}n(?:\\{1,2}t|[ \t])+at\s|traceback\s+\(most\s+recent\s+call\s+last\):",
-    re.IGNORECASE,
+    r"""
+    \\(?:r?n|r|u000[ad])(?:\\+(?:t|u0009)|[ \t])+at\s
+    | \\(?:r?n|r|u000[ad])(?:\\+(?:t|u0009)|[ \t])*file\s+(?:\\*"|\\+u0022)
+    | traceback\s+\(most\s+recent\s+call\s+last\):
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
-"""Matches a stack trace serialized onto one line: an escaped newline then indented `at `, or an
-inline traceback."""
+"""Matches a stack trace serialized onto one line: an escaped line break (`\\n`, `\\r`, `\\u000a`,
+with any number of backslashes) then an indented `at ` or a Python `File "` frame, or an inline
+traceback."""
+_LOG_RECORD_START = re.compile(r"\[|\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
+"""Matches the start of a new log record, whether or not `_LOG_LINE_PREFIX` recognizes it."""
 _FRAME_CONTINUATION = re.compile(r"^\s*at\s+\S")
 """Matches any `at ...` line, which continues a frame block once one has started."""
 _STACK_FRAME = re.compile(
@@ -625,12 +634,16 @@ def _filter_log_lines(lines: list[str]) -> list[str]:
 
     Known Java, Python and Node stack-trace formats are dropped as whole blocks: the exception
     header line just before the frames, the frames, indented lines under them, caret lines and a
-    Python traceback's final exception line.
+    Python traceback's final exception line. An internal-detail value that spans several lines
+    is dropped with its blank or deeper-indented continuation lines and, in prefixed logs, with
+    every following line that does not start a new log record.
     """
     kept: list[str] = []
     in_block = False
     in_python_traceback = False
     in_exception_group = False
+    detail_indent: int | None = None
+    in_prefixed_detail = False
     previous_kept_body: str | None = None
     for line in lines:
         plain = _ANSI_ESCAPE.sub("", line)
@@ -645,14 +658,29 @@ def _filter_log_lines(lines: list[str]) -> list[str]:
             in_block = in_python_traceback = False
             continue
         if _INTERNAL_DETAIL_KEY.search(body):
+            detail_indent, in_prefixed_detail = len(body) - len(body.lstrip()), body != plain
+            starts_traceback = body.rstrip().lower().endswith("traceback (most recent call last):")
+            in_block, in_python_traceback = (
+                in_block or starts_traceback,
+                in_python_traceback or starts_traceback,
+            )
             continue
+        if in_prefixed_detail and body == plain and not _LOG_RECORD_START.match(plain):
+            in_block = in_python_traceback = False
+            continue
+        in_prefixed_detail = False
+        if detail_indent is not None and (
+            not body.strip() or len(body) - len(body.lstrip()) > detail_indent
+        ):
+            continue
+        detail_indent = None
         if in_block and _FRAME_CONTINUATION.match(body):
             continue
         if _STACK_BLOCK_START.match(body) or _STACK_FRAME.match(body):
             if (
                 not in_block
                 and last_kept_body is not None
-                and _EXCEPTION_HEADER.match(last_kept_body)
+                and _EXCEPTION_HEADER.match(last_kept_body.strip()[:TROUBLESHOOT_MAX_MESSAGE_CHARS])
             ):
                 kept.pop()
             in_block = True
@@ -689,8 +717,9 @@ How to use this report:
      required field), or failure_type is config_error without an auth or permission
      message.
    - connector bug/regression: failure_type system_error from origin source or
-     destination with a stack-trace-like message, especially if recent jobs
-     succeeded before and the checks still pass.
+     destination, especially if recent jobs succeeded before and the checks
+     still pass. A message ending in " [stack trace removed]" or a non-zero
+     log_tail.filtered_line_count strengthens this.
    - schema/state issue: schema changes, missing streams or columns, type
      mismatches, cursor or state errors, or failure_type refresh_schema.
    - rate limit/transient: failure_type transient_error, heartbeat_timeout or
@@ -710,12 +739,17 @@ How to use this report:
      https://status.airbyte.com and Airbyte support if it persists.
 2. Act yourself ONLY in these cases: re-run a sync with run_cloud_sync after a
    rate limit/transient or platform/infrastructure failure, or cancel a stuck sync
-   (running far longer than usual) with cancel_cloud_sync. Only re-run when
+   with cancel_cloud_sync. Only cancel after the user confirms that the running
+   job in recent_jobs.jobs is stuck (this report has no job durations), and
+   pass that job's job_id. Only re-run when
    latest_failed_job.status is failed and it is the newest entry in
    recent_jobs.jobs: an incomplete job is still retrying, a newer running or
    pending job would compete, and a newer succeeded job means the failure has
    already cleared. Also require recent_jobs.error to be null, because a job
-   that could not be read may be newer. recent_jobs lists sync jobs only, so
+   that could not be read may be newer, connection.status to be active, and
+   billing.status.is_account_locked to be false or billing unavailable; if
+   run_cloud_sync reports that the connection is disabled, do not enable it
+   yourself. recent_jobs lists sync jobs only, so
    before run_cloud_sync also call list_cloud_sync_jobs three times: with no
    job_type (which returns sync and reset jobs only), with job_type='refresh'
    and with job_type='clear'. Compare the newest job across all three results:
@@ -743,7 +777,8 @@ How to use this report:
    redacted log excerpt, and the job_url. The job_url opens the connection's
    job timeline, not a specific job.
 4. Guardrails: only call read-only tools, plus run_cloud_sync and
-   cancel_cloud_sync under the conditions in rule 2. Never change connector,
+   cancel_cloud_sync under the conditions in rule 2. You may call
+   troubleshoot_cloud_connection and check_cloud_connector again. Never change connector,
    connection or definition configuration or create or delete anything
    yourself. For example, never call update_cloud_connector_config,
    update_cloud_connection, set_cloud_connection_table_prefix, any
@@ -1358,16 +1393,21 @@ def deploy_noop_destination_to_cloud(
     )
 
 
+def _int_or_none(value: object) -> int | None:
+    """Return `value` if it is an integer (and not a bool), else `None`."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def _sync_status_attempt(attempt: SyncAttempt) -> dict[str, Any]:
     """Build one `get_cloud_sync_status` attempt entry, or an error entry if it is malformed."""
     try:
         failures = attempt.failures
         return {
             "attempt_number": attempt.attempt_number,
-            "attempt_id": attempt.attempt_id,
-            "status": _cap_text(attempt.status)[0],
-            "bytes_synced": attempt.bytes_synced,
-            "records_synced": attempt.records_synced,
+            "attempt_id": _int_or_none(attempt.attempt_id),
+            "status": _bounded_text(attempt.status),
+            "bytes_synced": _int_or_none(attempt.bytes_synced),
+            "records_synced": _int_or_none(attempt.records_synced),
             "created_at": attempt.created_at.isoformat(),
             "failures": [
                 SyncAttemptFailureResult.from_failure(failure).model_dump()
@@ -2665,7 +2705,9 @@ def _section_error_text(error: Exception, prefix: str = "") -> str:
     responses (with internal messages and stack traces), so only its message and HTTP status
     are used.
     """
-    if isinstance(error, PyAirbyteError):
+    if isinstance(error, ValidationError):
+        text = "Unexpected API response."
+    elif isinstance(error, PyAirbyteError):
         text = error.get_message()
         status_code = _error_status_code(error)
         if status_code is not None and str(status_code) not in text:
@@ -2695,7 +2737,9 @@ def _check_failure_reason(error: AirbyteError) -> tuple[str, str] | None:
     context = error.context or {}
     origin, message = context.get("failure_origin"), context.get("external_message")
     if isinstance(message, str) and message:
-        return (origin if isinstance(origin, str) and origin else "unknown"), message
+        if isinstance(origin, str) and len(origin.splitlines()) == 1:
+            return origin, message
+        return "unknown", message
     return None
 
 
@@ -2709,11 +2753,12 @@ def _check_error_outcome(error: AirbyteError) -> tuple[bool | None, str | None, 
         return None, None, _section_error_text(error)
     if failure[0] in {"source", "destination"}:
         return False, _bounded_message(failure[1])[0], None
-    return (
-        None,
-        None,
-        _bounded_message(f"Check did not complete (failure origin: {failure[0]}): {failure[1]}")[0],
-    )
+    prefix = _cap_text(f"Check did not complete (failure origin: {failure[0]}): ", 200)[0]
+    lines = failure[1].splitlines()
+    kept = _filter_log_lines(lines)
+    marker = STACK_TRACE_REMOVED_MARKER if len(kept) != len(lines) else ""
+    text = _cap_text(prefix + "\n".join(kept), TROUBLESHOOT_MAX_MESSAGE_CHARS - len(marker))[0]
+    return None, None, text + marker
 
 
 def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckSection:
@@ -2749,7 +2794,17 @@ _BILLING_ACCESS_DENIED: Final[str] = (
 
 
 def _is_access_denied(error: Exception) -> bool:
-    """Whether an error carries an HTTP 401 or 403 status."""
+    """Whether an error carries an HTTP 401 or 403 status from the API it called.
+
+    A failed token request is a credentials problem, not a missing permission.
+    """
+    cause = error if isinstance(error, requests.RequestException) else error.__cause__
+    if (
+        isinstance(cause, requests.RequestException)
+        and cause.response is not None
+        and (cause.response.url or "").endswith("/applications/token")
+    ):
+        return False
     return _error_status_code(error) in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}
 
 
@@ -2768,7 +2823,7 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
     except (AirbyteError, NotImplementedError) as error:
         return TroubleshootBillingSection(
             status=CloudOrganizationBillingStatusResult(
-                organization_id=org.organization_id,
+                organization_id=_bounded_text(org.organization_id) or "",
                 organization_name=_bounded_text(org.organization_name),
                 billing_info_available=False,
                 message=_section_error_text(error, "Billing information could not be retrieved: "),
@@ -2781,7 +2836,7 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
         )
     return TroubleshootBillingSection(
         status=CloudOrganizationBillingStatusResult(
-            organization_id=org.organization_id,
+            organization_id=_bounded_text(org.organization_id) or "",
             organization_name=_bounded_text(org.organization_name),
             billing_info_available=True,
             payment_status=_bounded_text(info.payment_status),
@@ -3006,7 +3061,10 @@ def troubleshoot_cloud_connection(
     )
     try:
         connection_section.status = _bounded_text(connection.status)
-        connection_section.enabled = connection_section.status == "active"
+        if connection_section.status is None:
+            connection_section.error = "Connection status is missing from the API response."
+        else:
+            connection_section.enabled = connection_section.status == "active"
     except (AirbyteError, requests.RequestException, ValueError) as error:
         connection_section.error = _section_error_text(error)
 

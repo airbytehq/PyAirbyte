@@ -61,6 +61,33 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
 """Connect and read timeouts for a deferred-credential create on the Config API."""
 
+API_REQUEST_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
+"""Default connect and read timeouts for public API and Config API requests."""
+
+
+class _TimeoutSession(requests.Session):
+    """A session that applies `API_REQUEST_TIMEOUT_SECS` to requests sent without a timeout.
+
+    A failed token request raises `requests.HTTPError`, because the generated client would
+    otherwise raise a bare `Exception` for it.
+    """
+
+    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:  # noqa: ANN401
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = API_REQUEST_TIMEOUT_SECS
+        response = super().send(request, **kwargs)
+        if (
+            (request.url or "").endswith("/applications/token")
+            and not status_ok(response.status_code)
+            and not response.is_redirect
+        ):
+            raise requests.HTTPError(
+                f"Token request failed with status {response.status_code}",
+                request=request,  # pyrefly: ignore[bad-argument-type]  # Stub omits prepared.
+                response=response,
+            )
+        return response
+
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
@@ -105,7 +132,14 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
     return context
 
 
-_SDK_DECODE_ERRORS = (KeyError, AttributeError, TypeError, ValueError)
+_SDK_DECODE_ERRORS = (
+    KeyError,
+    AttributeError,
+    TypeError,
+    ValueError,
+    ArithmeticError,
+    RecursionError,
+)
 """Errors the generated client raises when a 2xx body does not match its response model."""
 
 
@@ -247,7 +281,7 @@ def get_airbyte_server_instance(
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
 
-    client = requests.Session()
+    client = _TimeoutSession()
     client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
 
     # Option 1: Bearer token authentication
@@ -1010,7 +1044,12 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
                 },
             )
 
-        page_data: list[models.JobResponse] = list(response.jobs_response.data)
+        data = response.jobs_response.data
+        if not isinstance(data, list) or not all(
+            isinstance(job, models.JobResponse) for job in data
+        ):
+            raise _unexpected_response_error(base_context)
+        page_data: list[models.JobResponse] = list(data)
         if not page_data:
             break
 
@@ -1449,6 +1488,8 @@ def get_destination(
         raw_configuration: dict[str, Any] | None = raw_response.get("configuration")
 
         destination_type = raw_response.get("destinationType")
+        if not isinstance(destination_type, str):
+            destination_type = None
         destination_mapping = {
             "snowflake": models.DestinationSnowflake,
             "bigquery": models.DestinationBigquery,
@@ -2077,7 +2118,7 @@ def get_bearer_token(
     """
     response = requests.post(
         url=api_root + "/applications/token",
-        timeout=timeout,
+        timeout=timeout or API_REQUEST_TIMEOUT_SECS,
         headers={
             "content-type": "application/json",
             "accept": "application/json",
@@ -2091,7 +2132,14 @@ def get_bearer_token(
     if not status_ok(response.status_code):
         response.raise_for_status()
 
-    return SecretString(response.json()["access_token"])
+    try:
+        body = response.json()
+    except (ValueError, RecursionError):
+        body = None
+    token = body.get("access_token") if isinstance(body, dict) else None
+    if not isinstance(token, str) or not token:
+        raise AirbyteError(message="Token response did not include an access token.")
+    return SecretString(token)
 
 
 def _make_config_api_request(
@@ -2103,13 +2151,16 @@ def _make_config_api_request(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
+    timeout = timeout or API_REQUEST_TIMEOUT_SECS
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
     headers = _config_api_headers(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     full_url = config_api_root + path
     response = requests.request(
@@ -2117,6 +2168,7 @@ def _make_config_api_request(
         url=full_url,
         headers=headers,
         json=json,
+        timeout=timeout,
     )
     if not status_ok(response.status_code):
         try:
@@ -2138,7 +2190,13 @@ def _make_config_api_request(
                 },
             ) from ex
 
-    return response.json()
+    try:
+        return response.json()
+    except (ValueError, RecursionError):
+        raise AirbyteError(
+            message="Unexpected API response.",
+            context={"path": path, "status_code": response.status_code},
+        ) from None
 
 
 def _config_api_headers(
@@ -2293,6 +2351,8 @@ def check_connector(
             context={"actor_id": actor_id, "connector_type": str(connector_type)},
         )
     result, message = json_result.get("status"), json_result.get("message")
+    if isinstance(result, str):
+        result = result.lower()
     if not isinstance(message, str):
         message = None
 
@@ -2304,6 +2364,7 @@ def check_connector(
         failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
         if isinstance(failure, dict):
             origin = failure.get("failureOrigin")
+            origin = origin.lower() if isinstance(origin, str) else None
             external_message = failure.get("externalMessage")
             if not isinstance(external_message, str):
                 external_message = None
@@ -3443,6 +3504,10 @@ def is_account_locked(
     Returns:
         True if the account is locked, False otherwise.
     """
+    payment_status = payment_status.lower() if isinstance(payment_status, str) else None
+    subscription_status = (
+        subscription_status.lower() if isinstance(subscription_status, str) else None
+    )
     return (payment_status in LOCKED_PAYMENT_STATUSES) or (
         subscription_status in LOCKED_SUBSCRIPTION_STATUSES
     )

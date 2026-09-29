@@ -55,6 +55,7 @@ for hit in search_result.hits:
 
 from __future__ import annotations
 
+import re
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
@@ -854,8 +855,9 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """The connector's canonical registry name, for example `source-postgres`.
 
         Derived from the connector definition's Docker repository: the name is returned only for
-        an `airbyte/<name>` repository. `None` means a custom definition (a custom, forked or
-        Connector Builder image, or an image from another registry) with no registry entry.
+        an `airbyte/<name>` repository, with or without a Docker Hub host or a tag. `None` means
+        a custom definition (a custom, forked or Connector Builder image, or an image from
+        another registry) with no registry entry.
 
         This does not identify the version the connector is running; deployed connectors may be
         pinned or overridden.
@@ -863,7 +865,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         docker_repository = self._fetch_connector_definition().docker_repository
         if not isinstance(docker_repository, str):
             return None
-        organization, _, name = docker_repository.partition("/")
+        repository = docker_repository.removeprefix("index.docker.io/").removeprefix("docker.io/")
+        organization, _, name = re.split(r"[:@]", repository, maxsplit=1)[0].partition("/")
         if organization != "airbyte" or not name or "/" in name:
             return None
         return None if name == _DECLARATIVE_MANIFEST_IMAGE_NAME else name

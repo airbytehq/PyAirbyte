@@ -768,3 +768,158 @@ def test_get_cloud_sync_status_omits_unreadable_when_all_read(
     result = _status_with_attempts(monkeypatch, [attempt])
 
     assert "attempts_unreadable" not in result
+
+
+@pytest.mark.parametrize(
+    "attempts", [{"0": FAILED_ATTEMPT}, "leaked-body", 5, True], ids=type
+)
+def test_non_list_attempts_raise_unexpected_response(
+    monkeypatch: pytest.MonkeyPatch, attempts: object
+) -> None:
+    """A non-list `attempts` value is an API error, not a job without attempts."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123}, "attempts": attempts},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    with pytest.raises(AirbyteError, match="Unexpected API response.") as exc_info:
+        sync_result.get_attempts()
+    with pytest.raises(AirbyteError, match="Unexpected API response."):
+        sync_result.get_raw_attempt_count()
+
+    assert exc_info.value.context == {"job_id": 123}
+    assert "leaked-body" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "start_time", ["2026-01-01T00:00:00+24:00", "2026-01-01T00:00:00+99:99"]
+)
+def test_parse_start_time_out_of_range_offset_falls_back(
+    monkeypatch: pytest.MonkeyPatch, start_time: str
+) -> None:
+    """A start time whose UTC offset cannot be rendered falls back to the job's epoch."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123, "startedAt": 1767225600}, "attempts": []},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    parsed = sync_result._parse_start_time(  # noqa: SLF001
+        CloudJobInfo(job_id=123, status=JobStatusEnum.FAILED, start_time=start_time)
+    )
+
+    assert parsed.isoformat() == "2026-01-01T00:00:00+00:00"
+
+
+def test_parse_start_time_is_converted_to_utc() -> None:
+    """A start time with another offset is returned in UTC."""
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    parsed = sync_result._parse_start_time(  # noqa: SLF001
+        CloudJobInfo(
+            job_id=123,
+            status=JobStatusEnum.FAILED,
+            start_time="2026-01-01T02:00:00+02:00",
+        )
+    )
+
+    assert parsed == datetime(2026, 1, 1, tzinfo=timezone.utc)
+    assert parsed.utcoffset() == timezone.utc.utcoffset(None)
+
+
+@pytest.mark.parametrize(
+    "start_time", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00"]
+)
+def test_parse_start_time_boundary_date_falls_back(
+    monkeypatch: pytest.MonkeyPatch, start_time: str
+) -> None:
+    """A start time that overflows when converted to UTC falls back to the job's epoch."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123, "startedAt": 1767225600}, "attempts": []},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    parsed = sync_result._parse_start_time(  # noqa: SLF001
+        CloudJobInfo(job_id=123, status=JobStatusEnum.FAILED, start_time=start_time)
+    )
+
+    assert parsed == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_sync_status_attempt_drops_wrongly_typed_values() -> None:
+    """Attempt values of the wrong type are reported as null instead of passed through."""
+    attempt = cast(
+        Any,
+        SimpleNamespace(
+            attempt_number=0,
+            attempt_id="x" * 50_000,
+            status=["failed"],
+            bytes_synced={"bytes": 1},
+            records_synced=True,
+            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            failures=[],
+        ),
+    )
+
+    entry = cloud_mcp._sync_status_attempt(attempt)  # noqa: SLF001
+
+    assert entry["attempt_id"] is None
+    assert entry["status"] is None
+    assert entry["bytes_synced"] is None
+    assert entry["records_synced"] is None
+    assert entry["created_at"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_parse_start_time_overflow_without_fallback_raises_value_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An overflowing start time with no usable fallback raises an error callers handle."""
+    monkeypatch.setattr(
+        api_util, "_make_config_api_request", lambda **_: {"job": {"id": 123}}
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    with pytest.raises(ValueError, match="start time is out of range"):
+        sync_result._parse_start_time(  # noqa: SLF001
+            CloudJobInfo(
+                job_id=123,
+                status=JobStatusEnum.FAILED,
+                start_time="0001-01-01T00:00:00+05:00",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "99999999999999999999-01-01T00:00:00",
+        "2026-01-01T12:00999999999999999999999999999999",
+    ],
+)
+def test_out_of_range_timestamps_raise_value_error(
+    monkeypatch: pytest.MonkeyPatch, timestamp: str
+) -> None:
+    """A timestamp that overflows while parsing raises an error callers handle."""
+    monkeypatch.setattr(
+        api_util, "_make_config_api_request", lambda **_: {"job": {"id": 123}}
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+    attempt = SyncAttempt(
+        workspace=WORKSPACE,
+        connection=CONNECTION,
+        job_id=123,
+        attempt_number=0,
+        _attempt_data={"attempt": {"createdAt": timestamp}},
+    )
+
+    with pytest.raises(ValueError, match="out of range"):
+        _ = attempt.created_at
+    with pytest.raises(ValueError, match="out of range"):
+        sync_result._parse_start_time(  # noqa: SLF001
+            CloudJobInfo(job_id=123, status=JobStatusEnum.FAILED, start_time=timestamp)
+        )

@@ -408,8 +408,8 @@ class CloudConnectionInfo(BaseModel):
     schedule: ConnectionSchedule | None = None
     """The connection's sync schedule, or `None` if unknown."""
 
-    status: str
-    """The connection status."""
+    status: str | None = None
+    """The connection status, or `None` if the API returned none."""
 
     @classmethod
     def from_api_response(cls, connection: _ConnectionResponseLike) -> CloudConnectionInfo:
@@ -433,7 +433,7 @@ class CloudConnectionInfo(BaseModel):
                 if connection.schedule is not None
                 else None
             ),
-            status=_enum_value(connection.status),
+            status=_enum_value(connection.status) if connection.status is not None else None,
         )
 
 
