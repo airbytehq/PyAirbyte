@@ -81,6 +81,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     format_user_facing_error,
 )
+from airbyte.mcp._scope import CallScopeMiddleware, call_scope_properties
 from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
 from airbyte.mcp._telemetry import ServerConnectedTelemetryMiddleware, request_properties
 from airbyte.mcp._tool_utils import (
@@ -99,6 +100,11 @@ from airbyte.mcp._tool_utils import (
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
     validate_airbyte_domains,
+)
+from airbyte.mcp._user_identity import (
+    AirbyteUserMiddleware,
+    airbyte_user_properties,
+    current_airbyte_user_id,
 )
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
@@ -390,11 +396,7 @@ def _create_auth() -> AuthProvider | None:
 
 
 SEGMENT_USER_ID = "airbyte-mcp"
-"""Identifies the PyAirbyte MCP server as the event source.
-
-This applies to both hosted and local transports. The server has no per-caller
-identity to attribute a tool call to.
-"""
+"""Fallback Segment user ID for server telemetry when caller identity is unavailable."""
 
 
 def _segment_write_key() -> str | None:
@@ -417,7 +419,7 @@ if segment_write_key is None:
 lifecycle_telemetry_sinks = TelemetrySinks(
     package_name="airbyte",
     segment_write_key=segment_write_key,
-    segment_user_id=SEGMENT_USER_ID,
+    segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
 )
 """Sinks for MCP session lifecycle events, configured like tool-call telemetry."""
 
@@ -462,8 +464,12 @@ app = mcp_server(
     telemetry=TelemetryConfig(
         package_name="airbyte",
         segment_write_key=segment_write_key,
-        segment_user_id=SEGMENT_USER_ID,
-        extra_properties=request_properties,
+        segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
+        extra_properties=lambda: {
+            **request_properties(),
+            **call_scope_properties(),
+            **airbyte_user_properties(),
+        },
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,
@@ -471,6 +477,8 @@ app = mcp_server(
 """The Airbyte MCP Server application instance."""
 
 app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
+app.middleware.insert(0, CallScopeMiddleware())
+app.middleware.insert(0, AirbyteUserMiddleware())
 
 # Register tools from each module
 register_cloud_tools(app)

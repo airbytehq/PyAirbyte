@@ -91,11 +91,13 @@ from airbyte.mcp._docs_results import (
     render_agent_skill_docs_result,
     render_connector_docs_result,
 )
+from airbyte.mcp._scope import record_default_workspace
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
+from airbyte.mcp._user_identity import forget_cached_airbyte_user
 from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
     get_connector_metadata,
@@ -559,6 +561,8 @@ def _get_cloud_workspace(
     """
     client = _get_cloud_client(ctx, organization_id=organization_id)
     resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
+    if not workspace_id:
+        record_default_workspace(resolved_workspace_id)
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError
 
@@ -2644,6 +2648,7 @@ def set_default_cloud_workspace(
         user_email=user_email,
         workspace_id=workspace_id,
     )
+    forget_cached_airbyte_user()
     workspace_detail = result.default_workspace_id
     if result.default_workspace_name is not None:
         workspace_detail = f"{result.default_workspace_name} ({result.default_workspace_id})"
