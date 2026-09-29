@@ -2290,26 +2290,46 @@ def check_connector(
             job_info = json_result.get("jobInfo")
             failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
             if isinstance(failure, dict):
-                if failure.get("failureOrigin") not in {None, "source", "destination"}:
+                origin = failure.get("failureOrigin")
+                external_message = failure.get("externalMessage")
+                if not isinstance(external_message, str):
+                    external_message = None
+                if origin not in {None, "source", "destination"}:
+                    failure_type = failure.get("failureType")
                     raise AirbyteError(
                         message="Connector check did not complete.",
                         context={
                             "actor_id": actor_id,
                             "connector_type": str(connector_type),
-                            "response": json_result,
+                            "failure_origin": _bounded_check_text(origin),
+                            "failure_type": _bounded_check_text(failure_type),
+                            "external_message": _bounded_check_text(external_message),
                         },
                     )
-                external_message = failure.get("externalMessage")
-                message = external_message if isinstance(external_message, str) else None
+                message = external_message
         return False, message
 
     raise AirbyteError(
+        message="Unexpected check status.",
         context={
             "actor_id": actor_id,
             "connector_type": str(connector_type),
-            "response": json_result,
+            "status": _bounded_check_text(result),
         },
     )
+
+
+_MAX_CHECK_CONTEXT_CHARS = 2_000
+"""Upper bound on each check failure field carried in an error's context."""
+
+
+def _bounded_check_text(value: object) -> str | None:
+    """Return `value` cut to `_MAX_CHECK_CONTEXT_CHARS` if it is a string, else None."""
+    if not isinstance(value, str):
+        return None
+    if len(value) <= _MAX_CHECK_CONTEXT_CHARS:
+        return value
+    return value[: _MAX_CHECK_CONTEXT_CHARS - len(" [truncated]")] + " [truncated]"
 
 
 def validate_yaml_manifest(

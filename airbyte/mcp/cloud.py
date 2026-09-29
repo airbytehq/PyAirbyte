@@ -755,10 +755,11 @@ How to use this report:
    passwords or keys that appear in logs or messages; redact them. If any tool
    raises SafeModeError, do not work around it; give the user instructions
    instead. A section with an `error` means that data is missing, not that the
-   component is healthy. Text ending in " [truncated]" or
+   component is healthy. Text containing " [truncated]" or
    external_message_truncated true means a message was cut to keep the report
    small. Text ending in " [stack trace removed]" means stack-trace or
-   internal-detail lines were removed from that message. In log_tail,
+   internal-detail lines were removed from that message; both markers can
+   appear together, as " [truncated] [stack trace removed]". In log_tail,
    total_log_lines_available is the raw line count used by get_cloud_sync_logs,
    filtered_line_count lines were removed as stack traces or internal details,
    log_text_truncated true means older whole lines were dropped to fit the
@@ -2560,12 +2561,25 @@ def check_cloud_connector(
     """Check the configuration and credentials of a deployed source or destination."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connector = _get_cloud_connector(workspace, connector_id, connector_type)
-    check_result = connector.check(raise_on_error=False)
+    try:
+        check_result = connector.check(raise_on_error=False)
+    except AirbyteError as error:
+        _, message, error_text = _check_error_outcome(error)
+        message = message or error_text
+    except requests.RequestException as error:
+        message = _section_error_text(error, "Check request failed: ")
+    else:
+        return ConnectorCheckResult(
+            connector_id=connector_id,
+            connector_type=connector.connector_type,
+            succeeded=check_result.success,
+            message=_bounded_message(_get_connector_check_message(check_result))[0],
+        )
     return ConnectorCheckResult(
         connector_id=connector_id,
         connector_type=connector.connector_type,
-        succeeded=check_result.success,
-        message=_get_connector_check_message(check_result),
+        succeeded=False,
+        message=message,
     )
 
 
@@ -2596,7 +2610,7 @@ def _bounded_message(text: str | None) -> tuple[str | None, bool]:
     capped, truncated = _cap_text(
         "\n".join(kept), TROUBLESHOOT_MAX_MESSAGE_CHARS - len(STACK_TRACE_REMOVED_MARKER)
     )
-    return (capped + STACK_TRACE_REMOVED_MARKER).strip(), truncated
+    return capped + STACK_TRACE_REMOVED_MARKER, truncated
 
 
 def _error_status_code(error: Exception) -> object | None:
@@ -2646,16 +2660,29 @@ def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootCo
 
 
 def _check_failure_reason(error: AirbyteError) -> tuple[str, str] | None:
-    """Return the `(failureOrigin, externalMessage)` of a check error's job, if reported."""
-    response = (error.context or {}).get("response")
-    job_info = response.get("jobInfo") if isinstance(response, dict) else None
-    failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
-    if not isinstance(failure, dict):
-        return None
-    origin, message = failure.get("failureOrigin"), failure.get("externalMessage")
+    """Return the `(failure_origin, external_message)` of a check error's job, if reported."""
+    context = error.context or {}
+    origin, message = context.get("failure_origin"), context.get("external_message")
     if isinstance(message, str) and message:
         return (origin if isinstance(origin, str) and origin else "unknown"), message
     return None
+
+
+def _check_error_outcome(error: AirbyteError) -> tuple[bool | None, str | None, str | None]:
+    """Classify a check error as `(succeeded, message, error)` for agent-facing output.
+
+    A connector-origin failure is a failed check with a message; anything else is an error.
+    """
+    failure = _check_failure_reason(error)
+    if failure is None:
+        return None, None, _section_error_text(error)
+    if failure[0] in {"source", "destination"}:
+        return False, _bounded_message(failure[1])[0], None
+    return (
+        None,
+        None,
+        _bounded_message(f"Check did not complete (failure origin: {failure[0]}): {failure[1]}")[0],
+    )
 
 
 def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckSection:
@@ -2667,16 +2694,7 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
     try:
         check_result = connector.check(raise_on_error=False)
     except AirbyteError as error:
-        failure = _check_failure_reason(error)
-        if failure is None:
-            section.error = _section_error_text(error)
-        elif failure[0] in {"source", "destination"}:
-            section.succeeded = False
-            section.message = _bounded_message(failure[1])[0]
-        else:
-            section.error = _bounded_message(
-                f"Check did not complete (failure origin: {failure[0]}): {failure[1]}"
-            )[0]
+        section.succeeded, section.message, section.error = _check_error_outcome(error)
         return section
     except requests.RequestException as error:
         section.error = _section_error_text(error, "Check request failed: ")

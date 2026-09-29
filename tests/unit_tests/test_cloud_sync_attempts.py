@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
@@ -18,6 +19,7 @@ from airbyte.cloud.sync_results import (
     SyncResult,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.exceptions import AirbyteError
 from airbyte.mcp import cloud as cloud_mcp
 from fastmcp import Context
 
@@ -363,7 +365,9 @@ def test_failures_coerce_field_types() -> None:
 
 
 def _status_with_attempts(
-    monkeypatch: pytest.MonkeyPatch, attempts: list[SyncAttempt]
+    monkeypatch: pytest.MonkeyPatch,
+    attempts: list[SyncAttempt],
+    get_attempts: Callable[[], list[SyncAttempt]] | None = None,
 ) -> dict[str, Any]:
     sync_result = SimpleNamespace(
         job_id=123,
@@ -374,7 +378,7 @@ def _status_with_attempts(
             records_synced=0,
             start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ),
-        get_attempts=lambda: attempts,
+        get_attempts=get_attempts or (lambda: attempts),
     )
     connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
     workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
@@ -665,3 +669,34 @@ def test_get_cloud_sync_status_bounds_attempt_strings(
     assert len(entry["status"]) == limit
     assert len(entry["failures"][0]["failure_origin"]) == limit
     assert len(entry["failures"][0]["failure_type"]) == limit
+
+
+@pytest.mark.parametrize("body", [None, [], "leaked-body"])
+def test_fetch_job_with_attempts_rejects_non_dict_body(
+    monkeypatch: pytest.MonkeyPatch, body: object
+) -> None:
+    """A non-object Config API job body raises without carrying the body."""
+    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: body)
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    with pytest.raises(AirbyteError, match="Unexpected API response.") as exc_info:
+        sync_result.get_attempts()
+
+    assert exc_info.value.context == {"job_id": 123}
+    assert "leaked-body" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("body", [None, [], "leaked-body"])
+def test_get_cloud_sync_status_non_dict_job_body(
+    monkeypatch: pytest.MonkeyPatch, body: object
+) -> None:
+    """`get_cloud_sync_status` raises a body-free error for a non-object job body."""
+    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: body)
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    with pytest.raises(AirbyteError, match="Unexpected API response.") as exc_info:
+        _status_with_attempts(
+            monkeypatch, cast(Any, None), get_attempts=sync_result.get_attempts
+        )
+
+    assert "leaked-body" not in str(exc_info.value)

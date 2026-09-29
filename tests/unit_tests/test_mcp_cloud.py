@@ -31,7 +31,12 @@ from airbyte._direct_connectors.models import (
 from airbyte._util import api_util
 from airbyte.cloud import CloudConnection, CloudWorkspace
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
-from airbyte.cloud.sync_results import SyncAttempt, SyncAttemptFailure, SyncJobSnapshot
+from airbyte.cloud.sync_results import (
+    SyncAttempt,
+    SyncAttemptFailure,
+    SyncJobSnapshot,
+    SyncResult,
+)
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -2772,16 +2777,8 @@ def test_troubleshoot_check_error_exposes_only_public_failure_fields(
     connection = _TroubleshootConnection()
     connection.source.check_result = AirbyteError(
         context={
-            "response": {
-                "jobInfo": {
-                    "failureReason": {
-                        "failureOrigin": "airbyte_platform",
-                        "externalMessage": "Failed to create pod",
-                        "internalMessage": "launch",
-                        "stacktrace": "java.lang.Exception",
-                    }
-                }
-            }
+            "failure_origin": "airbyte_platform",
+            "external_message": "Failed to create pod",
         },
     )
 
@@ -3348,15 +3345,8 @@ def test_troubleshoot_check_connector_failure_reason_is_failed_check(
     connection = _TroubleshootConnection()
     connection.source.check_result = AirbyteError(
         context={
-            "response": {
-                "jobInfo": {
-                    "failureReason": {
-                        "failureOrigin": "source",
-                        "externalMessage": "403 Forbidden: invalid API key",
-                        "internalMessage": "leaked-internal",
-                    }
-                }
-            }
+            "failure_origin": "source",
+            "external_message": "403 Forbidden: invalid API key",
         },
     )
 
@@ -3583,7 +3573,7 @@ def test_filter_log_lines_keeps_standalone_dotted_names() -> None:
         pytest.param(
             "Traceback (most recent call last):\n"
             '  File "/app/main.py", line 1, in run\nValueError: leaked',
-            "[stack trace removed]",
+            " [stack trace removed]",
             id="only-trace",
         ),
     ],
@@ -3642,14 +3632,8 @@ def test_troubleshoot_check_message_filters_stack_traces(
     )
     connection.destination.check_result = AirbyteError(
         context={
-            "response": {
-                "jobInfo": {
-                    "failureReason": {
-                        "failureOrigin": "destination",
-                        "externalMessage": _TRACE_MESSAGE,
-                    }
-                }
-            }
+            "failure_origin": "destination",
+            "external_message": _TRACE_MESSAGE,
         },
     )
 
@@ -3667,14 +3651,8 @@ def test_troubleshoot_platform_check_error_filters_stack_traces(
     connection = _TroubleshootConnection()
     connection.source.check_result = AirbyteError(
         context={
-            "response": {
-                "jobInfo": {
-                    "failureReason": {
-                        "failureOrigin": "airbyte_platform",
-                        "externalMessage": _TRACE_MESSAGE,
-                    }
-                }
-            }
+            "failure_origin": "airbyte_platform",
+            "external_message": _TRACE_MESSAGE,
         },
     )
 
@@ -4411,3 +4389,240 @@ def test_troubleshoot_bounds_api_string_fields(monkeypatch: pytest.MonkeyPatch) 
         assert value is not None
         assert len(value) == limit
         assert value.endswith(cloud_mcp.TRUNCATION_MARKER)
+
+
+_LEAKY_CHECK_RESPONSE: dict[str, object] = {
+    "status": "failed",
+    "message": None,
+    "jobInfo": {
+        "failureReason": {
+            "failureOrigin": "airbyte_platform",
+            "failureType": "system_error",
+            "externalMessage": "Workload launch failed.",
+            "internalMessage": "leaked-internal-detail",
+            "stacktrace": "java.lang.IllegalStateException: leaked-stacktrace",
+        }
+    },
+}
+
+
+class _ApiCheckConnector:
+    """Connector double whose check goes through `api_util.check_connector`."""
+
+    connector_id = "source-id"
+    connector_type = "source"
+
+    def check(self, *, raise_on_error: bool) -> CheckResult:
+        assert raise_on_error is False
+        success, message = api_util.check_connector(
+            actor_id=self.connector_id,
+            connector_type="source",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+            config_api_root="https://config.example.com",
+        )
+        return CheckResult(success=success, error_message=message)
+
+
+def _check_cloud_connector_with(
+    monkeypatch: pytest.MonkeyPatch, response: object
+) -> cloud_mcp.ConnectorCheckResult:
+    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: response)
+    workspace = SimpleNamespace(get_source=lambda *, source_id: _ApiCheckConnector())
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+    return cloud_mcp.check_cloud_connector(
+        ctx=cast(Context, object()),
+        connector_id="source-id",
+        connector_type="source",
+        workspace_id="workspace-id",
+    )
+
+
+def test_check_connector_error_context_has_no_raw_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check error carries only failure origin, type and message, not the response."""
+    monkeypatch.setattr(
+        api_util, "_make_config_api_request", lambda **_: _LEAKY_CHECK_RESPONSE
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        _ApiCheckConnector().check(raise_on_error=False)
+
+    rendered = str(exc_info.value)
+    assert "leaked-internal-detail" not in rendered
+    assert "leaked-stacktrace" not in rendered
+    assert "response" not in exc_info.value.context
+    assert exc_info.value.context["failure_origin"] == "airbyte_platform"
+    assert exc_info.value.context["failure_type"] == "system_error"
+    assert exc_info.value.context["external_message"] == "Workload launch failed."
+
+
+def test_check_connector_error_context_bounds_external_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The external message carried in the check error's context is capped."""
+    response = {
+        "status": "failed",
+        "jobInfo": {
+            "failureReason": {
+                "failureOrigin": "airbyte_platform",
+                "externalMessage": "z" * 9_000,
+            }
+        },
+    }
+    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: response)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        _ApiCheckConnector().check(raise_on_error=False)
+
+    message = exc_info.value.context["external_message"]
+    assert len(message) == 2_000
+    assert message.endswith(" [truncated]")
+
+
+def test_check_cloud_connector_platform_failure_is_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A platform-origin check failure returns succeeded=False without leaking details."""
+    result = _check_cloud_connector_with(monkeypatch, _LEAKY_CHECK_RESPONSE)
+
+    assert result.succeeded is False
+    assert result.message == (
+        "Check did not complete (failure origin: airbyte_platform): Workload launch failed."
+    )
+    rendered = result.model_dump_json()
+    assert "leaked-internal-detail" not in rendered
+    assert "leaked-stacktrace" not in rendered
+
+
+def test_check_cloud_connector_platform_failure_without_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A platform failure with no external message still returns a bounded fallback message."""
+    response = {
+        "status": "failed",
+        "jobInfo": {
+            "failureReason": {
+                "failureOrigin": "airbyte_platform",
+                "internalMessage": "leaked-internal-detail",
+            }
+        },
+    }
+
+    result = _check_cloud_connector_with(monkeypatch, response)
+
+    assert result.succeeded is False
+    assert result.message == "Connector check did not complete."
+
+
+def test_check_cloud_connector_request_error_is_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transport error during the check returns succeeded=False with a safe message."""
+
+    def _raise(**_: object) -> object:
+        raise requests.ConnectionError("connection refused")
+
+    result = _check_cloud_connector_with(monkeypatch, None)
+    assert result.succeeded is False  # null body -> "Unexpected check response."
+    assert result.message == "Unexpected check response."
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", _raise)
+    workspace = SimpleNamespace(get_source=lambda *, source_id: _ApiCheckConnector())
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+    result = cloud_mcp.check_cloud_connector(
+        ctx=cast(Context, object()),
+        connector_id="source-id",
+        connector_type="source",
+        workspace_id="workspace-id",
+    )
+    assert result.succeeded is False
+    assert result.message is not None
+    assert result.message.startswith("Check request failed: ")
+
+
+def test_check_cloud_connector_message_filters_stack_traces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A normal failed-check message is filtered and bounded."""
+    response = {"status": "failed", "message": _TRACE_MESSAGE}
+
+    result = _check_cloud_connector_with(monkeypatch, response)
+
+    assert result.succeeded is False
+    assert result.message == "Invalid API key. [stack trace removed]"
+
+
+class _NonDictJobSyncResult(_TroubleshootSyncResult):
+    """Sync result whose snapshot reads the Config API job through a real `SyncResult`."""
+
+    def get_job_snapshot(self) -> SyncJobSnapshot:
+        workspace = SimpleNamespace(
+            api_root="https://api.example.com/v1",
+            config_api_root="https://config.example.com",
+            client_id=None,
+            client_secret=None,
+            bearer_token="token",
+        )
+        SyncResult(
+            workspace=cast(CloudWorkspace, workspace),
+            connection=cast(CloudConnection, SimpleNamespace(connection_id="c")),
+            job_id=self.job_id,
+        )._fetch_job_with_attempts()  # noqa: SLF001
+        raise AssertionError("the non-dict body should have raised")
+
+
+@pytest.mark.parametrize("body", [None, [], "leaked-body"])
+def test_troubleshoot_non_dict_config_api_job_omits_only_that_job(
+    monkeypatch: pytest.MonkeyPatch, body: object
+) -> None:
+    """A non-object Config API job body omits only that job, without the body."""
+    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: body)
+    connection = _TroubleshootConnection(
+        jobs=[
+            _NonDictJobSyncResult(
+                job_id=5,
+                status=JobStatusEnum.RUNNING,
+                start_time=datetime(2026, 1, 5, tzinfo=timezone.utc),
+            ),
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", "boom")],
+            ),
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.recent_jobs.error == (
+        "Some jobs could not be read and are omitted: Job 5: Unexpected API response."
+    )
+    assert [job.job_id for job in result.recent_jobs.jobs] == [4]
+    assert result.latest_failed_job.job_id == 4
+    assert "leaked-body" not in result.model_dump_json()
+
+
+def test_bounded_message_keeps_marker_space_when_all_lines_removed() -> None:
+    """A message whose lines are all removed is just the marker, leading space included."""
+    bounded, truncated = cloud_mcp._bounded_message(  # noqa: SLF001
+        "    at Array.forEach (<anonymous>)"
+    )
+
+    assert bounded == cloud_mcp.STACK_TRACE_REMOVED_MARKER
+    assert bounded.startswith(" ")
+    assert truncated is False
+
+
+def test_guidance_describes_combined_markers() -> None:
+    """Guidance says text containing the truncation marker was cut and markers can combine."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert 'Text containing " [truncated]"' in guidance
+    assert "both markers can appear together" in guidance

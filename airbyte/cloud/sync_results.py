@@ -113,7 +113,11 @@ from airbyte.caches._utils._dest_to_cache import destination_to_cache
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, JobStatusEnum
 from airbyte.datasets import CachedDataset
-from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
+from airbyte.exceptions import (
+    AirbyteConnectionSyncError,
+    AirbyteConnectionSyncTimeoutError,
+    AirbyteError,
+)
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
@@ -403,7 +407,7 @@ class SyncResult:
         if self._job_with_attempts_info is not None:
             return self._job_with_attempts_info
 
-        self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
+        job_with_attempts: object = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
             config_api_root=self.workspace.config_api_root,
             path="/jobs/get",
@@ -414,7 +418,10 @@ class SyncResult:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        return self._job_with_attempts_info
+        if not isinstance(job_with_attempts, dict):
+            raise AirbyteError(message="Unexpected API response.", context={"job_id": self.job_id})
+        self._job_with_attempts_info = job_with_attempts
+        return job_with_attempts
 
     def get_raw_attempt_count(self) -> int:
         """Return how many attempts the API returned, including ones `get_attempts` skips."""
