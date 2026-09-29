@@ -87,6 +87,7 @@ from typing import TYPE_CHECKING
 from airbyte._direct_connectors.models import (
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
+    ExternalSearchType,
 )
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
@@ -138,6 +139,7 @@ __all__ = [
     # Enums
     "ExternalApiReadOnlyAction",
     "ExternalApiWriteAction",
+    "ExternalSearchType",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

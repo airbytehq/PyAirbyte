@@ -173,8 +173,9 @@ class CloudOrganization:
     def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
         """Whether `feature` is enabled for this organization.
 
-        Uses the cached feature set when available; search indexing has not launched yet,
-        so it always returns `False` without an API call.
+        Uses the cached feature set when available. There is no organization-level search
+        indexing signal yet, so `SEARCH_INDEXING` always returns `False` without an API
+        call; check it per connector instead.
         """
         if feature == OrganizationFeature.SEARCH_INDEXING:
             return False

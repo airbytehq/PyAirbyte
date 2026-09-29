@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import NoReturn
 from unittest.mock import MagicMock
 
@@ -21,6 +22,7 @@ from airbyte.cloud.connectors import (
     ConnectorType,
 )
 from airbyte._direct_connectors.models import (
+    ConnectorEnablement,
     _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
 )
 from airbyte.cloud.models import (
@@ -1661,14 +1663,17 @@ def _patch_workspace_connectors(
     context_layer: bool = True,
     external_access_source_ids: list[str] | None = None,
     enabled_destination_ids: list[str] | None = None,
+    search_indexed_ids: list[str] | None = None,
 ) -> dict[str, int]:
-    """Stub the Cloud listings and Context layer docs probes for `workspace`.
+    """Stub the Cloud listings, Context layer docs, and Fusion enablement for `workspace`.
 
     Sources in `external_access_source_ids` and destinations in
-    `enabled_destination_ids` get a successful docs probe; other connectors
-    get a 404. Returns a counter of docs-probe calls so tests can assert on lookups.
+    `enabled_destination_ids` have agent access enabled (and a docs skill; other
+    connectors' docs reads get a 404). Connectors in `search_indexed_ids` have
+    indexing enabled. Returns counters of docs (`list`) and enablement
+    (`enablement`) calls so tests can assert on lookups.
     """
-    calls = {"list": 0}
+    calls = {"list": 0, "enablement": 0}
     enabled_ids = set(external_access_source_ids or []) | (
         {"snowflake"}
         if enabled_destination_ids is None
@@ -1720,6 +1725,20 @@ def _patch_workspace_connectors(
         cloud_workspaces.agents_api_util,
         "read_cloud_skill_docs",
         fake_read_cloud_skill_docs,
+    )
+
+    def fake_get_enablement(**kwargs: object) -> ConnectorEnablement:
+        calls["enablement"] += 1
+        connector_id = str(kwargs["connector_id"])
+        return ConnectorEnablement(
+            enable_agent_access=connector_id in enabled_ids,
+            enable_indexing=connector_id in set(search_indexed_ids or []),
+        )
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_enablement",
+        fake_get_enablement,
     )
     return calls
 
@@ -1900,9 +1919,9 @@ def test_cloud_workspace_list_connectors(
         isinstance(c, CloudSource if c.connector_type == "source" else CloudDestination)
         for c in connectors
     )
-    # One Context layer docs probe per listed connector at most; the non-passthrough
-    # destination is never probed.
-    assert calls["list"] <= 4
+    # Features come from at most one enablement call per listed connector, never docs.
+    assert calls["list"] == 0
+    assert calls["enablement"] <= 5
 
 
 def test_cloud_workspace_list_connectors_stops_probing_at_limit(
@@ -1996,7 +2015,7 @@ def test_cloud_workspace_features_false_without_context_layer(
     assert (
         workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == []
     )
-    assert calls == {"list": 0}
+    assert calls == {"list": 0, "enablement": 0}
 
 
 def test_cloud_connector_features_resolve_lazily_and_cache(
@@ -2011,19 +2030,245 @@ def test_cloud_connector_features_resolve_lazily_and_cache(
     source = _seed_source(workspace, "source-1", "GitHub Issues")
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
 
-    assert calls == {"list": 0}
+    assert calls == {"list": 0, "enablement": 0}
     assert source.enabled_features == frozenset({
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_API_QUERY,
     })
     assert not source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING)
-    assert calls["list"] == 1
+    assert calls == {"list": 0, "enablement": 1}
     assert destination.enabled_features == frozenset({
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_SQL_QUERY,
     })
-    # SQL passthrough destinations resolve features through a docs probe, like sources.
-    assert calls["list"] == 2
+    # Every connector kind resolves features through one enablement call.
+    assert calls == {"list": 0, "enablement": 2}
+    # Checking more features reuses the cached result.
+    for feature in ConnectorFeature:
+        source.is_feature_enabled(feature)
+        destination.is_feature_enabled(feature)
+    assert calls == {"list": 0, "enablement": 2}
+
+
+@pytest.mark.parametrize(
+    ("kind", "agent_access", "indexing", "expected"),
+    [
+        pytest.param(
+            "source",
+            True,
+            True,
+            {
+                ConnectorFeature.DIRECT_ACCESS,
+                ConnectorFeature.DIRECT_API_QUERY,
+                ConnectorFeature.SEARCH_INDEXING,
+            },
+            id="source_all",
+        ),
+        pytest.param(
+            "source",
+            True,
+            False,
+            {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+            id="source_agent_access_only",
+        ),
+        pytest.param("source", False, False, set(), id="source_none"),
+        pytest.param(
+            "sql_destination",
+            True,
+            True,
+            {
+                ConnectorFeature.DIRECT_ACCESS,
+                ConnectorFeature.DIRECT_SQL_QUERY,
+                ConnectorFeature.SEARCH_INDEXING,
+            },
+            id="sql_destination_all",
+        ),
+        pytest.param(
+            "sql_destination",
+            True,
+            False,
+            {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+            id="sql_destination_agent_access_only",
+        ),
+        pytest.param(
+            "other_destination",
+            True,
+            True,
+            {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.SEARCH_INDEXING},
+            id="non_sql_destination_all",
+        ),
+        pytest.param(
+            "other_destination",
+            True,
+            False,
+            {ConnectorFeature.DIRECT_ACCESS},
+            id="non_sql_destination_agent_access_only",
+        ),
+        pytest.param("other_destination", False, False, set(), id="destination_none"),
+    ],
+)
+def test_cloud_connector_features_map_from_enablement(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    agent_access: bool,
+    indexing: bool,
+    expected: set[ConnectorFeature],
+) -> None:
+    """Enablement flags map to connector features; docs are never read for them."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(monkeypatch, workspace)
+    requests_seen: list[dict[str, object]] = []
+
+    def fake_get_enablement(**kwargs: object) -> ConnectorEnablement:
+        requests_seen.append(kwargs)
+        return ConnectorEnablement(
+            enable_agent_access=agent_access, enable_indexing=indexing
+        )
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_enablement",
+        fake_get_enablement,
+    )
+    connector = (
+        _seed_source(workspace, "connector-1", "GitHub Issues")
+        if kind == "source"
+        else _seed_destination(
+            workspace,
+            "connector-1",
+            SNOWFLAKE_DEFINITION_ID
+            if kind == "sql_destination"
+            else "not-a-passthrough-definition",
+        )
+    )
+
+    assert set(connector.enabled_features) == expected
+    assert len(requests_seen) == 1
+    assert requests_seen[0]["connector_id"] == "connector-1"
+    assert requests_seen[0]["connector_type"] == connector.connector_type
+    assert calls["list"] == 0
+
+
+@pytest.mark.parametrize("status_code", [404])
+def test_cloud_connector_features_empty_when_enablement_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
+    )
+
+    def fail(**_: object) -> ConnectorEnablement:
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_enablement", fail
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    assert source.enabled_features == frozenset()
+    assert not source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING)
+
+
+_ENABLEMENT_FAILURES = [
+    pytest.param(AirbyteCloudApiError(status_code=403), id="forbidden"),
+    pytest.param(AirbyteCloudApiError(status_code=500), id="server_error"),
+    pytest.param(AirbyteCloudApiError(status_code=503), id="service_unavailable"),
+    pytest.param(requests.ConnectionError("connection reset"), id="transport"),
+    pytest.param(AirbyteError(message="Malformed enablement"), id="malformed"),
+]
+
+
+@pytest.mark.parametrize("error", _ENABLEMENT_FAILURES)
+def test_cloud_connector_features_raise_on_enablement_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace)
+
+    def fail(**_: object) -> ConnectorEnablement:
+        raise error
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_enablement", fail
+    )
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+
+    with pytest.raises(type(error)):
+        _ = destination.enabled_features
+
+
+def test_cloud_connector_enablement_rejects_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A response missing the enablement flags raises `AirbyteError`, not "not enabled"."""
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "make_cloud_agent_request",
+        lambda **_: {"actorId": "source-1"},
+    )
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(  # noqa: SLF001
+        bearer_token="token", env_vars=False
+    )
+
+    with pytest.raises(
+        AirbyteError, match="Malformed Airbyte Cloud enablement"
+    ) as exc_info:
+        cloud_workspaces.agents_api_util.get_cloud_connector_enablement(
+            connector_id="source-1",
+            connector_type=ConnectorType.SOURCE,
+            credentials=credentials,
+        )
+    assert (exc_info.value.context or {})["path"] == "/sources/source-1/enablement"
+
+
+def test_cloud_connector_enablement_parses_destination_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests_seen: list[dict[str, object]] = []
+
+    def fake_request(**kwargs: object) -> dict[str, object]:
+        requests_seen.append(kwargs)
+        return {
+            "organizationId": "organization-id",
+            "workspaceId": "workspace-id",
+            "actorId": "destination-1",
+            "actorType": "destination",
+            "enable_agent_access": True,
+            "enable_indexing": True,
+            "enable_backfill": True,
+            "backfill_start_time": "2026-09-01T00:00:00Z",
+        }
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "make_cloud_agent_request", fake_request
+    )
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(  # noqa: SLF001
+        bearer_token="token", env_vars=False
+    )
+
+    enablement = cloud_workspaces.agents_api_util.get_cloud_connector_enablement(
+        connector_id="destination-1",
+        connector_type=ConnectorType.DESTINATION,
+        credentials=credentials,
+    )
+
+    assert requests_seen[0]["method"] == "GET"
+    assert requests_seen[0]["path"] == "/destinations/destination-1/enablement"
+    assert enablement.enable_agent_access is True
+    assert enablement.enable_indexing is True
+    assert enablement.enable_backfill is True
+    assert enablement.workspace_id == "workspace-id"
+    assert enablement.actor_type == "destination"
+    assert enablement.backfill_start_time is not None
 
 
 def test_cloud_destination_external_access_requires_context_layer(
@@ -2032,14 +2277,15 @@ def test_cloud_destination_external_access_requires_context_layer(
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
-    _patch_workspace_connectors(monkeypatch, workspace, context_layer=False)
+    calls = _patch_workspace_connectors(monkeypatch, workspace, context_layer=False)
 
     assert workspace.enabled_features == frozenset()
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
     assert not destination.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+    assert calls == {"list": 0, "enablement": 0}
 
 
-def test_cloud_destination_features_empty_when_docs_probe_404s(
+def test_cloud_destination_features_empty_when_agent_access_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _make_workspace(
@@ -2051,9 +2297,10 @@ def test_cloud_destination_features_empty_when_docs_probe_404s(
     assert destination.enabled_features == frozenset()
 
 
-def test_cloud_destination_features_raise_on_probe_failure(
+def test_cloud_connector_features_ignore_docs_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Docs failures no longer affect feature flags."""
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
@@ -2065,8 +2312,140 @@ def test_cloud_destination_features_raise_on_probe_failure(
     )
 
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
-    with pytest.raises(AirbyteError):
-        _ = destination.enabled_features
+    assert destination.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_SQL_QUERY,
+    })
+
+
+@pytest.mark.parametrize("error", _ENABLEMENT_FAILURES)
+def test_mcp_list_cloud_connectors_enablement_failure_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    """Enablement failures degrade to `"unknown"` in `list_cloud_connectors`, never raise."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(
+        monkeypatch,
+        workspace,
+        external_access_source_ids=["source-1", "source-2", "source-3"],
+    )
+
+    def fail_for_source_2(**kwargs: object) -> ConnectorEnablement:
+        calls["enablement"] += 1
+        if kwargs["connector_id"] == "source-2":
+            raise error
+        return ConnectorEnablement(enable_agent_access=True, enable_indexing=False)
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_enablement",
+        fail_for_source_2,
+    )
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    results = mcp_cloud.list_cloud_connectors(
+        None,
+        connector_type=ConnectorType.SOURCE,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
+    )
+
+    workspace_wide = isinstance(error, requests.RequestException) or (
+        isinstance(error, AirbyteCloudApiError) and error.status_code == 503
+    )
+    source_features = [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ]
+    assert [result.id for result in results] == ["source-1", "source-2", "source-3"]
+    assert [result.enabled_features for result in results] == [
+        source_features,
+        mcp_cloud.FEATURES_UNKNOWN,
+        mcp_cloud.FEATURES_UNKNOWN if workspace_wide else source_features,
+    ]
+    assert any("enabled features are unknown" in w for w in results[1].warnings)
+    is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
+    assert any("permission problem" in w for w in results[1].warnings) is is_forbidden
+    # A 502/503/504 or transport failure stops further enablement lookups; a 403 does not.
+    assert calls["enablement"] == (2 if workspace_wide else 3)
+
+
+@pytest.mark.parametrize("error", _ENABLEMENT_FAILURES)
+def test_mcp_describe_cloud_connector_enablement_failure_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    """Enablement failures degrade to `"unknown"` in `describe_cloud_connector`."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(monkeypatch, workspace)
+
+    def fail(**_: object) -> ConnectorEnablement:
+        raise error
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_enablement", fail
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    source._connector_definition = SimpleNamespace(  # noqa: SLF001
+        name="GitHub", docker_repository="airbyte/source-github"
+    )
+
+    result = mcp_cloud._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == mcp_cloud.FEATURES_UNKNOWN
+    assert result.integration_name == "GitHub"
+    assert any("enabled features are unknown" in w for w in result.warnings)
+    is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
+    assert any("permission problem" in w for w in result.warnings) is is_forbidden
+    assert calls["list"] == 0
+
+
+def test_mcp_describe_cloud_connector_docs_failure_keeps_features(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docs lookup failure is a warning; features still come from enablement."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudApiError(status_code=500)),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    source._connector_definition = SimpleNamespace(  # noqa: SLF001
+        name="GitHub", docker_repository="airbyte/source-github"
+    )
+
+    result = mcp_cloud._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ]
+    assert any("docs lookup failed" in w for w in result.warnings)
 
 
 @pytest.mark.parametrize(

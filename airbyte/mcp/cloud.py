@@ -27,6 +27,10 @@ from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
+    ExternalSearchResult,
+    ExternalSearchStatusResult,
+    ExternalSearchStreamStatus,
+    ExternalSearchType,
 )
 from airbyte._util import api_util
 from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
@@ -78,6 +82,7 @@ from airbyte.exceptions import (
 from airbyte.mcp._arg_resolvers import (
     resolve_api_args,
     resolve_connector_config,
+    resolve_list_of_dicts,
     resolve_list_of_strings,
 )
 from airbyte.mcp._docs_results import (
@@ -86,11 +91,13 @@ from airbyte.mcp._docs_results import (
     render_agent_skill_docs_result,
     render_connector_docs_result,
 )
+from airbyte.mcp._scope import record_default_workspace
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
+from airbyte.mcp._user_identity import forget_cached_airbyte_user
 from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
     get_connector_metadata,
@@ -181,13 +188,26 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
 FEATURE_FILTER_TIP_TEXT = (
     "Optional feature filter: `direct_access` returns only connectors AI agents can use "
     "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
-    "query. `enabled_features` is only resolved and returned when this filter is set; "
+    "query; `search_indexing` narrows to sources and destinations with search-indexed "
+    "data. `enabled_features` is only resolved and returned when this filter is set; "
     "use `direct_access` to find every connector with any external-access feature "
     "enabled and see its full feature list. Omit to list every connector with "
     "`enabled_features='not_checked'` (no feature check performed). Connectors whose "
     "feature lookup fails are returned with `enabled_features='unknown'` and a "
     "`warnings` entry, so they can still be inspected or tried."
 )
+
+
+def _feature_lookup_warning(error: Exception) -> str:
+    """Describe a failed connector feature lookup, calling out access denials."""
+    if isinstance(error, AirbyteCloudApiError) and error.status_code == HTTPStatus.FORBIDDEN:
+        return (
+            "Connector feature lookup was denied (403 Forbidden); enabled features are "
+            "unknown. This is a permission problem: check that the credentials have "
+            "access to this workspace and connector."
+        )
+    return f"Connector feature lookup failed; enabled features are unknown: {error}"
+
 
 FEATURES_NOT_CHECKED: Final = "not_checked"
 FeaturesNotChecked = Literal["not_checked"]
@@ -199,6 +219,11 @@ CONNECTOR_TYPE_TIP_TEXT = (
     "Optional: `source` or `destination`. When omitted, the connector type is "
     "resolved automatically from the connector ID (one extra API call)."
 )
+SEARCH_CONNECTOR_TYPE_TIP_TEXT = (
+    CONNECTOR_TYPE_TIP_TEXT + " When given, it must match the connector's actual type."
+)
+_MAX_LISTED_STREAMS = 20
+"""The most stream names listed in a stream-filter warning."""
 
 
 def _get_cloud_connector(
@@ -536,6 +561,8 @@ def _get_cloud_workspace(
     """
     client = _get_cloud_client(ctx, organization_id=organization_id)
     resolved_workspace_id = workspace_id or client.resolve_default_workspace_id()
+    if not workspace_id:
+        record_default_workspace(resolved_workspace_id)
     if not resolved_workspace_id:
         raise AirbyteMissingWorkspaceContextError
 
@@ -1167,9 +1194,9 @@ def list_cloud_connectors(
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
     Pass `feature_filter` (for example `direct_api_query` for sources,
-    `direct_sql_query` for destinations, or `direct_access` for either) to return only
-    matching connectors with their `enabled_features` resolved; without it,
-    `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
+    `direct_sql_query` for destinations, or `direct_access` or `search_indexing` for
+    either) to return only matching connectors with their `enabled_features`
+    resolved; without it, `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
     feature check was performed; `[]` means checked and no features enabled.
 
     When a connector's feature lookup fails for a reason other than "not enabled",
@@ -1208,7 +1235,7 @@ def list_cloud_connectors(
             try:
                 features = connector.enabled_features
             except (AirbyteError, requests.RequestException) as error:
-                warning = f"Connector feature lookup failed; enabled features are unknown: {error}"
+                warning = _feature_lookup_warning(error)
                 if isinstance(error, requests.RequestException) or (
                     isinstance(error, AirbyteCloudApiError)
                     and error.status_code
@@ -1336,18 +1363,24 @@ def _describe_cloud_connector(
 
     try:
         result.enabled_features = sorted(connector.enabled_features)
-        if (
-            connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
-            and connector.workspace._has_context_layer_api()  # noqa: SLF001
-        ):
+    except (AirbyteError, requests.RequestException) as error:
+        result.enabled_features = FEATURES_UNKNOWN
+        warnings.append(_feature_lookup_warning(error))
+
+    if (
+        result.enabled_features != FEATURES_UNKNOWN
+        and ConnectorFeature.DIRECT_ACCESS in result.enabled_features
+        and connector.workspace._has_context_layer_api()  # noqa: SLF001
+    ):
+        try:
             context_layer = connector._context_layer_inspect(  # noqa: SLF001
                 warnings=warnings,
             )
+        except (AirbyteError, requests.RequestException) as error:
+            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+        else:
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
-    except (AirbyteError, requests.RequestException) as error:
-        result.enabled_features = FEATURES_UNKNOWN
-        warnings.append(f"Connector feature lookup failed; enabled features are unknown: {error}")
 
     if with_config and connector_type == ConnectorType.DESTINATION:
         try:
@@ -1800,6 +1833,220 @@ def execute_external_sql_query(
         cursor=cursor,
         dry_run=dry_run,
     )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source or destination to search."),
+    ],
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=SEARCH_CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+    prompt: Annotated[
+        str,
+        Field(description="The search text, for example `refund requests from ACME`."),
+    ],
+    search_type: Annotated[
+        ExternalSearchType,
+        Field(
+            description="The search type: `keyword`, `semantic`, or `hybrid`.",
+            default=ExternalSearchType.HYBRID,
+        ),
+    ] = ExternalSearchType.HYBRID,
+    limit: Annotated[
+        int | None,
+        Field(
+            description="Maximum number of hits to return, 1 to 100. Defaults to the backend's.",
+            default=None,
+        ),
+    ] = None,
+    streams: Annotated[
+        list[dict[str, Any]] | str | None,
+        Field(
+            description=(
+                "Streams to search, as a list of objects or a JSON array string. Each "
+                "object takes `stream_name` plus optional `source_id`, `namespace`, and "
+                "`fields` (the `entity_data` fields to return; an output projection, not "
+                "a match filter). Omit to search every indexed stream."
+            ),
+            default=None,
+        ),
+    ] = None,
+    lookback_seconds: Annotated[
+        int | None,
+        Field(
+            description="Only match records from the last `lookback_seconds` seconds.",
+            default=None,
+        ),
+    ] = None,
+    max_context_chars: Annotated[
+        int | None,
+        Field(
+            description="Truncate each hit's `context` to this many characters.",
+            default=None,
+        ),
+    ] = None,
+    min_similarity: Annotated[
+        float | None,
+        Field(
+            description="Minimum similarity score for a hit. Semantic and hybrid only.",
+            default=None,
+        ),
+    ] = None,
+    max_similarity_diff: Annotated[
+        float | None,
+        Field(
+            description=("Maximum similarity gap from the best hit. Semantic and hybrid only."),
+            default=None,
+        ),
+    ] = None,
+    destination_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Source search only: the destination to search through, required when "
+                "the source syncs to more than one enabled destination."
+            ),
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalSearchResult:
+    """Search indexed data for a deployed Cloud source or destination.
+
+    A source searches its own indexed data; a destination searches every indexed source
+    synced to it. When results are empty, call `get_cloud_search_status` to check which
+    streams are indexed and whether their backfill is complete.
+
+    Keep responses small: use `streams[].fields` to project each hit's `entity_data`
+    (an output projection, not a match filter) and `max_context_chars` to truncate
+    each hit's `context`. `min_similarity` and `max_similarity_diff` apply only to
+    `semantic` and `hybrid` searches. Pass `destination_id` for a source synced to
+    several enabled destinations; the IDs are listed by `get_cloud_search_status`.
+    Per-index failures are reported in `warnings`.
+    """
+    connector = _get_cloud_connector(
+        _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
+    )
+    return connector.execute_search_query(
+        prompt,
+        search_type=search_type,
+        limit=limit,
+        streams=resolve_list_of_dicts(streams, arg_name="streams"),
+        lookback_seconds=lookback_seconds,
+        max_context_chars=max_context_chars,
+        min_similarity=min_similarity,
+        max_similarity_diff=max_similarity_diff,
+        destination_id=destination_id,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_cloud_search_status(
+    ctx: Context,
+    *,
+    connector_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source or destination to check."),
+    ],
+    connector_type: Annotated[
+        ConnectorType | None,
+        Field(
+            description=SEARCH_CONNECTOR_TYPE_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+    stream_name: Annotated[
+        str | None,
+        Field(
+            description="Optional stream name to report. Omit to report every stream.",
+            default=None,
+        ),
+    ] = None,
+    namespace: Annotated[
+        str | None,
+        Field(
+            description="Optional stream namespace to report. Omit to report every namespace.",
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ] = None,
+) -> ExternalSearchStatusResult:
+    """Report search indexing status for a deployed Cloud source or destination.
+
+    A destination reports every indexed source synced to it. Lists each indexed source
+    with its destination and connection IDs, and each stream's backfill progress and
+    search indexes. A stream is searchable once it has at least one index.
+
+    `stream_name` and `namespace` filter the report client-side; a filter that matches
+    no stream returns a `warnings` entry listing the indexed streams.
+    """
+    connector = _get_cloud_connector(
+        _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
+    )
+    status = connector.get_search_status()
+    if stream_name is None and namespace is None:
+        return status
+
+    def matches(stream: ExternalSearchStreamStatus) -> bool:
+        return (stream_name is None or stream.name == stream_name) and (
+            namespace is None or stream.namespace == namespace
+        )
+
+    sources = [
+        source.model_copy(update={"streams": [s for s in source.streams if matches(s)]})
+        for source in status.sources
+        if any(matches(stream) for stream in source.streams)
+    ]
+    warnings = list(status.warnings)
+    if not sources:
+        available = sorted(
+            {
+                f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
+                for source in status.sources
+                for stream in source.streams
+            }
+        )
+        shown = ", ".join(available[:_MAX_LISTED_STREAMS]) or "none"
+        if len(available) > _MAX_LISTED_STREAMS:
+            shown += f" (and {len(available) - _MAX_LISTED_STREAMS} more)"
+        filters = ", ".join(
+            f"{name}={value!r}"
+            for name, value in (("stream_name", stream_name), ("namespace", namespace))
+            if value is not None
+        )
+        warnings.append(f"No indexed stream matches {filters}. Indexed streams: {shown}.")
+    return status.model_copy(update={"sources": sources, "warnings": warnings})
 
 
 @mcp_tool(
@@ -2401,6 +2648,7 @@ def set_default_cloud_workspace(
         user_email=user_email,
         workspace_id=workspace_id,
     )
+    forget_cached_airbyte_user()
     workspace_detail = result.default_workspace_id
     if result.default_workspace_name is not None:
         workspace_detail = f"{result.default_workspace_name} ({result.default_workspace_id})"

@@ -162,6 +162,9 @@ class _FakeUpstreamOAuthClient:
         self.refresh_calls.append(kwargs)
         return _upstream_tokens(self.access_token)
 
+    async def aclose(self) -> None:
+        """Match authlib's async-close API used by `_upstream_oauth_client`."""
+
 
 # ---------------------------------------------------------------------------
 # Config and identifier validation
@@ -1293,7 +1296,7 @@ def test_refresh_token_exchange_fails_closed_when_realm_discovery_is_down(
 
 
 def _capture_upstream_posts(monkeypatch: MonkeyPatch) -> list[str]:
-    """Replace `httpx.AsyncClient` inside FastMCP's proxy with a stub that records POST URLs."""
+    """Replace `httpx2.AsyncClient` inside FastMCP's proxy with a stub that records POST URLs."""
     posts: list[str] = []
 
     class _FakeAsyncClient:
@@ -1310,7 +1313,7 @@ def _capture_upstream_posts(monkeypatch: MonkeyPatch) -> list[str]:
             posts.append(url)
             return httpx.Response(200)
 
-    monkeypatch.setattr(fastmcp_proxy_module.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(fastmcp_proxy_module.httpx2, "AsyncClient", _FakeAsyncClient)
     return posts
 
 
@@ -1318,6 +1321,7 @@ def test_revocation_of_upstream_access_token_posts_to_the_issuing_realm(
     monkeypatch: MonkeyPatch,
 ) -> None:
     proxy = _make_proxy(monkeypatch)
+    proxy.get_routes("/mcp")  # initializes the JWT issuer
     _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
     posts = _capture_upstream_posts(monkeypatch)
     upstream_access = AccessToken(
@@ -1336,6 +1340,7 @@ def test_revocation_skips_upstream_when_realm_discovery_is_down(
     proxy = _make_proxy(
         monkeypatch, fetch=_FakeFetch({"acme": httpx.ConnectTimeout("down")})
     )
+    proxy.get_routes("/mcp")  # initializes the JWT issuer
     _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
     posts = _capture_upstream_posts(monkeypatch)
     upstream_access = AccessToken(

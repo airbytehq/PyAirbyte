@@ -21,6 +21,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
 )
 from airbyte._direct_connectors.models import (
+    ConnectorEnablement,
     DirectAccessGuidance,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
@@ -113,6 +114,30 @@ def _patch_context_layer(
         "is_agents_api_available",
         lambda **_: available,
     )
+
+
+def _patch_enablement(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    agent_access: bool = True,
+    indexing: bool = False,
+    error: Exception | None = None,
+) -> list[dict[str, Any]]:
+    """Stub the Fusion enablement lookup, returning the recorded calls."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_get_enablement(**kwargs: Any) -> ConnectorEnablement:
+        calls.append(kwargs)
+        if error is not None:
+            raise error
+        return ConnectorEnablement(
+            enable_agent_access=agent_access, enable_indexing=indexing
+        )
+
+    monkeypatch.setattr(
+        agents_api_util, "get_cloud_connector_enablement", fake_get_enablement
+    )
+    return calls
 
 
 def _seed_source(workspace: CloudWorkspace, source_id: str, name: str) -> CloudSource:
@@ -657,14 +682,10 @@ def test_build_connection_details_reads_cached_schedule(
 def test_enabled_features_context_layer_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A Context-Layer-enabled source reports `direct_access` and `direct_api_query`."""
+    """A source with agent access reports `direct_access` and `direct_api_query`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(
-        agents_api_util,
-        "read_cloud_skill_docs",
-        lambda **_: SKILL_DOCS_RESPONSE,
-    )
+    _patch_enablement(monkeypatch)
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source.enabled_features == frozenset({
@@ -679,11 +700,7 @@ def test_enabled_features_sql_passthrough_destination(
     """A SQL passthrough destination reports `direct_access` and `direct_sql_query`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(
-        agents_api_util,
-        "read_cloud_skill_docs",
-        lambda **_: SKILL_DOCS_RESPONSE,
-    )
+    _patch_enablement(monkeypatch)
     destination = _seed_destination(
         workspace,
         "snowflake",
@@ -700,14 +717,10 @@ def test_enabled_features_sql_passthrough_destination(
 def test_enabled_features_disabled_connector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A source whose docs probe fails reports no features."""
+    """A source whose enablement lookup 404s reports no features."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    monkeypatch.setattr(
-        agents_api_util,
-        "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteCloudApiError(status_code=404)),
-    )
+    _patch_enablement(monkeypatch, error=AirbyteCloudApiError(status_code=404))
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source.enabled_features == frozenset()
@@ -728,13 +741,8 @@ def test_is_feature_enabled_uses_cached_features(
     get_features.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "feature",
-    [ConnectorFeature.DIRECT_API_ACTION, ConnectorFeature.SEARCH_INDEXING],
-)
 def test_is_feature_enabled_never_enabled_features_short_circuit(
     monkeypatch: pytest.MonkeyPatch,
-    feature: ConnectorFeature,
 ) -> None:
     """Features no connector can report return `False` without a workspace call."""
     workspace = _make_workspace(monkeypatch)
@@ -742,8 +750,33 @@ def test_is_feature_enabled_never_enabled_features_short_circuit(
     monkeypatch.setattr(CloudWorkspace, "_get_connector_features", get_features)
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    assert source.is_feature_enabled(feature) is False
+    assert source.is_feature_enabled(ConnectorFeature.DIRECT_API_ACTION) is False
     get_features.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["source", "destination"])
+def test_is_feature_enabled_search_indexing_uses_one_enablement_call(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    """`SEARCH_INDEXING` resolves from a single enablement call, then from the cache."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_enablement(monkeypatch, indexing=True)
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: pytest.fail("feature resolution must not read docs"),
+    )
+    connector = (
+        _seed_source(workspace, "source-1", "GitHub")
+        if kind == "source"
+        else _seed_destination(workspace, "postgres", "not-a-passthrough-definition")
+    )
+
+    assert connector.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING) is True
+    assert connector.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS) is True
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(
