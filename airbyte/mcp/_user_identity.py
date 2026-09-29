@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-USER_ID_FAILURE_TTL_SECONDS = 300.0
+USER_ID_FAILURE_TTL_SECONDS = 60.0
 """How long a failed lookup is remembered, so an outage doesn't add a call per request."""
 
 USER_ID_CACHE_MAX_ENTRIES = 4096
