@@ -119,6 +119,65 @@ def test_lookup_is_cached_per_auth_user(segment: MagicMock, lookups: list[str]) 
     assert lookups == ["keycloak-a", "keycloak-b"]
 
 
+def test_forget_cached_airbyte_user_removes_entry_and_next_resolve_looks_up(
+    segment: MagicMock, lookups: list[str]
+) -> None:
+    _user_identity._user_id_cache.set(
+        "keycloak-a",
+        _user_identity.AirbyteUser(
+            user_id=USER_A,
+            default_workspace_id="old-workspace",
+        ),
+    )
+    _request_auth_user.set("keycloak-a")
+
+    _user_identity.forget_cached_airbyte_user()
+
+    assert _user_identity._user_id_cache.get("keycloak-a") is None
+    _user_identity.forget_cached_airbyte_user()
+    _call("keycloak-a")
+    assert lookups == ["keycloak-a"]
+    assert _identities(segment) == [(USER_A, USER_A)]
+
+
+def test_forget_cached_airbyte_user_without_access_token_is_noop(
+    segment: MagicMock,
+) -> None:
+    cached_user = _user_identity.AirbyteUser(
+        user_id=USER_A,
+        default_workspace_id="workspace-a",
+    )
+    _user_identity._user_id_cache.set("keycloak-a", cached_user)
+    _request_auth_user.set(None)
+
+    _user_identity.forget_cached_airbyte_user()
+
+    assert _user_identity._user_id_cache.get("keycloak-a") is cached_user
+
+
+def test_forget_cached_airbyte_user_preserves_other_users(
+    segment: MagicMock,
+) -> None:
+    _user_identity._user_id_cache.set(
+        "keycloak-a",
+        _user_identity.AirbyteUser(
+            user_id=USER_A,
+            default_workspace_id="workspace-a",
+        ),
+    )
+    other_user = _user_identity.AirbyteUser(
+        user_id=USER_B,
+        default_workspace_id="workspace-b",
+    )
+    _user_identity._user_id_cache.set("keycloak-b", other_user)
+    _request_auth_user.set("keycloak-a")
+
+    _user_identity.forget_cached_airbyte_user()
+
+    assert _user_identity._user_id_cache.get("keycloak-a") is None
+    assert _user_identity._user_id_cache.get("keycloak-b") is other_user
+
+
 def test_concurrent_calls_keep_their_own_user(
     segment: MagicMock, lookups: list[str]
 ) -> None:

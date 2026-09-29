@@ -59,8 +59,9 @@ _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
 class AirbyteUser:
     """Canonical Airbyte user identity and its default workspace, when available.
 
-    Cached without expiry, so `default_workspace_id` may be stale. It is only used to derive the
-    organization of `ServerConnected` telemetry; tools resolve the default workspace live.
+    Cached without expiry (evicted when `set_default_cloud_workspace` changes it), so
+    `default_workspace_id` may be stale. It is only used to derive the organization of
+    `ServerConnected` telemetry; tools resolve the default workspace live.
     """
 
     user_id: str
@@ -89,6 +90,10 @@ class _LruCache(Generic[_ValueT]):
             while len(self._entries) > self._max_entries:
                 self._entries.popitem(last=False)
 
+    def pop(self, key: str) -> None:
+        with self._lock:
+            self._entries.pop(key, None)
+
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
@@ -96,6 +101,25 @@ class _LruCache(Generic[_ValueT]):
 
 _user_id_cache = _LruCache[AirbyteUser](max_entries=USER_ID_CACHE_MAX_ENTRIES)
 _workspace_organization_id_cache = _LruCache[str](max_entries=USER_ID_CACHE_MAX_ENTRIES)
+
+
+def forget_cached_airbyte_user() -> None:
+    """Drop the cached Airbyte user for the current request's verified access token."""
+    try:
+        access_token = get_access_token()
+    except Exception:
+        logger.debug(
+            "MCP access token unavailable while evicting cached Airbyte user",
+            exc_info=True,
+        )
+        return
+    if access_token is None or not access_token.token:
+        return
+    try:
+        auth_user_id = api_util.get_user_id_from_bearer_token(SecretString(access_token.token))
+    except exc.PyAirbyteInputError:
+        return
+    _user_id_cache.pop(auth_user_id)
 
 
 def current_airbyte_user_id() -> str | None:

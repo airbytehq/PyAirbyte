@@ -738,6 +738,10 @@ def test_set_default_cloud_workspace_returns_update_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify the tool maps the client result and states the durable impact."""
+    forget_cached_airbyte_user = MagicMock()
+    monkeypatch.setattr(
+        cloud_mcp, "forget_cached_airbyte_user", forget_cached_airbyte_user
+    )
     update = cloud_mcp.CloudDefaultWorkspaceUpdateInfo(
         user_id="user-id",
         user_email="user@example.com",
@@ -777,6 +781,36 @@ def test_set_default_cloud_workspace_returns_update_result(
         "user@example.com. This applies to future MCP sessions and the Airbyte "
         "Cloud web app."
     )
+    forget_cached_airbyte_user.assert_called_once_with()
+
+
+def test_set_default_cloud_workspace_does_not_forget_cache_when_client_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forget_cached_airbyte_user = MagicMock()
+    monkeypatch.setattr(
+        cloud_mcp, "forget_cached_airbyte_user", forget_cached_airbyte_user
+    )
+
+    class ContextClient:
+        def set_default_workspace_for_user(
+            self,
+            *,
+            user_email: str,
+            workspace_id: str,
+        ) -> cloud_mcp.CloudDefaultWorkspaceUpdateInfo:
+            raise RuntimeError("client failed")
+
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
+
+    with pytest.raises(RuntimeError, match="client failed"):
+        cloud_mcp.set_default_cloud_workspace(
+            cast(Context, object()),
+            user_email="user@example.com",
+            workspace_id="workspace-id",
+        )
+
+    forget_cached_airbyte_user.assert_not_called()
 
 
 @pytest.mark.parametrize(

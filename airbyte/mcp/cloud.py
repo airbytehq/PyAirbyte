@@ -97,6 +97,7 @@ from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
+from airbyte.mcp._user_identity import forget_cached_airbyte_user
 from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
     get_connector_metadata,
@@ -2647,6 +2648,7 @@ def set_default_cloud_workspace(
         user_email=user_email,
         workspace_id=workspace_id,
     )
+    forget_cached_airbyte_user()
     workspace_detail = result.default_workspace_id
     if result.default_workspace_name is not None:
         workspace_detail = f"{result.default_workspace_name} ({result.default_workspace_id})"
