@@ -2185,18 +2185,19 @@ def _make_config_api_request(
                     "path": path,
                     "status_code": response.status_code,
                     "url": response.request.url,
-                    "body": response.request.body,
-                    "response": response.__dict__,
                 },
             ) from ex
 
     try:
-        return response.json()
+        result = response.json()
     except (ValueError, RecursionError):
+        result = None
+    if not isinstance(result, dict):
         raise AirbyteError(
             message="Unexpected API response.",
             context={"path": path, "status_code": response.status_code},
         ) from None
+    return result
 
 
 def _config_api_headers(
@@ -2364,7 +2365,7 @@ def check_connector(
         failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
         if isinstance(failure, dict):
             origin = failure.get("failureOrigin")
-            origin = origin.lower() if isinstance(origin, str) else None
+            origin = (origin.strip().lower() or None) if isinstance(origin, str) else None
             external_message = failure.get("externalMessage")
             if not isinstance(external_message, str):
                 external_message = None

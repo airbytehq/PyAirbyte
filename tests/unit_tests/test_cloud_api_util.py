@@ -1619,6 +1619,8 @@ def _check_with_response(
         pytest.param("failed", ["source"], id="list-origin"),
         pytest.param("failed", {"origin": "source"}, id="dict-origin"),
         pytest.param("failed", "SOURCE", id="uppercase-origin"),
+        pytest.param("failed", " source\n", id="padded-origin"),
+        pytest.param("failed", "  ", id="blank-origin"),
         pytest.param("FAILED", "Destination", id="uppercase-status"),
     ],
 )
@@ -1860,15 +1862,19 @@ def test_get_bearer_token_is_bounded_by_timeout(
 
 
 @pytest.mark.parametrize(
-    "body", ["<html>leaked-body</html>", "[" + "9" * 5000 + "]", "[" * 100_000]
+    "error",
+    [
+        requests.exceptions.JSONDecodeError("Expecting value", "leaked-body", 0),
+        ValueError("Exceeds the limit (4300 digits) for integer string conversion"),
+        RecursionError("maximum recursion depth exceeded"),
+    ],
+    ids=["not-json", "huge-integer", "deep-nesting"],
 )
 def test_config_api_request_rejects_undecodable_body(
-    monkeypatch: pytest.MonkeyPatch, body: str
+    monkeypatch: pytest.MonkeyPatch, error: Exception
 ) -> None:
     """A body that cannot be decoded raises the safe error without carrying the body."""
-    response = requests.Response()
-    response.status_code = 200
-    response._content = body.encode()  # noqa: SLF001
+    response = SimpleNamespace(status_code=200, json=Mock(side_effect=error))
     monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
 
     with pytest.raises(AirbyteError, match="Unexpected API response.") as exc_info:
@@ -1882,6 +1888,7 @@ def test_config_api_request_rejects_undecodable_body(
         )
 
     assert exc_info.value.context == {"path": "/jobs/get", "status_code": 200}
+    assert "leaked-body" not in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -1908,3 +1915,56 @@ def test_get_source_wraps_decode_errors(
             client_secret=None,
             bearer_token=SecretString("token"),
         )
+
+
+@pytest.mark.parametrize("body", [["leaked-body"], "leaked-body", None, 5, True])
+def test_config_api_request_rejects_non_object_body(
+    monkeypatch: pytest.MonkeyPatch, body: object
+) -> None:
+    """A decoded body that is not an object raises the safe error without carrying the body."""
+    response = SimpleNamespace(status_code=200, json=lambda: body)
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+
+    with pytest.raises(AirbyteError, match="Unexpected API response.") as exc_info:
+        api_util._make_config_api_request(
+            path="/workspaces/get_organization_info",
+            json={},
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.context == {
+        "path": "/workspaces/get_organization_info",
+        "status_code": 200,
+    }
+    assert "leaked-body" not in str(exc_info.value)
+
+
+def test_config_api_request_error_omits_request_and_response_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed Config API request raises an error without the request or response body."""
+    response = requests.Response()
+    response.status_code = 500
+    response._content = b'{"internalMessage": "leaked-response"}'  # noqa: SLF001
+    response.request = requests.Request(
+        "POST", "https://api.airbyte.com/v1/jobs/get", data="leaked-request"
+    ).prepare()
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util._make_config_api_request(
+            path="/jobs/get",
+            json={},
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.context is not None
+    assert exc_info.value.context["status_code"] == 500
+    assert "leaked-response" not in str(exc_info.value)
+    assert "leaked-request" not in str(exc_info.value)

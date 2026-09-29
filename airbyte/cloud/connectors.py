@@ -121,6 +121,19 @@ _DECLARATIVE_MANIFEST_IMAGE_NAME = "source-declarative-manifest"
 """The shared image that runs Connector Builder and other manifest-only custom connectors."""
 
 
+_DOCKER_HUB_HOSTS = frozenset(
+    {
+        "docker.io",
+        "index.docker.io",
+        "registry-1.docker.io",
+        "registry.hub.docker.com",
+    }
+)
+"""Host names that all refer to Docker Hub."""
+_CONNECTOR_NAME = re.compile(r"[a-z0-9]+(?:[._-]+[a-z0-9]+)*")
+"""Matches a valid Docker repository name segment."""
+
+
 class _ConnectorDefinitionLike(Protocol):
     """The connector definition fields PyAirbyte reads from the Cloud public API."""
 
@@ -865,9 +878,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         docker_repository = self._fetch_connector_definition().docker_repository
         if not isinstance(docker_repository, str):
             return None
-        repository = docker_repository.removeprefix("index.docker.io/").removeprefix("docker.io/")
+        host, _, path = docker_repository.partition("/")
+        repository = path if host.lower() in _DOCKER_HUB_HOSTS else docker_repository
         organization, _, name = re.split(r"[:@]", repository, maxsplit=1)[0].partition("/")
-        if organization != "airbyte" or not name or "/" in name:
+        if organization != "airbyte" or not _CONNECTOR_NAME.fullmatch(name):
             return None
         return None if name == _DECLARATIVE_MANIFEST_IMAGE_NAME else name
 

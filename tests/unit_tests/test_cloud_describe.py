@@ -1154,6 +1154,9 @@ def test_check_connector_platform_failure_with_message_raises(
     [
         "docker.io/airbyte/source-postgres",
         "index.docker.io/airbyte/source-postgres",
+        "registry-1.docker.io/airbyte/source-postgres",
+        "registry.hub.docker.com/airbyte/source-postgres:3.6.1",
+        "Docker.io/airbyte/source-postgres",
         "airbyte/source-postgres:3.6.1",
         "docker.io/airbyte/source-postgres:latest",
         "airbyte/source-postgres@sha256:abcd",
@@ -1174,3 +1177,31 @@ def test_canonical_name_ignores_docker_hub_host_and_tag(
     source = _seed_source(workspace, "source-1", "Postgres")
 
     assert source.canonical_name == "source-postgres"
+
+
+@pytest.mark.parametrize(
+    "docker_repository",
+    [
+        "airbyte/source-declarative-manifest ",
+        "airbyte/Source-Postgres",
+        "airbyte/..",
+        "airbyte/source-postgres\nleaked",
+        "airbyte/source-postgres?x",
+        "docker.io.example.com/airbyte/source-postgres",
+        "example.com/docker.io/airbyte/source-postgres",
+    ],
+)
+def test_canonical_name_rejects_invalid_names_and_foreign_hosts(
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str
+) -> None:
+    """A repository that is not a valid official image name has no canonical name."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_source_definition",
+        lambda **_: SimpleNamespace(
+            name="Postgres", docker_repository=docker_repository
+        ),
+    )
+    source = _seed_source(workspace, "source-1", "Postgres")
+
+    assert source.canonical_name is None

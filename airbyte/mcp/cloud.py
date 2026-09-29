@@ -732,8 +732,10 @@ How to use this report:
    - connection deleted: connection.status is deprecated. The connection was
      deleted and cannot be enabled; tell the user to recreate it or pick
      another connection.
-   - platform/infrastructure: failure_origin airbyte_platform, or messages about
-     failing to create or launch pods/workloads, even when the checks fail too.
+   - platform/infrastructure: failure_origin airbyte_platform, a check section
+     whose error starts with "Check did not complete (failure origin:
+     airbyte_platform", or messages about failing to create or launch
+     pods/workloads, even when the checks fail too.
      This is an Airbyte-side problem the user cannot fix by changing config;
      retry once with run_cloud_sync (see rule 2), then direct the user to
      https://status.airbyte.com and Airbyte support if it persists.
@@ -2732,15 +2734,22 @@ def _troubleshoot_connector_section(connector: CloudConnector) -> TroubleshootCo
     return section
 
 
+_FAILURE_ORIGIN = re.compile(r"[a-z_]{1,40}")
+"""Matches a failure origin name such as `source` or `airbyte_platform`."""
+
+
 def _check_failure_reason(error: AirbyteError) -> tuple[str, str] | None:
-    """Return the `(failure_origin, external_message)` of a check error's job, if reported."""
+    """Return the `(failure_origin, external_message)` of a check error's job, if reported.
+
+    The message is empty when the job reported an origin without a public message.
+    """
     context = error.context or {}
     origin, message = context.get("failure_origin"), context.get("external_message")
-    if isinstance(message, str) and message:
-        if isinstance(origin, str) and len(origin.splitlines()) == 1:
-            return origin, message
-        return "unknown", message
-    return None
+    origin = origin if isinstance(origin, str) and _FAILURE_ORIGIN.fullmatch(origin) else None
+    message = message if isinstance(message, str) else ""
+    if not origin and not message:
+        return None
+    return origin or "unknown", message
 
 
 def _check_error_outcome(error: AirbyteError) -> tuple[bool | None, str | None, str | None]:
@@ -2752,8 +2761,11 @@ def _check_error_outcome(error: AirbyteError) -> tuple[bool | None, str | None, 
     if failure is None:
         return None, None, _section_error_text(error)
     if failure[0] in {"source", "destination"}:
-        return False, _bounded_message(failure[1])[0], None
-    prefix = _cap_text(f"Check did not complete (failure origin: {failure[0]}): ", 200)[0]
+        return False, _bounded_message(failure[1] or CONNECTOR_CHECK_FAILURE_FALLBACK)[0], None
+    prefix = _cap_text(f"Check did not complete (failure origin: {failure[0]})", 200)[0]
+    if not failure[1]:
+        return None, None, prefix + "."
+    prefix += ": "
     lines = failure[1].splitlines()
     kept = _filter_log_lines(lines)
     marker = STACK_TRACE_REMOVED_MARKER if len(kept) != len(lines) else ""

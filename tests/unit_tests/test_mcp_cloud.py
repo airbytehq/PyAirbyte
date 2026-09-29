@@ -31,7 +31,12 @@ from airbyte._direct_connectors.models import (
 from airbyte._util import api_util
 from airbyte.cloud import CloudConnection, CloudWorkspace
 from airbyte.cloud.organizations import CloudOrganization
-from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
+from airbyte.cloud.connectors import (
+    CheckResult,
+    CloudSource,
+    ConnectorFeature,
+    ConnectorType,
+)
 from airbyte.cloud.sync_results import (
     SyncAttempt,
     SyncAttemptFailure,
@@ -4509,7 +4514,7 @@ def test_check_cloud_connector_platform_failure_raises(
 def test_check_cloud_connector_platform_failure_without_message_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A platform failure with no external message raises the bounded fallback text."""
+    """A platform failure with no external message still names its failure origin."""
     response = {
         "status": "failed",
         "jobInfo": {
@@ -4523,7 +4528,9 @@ def test_check_cloud_connector_platform_failure_without_message_raises(
     with pytest.raises(AirbyteError) as exc_info:
         _check_cloud_connector_with(monkeypatch, response)
 
-    assert exc_info.value.get_message() == "Connector check did not complete."
+    assert exc_info.value.get_message() == (
+        "Check did not complete (failure origin: airbyte_platform)."
+    )
     assert "leaked-internal-detail" not in str(exc_info.value)
 
 
@@ -5109,4 +5116,91 @@ def test_check_error_outcome_ignores_multiline_failure_origin() -> None:
         None,
         None,
         "Check did not complete (failure origin: unknown): Workload launch failed.",
+    )
+
+
+@pytest.mark.parametrize(
+    ("context", "expected"),
+    [
+        pytest.param(
+            {"failure_origin": "airbyte_platform", "external_message": None},
+            "Check did not complete (failure origin: airbyte_platform).",
+            id="origin-only",
+        ),
+        pytest.param(
+            {"failure_origin": "o" * 5000},
+            "Connector check did not complete.",
+            id="huge-origin",
+        ),
+        pytest.param(
+            {"failure_origin": "internalmessage: leaked at com.foo.Bar(Bar.java:1)"},
+            "Connector check did not complete.",
+            id="origin-with-detail",
+        ),
+        pytest.param(
+            {"failure_origin": None, "external_message": None},
+            "Connector check did not complete.",
+            id="no-origin",
+        ),
+    ],
+)
+def test_check_error_outcome_keeps_origin_without_message(
+    context: dict[str, object], expected: str
+) -> None:
+    """A check failure that names only its origin is still reported with that origin."""
+    error = AirbyteError(message="Connector check did not complete.", context=context)
+
+    assert cloud_mcp._check_error_outcome(error) == (None, None, expected)  # noqa: SLF001
+
+
+def test_troubleshoot_check_reports_platform_origin_without_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check section keeps the platform signal when the API gives no public message."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {
+            "status": "failed",
+            "jobInfo": {"failureReason": {"failureOrigin": "airbyte_platform"}},
+        },
+    )
+    workspace = cast(
+        CloudWorkspace,
+        SimpleNamespace(
+            api_root="https://api.airbyte.com/v1",
+            config_api_root=None,
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+            workspace_id="workspace-id",
+        ),
+    )
+    source = CloudSource(workspace=workspace, connector_id="source-id")
+
+    section = cloud_mcp._troubleshoot_check_section(source)  # noqa: SLF001
+
+    assert section.succeeded is None
+    assert section.message is None
+    assert section.error == "Check did not complete (failure origin: airbyte_platform)."
+
+
+def test_check_error_outcome_connector_origin_without_message_uses_fallback() -> None:
+    """A connector-origin failure without a message is a failed check with the fallback text."""
+    error = AirbyteError(message="x", context={"failure_origin": "source"})
+
+    assert cloud_mcp._check_error_outcome(error) == (  # noqa: SLF001
+        False,
+        cloud_mcp.CONNECTOR_CHECK_FAILURE_FALLBACK,
+        None,
+    )
+
+
+def test_troubleshoot_guidance_names_check_failure_origin() -> None:
+    """Guidance tells the agent where a check's platform failure origin appears."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert (
+        'error starts with "Check did not complete (failure origin: airbyte_platform"'
+        in guidance
     )
