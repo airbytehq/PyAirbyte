@@ -826,6 +826,8 @@ def get_connection(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except requests.RequestException:
+        raise
     except _SDK_DECODE_ERRORS:
         raise _unexpected_response_error(base_context) from None
 
@@ -972,6 +974,8 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
+        except requests.RequestException:
+            raise
         except _SDK_DECODE_ERRORS:
             raise _unexpected_response_error(base_context) from None
 
@@ -1044,6 +1048,8 @@ def get_job_info(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, {"job_id": job_id}) from e
+    except requests.RequestException:
+        raise
     except _SDK_DECODE_ERRORS:
         raise _unexpected_response_error({"job_id": job_id}) from None
     if status_ok(response.status_code) and response.job_response:
@@ -1185,6 +1191,8 @@ def get_source(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except requests.RequestException:
+        raise
     except _SDK_DECODE_ERRORS:
         raise _unexpected_response_error(base_context) from None
 
@@ -1428,6 +1436,8 @@ def get_destination(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except requests.RequestException:
+        raise
     except _SDK_DECODE_ERRORS:
         raise _unexpected_response_error(base_context) from None
 
@@ -1561,6 +1571,8 @@ def get_source_definition(
         raise _wrap_sdk_error(
             e, {"definition_id": definition_id, "workspace_id": workspace_id}
         ) from e
+    except requests.RequestException:
+        raise
     except _SDK_DECODE_ERRORS:
         raise _unexpected_response_error(
             {"definition_id": definition_id, "workspace_id": workspace_id}
@@ -1606,6 +1618,8 @@ def get_destination_definition(
         raise _wrap_sdk_error(
             e, {"definition_id": definition_id, "workspace_id": workspace_id}
         ) from e
+    except requests.RequestException:
+        raise
     except _SDK_DECODE_ERRORS:
         raise _unexpected_response_error(
             {"definition_id": definition_id, "workspace_id": workspace_id}

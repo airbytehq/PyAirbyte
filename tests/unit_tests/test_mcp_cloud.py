@@ -4714,3 +4714,94 @@ def test_troubleshoot_billing_non_str_organization_name(
 def test_bounded_text_non_str_is_none(value: object) -> None:
     """`_bounded_text` returns None for anything that is not a string."""
     assert cloud_mcp._bounded_text(value) is None  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.MissingSchema("Invalid URL 'api.example.com'"),
+        requests.exceptions.InvalidURL("bad url"),
+        requests.exceptions.JSONDecodeError("Expecting value", "", 0),
+    ],
+)
+def test_api_util_decode_handler_propagates_request_errors(
+    monkeypatch: pytest.MonkeyPatch, error: requests.RequestException
+) -> None:
+    """Request errors that subclass ValueError are not rewritten as decode errors."""
+
+    def _get_connection(_request: object) -> object:
+        raise error
+
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: SimpleNamespace(
+            connections=SimpleNamespace(get_connection=_get_connection)
+        ),
+    )
+
+    with pytest.raises(requests.RequestException) as info:
+        api_util.get_connection(
+            workspace_id="workspace-id",
+            connection_id="connection-id",
+            api_root="https://api.example.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+
+    assert info.value is error
+
+
+def _workspace_with_org_info(
+    monkeypatch: pytest.MonkeyPatch, info: dict[str, object]
+) -> CloudWorkspace:
+    monkeypatch.setattr(
+        CloudWorkspace, "_organization_info", property(lambda _self: info)
+    )
+    return CloudWorkspace(workspace_id="workspace-id", bearer_token="token")
+
+
+@pytest.mark.parametrize(
+    "info",
+    [
+        {"organizationId": 12345, "organizationName": "Organization"},
+        {"organizationId": "org-id", "organizationName": ["Organization"]},
+    ],
+)
+def test_get_organization_rejects_non_str_fields(
+    monkeypatch: pytest.MonkeyPatch, info: dict[str, object]
+) -> None:
+    """Non-string organization fields are treated as incomplete organization info."""
+    workspace = _workspace_with_org_info(monkeypatch, info)
+
+    with pytest.raises(AirbyteError, match="Organization info is incomplete."):
+        workspace.get_organization(raise_on_error=True)
+    assert workspace.get_organization(raise_on_error=False) is None
+
+
+def test_troubleshoot_billing_non_str_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-string organization ID sets billing.error and leaves other sections intact."""
+    real_workspace = _workspace_with_org_info(
+        monkeypatch, {"organizationId": 12345, "organizationName": "Organization"}
+    )
+    monkeypatch.setattr(
+        _TroubleshootWorkspace,
+        "get_organization",
+        lambda _self, *, raise_on_error=True: real_workspace.get_organization(
+            raise_on_error=raise_on_error
+        ),
+    )
+    connection = _TroubleshootConnection(jobs=[_job(2, JobStatusEnum.SUCCEEDED)])
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.billing.error == (
+        "Organization lookup failed: Organization info is incomplete."
+    )
+    assert result.billing.status is None
+    assert result.connection.connection_id == "connection-id"
+    assert result.source_check.succeeded is True
+    assert [job.job_id for job in result.recent_jobs.jobs] == [2]
