@@ -60,12 +60,18 @@ class AirbyteUser:
     """Canonical Airbyte user identity and its default workspace, when available.
 
     Cached without expiry (evicted when `set_default_cloud_workspace` changes it), so
-    `default_workspace_id` may be stale. It is only used to derive the organization of
-    `ServerConnected` telemetry; tools resolve the default workspace live.
+    `default_workspace_id` may be stale. It is only used to derive the organization
+    recorded in telemetry; tools resolve the default workspace live.
     """
 
     user_id: str
     default_workspace_id: str | None
+
+
+_current_airbyte_user: ContextVar[AirbyteUser | None] = ContextVar(
+    "airbyte_mcp_airbyte_user",
+    default=None,
+)
 
 
 class _LruCache(Generic[_ValueT]):
@@ -198,6 +204,20 @@ async def resolve_airbyte_user_for_token(
     return user
 
 
+def _request_credentials(ctx: Context | None) -> tuple[SecretString, str, str | None] | None:
+    """Return the verified bearer token and API roots for the current request."""
+    access_token = get_access_token()
+    if access_token is None or not access_token.token:
+        return None
+
+    api_root = CLOUD_API_ROOT
+    config_api_root: str | None = None
+    if ctx is not None:
+        api_root = get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT
+        config_api_root = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL) or None
+    return SecretString(access_token.token), api_root, config_api_root
+
+
 async def resolve_airbyte_user(ctx: Context | None) -> AirbyteUser | None:
     """Resolve the caller's Airbyte user for its verified access token.
 
@@ -205,17 +225,11 @@ async def resolve_airbyte_user(ctx: Context | None) -> AirbyteUser | None:
     without a transport auth provider), when the token has no user claim, or
     when the lookup fails or times out.
     """
-    access_token = get_access_token()
-    if access_token is None or not access_token.token:
+    credentials = _request_credentials(ctx)
+    if credentials is None:
         return None
 
-    bearer_token = SecretString(access_token.token)
-    api_root = CLOUD_API_ROOT
-    config_api_root: str | None = None
-    if ctx is not None:
-        api_root = get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT
-        config_api_root = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL) or None
-
+    bearer_token, api_root, config_api_root = credentials
     return await resolve_airbyte_user_for_token(
         bearer_token,
         api_root=api_root,
@@ -281,6 +295,27 @@ async def resolve_workspace_organization_id(
     return organization_id
 
 
+async def resolve_user_default_organization_id(ctx: Context | None) -> str | None:
+    """Resolve the organization of the current tool call's user's default workspace.
+
+    Requires `AirbyteUserMiddleware` to have resolved the user for this call.
+    """
+    user = _current_airbyte_user.get()
+    if user is None or user.default_workspace_id is None:
+        return None
+    credentials = _request_credentials(ctx)
+    if credentials is None:
+        return None
+
+    bearer_token, api_root, config_api_root = credentials
+    return await resolve_workspace_organization_id(
+        user.default_workspace_id,
+        bearer_token=bearer_token,
+        api_root=api_root,
+        config_api_root=config_api_root,
+    )
+
+
 @contextmanager
 def airbyte_user_context(user_id: str | None) -> Iterator[None]:
     """Set the Airbyte user identity for telemetry emitted in this context."""
@@ -292,10 +327,10 @@ def airbyte_user_context(user_id: str | None) -> Iterator[None]:
 
 
 class AirbyteUserMiddleware(Middleware):
-    """Expose the caller's Airbyte user ID to telemetry for each tool call.
+    """Expose the caller's Airbyte user to telemetry for each tool call.
 
-    Must wrap `ToolCallTelemetryMiddleware` so the ID is still set when the
-    telemetry event is emitted after the tool returns.
+    Must wrap `CallScopeMiddleware` and `ToolCallTelemetryMiddleware`, so the user is
+    known when the call scope is resolved and when the telemetry event is emitted.
     """
 
     async def on_call_tool(
@@ -303,12 +338,16 @@ class AirbyteUserMiddleware(Middleware):
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        """Resolve the caller's Airbyte user ID, then run the call with it in context."""
+        """Resolve the caller's Airbyte user, then run the call with it in context."""
         try:
-            user_id = await resolve_airbyte_user_id(context.fastmcp_context)
+            user = await resolve_airbyte_user(context.fastmcp_context)
         except Exception:
             logger.debug("Airbyte user resolution for MCP telemetry failed", exc_info=True)
-            user_id = None
+            user = None
 
-        with airbyte_user_context(user_id):
-            return await call_next(context)
+        user_token = _current_airbyte_user.set(user)
+        try:
+            with airbyte_user_context(user.user_id if user is not None else None):
+                return await call_next(context)
+        finally:
+            _current_airbyte_user.reset(user_token)

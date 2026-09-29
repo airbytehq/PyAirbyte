@@ -4,21 +4,25 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.auth import AccessToken
 from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import TelemetryRecord, ToolCallTelemetryMiddleware
 
+from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
-from airbyte.mcp import _scope, server
+from airbyte.mcp import _scope, _user_identity, server
 
 
 WORKSPACE = "11111111-1111-1111-1111-111111111111"
 OTHER_WORKSPACE = "22222222-2222-2222-2222-222222222222"
 ORGANIZATION = "33333333-3333-3333-3333-333333333333"
+USER = "44444444-4444-4444-4444-444444444444"
 
 
 class _FakeWorkspace:
@@ -197,3 +201,84 @@ def test_default_workspace_recorded_from_a_sync_tool_thread(
     assert seen == [
         {"workspace_id": WORKSPACE, "organization_id": None, "scope_source": "default"}
     ]
+
+
+@pytest.fixture
+def verified_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
+    """Authenticate calls as a user whose default workspace is in `ORGANIZATION`.
+
+    Returns the workspaces whose organization was looked up.
+    """
+    organization_lookups: list[str] = []
+    monkeypatch.setattr(
+        _user_identity,
+        "get_access_token",
+        lambda: AccessToken(token="verified-token", client_id="client", scopes=[]),
+    )
+    monkeypatch.setattr(
+        api_util, "get_user_id_from_bearer_token", lambda _: "keycloak-user"
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": USER, "defaultWorkspaceId": OTHER_WORKSPACE},
+    )
+
+    def get_workspace_organization_info(workspace_id: str, **_: Any) -> dict[str, str]:
+        organization_lookups.append(workspace_id)
+        return {"organizationId": ORGANIZATION}
+
+    monkeypatch.setattr(
+        api_util, "get_workspace_organization_info", get_workspace_organization_info
+    )
+    _user_identity._user_id_cache.clear()
+    _user_identity._workspace_organization_id_cache.clear()
+    yield organization_lookups
+    _user_identity._user_id_cache.clear()
+    _user_identity._workspace_organization_id_cache.clear()
+
+
+def test_unscoped_call_falls_back_to_the_users_default_organization(
+    events: list[TelemetryRecord], verified_user: list[str]
+) -> None:
+    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_info", {"connector_name": "source-faker"})
+    assert [_scope_of(event) for event in events[-2:]] == [
+        (None, ORGANIZATION, "user_default"),
+        (None, ORGANIZATION, "user_default"),
+    ]
+    assert verified_user == [OTHER_WORKSPACE]
+
+
+def test_scoped_call_does_not_look_up_the_users_default_organization(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[TelemetryRecord],
+    verified_user: list[str],
+) -> None:
+    _stub_workspace(monkeypatch, default=OTHER_WORKSPACE)
+    _call("list_custom_source_definitions", {"workspace_id": WORKSPACE})
+    assert _scope_of(events[-1]) == (WORKSPACE, None, "arg")
+    assert verified_user == []
+
+
+def test_default_workspace_used_by_the_tool_wins_over_the_users_default_organization(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[TelemetryRecord],
+    verified_user: list[str],
+) -> None:
+    _stub_workspace(monkeypatch, default=WORKSPACE)
+    _call("list_custom_source_definitions", {})
+    assert _scope_of(events[-1]) == (WORKSPACE, None, "default")
+
+
+def test_unscoped_call_without_a_default_workspace_records_nulls(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[TelemetryRecord],
+    verified_user: list[str],
+) -> None:
+    monkeypatch.setattr(
+        api_util, "get_user_by_auth_id", lambda *_, **__: {"userId": USER}
+    )
+    _call("get_connector_info", {"connector_name": "source-faker"})
+    assert _scope_of(events[-1]) == (None, None, None)
+    assert verified_user == []

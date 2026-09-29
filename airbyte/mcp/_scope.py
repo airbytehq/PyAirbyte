@@ -8,9 +8,12 @@ came from:
 - `header`: the `X-Airbyte-Workspace-Id` / `X-Airbyte-Organization-Id` header, or the
   matching environment variable on stdio.
 - `default`: the caller's default workspace, resolved by the tool itself.
+- `user_default`: for calls that name no workspace or organization, the organization of
+  the authenticated user's default workspace. `workspace_id` stays null.
 
-Only UUID-shaped values are recorded. `organization_id` is never looked up from the
-workspace; reporting derives it by joining `workspace_id` to the workspace dimension.
+Only UUID-shaped values are recorded. Except for `user_default`, `organization_id` is
+never looked up from the workspace; reporting derives it by joining `workspace_id` to
+the workspace dimension.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import get_mcp_config
 
 from airbyte.constants import MCP_CONFIG_ORGANIZATION_ID, MCP_CONFIG_WORKSPACE_ID
+from airbyte.mcp._user_identity import resolve_user_default_organization_id
 
 
 if TYPE_CHECKING:
@@ -35,7 +39,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ScopeSource = Literal["arg", "header", "default"]
+ScopeSource = Literal["arg", "header", "default", "user_default"]
 
 _UUID_RE = re.compile(
     r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z", re.IGNORECASE
@@ -50,6 +54,16 @@ class CallScope:
     workspace_source: ScopeSource | None = None
     organization_id: str | None = None
     organization_source: ScopeSource | None = None
+    user_default_organization_id: str | None = None
+
+    def resolved(self) -> CallScope:
+        """Return this scope, or the user's default organization if it names neither ID."""
+        if self.workspace_id or self.organization_id or not self.user_default_organization_id:
+            return self
+        return CallScope(
+            organization_id=self.user_default_organization_id,
+            organization_source="user_default",
+        )
 
     @property
     def scope_source(self) -> ScopeSource | None:
@@ -127,14 +141,14 @@ def record_default_workspace(workspace_id: str | None) -> None:
 
 def call_scope_properties() -> dict[str, str | None]:
     """Return `workspace_id`, `organization_id` and `scope_source` for the current call."""
-    return (_CALL_SCOPE.get() or CallScope()).to_properties()
+    return (_CALL_SCOPE.get() or CallScope()).resolved().to_properties()
 
 
 class CallScopeMiddleware(Middleware):
     """Hold a fresh `CallScope` for the duration of each tool call.
 
     Must wrap the tool-call telemetry middleware, which reads the scope after the tool
-    returns.
+    returns, and be wrapped by `AirbyteUserMiddleware`, which resolves the caller.
     """
 
     async def on_call_tool(
@@ -143,7 +157,15 @@ class CallScopeMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Resolve the known scope, then let the tool fill in its default workspace."""
-        token = _CALL_SCOPE.set(scope_from_request(context))
+        scope = scope_from_request(context)
+        if scope.workspace_id is None and scope.organization_id is None:
+            try:
+                scope.user_default_organization_id = await resolve_user_default_organization_id(
+                    context.fastmcp_context
+                )
+            except Exception:
+                logger.debug("MCP user default organization unavailable", exc_info=True)
+        token = _CALL_SCOPE.set(scope)
         try:
             return await call_next(context)
         finally:
