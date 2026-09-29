@@ -119,26 +119,6 @@ def test_lookup_is_cached_per_auth_user(segment: MagicMock, lookups: list[str]) 
     assert lookups == ["keycloak-a", "keycloak-b"]
 
 
-def test_tool_call_reuses_stale_cached_user_without_refresh(
-    segment: MagicMock, lookups: list[str]
-) -> None:
-    _user_identity._user_id_cache.set(
-        "keycloak-a",
-        _user_identity._CachedAirbyteUser(
-            user=_user_identity.AirbyteUser(
-                user_id=USER_A,
-                default_workspace_id="stale-workspace",
-            ),
-            fetched_at=time.monotonic() - 3600,
-        ),
-    )
-
-    _call("keycloak-a")
-
-    assert _identities(segment) == [(USER_A, USER_A)]
-    assert lookups == []
-
-
 def test_concurrent_calls_keep_their_own_user(
     segment: MagicMock, lookups: list[str]
 ) -> None:

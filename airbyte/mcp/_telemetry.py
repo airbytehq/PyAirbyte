@@ -41,7 +41,6 @@ from airbyte.constants import (
     is_hosted_mcp_mode,
 )
 from airbyte.mcp._user_identity import (
-    DEFAULT_WORKSPACE_CACHE_TTL_SECONDS,
     airbyte_user_context,
     resolve_airbyte_user_for_token,
     resolve_workspace_organization_id,
@@ -509,7 +508,7 @@ class McpRequestTelemetryMiddleware:
         has_workspace_id = isinstance(workspace_id, str) and bool(workspace_id)
         organization_id = extra.get("organization_id")
         has_organization_id = isinstance(organization_id, str) and bool(organization_id)
-        if has_workspace_id:
+        if has_workspace_id or has_organization_id:
             scope_source = "header"
 
         if pending.bearer_token is not None:
@@ -517,29 +516,30 @@ class McpRequestTelemetryMiddleware:
                 pending.bearer_token,
                 api_root=pending.api_root,
                 config_api_root=pending.config_api_root,
-                max_age_seconds=DEFAULT_WORKSPACE_CACHE_TTL_SECONDS,
             )
             if user is not None:
                 airbyte_user_id = user.user_id
 
-            if not has_workspace_id and user is not None and user.default_workspace_id is not None:
-                workspace_id = user.default_workspace_id
-                scope_source = "default"
-                has_workspace_id = True
-                extra["workspace_id"] = workspace_id
+            organization_workspace_id = (
+                workspace_id if has_workspace_id else user.default_workspace_id if user else None
+            )
+            uses_default_workspace = not has_workspace_id and organization_workspace_id is not None
 
-            if not has_organization_id and has_workspace_id and isinstance(workspace_id, str):
+            if (
+                not has_organization_id
+                and isinstance(organization_workspace_id, str)
+                and organization_workspace_id
+            ):
                 organization_id = await resolve_workspace_organization_id(
-                    workspace_id,
+                    organization_workspace_id,
                     bearer_token=pending.bearer_token,
                     api_root=pending.api_root,
                     config_api_root=pending.config_api_root,
                 )
                 if organization_id is not None:
                     extra["organization_id"] = organization_id
-
-        if scope_source is None and has_organization_id:
-            scope_source = "header"
+                    if uses_default_workspace:
+                        scope_source = "default"
 
         extra["airbyte_user_id"] = airbyte_user_id
         extra["scope_source"] = scope_source

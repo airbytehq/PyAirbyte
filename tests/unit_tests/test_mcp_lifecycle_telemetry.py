@@ -65,8 +65,6 @@ _AUTH_USER_ID = "keycloak-user"
 _AIRBYTE_USER_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 _DEFAULT_WORKSPACE_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 _ORGANIZATION_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-_OLD_WORKSPACE_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-_NEW_WORKSPACE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 _request_auth_user: ContextVar[str | None] = ContextVar(
     "lifecycle_request_auth_user", default=_AUTH_USER_ID
 )
@@ -336,7 +334,7 @@ def test_hosted_initialize_resolves_default_scope_and_session_identity(
     assert connected.invocation_type == SERVER_CONNECTED_EVENT
     assert _SERVER_CONNECTED_KEYS <= set(connected.to_dict())
     assert connected.extra["airbyte_user_id"] == _AIRBYTE_USER_ID
-    assert connected.extra["workspace_id"] == _DEFAULT_WORKSPACE_ID
+    assert connected.extra["workspace_id"] is None
     assert connected.extra["organization_id"] == _ORGANIZATION_ID
     assert connected.extra["scope_source"] == "default"
     session_digest = hashlib.sha256(
@@ -382,7 +380,7 @@ def test_hosted_server_discover_resolves_default_scope(
     assert connected.name == "server/discover"
     assert connected.extra["session_id"] is None
     assert connected.extra["airbyte_user_id"] == _AIRBYTE_USER_ID
-    assert connected.extra["workspace_id"] == _DEFAULT_WORKSPACE_ID
+    assert connected.extra["workspace_id"] is None
     assert connected.extra["organization_id"] == _ORGANIZATION_ID
     assert connected.extra["scope_source"] == "default"
     assert hosted_identity == ([_AUTH_USER_ID], [_DEFAULT_WORKSPACE_ID])
@@ -502,9 +500,9 @@ def test_hosted_initialize_survives_organization_lookup_failure(
     assert response.status_code == 200, response.text
     assert len(captured) == 1
     assert captured[0].extra["airbyte_user_id"] == _AIRBYTE_USER_ID
-    assert captured[0].extra["workspace_id"] == _DEFAULT_WORKSPACE_ID
+    assert captured[0].extra["workspace_id"] is None
     assert captured[0].extra["organization_id"] is None
-    assert captured[0].extra["scope_source"] == "default"
+    assert captured[0].extra["scope_source"] is None
 
 
 def test_hosted_initialize_retries_failed_organization_lookup(
@@ -534,7 +532,9 @@ def test_hosted_initialize_retries_failed_organization_lookup(
     assert [response.status_code for response in responses] == [200, 200]
     assert len(captured) == 2
     assert captured[0].extra["organization_id"] is None
+    assert captured[0].extra["scope_source"] is None
     assert captured[1].extra["organization_id"] == _ORGANIZATION_ID
+    assert captured[1].extra["scope_source"] == "default"
     assert lookups == [_DEFAULT_WORKSPACE_ID, _DEFAULT_WORKSPACE_ID]
     assert hosted_identity[0] == [_AUTH_USER_ID]
 
@@ -555,31 +555,17 @@ def test_hosted_initialize_identity_lookups_are_cached(
     assert hosted_identity == ([_AUTH_USER_ID], [_DEFAULT_WORKSPACE_ID])
 
 
-def test_hosted_initialize_refreshes_stale_default_workspace(
+def test_hosted_initialize_without_default_workspace_has_no_scope(
     records, hosted, hosted_identity, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sinks, captured = records
-    monkeypatch.setattr(_telemetry, "DEFAULT_WORKSPACE_CACHE_TTL_SECONDS", 0.0)
     user_lookups: list[str] = []
 
     def get_user_by_auth_id(auth_user_id: str, **_: object) -> dict[str, str]:
         user_lookups.append(auth_user_id)
-        return {
-            "userId": _AIRBYTE_USER_ID,
-            "defaultWorkspaceId": _NEW_WORKSPACE_ID,
-        }
+        return {"userId": _AIRBYTE_USER_ID}
 
     monkeypatch.setattr(api_util, "get_user_by_auth_id", get_user_by_auth_id)
-    _user_identity._user_id_cache.set(
-        _AUTH_USER_ID,
-        _user_identity._CachedAirbyteUser(
-            user=_user_identity.AirbyteUser(
-                user_id=_AIRBYTE_USER_ID,
-                default_workspace_id=_OLD_WORKSPACE_ID,
-            ),
-            fetched_at=_user_identity.time.monotonic() - 1,
-        ),
-    )
 
     (response,) = asyncio.run(
         _stateless_session(_probe_app(sinks), [_initialize_request()])
@@ -588,45 +574,11 @@ def test_hosted_initialize_refreshes_stale_default_workspace(
     assert response.status_code == 200, response.text
     assert len(captured) == 1
     assert captured[0].extra["airbyte_user_id"] == _AIRBYTE_USER_ID
-    assert captured[0].extra["workspace_id"] == _NEW_WORKSPACE_ID
-    assert captured[0].extra["organization_id"] == _ORGANIZATION_ID
-    assert captured[0].extra["scope_source"] == "default"
+    assert captured[0].extra["workspace_id"] is None
+    assert captured[0].extra["organization_id"] is None
+    assert captured[0].extra["scope_source"] is None
     assert user_lookups == [_AUTH_USER_ID]
-    assert hosted_identity[1] == [_NEW_WORKSPACE_ID]
-
-
-def test_hosted_initialize_uses_stale_workspace_when_refresh_fails(
-    records, hosted, hosted_identity, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sinks, captured = records
-    monkeypatch.setattr(_telemetry, "DEFAULT_WORKSPACE_CACHE_TTL_SECONDS", 0.0)
-
-    def raise_lookup(*_: object, **__: object) -> None:
-        raise RuntimeError("user lookup failed")
-
-    monkeypatch.setattr(api_util, "get_user_by_auth_id", raise_lookup)
-    _user_identity._user_id_cache.set(
-        _AUTH_USER_ID,
-        _user_identity._CachedAirbyteUser(
-            user=_user_identity.AirbyteUser(
-                user_id=_AIRBYTE_USER_ID,
-                default_workspace_id=_OLD_WORKSPACE_ID,
-            ),
-            fetched_at=_user_identity.time.monotonic() - 1,
-        ),
-    )
-
-    (response,) = asyncio.run(
-        _stateless_session(_probe_app(sinks), [_initialize_request()])
-    )
-
-    assert response.status_code == 200, response.text
-    assert len(captured) == 1
-    assert captured[0].extra["airbyte_user_id"] == _AIRBYTE_USER_ID
-    assert captured[0].extra["workspace_id"] == _OLD_WORKSPACE_ID
-    assert captured[0].extra["organization_id"] == _ORGANIZATION_ID
-    assert captured[0].extra["scope_source"] == "default"
-    assert hosted_identity[1] == [_OLD_WORKSPACE_ID]
+    assert hosted_identity[1] == []
 
 
 def test_stdio_context_uses_process_session(records, monkeypatch) -> None:
