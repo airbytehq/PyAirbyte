@@ -21,7 +21,9 @@ import pytest
 import requests
 from fastmcp import Client, FastMCP
 from fastmcp import telemetry as fastmcp_telemetry
-from fastmcp.exceptions import NotFoundError
+from fastmcp.exceptions import NotFoundError, ToolError
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent
 from fastmcp_extensions import CapabilityTokenMiddleware
 from jsonschema import ValidationError
 from opentelemetry import trace
@@ -603,23 +605,134 @@ def test_tool_span_carries_intent_when_client_sends_meta_traceparent_and_is_root
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
+@pytest.mark.parametrize("transport", ["client", "http"])
 @pytest.mark.parametrize("error", [ValueError, NotFoundError])
 def test_error_span_has_error_type_and_no_exception_text(
-    app, monkeypatch, otel_provider, error
+    app, monkeypatch, otel_provider, error, transport
 ):
     @app.tool()
     def fail() -> str:
         raise error("error-SENTINEL")
 
     monkeypatch.setitem(observability._TOOL_MODULES, "fail", "cloud")
-    result = asyncio.run(_call(app, {}, name="fail", raise_on_error=False))
-    assert result.is_error
+    if transport == "http":
+        response = asyncio.run(
+            _http_rpc(app, "tools/call", {"name": "fail", "arguments": {}})
+        )
+        assert response.json()["result"]["isError"]
+    else:
+        result = asyncio.run(_call(app, {}, name="fail", raise_on_error=False))
+        assert result.is_error
     span = _tool_span(otel_provider)
     assert span.status.status_code == StatusCode.ERROR
     assert not span.status.description
     assert span.attributes["airbyte.mcp.error_type"] == error.__name__
     assert span.events
     assert all(set(event.attributes) == {"exception.type"} for event in span.events)
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("transport", ["direct", "client", "http"])
+@pytest.mark.parametrize("is_error", [False, True])
+def test_returned_tool_error_status_matches_response_without_exporting_content(
+    app, monkeypatch, otel_provider, transport, is_error
+):
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+    expected = ToolResult(
+        content=[TextContent(type="text", text="result-SENTINEL")],
+        meta={"private": "metadata-SENTINEL"},
+        is_error=is_error,
+    )
+
+    @app.tool()
+    def outcome(value: str) -> ToolResult:
+        assert value == "argument-SENTINEL"
+        # Exercise the final privacy boundary even if a dependency captures payloads.
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.tool.call.arguments", "input-SENTINEL")
+        span.set_attribute("gen_ai.tool.call.result", "output-SENTINEL")
+        span.set_attribute("_dd.ml_obs.metadata", "metadata-SENTINEL")
+        return expected
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "outcome", "cloud")
+    arguments = {"value": "argument-SENTINEL", "intent": "Check error reporting"}
+    if transport == "http":
+        response = asyncio.run(
+            _http_rpc(app, "tools/call", {"name": "outcome", "arguments": arguments})
+        ).json()["result"]
+        assert response["isError"] is is_error
+        assert response["content"][0]["text"] == "result-SENTINEL"
+        assert response["_meta"] == expected.meta
+    else:
+        response = asyncio.run(
+            app.call_tool("outcome", arguments)
+            if transport == "direct"
+            else _call(app, arguments, name="outcome", raise_on_error=False)
+        )
+        assert response.is_error is is_error
+        assert response.content == expected.content
+        if transport == "direct":
+            assert response is expected
+    span = _tool_span(otel_provider)
+    assert span.status.status_code == (
+        StatusCode.ERROR if is_error else StatusCode.UNSET
+    )
+    assert not span.status.description
+    assert span.attributes.get("airbyte.mcp.error_type") == (
+        "ToolError" if is_error else None
+    )
+    assert span.attributes.get("error.type") == ("ToolError" if is_error else None)
+    metadata = json.loads(span.attributes.get("_dd.ml_obs.metadata", "{}"))
+    assert metadata.get("error_type") == ("ToolError" if is_error else None)
+    if transport == "direct":
+        assert "gen_ai.tool.call.arguments" not in span.attributes
+    else:
+        assert json.loads(span.attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": "Check error reporting"
+        }
+    assert not span.events  # A returned error is not an invented exception.
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_handled_nested_tool_error_does_not_mark_outer_call_failed(
+    app, monkeypatch, otel_provider, raises
+):
+    @app.tool()
+    def inner() -> ToolResult:
+        if raises:
+            raise ValueError("nested-error-SENTINEL")
+        return ToolResult(
+            content=[TextContent(type="text", text="nested-SENTINEL")], is_error=True
+        )
+
+    @app.tool()
+    async def outer() -> str:
+        try:
+            result = await app.call_tool("inner", {})
+            assert result.is_error
+        except ToolError:
+            assert raises
+        return "handled-SENTINEL"
+
+    for name in ("inner", "outer"):
+        monkeypatch.setitem(observability._TOOL_MODULES, name, "cloud")
+    response = asyncio.run(
+        _http_rpc(app, "tools/call", {"name": "outer", "arguments": {}})
+    )
+    assert not response.json()["result"]["isError"]
+    spans = _spans(otel_provider)
+    assert len(spans) == 2
+    parent = next(span for span in spans if span.name == "tools/call outer")
+    child = next(span for span in spans if span.name == "tools/call inner")
+    assert parent.status.status_code == StatusCode.UNSET
+    assert "airbyte.mcp.error_type" not in parent.attributes
+    assert child.parent.span_id == parent.context.span_id
+    assert child.context.trace_id == parent.context.trace_id
+    assert child.status.status_code == StatusCode.ERROR
+    assert child.attributes["airbyte.mcp.error_type"] == (
+        "ValueError" if raises else "ToolError"
+    )
     assert "SENTINEL" not in _export_text(otel_provider)
 
 

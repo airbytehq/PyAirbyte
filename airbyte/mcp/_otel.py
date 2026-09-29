@@ -13,18 +13,19 @@ import logging
 import os
 import re
 import sys
+from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastmcp.server.middleware import Middleware
-from fastmcp.server.telemetry import _active_seam_span  # noqa: PLC2701
+from fastmcp.server.telemetry import _active_seam_span, seam_span  # noqa: PLC2701
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import SpanKind, Status
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from airbyte._direct_connectors.models import ExternalApiReadOnlyAction, ExternalSearchType
 from airbyte.constants import (
@@ -278,14 +279,13 @@ class IntentCaptureMiddleware(Middleware):
         else:
             return result
 
-    async def on_call_tool(
+    async def on_call_tool(  # noqa: PLR0915  # Keep dispatch and its span lifetime together.
         self,
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Strip synthetic arguments and untrusted tracing context before dispatch."""
         attrs: dict[str, str | bool] = {}
-        intent = None
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
@@ -309,37 +309,48 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
-        # FastMCP 4 opens a single seam SERVER span *above* the middleware
-        # chain (later renamed to `tools/call <name>`), so `on_start` stamping
-        # runs before this middleware exists; stamp the in-flight span here.
+        # HTTP already owns a seam span above middleware. Nested/in-process calls
+        # need their own seam, kept alive until we inspect the result. FastMCP
+        # enriches that same span, avoiding a second span or an ended-span race.
         nested = _INTENT_ATTRIBUTES.get() is not None
-        try:
-            current_span = trace.get_current_span()
-            if current_span.is_recording() and not nested:
-                current_span.set_attributes(attrs)
-        except Exception:
-            logger.debug("Intent stamping skipped")
-        # FastMCP enriches the active seam span for in-process calls; give nested
-        # calls their own child span so they cannot rename or relabel the outer one.
-        seam_token = _active_seam_span.set(None) if nested else None
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
-            return await call_next(context)
-        except Exception as exc:
-            # FastMCP 4 wraps tool failures in `ToolError` below the span's
-            # `on_end`, so the cause class is captured here, at the middleware.
-            try:
-                _record_late_attributes(
-                    {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
-                )
-            except Exception:
-                logger.debug("Exception class capture skipped")
-            raise
+            with (
+                seam_span("tools/call", self._app.name)
+                if nested or _active_seam_span.get() is None
+                else nullcontext(trace.get_current_span())
+            ) as span:
+                try:
+                    try:
+                        span.set_attributes(attrs)
+                    except Exception:
+                        logger.debug("Intent stamping skipped")
+                    result = await call_next(context)
+                    try:
+                        if result.is_error and context.message.name in _TOOL_MODULES:
+                            # Never read error content: only a fixed category leaves here.
+                            span.set_status(Status(StatusCode.ERROR))
+                            span.set_attributes(
+                                {"airbyte.mcp.error_type": "ToolError", "error.type": "ToolError"}
+                            )
+                    except Exception:
+                        logger.debug("Tool error status capture skipped")
+                except Exception as exc:
+                    # HTTP converts exceptions into protocol errors before its
+                    # seam ends, so retain the original class at this boundary.
+                    try:
+                        _record_late_attributes(
+                            {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
+                        )
+                    except Exception:
+                        logger.debug("Exception class capture skipped")
+                    raise
+                else:
+                    return result
+                finally:
+                    _record_default_workspace()
         finally:
-            _record_default_workspace()
             _INTENT_ATTRIBUTES.reset(token)
-            if seam_token is not None:
-                _active_seam_span.reset(seam_token)
 
     @staticmethod
     def _attributes(

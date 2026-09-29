@@ -118,6 +118,15 @@ tool names are dropped. Segment requests are excluded from instrumentation.
 Session tokens are hashed before FastMCP sees them, while their extension
 declarations are preserved. Intent is free text capped at 4096 characters.
 
+Tool spans include tool/server/protocol identity, timing, session correlation and
+error status. Returned `isError` results are marked as errors with the fixed
+category `ToolError`; raised exceptions retain their cause class. Neither path
+exports error messages or result content. Nested tool errors stay on the child
+span when the caller handles them successfully. Hosting-level HTTP, Cloud Run,
+and log instrumentation remains the deployment's responsibility. Verify an
+example public-endpoint span in Datadog before retiring platform MCP tracing;
+local exporter tests do not establish public deployment parity.
+
 Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
 to disable export. The hosted entrypoint still strips
 synthetic `intent` arguments for cached clients and hashes session tokens.
