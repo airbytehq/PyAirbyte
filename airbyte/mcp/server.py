@@ -101,6 +101,11 @@ from airbyte.mcp._tool_utils import (
     airbyte_readonly_mode_filter,
     validate_airbyte_domains,
 )
+from airbyte.mcp._user_identity import (
+    AirbyteUserMiddleware,
+    airbyte_user_properties,
+    current_airbyte_user_id,
+)
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
@@ -463,8 +468,12 @@ app = mcp_server(
     telemetry=TelemetryConfig(
         package_name="airbyte",
         segment_write_key=segment_write_key,
-        segment_user_id=SEGMENT_USER_ID,
-        extra_properties=lambda: {**request_properties(), **call_scope_properties()},
+        segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
+        extra_properties=lambda: {
+            **request_properties(),
+            **call_scope_properties(),
+            **airbyte_user_properties(),
+        },
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,
@@ -473,6 +482,7 @@ app = mcp_server(
 
 app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
 app.middleware.insert(0, CallScopeMiddleware())
+app.middleware.insert(0, AirbyteUserMiddleware())
 
 # Register tools from each module
 register_cloud_tools(app)

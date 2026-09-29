@@ -2045,6 +2045,7 @@ def _make_config_api_request(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
     headers = _config_api_headers(
@@ -2052,6 +2053,7 @@ def _make_config_api_request(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     full_url = config_api_root + path
     response = requests.request(
@@ -2059,6 +2061,7 @@ def _make_config_api_request(
         url=full_url,
         headers=headers,
         json=json,
+        timeout=timeout,
     )
     if not status_ok(response.status_code):
         try:
@@ -3191,6 +3194,7 @@ def get_user_by_auth_id(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Get an Airbyte user by the authentication provider user ID."""
     result = _make_config_api_request(
@@ -3204,6 +3208,7 @@ def get_user_by_auth_id(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     if isinstance(result, dict):
         return result
