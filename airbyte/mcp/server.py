@@ -396,11 +396,7 @@ def _create_auth() -> AuthProvider | None:
 
 
 SEGMENT_USER_ID = "airbyte-mcp"
-"""Identifies the PyAirbyte MCP server as the event source.
-
-This applies to both hosted and local transports. The server has no per-caller
-identity to attribute a tool call to.
-"""
+"""Fallback Segment user ID for server telemetry when caller identity is unavailable."""
 
 
 def _segment_write_key() -> str | None:
@@ -423,7 +419,7 @@ if segment_write_key is None:
 lifecycle_telemetry_sinks = TelemetrySinks(
     package_name="airbyte",
     segment_write_key=segment_write_key,
-    segment_user_id=SEGMENT_USER_ID,
+    segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
 )
 """Sinks for MCP session lifecycle events, configured like tool-call telemetry."""
 

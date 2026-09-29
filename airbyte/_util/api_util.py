@@ -2883,6 +2883,7 @@ def get_workspace_organization_info(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Get organization info for a workspace.
 
@@ -2898,6 +2899,7 @@ def get_workspace_organization_info(
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
+        timeout: Optional connect and read timeout for the request.
 
     Returns:
         Dictionary containing organization info:
@@ -2914,6 +2916,7 @@ def get_workspace_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     if isinstance(result, dict):
         return result
