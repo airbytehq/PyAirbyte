@@ -510,6 +510,9 @@ class RedactingExporter(SpanExporter):
                 "http.host",
                 "server.address",
                 "network.peer.address",
+                # Rebuild Datadog Input from bounded intent only, never raw tool data.
+                "gen_ai.tool.call.arguments",
+                "gen_ai.tool.call.result",
             }
         }
         for key in ("http.url", "url.full"):
@@ -553,6 +556,15 @@ class RedactingExporter(SpanExporter):
             }
             if metadata:
                 attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
+            intent = attrs.get("airbyte.mcp.intent")
+            if (
+                span.kind == SpanKind.SERVER
+                and span.name.startswith("tools/call ")
+                and tool_name in _TOOL_MODULES
+                and isinstance(intent, str)
+                and intent
+            ):
+                attrs["gen_ai.tool.call.arguments"] = json.dumps({"intent": intent})
         events = [
             Event(
                 "exception",
