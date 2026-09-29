@@ -99,7 +99,9 @@ hosted redaction boundary and continue exporting after rollback.
   precedence over the installed PyAirbyte version.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
 - `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
-  intent available as Datadog metadata. Leave unset for other OTLP backends.
+  intent available as Datadog metadata. Tool spans also show captured intent and
+  validated action in Datadog Input, without raw tool arguments or results.
+  Leave unset for other OTLP backends.
 - `AIRBYTE_MCP_OTEL_DIGEST_KEY`: optional exact UTF-8 HMAC key for
   `airbyte.mcp.args_digest` (first 32 lowercase hex characters of HMAC-SHA256).
   Missing, blank or unencodable keys disable it; there is no unsalted fallback.
@@ -157,6 +159,7 @@ from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
 )
+from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
     HostOriginGuardMiddleware,
@@ -169,6 +172,7 @@ from airbyte.mcp.server import (
     MCP_SERVER_URL_ENV,
     _env_or_default,
     app,
+    lifecycle_telemetry_sinks,
 )
 from airbyte.version import get_version
 
@@ -333,7 +337,11 @@ def main() -> None:
 
     def wrap_http_app(http_app: ASGIApp) -> ASGIApp:
         return HostOriginGuardMiddleware(
-            wrap_if_enabled(SessionIdHeaderDigest(http_app)),
+            McpRequestTelemetryMiddleware(
+                wrap_if_enabled(SessionIdHeaderDigest(http_app)),
+                sinks=lifecycle_telemetry_sinks,
+                mcp_path=mcp_path,
+            ),
             allowed_hosts,
         )
 

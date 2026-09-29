@@ -10,7 +10,9 @@ import socket
 from collections.abc import Iterator
 from unittest.mock import Mock
 
+import fastmcp.client.telemetry
 import fastmcp.telemetry
+import mcp.shared._otel
 import pytest
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -28,6 +30,7 @@ from airbyte.registry import ConnectorType
 from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
+    ExternalSearchResult,
 )
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import cloud
@@ -46,6 +49,7 @@ agents_app = otel_tests.agents_app
 ACTION = "airbyte.mcp.agent.action"
 GENERAL = "execute_external_api_query"
 SQL = "execute_external_sql_query"
+SEARCH = "execute_external_search_query"
 SENTINEL = "private-payload-must-not-export"
 VALID_ACTIONS = [(GENERAL, action) for action in ("list", "get", "search")] + [
     (SQL, "sql_select")
@@ -61,6 +65,11 @@ def otel_provider() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
             fastmcp.telemetry, "otel_get_tracer", provider.get_tracer
         )
         instrumentation.setattr(trace, "get_tracer", provider.get_tracer)
+        # In-process client spans would parent the server span; real clients are remote.
+        instrumentation.setattr(
+            fastmcp.client.telemetry, "get_tracer", lambda *_, **__: trace.NoOpTracer()
+        )
+        instrumentation.setattr(mcp.shared._otel, "_tracer", trace.NoOpTracer())
         yield provider, exporter
     provider.shutdown()
 
@@ -102,8 +111,9 @@ def uninitialized_provider(monkeypatch: pytest.MonkeyPatch) -> Mock:
 @pytest.mark.parametrize(("name", "action"), VALID_ACTIONS)
 @pytest.mark.parametrize("capture", [True, False])
 @pytest.mark.parametrize("vendor", ["", "datadog"])
+@pytest.mark.parametrize("intent", [None, "Inspect state"])
 def test_requested_action_survives_real_tool_execution(
-    monkeypatch, agents_app, otel_provider, name, action, capture, vendor
+    monkeypatch, agents_app, otel_provider, name, action, capture, vendor, intent
 ):
     monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
     agents_app.middleware = []
@@ -121,6 +131,8 @@ def test_requested_action_survives_real_tool_execution(
         Mock(return_value=Mock(get_connector=Mock(return_value=connector))),
     )
     arguments = {"connector_id": SENTINEL, "cursor": SENTINEL}
+    if intent is not None:
+        arguments["intent"] = intent
     if name == SQL:
         arguments.update(sql=SENTINEL, sql_dialect="snowflake")
     else:
@@ -133,8 +145,13 @@ def test_requested_action_survives_real_tool_execution(
     assert attrs[ACTION] == action
     if vendor:
         assert json.loads(attrs["_dd.ml_obs.metadata"])["agent.action"] == action
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
+            "action": action,
+            **({"intent": intent} if intent is not None else {}),
+        }
     else:
         assert "_dd.ml_obs.metadata" not in attrs
+        assert "gen_ai.tool.call.arguments" not in attrs
     assert SENTINEL not in _export_text(otel_provider)
 
 
@@ -320,7 +337,12 @@ def test_exporter_revalidates_action_and_root_span_scope(
             with tracer.start_as_current_span(
                 f"tools/call {name}",
                 kind=kind,
-                attributes={ACTION: value, "safe": "kept"},
+                attributes={
+                    ACTION: value,
+                    "safe": "kept",
+                    "_dd.ml_obs.metadata": json.dumps({"agent.action": SENTINEL}),
+                    "gen_ai.tool.call.arguments": json.dumps({"secret": SENTINEL}),
+                },
             ):
                 pass
             assert provider.force_flush()
@@ -329,6 +351,12 @@ def test_exporter_revalidates_action_and_root_span_scope(
             assert span.attributes["safe"] == "kept"
             metadata = json.loads(span.attributes.get("_dd.ml_obs.metadata", "{}"))
             assert metadata.get("agent.action") == (expected if vendor else None)
+            if vendor and expected:
+                assert json.loads(span.attributes["gen_ai.tool.call.arguments"]) == {
+                    "action": expected
+                }
+            else:
+                assert "gen_ai.tool.call.arguments" not in span.attributes
         with tracer.start_as_current_span(
             "HTTP", kind=SpanKind.CLIENT, attributes={ACTION: "get"}
         ):
@@ -341,6 +369,10 @@ def test_exporter_revalidates_action_and_root_span_scope(
         assert provider.force_flush()
         assert all(
             ACTION not in span.attributes for span in sink.get_finished_spans()[-2:]
+        )
+        assert all(
+            "gen_ai.tool.call.arguments" not in span.attributes
+            for span in sink.get_finished_spans()[-2:]
         )
         assert SENTINEL not in "\n".join(
             span.to_json() for span in sink.get_finished_spans()
@@ -501,3 +533,59 @@ def test_api_query_public_action_default_and_explicit_null(
         assert execute.call_args.kwargs["request_body"]["action"] == "list"
         assert _tool_span(otel_provider).attributes[ACTION] == "list"
     assert SENTINEL not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize(
+    ("search_type", "action"),
+    [
+        (None, "search_hybrid"),
+        ("hybrid", "search_hybrid"),
+        ("keyword", "search_keyword"),
+        ("semantic", "search_semantic"),
+    ],
+)
+@pytest.mark.parametrize("vendor", ["", "datadog"])
+def test_search_type_is_recorded_as_action(
+    monkeypatch, agents_app, otel_provider, search_type, action, vendor
+):
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
+    agents_app.middleware = []
+    _capture(agents_app)
+    connector = CloudConnector(
+        workspace=Mock(), connector_id=SENTINEL, connector_type=ConnectorType.SOURCE
+    )
+    search = Mock(
+        return_value=ExternalSearchResult(hits=[], metadata=[], response_time_ms=1)
+    )
+    monkeypatch.setattr(agents_api, "execute_cloud_connector_search", search)
+    monkeypatch.setattr(
+        cloud,
+        "_get_cloud_workspace",
+        Mock(return_value=Mock(get_connector=Mock(return_value=connector))),
+    )
+    arguments = {"connector_id": SENTINEL, "prompt": SENTINEL}
+    if search_type is not None:
+        arguments["search_type"] = search_type
+    asyncio.run(_call(agents_app, arguments, name=SEARCH))
+    search.assert_called_once()
+    attrs = _tool_span(otel_provider).attributes
+    assert attrs[ACTION] == action
+    if vendor:
+        assert json.loads(attrs["_dd.ml_obs.metadata"])["agent.action"] == action
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {"action": action}
+    else:
+        assert "gen_ai.tool.call.arguments" not in attrs
+    assert SENTINEL not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("search_type", ["fuzzy", "search_keyword", "KEYWORD", 0, None])
+def test_invalid_search_type_is_omitted(agents_app, otel_provider, search_type):
+    with pytest.raises(ToolError):
+        asyncio.run(
+            _call(
+                agents_app,
+                {"connector_id": SENTINEL, "prompt": "x", "search_type": search_type},
+                name=SEARCH,
+            )
+        )
+    assert ACTION not in _tool_span(otel_provider).attributes

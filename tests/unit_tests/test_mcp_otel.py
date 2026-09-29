@@ -693,6 +693,8 @@ def test_exporter_drops_enduser_and_user_agent(otel_provider):
             "enduser.scope": "scope-SENTINEL",
             "user_agent.original": "useragent-SENTINEL",
             "url.query": "query-SENTINEL",
+            "gen_ai.tool.call.arguments": '{"secret": "argument-SENTINEL"}',
+            "gen_ai.tool.call.result": "result-SENTINEL",
             "url.full": "https://user-SENTINEL:password-SENTINEL@api.airbyte.com/v1/connections?q=SENTINEL#SENTINEL",
         },
     ):
@@ -836,6 +838,19 @@ def test_install_leaves_provider_unset_when_build_fails(
     )
 
 
+def test_install_meta_trace_context_middleware_fails_closed_without_seam():
+    """Missing `FastMCPServerMiddleware` must raise, not silently skip stripping."""
+    from fastmcp.server.low_level import FastMCPServerMiddleware
+
+    server = FastMCP("no-seam")
+    low_level = server._mcp_server.middleware  # noqa: SLF001
+    low_level[:] = [
+        item for item in low_level if not isinstance(item, FastMCPServerMiddleware)
+    ]
+    with pytest.raises(RuntimeError, match="FastMCPServerMiddleware not found"):
+        observability._install_meta_trace_context_middleware(server)  # noqa: SLF001
+
+
 @pytest.mark.parametrize(
     "enabled,capture", [(False, False), (False, True), (True, False), (True, True)]
 )
@@ -947,8 +962,17 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         else:
             assert f"airbyte.mcp.{field}" not in attributes
             assert field not in metadata
+    if valid_ids:
+        assert attributes["airbyte.mcp.scope_source"] == "header"
+        if vendor == "datadog":
+            assert metadata["scope_source"] == "header"
+    else:
+        assert "airbyte.mcp.scope_source" not in attributes
     if vendor == "datadog":
         assert metadata["intent"] == "Inspect state"
+        assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": "Inspect state"
+        }
         assert metadata["intent_present"] is True
         assert (
             metadata["tool_module"]
@@ -956,6 +980,53 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         )
     else:
         assert "_dd.ml_obs.metadata" not in attributes
+        assert "gen_ai.tool.call.arguments" not in attributes
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("intent", [None, "  ", "  Inspect state  ", "x" * 5000])
+def test_datadog_input_contains_only_bounded_intent(
+    app, monkeypatch, otel_provider, intent
+):
+    """Render the safe intent copy, even when instrumentation captures raw data."""
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+
+    @app.tool()
+    def input_probe(secret: str) -> str:
+        trace.get_current_span().set_attributes({
+            "gen_ai.tool.call.arguments": json.dumps({"secret": secret}),
+            "gen_ai.tool.call.result": "result-SENTINEL",
+        })
+        return "result-SENTINEL"
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "input_probe", "cloud")
+    response = asyncio.run(
+        _http_rpc(
+            app,
+            "tools/call",
+            {
+                "name": "input_probe",
+                "arguments": {
+                    "secret": "argument-SENTINEL",
+                    **({"intent": intent} if intent is not None else {}),
+                },
+            },
+        )
+    )
+    assert not response.json()["result"].get("isError")
+    attributes = _tool_span(otel_provider).attributes
+    if intent and intent.strip():
+        expected = intent.strip()
+        if len(expected) > 4096:
+            expected = expected[: 4096 - len("...[truncated]")] + "...[truncated]"
+        assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": expected
+        }
+        assert json.loads(attributes["_dd.ml_obs.metadata"])["intent"] == expected
+    else:
+        assert "gen_ai.tool.call.arguments" not in attributes
+        assert "intent" not in json.loads(attributes["_dd.ml_obs.metadata"])
+    assert "gen_ai.tool.call.result" not in attributes
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
@@ -1036,6 +1107,7 @@ def test_wrap_http_app_places_session_digest_innermost(
         assert wrapped is not None, chain
     assert chain[-1] == "SessionIdHeaderDigest"
     assert chain.count("SessionIdHeaderDigest") == 1
+    assert chain[1] == "McpRequestTelemetryMiddleware"
     assert captured["stateless_http"] is True
 
 
@@ -1385,11 +1457,31 @@ def test_tool_call_id_is_always_digested(app, otel_provider, request_id):
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
+_FUSION_ID = "326245c8-0000-4000-8000-000000000000"
+
+
 @pytest.mark.parametrize(
     "path,exported",
     [
         ("/jobs/get", "https://cloud.airbyte.com/api/v1/jobs/get"),
         ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
+        *[
+            (
+                f"/{kind}/{_FUSION_ID}/{route}",
+                f"https://cloud.airbyte.com/api/v1/{kind}/{_FUSION_ID}/{route}",
+            )
+            # `_Adapter` fails `/sources` requests; both kinds share one route pattern.
+            for kind in ("destinations",)
+            for route in ("execute", "search", "search-status", "enablement")
+        ],
+        (
+            "/destinations/not-a-uuid-SENTINEL/search",
+            observability.REDACTED_PLACEHOLDER,
+        ),
+        (
+            f"/destinations/{_FUSION_ID}/search-SENTINEL",
+            observability.REDACTED_PLACEHOLDER,
+        ),
     ],
 )
 def test_config_api_jobs_get_route_is_exported_and_unknown_routes_are_not(
@@ -1409,3 +1501,39 @@ def test_config_api_jobs_get_route_is_exported_and_unknown_routes_are_not(
     (child,) = [span for span in _spans(otel_provider) if span.kind == SpanKind.CLIENT]
     assert child.attributes["http.url"] == exported
     assert "SENTINEL" not in _export_text(otel_provider)
+
+
+def test_default_workspace_resolved_by_the_tool_is_exported(
+    agents_app, monkeypatch, otel_provider
+):
+    """A call that names no workspace exports the default workspace the tool used."""
+    from airbyte.cloud.client import CloudClient
+
+    workspace_id = "12345678-1234-1234-1234-123456789abc"
+
+    class _Workspace:
+        def list_custom_source_definitions(self, **_):
+            return []
+
+    for name in (
+        "AIRBYTE_CLOUD_WORKSPACE_ID",
+        "AIRBYTE_CLOUD_CLIENT_ID",
+        "AIRBYTE_CLOUD_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AIRBYTE_CLOUD_BEARER_TOKEN", "cloud-bearer-SENTINEL")
+    monkeypatch.setattr(
+        CloudClient, "resolve_default_workspace_id", lambda self: workspace_id
+    )
+    monkeypatch.setattr(CloudClient, "get_workspace", lambda self, _: _Workspace())
+    result = asyncio.run(
+        _http_rpc(
+            agents_app,
+            "tools/call",
+            {"name": "list_custom_source_definitions", "arguments": {}},
+        )
+    )
+    assert not result.json()["result"].get("isError")
+    attributes = _tool_span(otel_provider).attributes
+    assert attributes["airbyte.mcp.workspace_id"] == workspace_id
+    assert attributes["airbyte.mcp.scope_source"] == "default"
