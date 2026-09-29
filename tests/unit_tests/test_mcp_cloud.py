@@ -28,8 +28,9 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
+from airbyte.cloud import CloudConnection, CloudWorkspace
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
-from airbyte.cloud.sync_results import SyncAttemptFailure, SyncJobSnapshot
+from airbyte.cloud.sync_results import SyncAttempt, SyncAttemptFailure, SyncJobSnapshot
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -2703,6 +2704,10 @@ def test_troubleshoot_billing_without_permission(
         result.billing.status.message
         == "Billing information could not be retrieved: not allowed"
     )
+    assert (
+        result.billing.error
+        == "Billing information could not be retrieved: not allowed"
+    )
     assert result.source_check.succeeded is True
 
 
@@ -3480,6 +3485,38 @@ _STACK_TRACE_BLOCKS = [
         id="internal-message-escaped-json",
     ),
     pytest.param(['{"stack_trace": "leaked-stack"}'], id="stack-trace-json"),
+    pytest.param(
+        [
+            "java.lang.IllegalStateException: leaked-header",
+            "\tat io.airbyte.Foo.bar(Foo.java:12)",
+        ],
+        id="java-header-frames",
+    ),
+    pytest.param(
+        [
+            'Exception in thread "main" java.lang.RuntimeException: leaked-thread',
+            "\tat io.airbyte.Main.main(Main.java:5)",
+        ],
+        id="java-thread-header-frames",
+    ),
+    pytest.param(
+        ['Exception in thread "main" java.lang.RuntimeException: leaked-thread'],
+        id="java-thread-header-alone",
+    ),
+    pytest.param(
+        [
+            "i.a.w.Worker(run):42 - java.sql.SQLException: leaked-boom",
+            "\tat org.postgresql.Driver.connect(Driver.java:1)",
+        ],
+        id="java-logger-header-frames",
+    ),
+    pytest.param(
+        [
+            "Error: leaked-node-error",
+            "    at Object.<anonymous> (/app/index.js:10:5)",
+        ],
+        id="node-header-frames",
+    ),
 ]
 
 
@@ -3736,7 +3773,7 @@ def test_troubleshoot_billing_status_access_denied(
     ).billing
 
     assert billing.error == (
-        "Organization lookup was denied for this workspace; this requires "
+        "Billing lookup was denied for this organization; this requires "
         "ORGANIZATION_READER permission."
     )
     assert billing.status is not None
@@ -3771,3 +3808,116 @@ def test_troubleshoot_guidance_round_three_rules() -> None:
         "attempt_number=log_tail.attempt_number" in guidance
     )
     assert "total_log_lines_available counts that job and attempt's lines" in guidance
+
+
+def test_filter_log_lines_keeps_error_line_without_frames() -> None:
+    """An exception-like line that does not start a stack trace is kept."""
+    lines = ["java.io.IOException: connection refused", "retrying"]
+
+    assert cloud_mcp._filter_log_lines(lines) == lines  # noqa: SLF001
+
+
+def test_troubleshoot_log_tail_all_lines_filtered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When every raw log line is filtered, the message says so instead of 'No logs'."""
+    log_text = "java.lang.IllegalStateException: x\n\tat io.airbyte.Foo.bar(Foo.java:1)"
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", log_text)],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert log_tail.log_text is None or log_tail.log_text == ""
+    assert log_tail.total_log_lines_available == 2
+    assert log_tail.filtered_line_count == 2
+    assert log_tail.message == (
+        "All 2 log lines were removed as stack traces or internal details; "
+        "use get_cloud_sync_logs with this job_id and attempt_number if needed."
+    )
+
+
+@pytest.mark.parametrize(
+    "attempt_data",
+    [
+        pytest.param(
+            {"id": 1, "status": None, "createdAt": 1767225600}, id="null-status"
+        ),
+        pytest.param(
+            {"id": 1, "status": "failed", "createdAt": None}, id="null-created-at"
+        ),
+        pytest.param({"id": 1}, id="missing-fields"),
+    ],
+)
+def test_troubleshoot_skips_unreadable_attempt(
+    monkeypatch: pytest.MonkeyPatch, attempt_data: dict[str, object]
+) -> None:
+    """A malformed attempt is skipped and noted; readable attempts and the log tail remain."""
+    malformed = SyncAttempt(
+        workspace=cast(CloudWorkspace, None),
+        connection=cast(CloudConnection, None),
+        job_id=4,
+        attempt_number=1,
+        _attempt_data={"attempt": attempt_data},
+    )
+    good = _TroubleshootAttempt(0, "failed", "good log line")
+    connection = _TroubleshootConnection(
+        jobs=[_job(4, JobStatusEnum.FAILED, attempts=[good, malformed])]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert [a.attempt_number for a in result.latest_failed_job.attempts] == [0]
+    assert result.latest_failed_job.error == "Attempt 1 could not be read."
+    assert result.log_tail.attempt_number == 0
+    assert result.log_tail.log_text == "good log line"
+    assert result.log_tail.error is None
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        pytest.param(
+            403,
+            "Billing lookup was denied for this organization; this requires "
+            "ORGANIZATION_READER permission.",
+            id="forbidden",
+        ),
+        pytest.param(
+            500,
+            "Billing information could not be retrieved: "
+            "Failed to retrieve organization billing information. (HTTP status 500)",
+            id="server-error",
+        ),
+    ],
+)
+def test_troubleshoot_billing_status_failure_sets_error(
+    monkeypatch: pytest.MonkeyPatch, status_code: int, expected_error: str
+) -> None:
+    """Any get_billing_status failure sets billing.error; 401/403 names the billing lookup."""
+
+    def get_billing_status() -> None:
+        raise AirbyteError(
+            message="Failed to retrieve organization billing information.",
+            context={"status_code": status_code},
+        )
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=get_billing_status,
+    )
+
+    billing = _troubleshoot(
+        monkeypatch, _TroubleshootConnection(), organization=organization
+    ).billing
+
+    assert billing.error == expected_error
+    assert billing.status is not None
+    assert billing.status.billing_info_available is False

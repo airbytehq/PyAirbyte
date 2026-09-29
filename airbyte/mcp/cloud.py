@@ -565,6 +565,7 @@ _STACK_BLOCK_START = re.compile(
     ^\s*(?:
         caused\s+by:
         | suppressed:
+        | exception\s+in\s+thread\s
         | traceback\s+\(most\s+recent\s+call\s+last\):
         | during\s+handling\s+of\s+the\s+above\s+exception
         | the\s+above\s+exception\s+was\s+the\s+direct\s+cause
@@ -577,23 +578,41 @@ _PYTHON_TRACEBACK_START = re.compile(
     r"^\s*traceback\s+\(most\s+recent\s+call\s+last\):", re.IGNORECASE
 )
 _CARET_LINE = re.compile(r"^\s*[\^~]+\s*$")
+_EXCEPTION_HEADER = re.compile(
+    r"""
+    ^\s*(?:exception\s+in\s+thread\s+"[^"]*"\s+)?
+    (?:.*\s-\s)?                                    # `... - ` logger message separator
+    (?:[\w$]+\.)*[\w$]*(?:exception|error|throwable)(?::.*)?$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+"""Matches a Java, Python or Node exception header line such as `java.io.IOException: x`."""
 
 
 def _filter_log_lines(lines: list[str]) -> list[str]:
     """Drop stack traces and internal failure details from log lines.
 
-    Known Java, Python and Node stack-trace formats are dropped as whole blocks: the frames,
-    indented lines under them, caret lines and a Python traceback's final exception line.
+    Known Java, Python and Node stack-trace formats are dropped as whole blocks: the exception
+    header line just before the frames, the frames, indented lines under them, caret lines and a
+    Python traceback's final exception line.
     """
     kept: list[str] = []
     in_block = False
     in_python_traceback = False
+    previous_kept_body: str | None = None
     for line in lines:
         plain = _ANSI_ESCAPE.sub("", line)
         body = _LOG_LINE_PREFIX.sub("", plain, count=1)
+        last_kept_body, previous_kept_body = previous_kept_body, None
         if _INTERNAL_DETAIL_KEY.search(body):
             continue
         if _STACK_BLOCK_START.match(body) or _STACK_FRAME.match(body):
+            if (
+                not in_block
+                and last_kept_body is not None
+                and _EXCEPTION_HEADER.match(last_kept_body)
+            ):
+                kept.pop()
             in_block = True
             if _PYTHON_TRACEBACK_START.match(body):
                 in_python_traceback = True
@@ -605,6 +624,7 @@ def _filter_log_lines(lines: list[str]) -> list[str]:
             continue
         in_block = False
         kept.append(line)
+        previous_kept_body = body
     return kept
 
 
@@ -2587,6 +2607,10 @@ _ORGANIZATION_ACCESS_DENIED: Final[str] = (
     "Organization lookup was denied for this workspace; this requires "
     "ORGANIZATION_READER permission."
 )
+_BILLING_ACCESS_DENIED: Final[str] = (
+    "Billing lookup was denied for this organization; this requires "
+    "ORGANIZATION_READER permission."
+)
 
 
 def _is_access_denied(error: Exception) -> bool:
@@ -2614,7 +2638,11 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
                 billing_info_available=False,
                 message=_section_error_text(error, "Billing information could not be retrieved: "),
             ),
-            error=_ORGANIZATION_ACCESS_DENIED if _is_access_denied(error) else None,
+            error=(
+                _BILLING_ACCESS_DENIED
+                if _is_access_denied(error)
+                else _section_error_text(error, "Billing information could not be retrieved: ")
+            ),
         )
     return TroubleshootBillingSection(
         status=CloudOrganizationBillingStatusResult(
@@ -2626,6 +2654,32 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
             is_account_locked=info.is_account_locked,
         ),
     )
+
+
+def _troubleshoot_attempts(
+    attempts: list[SyncAttempt],
+) -> tuple[list[tuple[SyncAttempt, TroubleshootAttempt]], list[str]]:
+    """Build a report row for each attempt, skipping any whose data is malformed.
+
+    Returns each readable attempt with its row, and a note for each attempt that could not be read.
+    """
+    readable: list[tuple[SyncAttempt, TroubleshootAttempt]] = []
+    errors: list[str] = []
+    for attempt in attempts:
+        try:
+            row = TroubleshootAttempt(
+                attempt_number=attempt.attempt_number,
+                status=attempt.status,
+                created_at=attempt.created_at.isoformat(),
+                failures=[
+                    SyncAttemptFailureResult.from_failure(failure) for failure in attempt.failures
+                ],
+            )
+        except (KeyError, ValueError, TypeError, AttributeError):
+            errors.append(f"Attempt {attempt.attempt_number} could not be read.")
+            continue
+        readable.append((attempt, row))
+    return readable, errors
 
 
 def _troubleshoot_log_tail_section(
@@ -2649,7 +2703,12 @@ def _troubleshoot_log_tail_section(
     section.total_log_lines_available = len(raw_lines)
     section.filtered_line_count = len(raw_lines) - len(lines)
     if not lines:
-        section.message = "No logs available for this attempt."
+        section.message = (
+            f"All {len(raw_lines)} log lines were removed as stack traces or internal details; "
+            "use get_cloud_sync_logs with this job_id and attempt_number if needed."
+            if raw_lines
+            else "No logs available for this attempt."
+        )
         return section
     tail: list[str] = []
     size = 0
@@ -2812,18 +2871,6 @@ def troubleshoot_cloud_connection(
         latest_failed_job.start_time = failed_snapshot.start_time.isoformat()
         try:
             attempts = failed_sync_result.get_attempts()
-            latest_failed_job.attempts = [
-                TroubleshootAttempt(
-                    attempt_number=attempt.attempt_number,
-                    status=attempt.status,
-                    created_at=attempt.created_at.isoformat(),
-                    failures=[
-                        SyncAttemptFailureResult.from_failure(failure)
-                        for failure in attempt.failures
-                    ],
-                )
-                for attempt in attempts
-            ]
         except (
             AirbyteError,
             requests.RequestException,
@@ -2836,13 +2883,19 @@ def troubleshoot_cloud_connection(
             latest_failed_job.error = _section_error_text(error)
             log_tail.error = "Attempts unavailable; see latest_failed_job.error."
         else:
+            readable_attempts, attempt_errors = _troubleshoot_attempts(attempts)
+            latest_failed_job.attempts = [row for _, row in readable_attempts]
+            if attempt_errors:
+                latest_failed_job.error = _cap_text(" ".join(attempt_errors))[0]
             if not attempts:
                 latest_failed_job.message = "Job has no attempts."
                 log_tail.message = "No attempts, so no logs were fetched."
+            elif not readable_attempts:
+                log_tail.error = "Attempts unavailable; see latest_failed_job.error."
             else:
                 log_tail = _troubleshoot_log_tail_section(
                     failed_sync_result,
-                    attempts,
+                    [attempt for attempt, _ in readable_attempts],
                     effective_max_lines,
                 )
 
