@@ -120,16 +120,25 @@ def _flag(environ: Mapping[str, str] | None, name: str) -> bool:
 
 
 def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-    """Install once in hosted mode; export only with an explicitly configured endpoint.
+    """Install one hosted backend; OTel exports only with a configured endpoint.
 
     `environ` is a test seam for enablement and the `AIRBYTE_MCP_*` controls only.
     The OTel SDK always reads exporter and resource configuration from process
-    environment; production callers should omit `environ`. An existing global
+    environment; production callers should omit `environ`. For OTel, an existing global
     provider or requests instrumentation prevents safe redaction and therefore
     refuses hosted startup, including when this integration's endpoint is unset.
     """
     global _INSTALLED, _ENVIRON
     if _INSTALLED:
+        return
+    backend = _env(environ).get("AIRBYTE_MCP_TRACING_BACKEND", "otel").strip().lower()
+    if backend not in {"otel", "datadog"}:
+        raise ValueError("AIRBYTE_MCP_TRACING_BACKEND must be 'otel' or 'datadog'")
+    if backend == "datadog":
+        from airbyte.mcp._datadog import install as install_datadog
+
+        install_datadog(app, environ=environ)
+        _INSTALLED, _ENVIRON = True, environ
         return
     if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004  # Conflicting process state, not an invalid argument type.
@@ -279,7 +288,7 @@ class IntentCaptureMiddleware(Middleware):
         else:
             return result
 
-    async def on_call_tool(  # noqa: PLR0915  # Keep dispatch and its span lifetime together.
+    async def on_call_tool(
         self,
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
@@ -309,6 +318,15 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
+        return await self._trace_call(context, call_next, attrs)
+
+    async def _trace_call(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, ToolResult],
+        attrs: dict[str, str | bool],
+    ) -> ToolResult:
+        """Record an OTel call after common argument preparation."""
         # HTTP already owns a seam span above middleware. Nested/in-process calls
         # need their own seam, kept alive until we inspect the result. FastMCP
         # enriches that same span, avoiding a second span or an ended-span race.
