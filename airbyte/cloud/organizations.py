@@ -115,13 +115,9 @@ class CloudOrganization:
                 bearer_token=self._credentials.bearer_token,
             )
         except (requests.RequestException, ValueError) as ex:
-            response = ex.response if isinstance(ex, requests.RequestException) else None
             raise AirbyteError(
                 message="Failed to retrieve organization billing information.",
-                context={
-                    "organization_id": self.organization_id,
-                    "status_code": response.status_code if response is not None else None,
-                },
+                context={"organization_id": self.organization_id},
             ) from ex
         billing = info.get("billing")
         if not isinstance(billing, dict):
@@ -131,11 +127,11 @@ class CloudOrganization:
             )
         payment_status = billing.get("paymentStatus")
         subscription_status = billing.get("subscriptionStatus")
-        payment_status = payment_status if isinstance(payment_status, str) else None
-        subscription_status = subscription_status if isinstance(subscription_status, str) else None
         return CloudOrganizationBillingInfo(
-            payment_status=payment_status,
-            subscription_status=subscription_status,
+            payment_status=payment_status if isinstance(payment_status, str) else None,
+            subscription_status=(
+                subscription_status if isinstance(subscription_status, str) else None
+            ),
             is_account_locked=api_util.is_account_locked(payment_status, subscription_status),
         )
 
@@ -143,17 +139,13 @@ class CloudOrganization:
     def payment_status(self) -> str | None:
         """Payment status of the organization."""
         info = self._fetch_organization_info()
-        billing = info.get("billing")
-        value = billing.get("paymentStatus") if isinstance(billing, dict) else None
-        return value if isinstance(value, str) else None
+        return (info.get("billing") or {}).get("paymentStatus")
 
     @property
     def subscription_status(self) -> str | None:
         """Subscription status of the organization."""
         info = self._fetch_organization_info()
-        billing = info.get("billing")
-        value = billing.get("subscriptionStatus") if isinstance(billing, dict) else None
-        return value if isinstance(value, str) else None
+        return (info.get("billing") or {}).get("subscriptionStatus")
 
     @property
     def is_account_locked(self) -> bool:

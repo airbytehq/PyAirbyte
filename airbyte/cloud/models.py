@@ -56,7 +56,7 @@ class _JobResponseLike(Protocol):
     status: object
     bytes_synced: int | None
     rows_synced: int | None
-    start_time: str | None
+    start_time: str
 
 
 class ConnectorFeature(StrEnum):
@@ -408,8 +408,8 @@ class CloudConnectionInfo(BaseModel):
     schedule: ConnectionSchedule | None = None
     """The connection's sync schedule, or `None` if unknown."""
 
-    status: str | None = None
-    """The connection status, or `None` if the API returned none."""
+    status: str
+    """The connection status."""
 
     @classmethod
     def from_api_response(cls, connection: _ConnectionResponseLike) -> CloudConnectionInfo:
@@ -433,7 +433,7 @@ class CloudConnectionInfo(BaseModel):
                 if connection.schedule is not None
                 else None
             ),
-            status=_enum_value(connection.status) if connection.status is not None else None,
+            status=_enum_value(connection.status),
         )
 
 
@@ -452,8 +452,8 @@ class CloudJobInfo(BaseModel):
     rows_synced: int | None = None
     """The number of rows synced by the job, if available."""
 
-    start_time: str | None = None
-    """The job start time, if the API returned one."""
+    start_time: str
+    """The job start time."""
 
     @classmethod
     def from_api_response(cls, job: _JobResponseLike) -> CloudJobInfo:

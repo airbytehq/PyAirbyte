@@ -61,33 +61,6 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
 """Connect and read timeouts for a deferred-credential create on the Config API."""
 
-API_REQUEST_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
-"""Default connect and read timeouts for public API and Config API requests."""
-
-
-class _TimeoutSession(requests.Session):
-    """A session that applies `API_REQUEST_TIMEOUT_SECS` to requests sent without a timeout.
-
-    A failed token request raises `requests.HTTPError`, because the generated client would
-    otherwise raise a bare `Exception` for it.
-    """
-
-    def send(self, request: requests.PreparedRequest, **kwargs: Any) -> requests.Response:  # noqa: ANN401
-        if kwargs.get("timeout") is None:
-            kwargs["timeout"] = API_REQUEST_TIMEOUT_SECS
-        response = super().send(request, **kwargs)
-        if (
-            (request.url or "").endswith("/applications/token")
-            and not status_ok(response.status_code)
-            and not response.is_redirect
-        ):
-            raise requests.HTTPError(
-                f"Token request failed with status {response.status_code}",
-                request=request,  # pyrefly: ignore[bad-argument-type]  # Stub omits prepared.
-                response=response,
-            )
-        return response
-
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
@@ -130,26 +103,6 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
         context["response_content_type"] = error.raw_response.headers.get("content-type")
 
     return context
-
-
-_SDK_DECODE_ERRORS = (
-    KeyError,
-    AttributeError,
-    TypeError,
-    ValueError,
-    ArithmeticError,
-    RecursionError,
-)
-"""Errors the generated client raises when a 2xx body does not match its response model."""
-
-
-def _unexpected_response_error(context: dict[str, Any]) -> AirbyteError:
-    """Return the error for a response body the generated client could not decode.
-
-    The decode error is not chained or rendered, because its text can embed the response body.
-    """
-    ids = {key: value for key, value in context.items() if key.endswith("_id")}
-    return AirbyteError(message="Unexpected API response.", context=ids)
 
 
 def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None) -> AirbyteError:
@@ -281,7 +234,7 @@ def get_airbyte_server_instance(
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
 
-    client = _TimeoutSession()
+    client = requests.Session()
     client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
 
     # Option 1: Bearer token authentication
@@ -860,10 +813,6 @@ def get_connection(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
-    except requests.RequestException:
-        raise
-    except _SDK_DECODE_ERRORS:
-        raise _unexpected_response_error(base_context) from None
 
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
@@ -1008,10 +957,6 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-        except requests.RequestException:
-            raise
-        except _SDK_DECODE_ERRORS:
-            raise _unexpected_response_error(base_context) from None
 
         if not status_ok(response.status_code):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -1044,12 +989,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
                 },
             )
 
-        data = response.jobs_response.data
-        if not isinstance(data, list) or not all(
-            isinstance(job, models.JobResponse) for job in data
-        ):
-            raise _unexpected_response_error(base_context)
-        page_data: list[models.JobResponse] = list(data)
+        page_data: list[models.JobResponse] = list(response.jobs_response.data)
         if not page_data:
             break
 
@@ -1087,10 +1027,6 @@ def get_job_info(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, {"job_id": job_id}) from e
-    except requests.RequestException:
-        raise
-    except _SDK_DECODE_ERRORS:
-        raise _unexpected_response_error({"job_id": job_id}) from None
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 
@@ -1230,10 +1166,6 @@ def get_source(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
-    except requests.RequestException:
-        raise
-    except _SDK_DECODE_ERRORS:
-        raise _unexpected_response_error(base_context) from None
 
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
@@ -1475,10 +1407,6 @@ def get_destination(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
-    except requests.RequestException:
-        raise
-    except _SDK_DECODE_ERRORS:
-        raise _unexpected_response_error(base_context) from None
 
     if status_ok(response.status_code) and response.destination_response:
         # TODO: This is a temporary workaround to resolve an issue where
@@ -1488,8 +1416,6 @@ def get_destination(
         raw_configuration: dict[str, Any] | None = raw_response.get("configuration")
 
         destination_type = raw_response.get("destinationType")
-        if not isinstance(destination_type, str):
-            destination_type = None
         destination_mapping = {
             "snowflake": models.DestinationSnowflake,
             "bigquery": models.DestinationBigquery,
@@ -1612,12 +1538,6 @@ def get_source_definition(
         raise _wrap_sdk_error(
             e, {"definition_id": definition_id, "workspace_id": workspace_id}
         ) from e
-    except requests.RequestException:
-        raise
-    except _SDK_DECODE_ERRORS:
-        raise _unexpected_response_error(
-            {"definition_id": definition_id, "workspace_id": workspace_id}
-        ) from None
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -1659,12 +1579,6 @@ def get_destination_definition(
         raise _wrap_sdk_error(
             e, {"definition_id": definition_id, "workspace_id": workspace_id}
         ) from e
-    except requests.RequestException:
-        raise
-    except _SDK_DECODE_ERRORS:
-        raise _unexpected_response_error(
-            {"definition_id": definition_id, "workspace_id": workspace_id}
-        ) from None
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -2118,7 +2032,7 @@ def get_bearer_token(
     """
     response = requests.post(
         url=api_root + "/applications/token",
-        timeout=timeout or API_REQUEST_TIMEOUT_SECS,
+        timeout=timeout,
         headers={
             "content-type": "application/json",
             "accept": "application/json",
@@ -2132,14 +2046,7 @@ def get_bearer_token(
     if not status_ok(response.status_code):
         response.raise_for_status()
 
-    try:
-        body = response.json()
-    except (ValueError, RecursionError):
-        body = None
-    token = body.get("access_token") if isinstance(body, dict) else None
-    if not isinstance(token, str) or not token:
-        raise AirbyteError(message="Token response did not include an access token.")
-    return SecretString(token)
+    return SecretString(response.json()["access_token"])
 
 
 def _make_config_api_request(
@@ -2151,16 +2058,13 @@ def _make_config_api_request(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    timeout = timeout or API_REQUEST_TIMEOUT_SECS
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
     headers = _config_api_headers(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        timeout=timeout,
     )
     full_url = config_api_root + path
     response = requests.request(
@@ -2168,7 +2072,6 @@ def _make_config_api_request(
         url=full_url,
         headers=headers,
         json=json,
-        timeout=timeout,
     )
     if not status_ok(response.status_code):
         try:
@@ -2188,16 +2091,7 @@ def _make_config_api_request(
                 },
             ) from ex
 
-    try:
-        result = response.json()
-    except (ValueError, RecursionError):
-        result = None
-    if not isinstance(result, dict):
-        raise AirbyteError(
-            message="Unexpected API response.",
-            context={"path": path, "status_code": response.status_code},
-        ) from None
-    return result
+    return response.json()
 
 
 def _config_api_headers(
@@ -2346,65 +2240,22 @@ def check_connector(
                 "finish setup in Airbyte Cloud.",
             )
         raise
-    if not isinstance(json_result, dict):
-        raise AirbyteError(
-            message="Unexpected check response.",
-            context={"actor_id": actor_id, "connector_type": str(connector_type)},
-        )
     result, message = json_result.get("status"), json_result.get("message")
-    if isinstance(result, str):
-        result = result.lower()
-    if not isinstance(message, str):
-        message = None
 
     if result == "succeeded":
         return True, None
 
     if result == "failed":
-        job_info = json_result.get("jobInfo")
-        failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
-        if isinstance(failure, dict):
-            origin = failure.get("failureOrigin")
-            origin = (origin.strip().lower() or None) if isinstance(origin, str) else None
-            external_message = failure.get("externalMessage")
-            if not isinstance(external_message, str):
-                external_message = None
-            if origin not in {None, "source", "destination"}:
-                failure_type = failure.get("failureType")
-                raise AirbyteError(
-                    message="Connector check did not complete.",
-                    context={
-                        "actor_id": actor_id,
-                        "connector_type": str(connector_type),
-                        "failure_origin": _bounded_check_text(origin),
-                        "failure_type": _bounded_check_text(failure_type),
-                        "external_message": _bounded_check_text(external_message or message),
-                    },
-                )
-            message = message or external_message
-        return False, message
+        failure = (json_result.get("jobInfo") or {}).get("failureReason") or {}
+        return False, message or failure.get("externalMessage")
 
     raise AirbyteError(
-        message="Unexpected check status.",
         context={
             "actor_id": actor_id,
             "connector_type": str(connector_type),
-            "status": _bounded_check_text(result),
+            "response": json_result,
         },
     )
-
-
-_MAX_CHECK_CONTEXT_CHARS = 2_000
-"""Upper bound on each check failure field carried in an error's context."""
-
-
-def _bounded_check_text(value: object) -> str | None:
-    """Return `value` cut to `_MAX_CHECK_CONTEXT_CHARS` if it is a string, else None."""
-    if not isinstance(value, str):
-        return None
-    if len(value) <= _MAX_CHECK_CONTEXT_CHARS:
-        return value
-    return value[: _MAX_CHECK_CONTEXT_CHARS - len(" [truncated]")] + " [truncated]"
 
 
 def validate_yaml_manifest(
@@ -3505,10 +3356,6 @@ def is_account_locked(
     Returns:
         True if the account is locked, False otherwise.
     """
-    payment_status = payment_status.lower() if isinstance(payment_status, str) else None
-    subscription_status = (
-        subscription_status.lower() if isinstance(subscription_status, str) else None
-    )
     return (payment_status in LOCKED_PAYMENT_STATUSES) or (
         subscription_status in LOCKED_SUBSCRIPTION_STATUSES
     )
