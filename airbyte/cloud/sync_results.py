@@ -103,7 +103,6 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
@@ -113,17 +112,15 @@ from airbyte.caches._utils._dest_to_cache import destination_to_cache
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, JobStatusEnum
 from airbyte.datasets import CachedDataset
-from airbyte.exceptions import (
-    AirbyteConnectionSyncError,
-    AirbyteConnectionSyncTimeoutError,
-    AirbyteError,
-)
+from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 """The default timeout for waiting for a sync job to complete, in seconds."""
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     import sqlalchemy
 
     from airbyte.caches.base import CacheBase
@@ -183,31 +180,20 @@ class SyncAttempt:
     def created_at(self) -> datetime:
         """Return the creation time of the attempt."""
         timestamp = self._get_attempt_data()["createdAt"]
-        try:
-            return ab_datetime_parse(timestamp)
-        except ArithmeticError:
-            raise ValueError("Attempt creation time is out of range.") from None
+        return ab_datetime_parse(timestamp)
 
     @property
     def failures(self) -> list[SyncAttemptFailure]:
         """Structured failure reasons for this attempt; empty if the attempt did not fail."""
-        failure_summary = self._get_attempt_data().get("failureSummary")
-        if not isinstance(failure_summary, dict):
-            return []
-        failures = failure_summary.get("failures")
-        if not isinstance(failures, list):
-            return []
+        summary = self._get_attempt_data().get("failureSummary") or {}
         return [
             SyncAttemptFailure(
-                failure_origin=_str_or_none(failure.get("failureOrigin")),
-                failure_type=_str_or_none(failure.get("failureType")),
-                external_message=_str_or_none(failure.get("externalMessage")),
-                retryable=(
-                    failure.get("retryable") if isinstance(failure.get("retryable"), bool) else None
-                ),
+                failure_origin=failure.get("failureOrigin"),
+                failure_type=failure.get("failureType"),
+                external_message=failure.get("externalMessage"),
+                retryable=failure.get("retryable"),
             )
-            for failure in failures
-            if isinstance(failure, dict)
+            for failure in summary.get("failures") or []
         ]
 
     def _get_attempt_data(self) -> dict[str, Any]:
@@ -229,42 +215,29 @@ class SyncAttempt:
             return ""
 
         logs_data = self._attempt_data.get("logs")
-        if not isinstance(logs_data, dict):
+        if not logs_data:
             return ""
+
+        result = ""
 
         if "events" in logs_data:
             log_events = logs_data["events"]
-            if not isinstance(log_events, list):
-                return ""
-            return "\n".join(
-                f"[{event.get('timestamp', '')}] {event.get('level', 'INFO')}: "
-                f"{event.get('message', '')}"
-                for event in log_events
-                if isinstance(event, dict)
-            )
-        log_lines = logs_data.get("logLines")
-        if not isinstance(log_lines, list):
-            return ""
-        return "\n".join(line for line in log_lines if isinstance(line, str))
+            if log_events:
+                log_lines = []
+                for event in log_events:
+                    timestamp = event.get("timestamp", "")
+                    level = event.get("level", "INFO")
+                    message = event.get("message", "")
+                    log_lines.append(
+                        f"[{timestamp}] {level}: {message}"  # pyrefly: ignore[bad-argument-type]
+                    )
+                result = "\n".join(log_lines)
+        elif "logLines" in logs_data:
+            log_lines = logs_data["logLines"]
+            if log_lines:
+                result = "\n".join(log_lines)
 
-
-def _str_or_none(value: object) -> str | None:
-    """Return `value` if it is a string, else `None`."""
-    return value if isinstance(value, str) else None
-
-
-@dataclass(frozen=True)
-class SyncJobSnapshot:
-    """A sync job's status, counts and start time, all from one job lookup."""
-
-    status: JobStatusEnum
-    """The job status."""
-    bytes_synced: int
-    """The number of bytes synced."""
-    records_synced: int
-    """The number of records synced."""
-    start_time: datetime
-    """The job start time in UTC."""
+        return result
 
 
 @dataclass
@@ -360,59 +333,33 @@ class SyncResult:
         """Return the number of records processed."""
         return self._fetch_latest_job_info().rows_synced or 0
 
-    def get_job_snapshot(self) -> SyncJobSnapshot:
-        """Return the job's status, counts and start time from a single job lookup.
-
-        Unlike reading `get_job_status()`, `bytes_synced`, `records_synced` and `start_time`
-        separately, this fetches a running job's info once, so all values are consistent.
-        """
-        job_info = self._fetch_latest_job_info()
-        return SyncJobSnapshot(
-            status=job_info.status,
-            bytes_synced=job_info.bytes_synced or 0,
-            records_synced=job_info.rows_synced or 0,
-            start_time=self._parse_start_time(job_info),
-        )
-
     @property
     def start_time(self) -> datetime:
         """Return the start time of the sync job in UTC."""
-        return self._parse_start_time(self._fetch_latest_job_info())
-
-    def _parse_start_time(self, job_info: CloudJobInfo) -> datetime:
-        """Parse `job_info`'s start time.
-
-        For a missing or unparseable value, fall back to the Config API job's `startedAt`, or
-        else its `createdAt`, in epoch seconds.
-        """
-        parse_error: ValueError | TypeError | None = None
-        if job_info.start_time is not None:
-            try:
-                return ab_datetime_parse(job_info.start_time).astimezone(UTC)
-            except (ValueError, TypeError) as error:
-                parse_error = error
-            except ArithmeticError:
-                parse_error = ValueError(f"Job {self.job_id} start time is out of range.")
-        job = self._fetch_job_with_attempts().get("job")
-        if isinstance(job, dict):
-            for key in ("startedAt", "createdAt"):
-                epoch_seconds = job.get(key)
-                if not isinstance(epoch_seconds, (int, float)) or isinstance(epoch_seconds, bool):
-                    continue
-                try:
-                    return datetime.fromtimestamp(epoch_seconds, tz=UTC)
-                except (OverflowError, OSError, ValueError):
-                    continue
-        if parse_error is not None:
-            raise parse_error
-        raise ValueError(f"Job {self.job_id} has no readable start time.")
+        try:
+            return ab_datetime_parse(self._fetch_latest_job_info().start_time)
+        except (ValueError, TypeError) as e:
+            if "Invalid isoformat string" in str(e):
+                job_info_raw = api_util._make_config_api_request(  # noqa: SLF001
+                    api_root=self.workspace.api_root,
+                    config_api_root=self.workspace.config_api_root,
+                    path="/jobs/get",
+                    json={"id": self.job_id},
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+                raw_start_time = job_info_raw.get("startTime")
+                if raw_start_time:
+                    return ab_datetime_parse(raw_start_time)
+            raise
 
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
         """Fetch job info with attempts from Config API using lazy loading pattern."""
         if self._job_with_attempts_info is not None:
             return self._job_with_attempts_info
 
-        job_with_attempts: object = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
+        self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
             config_api_root=self.workspace.config_api_root,
             path="/jobs/get",
@@ -423,27 +370,12 @@ class SyncResult:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        if not isinstance(job_with_attempts, dict):
-            raise AirbyteError(message="Unexpected API response.", context={"job_id": self.job_id})
-        self._job_with_attempts_info = job_with_attempts
-        return job_with_attempts
-
-    def _fetch_attempts_data(self) -> list[Any]:
-        """Return the job's raw attempt entries; a missing or null list is empty."""
-        attempts_data = self._fetch_job_with_attempts().get("attempts")
-        if attempts_data is None:
-            return []
-        if not isinstance(attempts_data, list):
-            raise AirbyteError(message="Unexpected API response.", context={"job_id": self.job_id})
-        return attempts_data
-
-    def get_raw_attempt_count(self) -> int:
-        """Return how many attempts the API returned, including ones `get_attempts` skips."""
-        return len(self._fetch_attempts_data())
+        return self._job_with_attempts_info
 
     def get_attempts(self) -> list[SyncAttempt]:
         """Return a list of attempts for this sync job."""
-        attempts_data = self._fetch_attempts_data()
+        job_with_attempts = self._fetch_job_with_attempts()
+        attempts_data = job_with_attempts.get("attempts", [])
 
         return [
             SyncAttempt(
@@ -454,7 +386,6 @@ class SyncResult:
                 _attempt_data=attempt_data,
             )
             for i, attempt_data in enumerate(attempts_data, start=0)
-            if isinstance(attempt_data, dict) and isinstance(attempt_data.get("attempt"), dict)
         ]
 
     def raise_failure_status(

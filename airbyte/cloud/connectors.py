@@ -55,7 +55,6 @@ for hit in search_result.hits:
 
 from __future__ import annotations
 
-import re
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
@@ -117,28 +116,11 @@ _SEARCH_NOT_ENABLED_GUIDANCE = (
 )
 
 
-_DECLARATIVE_MANIFEST_IMAGE_NAME = "source-declarative-manifest"
-"""The shared image that runs Connector Builder and other manifest-only custom connectors."""
-
-
-_DOCKER_HUB_HOSTS = frozenset(
-    {
-        "docker.io",
-        "index.docker.io",
-        "registry-1.docker.io",
-        "registry.hub.docker.com",
-    }
-)
-"""Host names that all refer to Docker Hub."""
-_CONNECTOR_NAME = re.compile(r"[a-z0-9]+(?:[._-]+[a-z0-9]+)*")
-"""Matches a valid Docker repository name segment."""
-
-
 class _ConnectorDefinitionLike(Protocol):
     """The connector definition fields PyAirbyte reads from the Cloud public API."""
 
     name: str
-    docker_repository: str | None
+    docker_repository: str
 
 
 class CloudConnector:  # noqa: PLR0904  # Too many public methods
@@ -782,15 +764,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         except exc.AirbyteError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
-            status_code = (
-                error.status_code
-                if isinstance(error, exc.AirbyteCloudApiError)
-                else (error.context or {}).get("status_code")
-            )
-            warnings.append(
-                f"Connector direct-access docs lookup failed: {error.get_message()}"
-                + (f" (HTTP status {status_code})" if status_code is not None else "")
-            )
+            warnings.append(f"Connector direct-access docs lookup failed: {error}")
             return None
         parsed = _DirectConnectorInspectResult(
             connector_id=self.connector_id,
@@ -867,23 +841,15 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def canonical_name(self) -> str | None:
         """The connector's canonical registry name, for example `source-postgres`.
 
-        Derived from the connector definition's Docker repository: the name is returned only for
-        an `airbyte/<name>` repository, with or without a Docker Hub host or a tag. `None` means
-        a custom definition (a custom, forked or Connector Builder image, or an image from
-        another registry) with no registry entry.
-
-        This does not identify the version the connector is running; deployed connectors may be
-        pinned or overridden.
+        Derived from the definition's Docker repository. `None` for anything that is not an
+        `airbyte/<name>` image, and for `source-declarative-manifest` (the shared runner for
+        Connector Builder and other manifest-only custom connectors), since those have no
+        registry entry. This does not identify the version the connector is running.
         """
-        docker_repository = self._fetch_connector_definition().docker_repository
-        if not isinstance(docker_repository, str):
+        organization, _, name = self._fetch_connector_definition().docker_repository.partition("/")
+        if organization != "airbyte" or not name or name == "source-declarative-manifest":
             return None
-        host, _, path = docker_repository.partition("/")
-        repository = path if host.lower() in _DOCKER_HUB_HOSTS else docker_repository
-        organization, _, name = re.split(r"[:@]", repository, maxsplit=1)[0].partition("/")
-        if organization != "airbyte" or not _CONNECTOR_NAME.fullmatch(name):
-            return None
-        return None if name == _DECLARATIVE_MANIFEST_IMAGE_NAME else name
+        return name
 
     def _direct_access_guidance_id(self) -> str | None:
         """The skill ID serving this connector's direct-access docs, if any."""
@@ -1009,8 +975,9 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         The connector's canonical name (for example `source-github`) is resolved from the
         connector definition's Docker repository, then looked up in the connector registry.
         """
-        canonical_name = self.canonical_name
-        return [] if canonical_name is None else get_connector_api_docs_urls(canonical_name)
+        definition = self._fetch_connector_definition()
+        connector_name = definition.docker_repository.split("/")[-1]
+        return get_connector_api_docs_urls(connector_name)
 
     def list_connections(self) -> list[CloudConnection]:
         """List the connections that read from or write to this connector."""

@@ -952,10 +952,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     # Enable/Disable
 
     @property
-    def status(self) -> str | None:
-        """Get the current connection status: `active`, `inactive` or `deprecated` (deleted).
-
-        `None` means the API returned no status.
+    def status(self) -> str:
+        """The connection status: `active`, `inactive` (disabled) or `deprecated` (deleted).
 
         This property always fetches fresh data from the API.
         """

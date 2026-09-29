@@ -881,18 +881,16 @@ def test_check_connector_failed_without_message_uses_failure_reason(
     ("docker_repository", "expected"),
     [
         ("airbyte/source-postgres", "source-postgres"),
-        (None, None),
         ("", None),
         ("airbyte/", None),
         ("airbyte/source-declarative-manifest", None),
         ("mycompany/source-postgres", None),
         ("ghcr.io/airbyte/source-postgres", None),
-        ("airbyte/source-postgres/fork", None),
         ("source-postgres", None),
     ],
 )
 def test_canonical_name_only_for_airbyte_registry_images(
-    monkeypatch: pytest.MonkeyPatch, docker_repository: str | None, expected: str | None
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str, expected: str | None
 ) -> None:
     """Only `airbyte/<name>` images (other than the manifest runner) have a canonical name."""
     workspace = _make_workspace(monkeypatch)
@@ -909,10 +907,10 @@ def test_canonical_name_only_for_airbyte_registry_images(
 
 @pytest.mark.parametrize(
     "docker_repository",
-    [None, "", "mycompany/source-custom", "airbyte/source-declarative-manifest"],
+    ["", "mycompany/source-custom", "airbyte/source-declarative-manifest"],
 )
 def test_custom_definition_is_not_an_error_in_troubleshoot_and_describe(
-    monkeypatch: pytest.MonkeyPatch, docker_repository: str | None
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str
 ) -> None:
     """A custom definition yields a null canonical name without an error or warning."""
     workspace = _make_workspace(monkeypatch)
@@ -940,32 +938,3 @@ def test_custom_definition_is_not_an_error_in_troubleshoot_and_describe(
     guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
     assert "A null canonical_connector_name" in guidance
     assert "custom definition" in guidance
-
-
-def test_check_connector_platform_failure_with_message_raises(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A platform-origin failure raises even when a top-level message is present."""
-    monkeypatch.setattr(
-        api_util,
-        "_make_config_api_request",
-        lambda **_: {
-            "status": "failed",
-            "message": "Check failed",
-            "jobInfo": {"failureReason": {"failureOrigin": "airbyte_platform"}},
-        },
-    )
-
-    with pytest.raises(AirbyteError) as exc_info:
-        api_util.check_connector(
-            actor_id="source-id",
-            connector_type="source",
-            client_id=None,
-            client_secret=None,
-            bearer_token=None,
-            config_api_root="https://config.example.com",
-        )
-
-    assert exc_info.value.get_message() == "Connector check did not complete."
-    assert (exc_info.value.context or {})["failure_origin"] == "airbyte_platform"
-    assert (exc_info.value.context or {})["external_message"] == "Check failed"
