@@ -419,6 +419,53 @@ def test_hosted_initialize_prefers_header_workspace_and_organization(
     assert hosted_identity[1] == expected_lookups
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected_workspace", "expected_organization", "expected_source"),
+    [
+        (
+            {constants.MCP_WORKSPACE_ID_HEADER: "header-workspace"},
+            "header-workspace",
+            None,
+            "header",
+        ),
+        (
+            {constants.MCP_ORGANIZATION_ID_HEADER: "header-organization"},
+            None,
+            "header-organization",
+            "header",
+        ),
+        ({}, None, None, None),
+    ],
+)
+def test_hosted_initialize_reports_scope_without_access_token(
+    records,
+    hosted,
+    hosted_identity,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected_workspace: str | None,
+    expected_organization: str | None,
+    expected_source: str | None,
+) -> None:
+    sinks, captured = records
+    monkeypatch.setattr(_telemetry, "get_access_token", lambda: None)
+    monkeypatch.setattr(_user_identity, "get_access_token", lambda: None)
+    _, params, _ = _initialize_request()
+
+    (response,) = asyncio.run(
+        _stateless_session(_probe_app(sinks), [("initialize", params, headers)])
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(captured) == 1
+    connected = captured[0]
+    assert connected.extra["workspace_id"] == expected_workspace
+    assert connected.extra["organization_id"] == expected_organization
+    assert connected.extra["airbyte_user_id"] is None
+    assert connected.extra["scope_source"] == expected_source
+    assert hosted_identity == ([], [])
+
+
 def test_hosted_initialize_survives_user_lookup_failure(
     records, hosted, hosted_identity, monkeypatch: pytest.MonkeyPatch
 ) -> None:

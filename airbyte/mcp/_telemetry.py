@@ -505,6 +505,13 @@ class McpRequestTelemetryMiddleware:
 
         airbyte_user_id: str | None = None
         scope_source: str | None = None
+        workspace_id = extra.get("workspace_id")
+        has_workspace_id = isinstance(workspace_id, str) and bool(workspace_id)
+        organization_id = extra.get("organization_id")
+        has_organization_id = isinstance(organization_id, str) and bool(organization_id)
+        if has_workspace_id:
+            scope_source = "header"
+
         if pending.bearer_token is not None:
             user = await resolve_airbyte_user_for_token(
                 pending.bearer_token,
@@ -515,20 +522,13 @@ class McpRequestTelemetryMiddleware:
             if user is not None:
                 airbyte_user_id = user.user_id
 
-            workspace_id = extra.get("workspace_id")
-            if isinstance(workspace_id, str) and workspace_id:
-                scope_source = "header"
-            elif user is not None and user.default_workspace_id is not None:
+            if not has_workspace_id and user is not None and user.default_workspace_id is not None:
                 workspace_id = user.default_workspace_id
                 scope_source = "default"
+                has_workspace_id = True
                 extra["workspace_id"] = workspace_id
 
-            organization_id = extra.get("organization_id")
-            if (
-                (not isinstance(organization_id, str) or not organization_id)
-                and isinstance(workspace_id, str)
-                and workspace_id
-            ):
+            if not has_organization_id and has_workspace_id and isinstance(workspace_id, str):
                 organization_id = await resolve_workspace_organization_id(
                     workspace_id,
                     bearer_token=pending.bearer_token,
@@ -537,6 +537,9 @@ class McpRequestTelemetryMiddleware:
                 )
                 if organization_id is not None:
                     extra["organization_id"] = organization_id
+
+        if scope_source is None and has_organization_id:
+            scope_source = "header"
 
         extra["airbyte_user_id"] = airbyte_user_id
         extra["scope_source"] = scope_source
