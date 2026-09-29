@@ -56,7 +56,7 @@ class _JobResponseLike(Protocol):
     status: object
     bytes_synced: int | None
     rows_synced: int | None
-    start_time: str
+    start_time: str | None
 
 
 class ConnectorFeature(StrEnum):
@@ -452,8 +452,8 @@ class CloudJobInfo(BaseModel):
     rows_synced: int | None = None
     """The number of rows synced by the job, if available."""
 
-    start_time: str
-    """The job start time."""
+    start_time: str | None = None
+    """The job start time, if the API returned one."""
 
     @classmethod
     def from_api_response(cls, job: _JobResponseLike) -> CloudJobInfo:

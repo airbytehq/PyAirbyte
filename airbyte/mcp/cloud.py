@@ -531,6 +531,10 @@ TROUBLESHOOT_MAX_LOG_CHARS: Final[int] = 100_000
 """Upper bound on the log tail characters `troubleshoot_cloud_connection` returns."""
 TROUBLESHOOT_MAX_MESSAGE_CHARS: Final[int] = 2_000
 """Upper bound on each free-text message or error in troubleshooting and attempt results."""
+TROUBLESHOOT_MAX_ATTEMPTS: Final[int] = 10
+"""Maximum number of attempts (the latest ones) reported per job."""
+TROUBLESHOOT_MAX_FAILURES_PER_ATTEMPT: Final[int] = 5
+"""Maximum number of failures (the first ones) reported per attempt."""
 TRUNCATION_MARKER: Final[str] = " [truncated]"
 """Suffix marking a message cut to `TROUBLESHOOT_MAX_MESSAGE_CHARS`."""
 STACK_TRACE_REMOVED_MARKER: Final[str] = " [stack trace removed]"
@@ -547,16 +551,28 @@ _LOG_LINE_PREFIX = re.compile(
 )
 """Matches the event prefix of a log line; one following space is part of the prefix."""
 _INTERNAL_DETAIL_KEY = re.compile(
-    r"""(?:\\?["'])?(?:internal_?message|stack_?trace)(?:\\?["'])?\s*[:=]""",
+    r"""
+    (?:\\?["'])?(?:internal_?message|stack_?trace)(?:\\?["'])?\s*[:=]
+    | \\?["'](?:exception|throwable|stack)\\?["']\s*:           # quoted JSON keys only
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+"""Matches internal-detail keys anywhere in a line: `internalMessage`/`stacktrace` quoted or not,
+and `exception`/`throwable`/`stack` as quoted JSON keys."""
+_SERIALIZED_TRACE = re.compile(
+    r"\\{1,2}n\\{1,2}tat\s|traceback\s+\(most\s+recent\s+call\s+last\):",
     re.IGNORECASE,
 )
-"""Matches `internalMessage`/`stacktrace` keys anywhere in a line, quoted or not."""
+"""Matches a stack trace serialized onto one line: an escaped `\\n\\tat ` or an inline traceback."""
+_FRAME_CONTINUATION = re.compile(r"^\s*at\s+\S")
+"""Matches any `at ...` line, which continues a frame block once one has started."""
 _STACK_FRAME = re.compile(
     r"""
     ^\s*(?:
         at\s+[\w$.<>/\[\]-]+\([^)]*\)                  # Java frames, any suffix after `)`
-        | at\s+.*\(\S+:\d+(?::\d+)?\)\s*$                 # Node `at X (/path:1:2)` frames
-        | at\s+\S+:\d+:\d+\s*$                           # Node `at /path:1:2` frames
+        | at\s+(?:async\s+)?(?:new\s+)?\S.*
+          \((?:[^()]*:\d+(?::\d+)?|<anonymous>|native|index\s\d+)\)\s*$  # Node `at X (...)` frames
+        | at\s+(?:async\s+)?\S+:\d+:\d+\s*$                # Node `at /path:1:2` frames
         | \.\.\.\s*\d+\s+(?:more|common\s+frames\s+omitted)\s*$
         | file\s+"[^"]*",\s+line\s+\d+                    # Python `File "x.py", line 12` frames
     )
@@ -629,6 +645,8 @@ def _filter_log_lines(lines: list[str]) -> list[str]:
             continue
         if _INTERNAL_DETAIL_KEY.search(body):
             continue
+        if in_block and _FRAME_CONTINUATION.match(body):
+            continue
         if _STACK_BLOCK_START.match(body) or _STACK_FRAME.match(body):
             if (
                 not in_block
@@ -639,6 +657,8 @@ def _filter_log_lines(lines: list[str]) -> list[str]:
             in_block = True
             if _PYTHON_TRACEBACK_START.match(body):
                 in_python_traceback = True
+            continue
+        if _SERIALIZED_TRACE.search(body):
             continue
         if in_block and (body[:1].isspace() or _CARET_LINE.match(body) or not body):
             continue
@@ -710,6 +730,10 @@ How to use this report:
    network/allowlist issues, ask the user for the source or destination host
    (this tool cannot read source config) and point them to
    https://docs.airbyte.com/platform/operating-airbyte/ip-allowlist.
+   A null canonical_connector_name (with no error in that connector's section)
+   means the connector uses a custom definition (custom, forked or Connector
+   Builder image). Never map it to registry docs, version history, upgrades or
+   upstream airbytehq/airbyte issues; point the user to whoever maintains it.
    For a suspected connector bug, use get_connector_version_history and
    get_connector_info with canonical_connector_name. Ask the user to confirm
    their current version in the UI and suggest upgrading if a newer version
@@ -733,10 +757,12 @@ How to use this report:
    instead. A section with an `error` means that data is missing, not that the
    component is healthy. Text ending in " [truncated]" or
    external_message_truncated true means a message was cut to keep the report
-   small. In log_tail, total_log_lines_available is the raw line count used by
-   get_cloud_sync_logs, filtered_line_count lines were removed as stack traces
-   or internal details, log_text_truncated true means older whole lines were
-   dropped to fit the character limit, and log_text_line_count lower than
+   small. Text ending in " [stack trace removed]" means stack-trace or
+   internal-detail lines were removed from that message. In log_tail,
+   total_log_lines_available is the raw line count used by get_cloud_sync_logs,
+   filtered_line_count lines were removed as stack traces or internal details,
+   log_text_truncated true means older whole lines were dropped to fit the
+   character limit, and log_text_line_count lower than
    total_log_lines_available minus filtered_line_count means earlier lines were
    omitted. Known stack-trace and internal-detail formats are removed; never
    quote any that remain. If you need more log lines, call get_cloud_sync_logs
@@ -763,7 +789,10 @@ class TroubleshootConnectorSection(BaseModel):
     connector_name: str | None = None
     """Display name of the deployed connector."""
     canonical_connector_name: str | None = None
-    """Canonical registry name, for example `source-postgres`. Not the deployed version."""
+    """Canonical registry name, e.g. `source-postgres`; `None` for a custom definition.
+
+    Not the deployed version.
+    """
     connector_url: str
     """URL of the connector in Airbyte Cloud."""
     error: str | None = None
@@ -836,8 +865,8 @@ class SyncAttemptFailureResult(BaseModel):
         """Build a bounded result from a `SyncAttemptFailure`."""
         message, truncated = _bounded_message(failure.external_message)
         return cls(
-            failure_origin=failure.failure_origin,
-            failure_type=failure.failure_type,
+            failure_origin=_bounded_text(failure.failure_origin),
+            failure_type=_bounded_text(failure.failure_type),
             external_message=message,
             external_message_truncated=truncated,
             retryable=failure.retryable,
@@ -854,7 +883,10 @@ class TroubleshootAttempt(BaseModel):
     created_at: str
     """ISO 8601 timestamp of when the attempt was created."""
     failures: list[SyncAttemptFailureResult] = Field(default_factory=list)
-    """Structured failure reasons; empty if the attempt did not fail."""
+    """The first `TROUBLESHOOT_MAX_FAILURES_PER_ATTEMPT` structured failure reasons; empty if the
+    attempt did not fail."""
+    failures_omitted: int = 0
+    """Number of further failures left out of `failures`."""
 
 
 class TroubleshootFailedJobSection(BaseModel):
@@ -869,7 +901,9 @@ class TroubleshootFailedJobSection(BaseModel):
     job_url: str | None = None
     """URL of the connection's job timeline (not a link to this specific job)."""
     attempts: list[TroubleshootAttempt] = Field(default_factory=list)
-    """The job's attempts with failure reasons."""
+    """The job's last `TROUBLESHOOT_MAX_ATTEMPTS` attempts with failure reasons."""
+    attempts_omitted: int = 0
+    """Number of earlier attempts left out of `attempts`."""
     message: str | None = None
     """Explanation when no failed job or no attempts were found."""
     error: str | None = None
@@ -1325,17 +1359,19 @@ def deploy_noop_destination_to_cloud(
 def _sync_status_attempt(attempt: SyncAttempt) -> dict[str, Any]:
     """Build one `get_cloud_sync_status` attempt entry, or an error entry if it is malformed."""
     try:
+        failures = attempt.failures
         return {
             "attempt_number": attempt.attempt_number,
             "attempt_id": attempt.attempt_id,
-            "status": attempt.status,
+            "status": _cap_text(attempt.status)[0],
             "bytes_synced": attempt.bytes_synced,
             "records_synced": attempt.records_synced,
             "created_at": attempt.created_at.isoformat(),
             "failures": [
                 SyncAttemptFailureResult.from_failure(failure).model_dump()
-                for failure in attempt.failures
+                for failure in failures[:TROUBLESHOOT_MAX_FAILURES_PER_ATTEMPT]
             ],
+            "failures_omitted": max(0, len(failures) - TROUBLESHOOT_MAX_FAILURES_PER_ATTEMPT),
         }
     except (KeyError, ValueError, TypeError, AttributeError) as error:
         return {
@@ -1409,9 +1445,11 @@ def get_cloud_sync_status(
     }
 
     if include_attempts:
+        attempts = sync_result.get_attempts()
         result["attempts"] = [
-            _sync_status_attempt(attempt) for attempt in sync_result.get_attempts()
+            _sync_status_attempt(attempt) for attempt in attempts[-TROUBLESHOOT_MAX_ATTEMPTS:]
         ]
+        result["attempts_omitted"] = max(0, len(attempts) - TROUBLESHOOT_MAX_ATTEMPTS)
 
     return result
 
@@ -2531,11 +2569,11 @@ def check_cloud_connector(
     )
 
 
-def _cap_text(text: str) -> tuple[str, bool]:
-    """Cut `text` to `TROUBLESHOOT_MAX_MESSAGE_CHARS`, returning it and whether it was cut."""
-    if len(text) <= TROUBLESHOOT_MAX_MESSAGE_CHARS:
+def _cap_text(text: str, limit: int = TROUBLESHOOT_MAX_MESSAGE_CHARS) -> tuple[str, bool]:
+    """Cut `text` to `limit` characters, returning it and whether it was cut."""
+    if len(text) <= limit:
         return text, False
-    return text[: TROUBLESHOOT_MAX_MESSAGE_CHARS - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER, True
+    return text[: limit - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER, True
 
 
 def _bounded_text(text: str | None) -> str | None:
@@ -2543,18 +2581,22 @@ def _bounded_text(text: str | None) -> str | None:
     return None if text is None else _cap_text(text)[0]
 
 
-def _filter_message(text: str) -> str:
-    """Drop stack-trace and internal-detail lines from a message, marking any removal."""
+def _bounded_message(text: str | None) -> tuple[str | None, bool]:
+    """Filter stack traces out of a message, then cap it; return it and whether it was cut.
+
+    When lines were removed, `STACK_TRACE_REMOVED_MARKER` is appended after capping, so it is
+    never cut off.
+    """
+    if text is None:
+        return None, False
     lines = text.splitlines()
     kept = _filter_log_lines(lines)
     if len(kept) == len(lines):
-        return text
-    return ("\n".join(kept) + STACK_TRACE_REMOVED_MARKER).strip()
-
-
-def _bounded_message(text: str | None) -> tuple[str | None, bool]:
-    """Filter stack traces out of a message, then cap it; return it and whether it was cut."""
-    return (None, False) if text is None else _cap_text(_filter_message(text))
+        return _cap_text(text)
+    capped, truncated = _cap_text(
+        "\n".join(kept), TROUBLESHOOT_MAX_MESSAGE_CHARS - len(STACK_TRACE_REMOVED_MARKER)
+    )
+    return (capped + STACK_TRACE_REMOVED_MARKER).strip(), truncated
 
 
 def _error_status_code(error: Exception) -> object | None:
@@ -2678,7 +2720,7 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
         return TroubleshootBillingSection(
             status=CloudOrganizationBillingStatusResult(
                 organization_id=org.organization_id,
-                organization_name=org.organization_name,
+                organization_name=_bounded_text(org.organization_name),
                 billing_info_available=False,
                 message=_section_error_text(error, "Billing information could not be retrieved: "),
             ),
@@ -2691,10 +2733,10 @@ def _troubleshoot_billing_section(workspace: CloudWorkspace) -> TroubleshootBill
     return TroubleshootBillingSection(
         status=CloudOrganizationBillingStatusResult(
             organization_id=org.organization_id,
-            organization_name=org.organization_name,
+            organization_name=_bounded_text(org.organization_name),
             billing_info_available=True,
-            payment_status=info.payment_status,
-            subscription_status=info.subscription_status,
+            payment_status=_bounded_text(info.payment_status),
+            subscription_status=_bounded_text(info.subscription_status),
             is_account_locked=info.is_account_locked,
         ),
     )
@@ -2711,13 +2753,16 @@ def _troubleshoot_attempts(
     errors: list[str] = []
     for attempt in attempts:
         try:
+            failures = attempt.failures
             row = TroubleshootAttempt(
                 attempt_number=attempt.attempt_number,
-                status=attempt.status,
+                status=_cap_text(attempt.status)[0],
                 created_at=attempt.created_at.isoformat(),
                 failures=[
-                    SyncAttemptFailureResult.from_failure(failure) for failure in attempt.failures
+                    SyncAttemptFailureResult.from_failure(failure)
+                    for failure in failures[:TROUBLESHOOT_MAX_FAILURES_PER_ATTEMPT]
                 ],
+                failures_omitted=max(0, len(failures) - TROUBLESHOOT_MAX_FAILURES_PER_ATTEMPT),
             )
         except (KeyError, ValueError, TypeError, AttributeError):
             errors.append(f"Attempt {attempt.attempt_number} could not be read.")
@@ -2830,7 +2875,10 @@ def _troubleshoot_failed_job_attempts(
     max_lines: int,
 ) -> TroubleshootLogTailSection:
     """Fill `latest_failed_job`'s attempts and errors, and build the log tail from them."""
-    readable_attempts, attempt_errors = _troubleshoot_attempts(attempts)
+    latest_failed_job.attempts_omitted = max(0, len(attempts) - TROUBLESHOOT_MAX_ATTEMPTS)
+    readable_attempts, attempt_errors = _troubleshoot_attempts(
+        attempts[-TROUBLESHOOT_MAX_ATTEMPTS:]
+    )
     latest_failed_job.attempts = [row for _, row in readable_attempts]
     dropped_count = sync_result.get_raw_attempt_count() - len(attempts)
     if dropped_count > 0:
@@ -2920,6 +2968,10 @@ def troubleshoot_cloud_connection(
         latest_failed_job.error = "Recent jobs unavailable; see recent_jobs.error."
         log_tail.error = "Recent jobs unavailable; see recent_jobs.error."
         job_snapshots = []
+    elif not job_snapshots and recent_jobs.error is not None:
+        latest_failed_job.error = log_tail.error = (
+            "No job status could be read; see recent_jobs.error."
+        )
 
     failed_sync_result, failed_snapshot = next(
         (

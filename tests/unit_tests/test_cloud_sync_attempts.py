@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.models import JobStatusEnum
+from airbyte.cloud.models import CloudJobInfo, JobStatusEnum
 from airbyte.cloud.sync_results import (
     SyncAttempt,
     SyncAttemptFailure,
@@ -511,3 +511,157 @@ def test_get_raw_attempt_count_includes_skipped_attempts(
 
     assert len(sync_result.get_attempts()) == readable_count
     assert sync_result.get_raw_attempt_count() == raw_count
+
+
+def test_parse_start_time_none_falls_back_to_job_epoch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A null start time falls back to the Config API job's `startedAt`."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123, "startedAt": 1767225600}, "attempts": []},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    start_time = sync_result._parse_start_time(  # noqa: SLF001
+        CloudJobInfo(job_id=123, status=JobStatusEnum.FAILED, start_time=None)
+    )
+
+    assert start_time == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("bad_epoch", [10**20, -(10**20), float("nan")])
+def test_parse_start_time_skips_invalid_epoch(
+    monkeypatch: pytest.MonkeyPatch, bad_epoch: float
+) -> None:
+    """An out-of-range `startedAt` is skipped in favor of `createdAt`."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {
+            "job": {"id": 123, "startedAt": bad_epoch, "createdAt": 1767225600},
+            "attempts": [],
+        },
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    start_time = sync_result._parse_start_time(  # noqa: SLF001
+        cast(Any, SimpleNamespace(start_time="not-a-date"))
+    )
+
+    assert start_time == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_parse_start_time_all_invalid_epochs_reraise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When every fallback epoch is invalid, the original parse error propagates."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123, "startedAt": 10**20, "createdAt": 10**20}},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    with pytest.raises(ValueError, match="not-a-date"):
+        sync_result._parse_start_time(  # noqa: SLF001
+            cast(Any, SimpleNamespace(start_time="not-a-date"))
+        )
+
+
+def test_previous_sync_logs_tolerates_null_start_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A job with a null `startTime` does not wipe out the other jobs in the page."""
+    jobs = [
+        SimpleNamespace(
+            job_id=2,
+            status="failed",
+            bytes_synced=None,
+            rows_synced=None,
+            start_time=None,
+        ),
+        SimpleNamespace(
+            job_id=1,
+            status="succeeded",
+            bytes_synced=10,
+            rows_synced=1,
+            start_time="2026-01-01T00:00:00Z",
+        ),
+    ]
+    monkeypatch.setattr(api_util, "get_job_logs", lambda **_: jobs)
+    workspace = cast(
+        CloudWorkspace,
+        SimpleNamespace(
+            workspace_id="workspace-id",
+            api_root="https://api.example.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token="token",
+        ),
+    )
+    connection = CloudConnection(workspace=workspace, connection_id="connection-id")
+
+    results = connection.get_previous_sync_logs(limit=5)
+
+    assert [result.job_id for result in results] == [2, 1]
+    assert results[1].start_time == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def test_get_cloud_sync_status_bounds_attempts_and_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the last 10 attempts and the first 5 failures per attempt are returned."""
+    failures = [
+        {"failureOrigin": "source", "externalMessage": f"failure {index}"}
+        for index in range(7)
+    ]
+    attempts = [
+        _attempt(
+            {
+                "attempt": {
+                    "id": number,
+                    "status": "failed",
+                    "createdAt": 1767225600,
+                    "failureSummary": {"failures": failures},
+                }
+            },
+            number,
+        )
+        for number in range(12)
+    ]
+
+    result = _status_with_attempts(monkeypatch, attempts)
+
+    assert result["attempts_omitted"] == 2
+    assert [a["attempt_number"] for a in result["attempts"]] == list(range(2, 12))
+    last = result["attempts"][-1]
+    assert [f["external_message"] for f in last["failures"]] == [
+        f"failure {index}" for index in range(5)
+    ]
+    assert all(a["failures_omitted"] == 2 for a in result["attempts"])
+
+
+def test_get_cloud_sync_status_bounds_attempt_strings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Attempt status and failure origin/type are capped in `get_cloud_sync_status`."""
+    huge = "y" * 5_000
+    attempt = _attempt({
+        "attempt": {
+            "id": 1,
+            "status": huge,
+            "createdAt": 1767225600,
+            "failureSummary": {
+                "failures": [{"failureOrigin": huge, "failureType": huge}]
+            },
+        }
+    })
+
+    entry = _status_with_attempts(monkeypatch, [attempt])["attempts"][0]
+
+    limit = cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert len(entry["status"]) == limit
+    assert len(entry["failures"][0]["failure_origin"]) == limit
+    assert len(entry["failures"][0]["failure_type"]) == limit

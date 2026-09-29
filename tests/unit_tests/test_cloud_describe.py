@@ -1055,11 +1055,24 @@ def test_check_connector_non_str_message_is_none(
     assert result == (False, None)
 
 
-@pytest.mark.parametrize("docker_repository", [None, ""])
-def test_canonical_name_missing_docker_repository_raises(
-    monkeypatch: pytest.MonkeyPatch, docker_repository: str | None
+@pytest.mark.parametrize(
+    ("docker_repository", "expected"),
+    [
+        ("airbyte/source-postgres", "source-postgres"),
+        (None, None),
+        ("", None),
+        ("airbyte/", None),
+        ("airbyte/source-declarative-manifest", None),
+        ("mycompany/source-postgres", None),
+        ("ghcr.io/airbyte/source-postgres", None),
+        ("airbyte/source-postgres/fork", None),
+        ("source-postgres", None),
+    ],
+)
+def test_canonical_name_only_for_airbyte_registry_images(
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str | None, expected: str | None
 ) -> None:
-    """A definition without a Docker repository raises `AirbyteError`."""
+    """Only `airbyte/<name>` images (other than the manifest runner) have a canonical name."""
     workspace = _make_workspace(monkeypatch)
     monkeypatch.setattr(
         "airbyte._util.api_util.get_source_definition",
@@ -1069,17 +1082,17 @@ def test_canonical_name_missing_docker_repository_raises(
     )
     source = _seed_source(workspace, "source-1", "Postgres")
 
-    with pytest.raises(
-        AirbyteError, match="Connector definition has no docker repository."
-    ):
-        _ = source.canonical_name
+    assert source.canonical_name == expected
 
 
-@pytest.mark.parametrize("docker_repository", [None, ""])
-def test_missing_docker_repository_isolated_in_troubleshoot_and_describe(
+@pytest.mark.parametrize(
+    "docker_repository",
+    [None, "", "mycompany/source-custom", "airbyte/source-declarative-manifest"],
+)
+def test_custom_definition_is_not_an_error_in_troubleshoot_and_describe(
     monkeypatch: pytest.MonkeyPatch, docker_repository: str | None
 ) -> None:
-    """The troubleshoot section gets an `error`; describe adds a warning."""
+    """A custom definition yields a null canonical name without an error or warning."""
     workspace = _make_workspace(monkeypatch)
     monkeypatch.setattr(
         "airbyte._util.api_util.get_source_definition",
@@ -1095,14 +1108,13 @@ def test_missing_docker_repository_isolated_in_troubleshoot_and_describe(
         with_config=False,
         with_replication_details=False,
         with_direct_access_guidance=False,
-        with_data_replication_docs=False,
+        with_data_replication_docs=True,
     )
 
-    assert section.error is not None
-    assert "Connector definition has no docker repository." in section.error
+    assert section.error is None
     assert section.canonical_connector_name is None
     assert described.canonical_connector_name is None
-    assert any(
-        "Connector definition has no docker repository." in warning
-        for warning in described.warnings
-    )
+    assert not any("definition" in warning.lower() for warning in described.warnings)
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+    assert "A null canonical_connector_name" in guidance
+    assert "custom definition" in guidance

@@ -378,18 +378,25 @@ class SyncResult:
         For a missing or unparseable value, fall back to the Config API job's `startedAt`, or
         else its `createdAt`, in epoch seconds.
         """
-        try:
-            return ab_datetime_parse(job_info.start_time)
-        except (ValueError, TypeError):
-            job = self._fetch_job_with_attempts().get("job")
-            if isinstance(job, dict):
-                for key in ("startedAt", "createdAt"):
-                    epoch_seconds = job.get(key)
-                    if isinstance(epoch_seconds, (int, float)) and not isinstance(
-                        epoch_seconds, bool
-                    ):
-                        return datetime.fromtimestamp(epoch_seconds, tz=UTC)
-            raise
+        parse_error: ValueError | TypeError | None = None
+        if job_info.start_time is not None:
+            try:
+                return ab_datetime_parse(job_info.start_time)
+            except (ValueError, TypeError) as error:
+                parse_error = error
+        job = self._fetch_job_with_attempts().get("job")
+        if isinstance(job, dict):
+            for key in ("startedAt", "createdAt"):
+                epoch_seconds = job.get(key)
+                if not isinstance(epoch_seconds, (int, float)) or isinstance(epoch_seconds, bool):
+                    continue
+                try:
+                    return datetime.fromtimestamp(epoch_seconds, tz=UTC)
+                except (OverflowError, OSError, ValueError):
+                    continue
+        if parse_error is not None:
+            raise parse_error
+        raise ValueError(f"Job {self.job_id} has no readable start time.")
 
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
         """Fetch job info with attempts from Config API using lazy loading pattern."""

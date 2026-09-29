@@ -116,11 +116,15 @@ _SEARCH_NOT_ENABLED_GUIDANCE = (
 )
 
 
+_DECLARATIVE_MANIFEST_IMAGE_NAME = "source-declarative-manifest"
+"""The shared image that runs Connector Builder and other manifest-only custom connectors."""
+
+
 class _ConnectorDefinitionLike(Protocol):
     """The connector definition fields PyAirbyte reads from the Cloud public API."""
 
     name: str
-    docker_repository: str
+    docker_repository: str | None
 
 
 class CloudConnector:  # noqa: PLR0904  # Too many public methods
@@ -846,16 +850,23 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         return self._fetch_connector_definition().name
 
     @property
-    def canonical_name(self) -> str:
+    def canonical_name(self) -> str | None:
         """The connector's canonical registry name, for example `source-postgres`.
 
-        Derived from the connector definition's Docker repository. This does not identify the
-        version the connector is running; deployed connectors may be pinned or overridden.
+        Derived from the connector definition's Docker repository: the name is returned only for
+        an `airbyte/<name>` repository. `None` means a custom definition (a custom, forked or
+        Connector Builder image, or an image from another registry) with no registry entry.
+
+        This does not identify the version the connector is running; deployed connectors may be
+        pinned or overridden.
         """
         docker_repository = self._fetch_connector_definition().docker_repository
-        if not docker_repository:
-            raise exc.AirbyteError(message="Connector definition has no docker repository.")
-        return docker_repository.rsplit("/", 1)[-1]
+        if not isinstance(docker_repository, str):
+            return None
+        organization, _, name = docker_repository.partition("/")
+        if organization != "airbyte" or not name or "/" in name:
+            return None
+        return None if name == _DECLARATIVE_MANIFEST_IMAGE_NAME else name
 
     def _direct_access_guidance_id(self) -> str | None:
         """The skill ID serving this connector's direct-access docs, if any."""
@@ -981,7 +992,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         The connector's canonical name (for example `source-github`) is resolved from the
         connector definition's Docker repository, then looked up in the connector registry.
         """
-        return get_connector_api_docs_urls(self.canonical_name)
+        canonical_name = self.canonical_name
+        return [] if canonical_name is None else get_connector_api_docs_urls(canonical_name)
 
     def list_connections(self) -> list[CloudConnection]:
         """List the connections that read from or write to this connector."""

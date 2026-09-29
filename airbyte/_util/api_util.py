@@ -105,6 +105,19 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
     return context
 
 
+_SDK_DECODE_ERRORS = (KeyError, AttributeError, TypeError, ValueError)
+"""Errors the generated client raises when a 2xx body does not match its response model."""
+
+
+def _unexpected_response_error(context: dict[str, Any]) -> AirbyteError:
+    """Return the error for a response body the generated client could not decode.
+
+    The decode error is not chained or rendered, because its text can embed the response body.
+    """
+    ids = {key: value for key, value in context.items() if key.endswith("_id")}
+    return AirbyteError(message="Unexpected API response.", context=ids)
+
+
 def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None) -> AirbyteError:
     """Wrap an SDKError with additional context for debugging.
 
@@ -813,6 +826,8 @@ def get_connection(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except _SDK_DECODE_ERRORS:
+        raise _unexpected_response_error(base_context) from None
 
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
@@ -957,6 +972,8 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
+        except _SDK_DECODE_ERRORS:
+            raise _unexpected_response_error(base_context) from None
 
         if not status_ok(response.status_code):
             if response.status_code == HTTPStatus.NOT_FOUND:
@@ -1027,6 +1044,8 @@ def get_job_info(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, {"job_id": job_id}) from e
+    except _SDK_DECODE_ERRORS:
+        raise _unexpected_response_error({"job_id": job_id}) from None
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 
@@ -1166,6 +1185,8 @@ def get_source(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except _SDK_DECODE_ERRORS:
+        raise _unexpected_response_error(base_context) from None
 
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
@@ -1407,6 +1428,8 @@ def get_destination(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except _SDK_DECODE_ERRORS:
+        raise _unexpected_response_error(base_context) from None
 
     if status_ok(response.status_code) and response.destination_response:
         # TODO: This is a temporary workaround to resolve an issue where
@@ -1538,6 +1561,10 @@ def get_source_definition(
         raise _wrap_sdk_error(
             e, {"definition_id": definition_id, "workspace_id": workspace_id}
         ) from e
+    except _SDK_DECODE_ERRORS:
+        raise _unexpected_response_error(
+            {"definition_id": definition_id, "workspace_id": workspace_id}
+        ) from None
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -1579,6 +1606,10 @@ def get_destination_definition(
         raise _wrap_sdk_error(
             e, {"definition_id": definition_id, "workspace_id": workspace_id}
         ) from e
+    except _SDK_DECODE_ERRORS:
+        raise _unexpected_response_error(
+            {"definition_id": definition_id, "workspace_id": workspace_id}
+        ) from None
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 

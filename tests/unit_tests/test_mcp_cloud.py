@@ -28,6 +28,7 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
+from airbyte._util import api_util
 from airbyte.cloud import CloudConnection, CloudWorkspace
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.sync_results import SyncAttempt, SyncAttemptFailure, SyncJobSnapshot
@@ -3603,7 +3604,7 @@ def test_failure_result_filters_stack_traces(message: str, expected: str) -> Non
 
 
 def test_failure_result_filters_then_caps() -> None:
-    """Filtering happens before the length cap, which still marks truncation."""
+    """Filtering happens before the cap, and the removal marker survives the cap."""
     message = "x" * 5_000 + "\n\tat io.airbyte.Foo.bar(Foo.java:12)"
 
     result = cloud_mcp.SyncAttemptFailureResult.from_failure(
@@ -3616,9 +3617,13 @@ def test_failure_result_filters_then_caps() -> None:
     )
 
     assert result.external_message is not None
-    assert result.external_message.endswith(cloud_mcp.TRUNCATION_MARKER)
+    assert result.external_message.endswith(
+        cloud_mcp.TRUNCATION_MARKER + cloud_mcp.STACK_TRACE_REMOVED_MARKER
+    )
+    assert len(result.external_message) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
     assert "Foo.java" not in result.external_message
     assert result.external_message_truncated is True
+    assert '" [stack trace removed]"' in cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE
 
 
 _TRACE_MESSAGE = (
@@ -4123,3 +4128,286 @@ def test_troubleshoot_billing_status_failure_sets_error(
     assert billing.error == expected_error
     assert billing.status is not None
     assert billing.status.billing_info_available is False
+
+
+class _DecodeErrorSyncResult(_TroubleshootSyncResult):
+    """Sync result whose job lookup goes through `api_util.get_job_info`."""
+
+    def get_job_snapshot(self) -> SyncJobSnapshot:
+        api_util.get_job_info(
+            job_id=self.job_id,
+            api_root="https://api.example.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+        raise AssertionError("get_job_info should have raised")
+
+
+@pytest.mark.parametrize(
+    "decode_error",
+    [
+        KeyError("leaked-body"),
+        AttributeError("'dict' object has no attribute 'x': leaked-body"),
+        TypeError("leaked-body"),
+        ValueError("leaked-body"),
+    ],
+)
+def test_troubleshoot_job_info_decode_error_isolated(
+    monkeypatch: pytest.MonkeyPatch, decode_error: Exception
+) -> None:
+    """A model-decode error in `get_job_info` fills only recent_jobs.error, without the body."""
+
+    def _get_job(_request: object) -> object:
+        raise decode_error
+
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: SimpleNamespace(jobs=SimpleNamespace(get_job=_get_job)),
+    )
+    connection = _TroubleshootConnection(
+        jobs=[
+            _DecodeErrorSyncResult(
+                job_id=5,
+                status=JobStatusEnum.RUNNING,
+                start_time=datetime(2026, 1, 5, tzinfo=timezone.utc),
+            ),
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", "boom")],
+            ),
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.recent_jobs.error == (
+        "Some jobs could not be read and are omitted: Job 5: Unexpected API response."
+    )
+    assert "leaked-body" not in result.model_dump_json()
+    assert [job.job_id for job in result.recent_jobs.jobs] == [4]
+    assert result.latest_failed_job.job_id == 4
+    assert result.log_tail.log_text == "boom"
+    assert result.source_check.succeeded is True
+    assert result.billing.error is None
+
+
+def test_api_util_decode_error_has_ids_only_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The normalized decode error carries only IDs and does not chain the decode error."""
+
+    def _get_connection(_request: object) -> object:
+        raise AttributeError("leaked-body")
+
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: SimpleNamespace(
+            connections=SimpleNamespace(get_connection=_get_connection)
+        ),
+    )
+
+    with pytest.raises(AirbyteError, match="Unexpected API response.") as info:
+        api_util.get_connection(
+            workspace_id="workspace-id",
+            connection_id="connection-id",
+            api_root="https://api.example.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+
+    assert info.value.context == {
+        "workspace_id": "workspace-id",
+        "connection_id": "connection-id",
+    }
+    assert info.value.__cause__ is None
+    assert "leaked-body" not in str(info.value)
+
+
+def test_troubleshoot_no_readable_job_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When jobs were listed but none could be read, the failed-job sections say so."""
+    connection = _TroubleshootConnection(
+        jobs=[
+            _SnapshotErrorSyncResult(
+                job_id=5,
+                status=JobStatusEnum.FAILED,
+                start_time=datetime(2026, 1, 5, tzinfo=timezone.utc),
+            )
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    expected = "No job status could be read; see recent_jobs.error."
+    assert result.recent_jobs.error is not None
+    assert result.latest_failed_job.error == expected
+    assert result.log_tail.error == expected
+    assert result.latest_failed_job.message is None
+    assert result.log_tail.message is None
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        "    at async Promise.all (index 0)",
+        "    at Array.forEach (<anonymous>)",
+        "    at new Promise (<anonymous>)",
+        "    at Object.<anonymous> (/app/index.js:1:2)",
+        "    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+        "    at /app/lib/leaked.js:1:2",
+        "    at async main.run:10:5",
+        "    at JSON.parse (native)",
+    ],
+)
+@pytest.mark.parametrize(
+    "prefix", ["", "[2026-09-28T11:54:32] ERROR: ", "2026-09-28 11:54:32 source > "]
+)
+def test_filter_log_lines_drops_node_frames(frame: str, prefix: str) -> None:
+    """Node frames with and without file:line are dropped with their header."""
+    lines = ["before", f"{prefix}Error: leaked-node", f"{prefix}{frame}", "after"]
+
+    assert cloud_mcp._filter_log_lines(lines) == ["before", "after"]  # noqa: SLF001
+
+
+def test_filter_log_lines_frame_block_continues_on_any_at_line() -> None:
+    """Inside a frame block, any `at ...` line continues the block."""
+    lines = [
+        "before",
+        "    at Array.forEach (<anonymous>)",
+        "    at some unusual frame format",
+        "after",
+    ]
+
+    assert cloud_mcp._filter_log_lines(lines) == ["before", "after"]  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "java.lang.IllegalStateException: leaked\\n\\tat io.airbyte.Foo.bar(Foo.java:12)",
+        "failure: leaked\\\\n\\\\tat io.airbyte.Foo.bar(Foo.java:12)",
+        "Sync failed: Traceback (most recent call last): File x.py leaked",
+        '{"exception": "leaked-exception"}',
+        '{\\"throwable\\": \\"leaked\\"}',
+        "{'stack': 'leaked'}",
+        '"internalMessage": "leaked"',
+        "stack_trace=leaked",
+    ],
+)
+def test_filter_log_lines_drops_serialized_traces_and_keys(line: str) -> None:
+    """One-line serialized traces and quoted internal-detail keys are dropped."""
+    assert cloud_mcp._filter_log_lines(["before", line, "after"]) == [  # noqa: SLF001
+        "before",
+        "after",
+    ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Increase the stack size: exception handling is described in the docs",
+        "throwable objects are retried",
+        "the exception: none",
+    ],
+)
+def test_filter_log_lines_keeps_prose_with_key_words(line: str) -> None:
+    """Unquoted `exception`/`throwable`/`stack` in prose are kept."""
+    assert cloud_mcp._filter_log_lines([line]) == [line]  # noqa: SLF001
+
+
+def test_bounded_message_marker_survives_cap() -> None:
+    """The stack-trace marker is appended after the cap, so it always survives."""
+    message = "x" * 5_000 + "\n    at Array.forEach (<anonymous>)"
+
+    bounded, truncated = cloud_mcp._bounded_message(message)  # noqa: SLF001
+
+    assert bounded is not None
+    assert bounded.endswith(cloud_mcp.STACK_TRACE_REMOVED_MARKER)
+    assert len(bounded) <= cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert truncated is True
+
+
+def _failure(index: int) -> SyncAttemptFailure:
+    return SyncAttemptFailure(
+        failure_origin="source",
+        failure_type="system_error",
+        external_message=f"failure {index}",
+        retryable=False,
+    )
+
+
+def test_troubleshoot_bounds_attempts_and_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the last attempts and the first failures per attempt are reported."""
+    attempts = [
+        _TroubleshootAttempt(
+            number,
+            "failed",
+            f"log {number}",
+            failures=[_failure(index) for index in range(7)],
+        )
+        for number in range(12)
+    ]
+    connection = _TroubleshootConnection(
+        jobs=[_job(4, JobStatusEnum.FAILED, attempts=attempts)]
+    )
+
+    failed_job = _troubleshoot(monkeypatch, connection).latest_failed_job
+
+    assert failed_job.attempts_omitted == 2
+    assert [a.attempt_number for a in failed_job.attempts] == list(range(2, 12))
+    assert [f.external_message for f in failed_job.attempts[-1].failures] == [
+        f"failure {index}" for index in range(5)
+    ]
+    assert all(a.failures_omitted == 2 for a in failed_job.attempts)
+
+
+def test_troubleshoot_bounds_api_string_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Organization, billing, attempt status and failure origin/type strings are capped."""
+    huge = "y" * 5_000
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name=huge,
+        get_billing_status=lambda: SimpleNamespace(
+            payment_status=huge, subscription_status=huge, is_account_locked=False
+        ),
+    )
+    attempt = _TroubleshootAttempt(
+        0,
+        huge,
+        "boom",
+        failures=[
+            SyncAttemptFailure(
+                failure_origin=huge,
+                failure_type=huge,
+                external_message="x",
+                retryable=None,
+            )
+        ],
+    )
+    connection = _TroubleshootConnection(
+        jobs=[_job(4, JobStatusEnum.FAILED, attempts=[attempt])]
+    )
+
+    result = _troubleshoot(monkeypatch, connection, organization=organization)
+
+    limit = cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    status = result.billing.status
+    assert status is not None
+    row = result.latest_failed_job.attempts[0]
+    for value in [
+        status.organization_name,
+        status.payment_status,
+        status.subscription_status,
+        row.status,
+        row.failures[0].failure_origin,
+        row.failures[0].failure_type,
+    ]:
+        assert value is not None
+        assert len(value) == limit
+        assert value.endswith(cloud_mcp.TRUNCATION_MARKER)
