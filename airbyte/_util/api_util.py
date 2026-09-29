@@ -2252,6 +2252,15 @@ def check_connector(
             job_info = json_result.get("jobInfo")
             failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
             if isinstance(failure, dict):
+                if failure.get("failureOrigin") not in {None, "source", "destination"}:
+                    raise AirbyteError(
+                        message="Connector check did not complete.",
+                        context={
+                            "actor_id": actor_id,
+                            "connector_type": str(connector_type),
+                            "response": json_result,
+                        },
+                    )
                 message = failure.get("externalMessage")
         return False, message
 

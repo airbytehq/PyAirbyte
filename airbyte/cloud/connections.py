@@ -952,6 +952,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     # Enable/Disable
 
     @property
+    def status(self) -> str:
+        """Get the current connection status: `active`, `inactive` or `deprecated` (deleted).
+
+        This property always fetches fresh data from the API.
+        """
+        return self._fetch_connection_info(force_refresh=True).status
+
+    @property
     def enabled(self) -> bool:
         """Get the current enabled status of the connection.
 

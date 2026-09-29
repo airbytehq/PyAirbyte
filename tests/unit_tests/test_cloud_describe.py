@@ -939,3 +939,35 @@ def test_check_connector_failed_without_message_uses_failure_reason(
     )
 
     assert result == (False, "Invalid password.")
+
+
+def test_check_connector_platform_failure_without_message_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A platform-origin failure with no message is an error, not a connector check result."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {
+            "status": "failed",
+            "message": None,
+            "jobInfo": {
+                "failureReason": {
+                    "failureOrigin": "airbyte_platform",
+                    "externalMessage": "Workload launch failed.",
+                }
+            },
+        },
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util.check_connector(
+            actor_id="source-id",
+            connector_type="source",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+            config_api_root="https://config.example.com",
+        )
+
+    assert exc_info.value.get_message() == "Connector check did not complete."

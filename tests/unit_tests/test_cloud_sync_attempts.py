@@ -11,7 +11,12 @@ import pytest
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import JobStatusEnum
-from airbyte.cloud.sync_results import SyncAttempt, SyncAttemptFailure, SyncResult
+from airbyte.cloud.sync_results import (
+    SyncAttempt,
+    SyncAttemptFailure,
+    SyncJobSnapshot,
+    SyncResult,
+)
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
 from fastmcp import Context
@@ -143,7 +148,12 @@ def test_get_cloud_sync_status_includes_attempt_failures(
         records_synced=0,
         start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
         job_url="https://cloud.example.com/jobs",
-        get_job_status=lambda: JobStatusEnum.FAILED,
+        get_job_snapshot=lambda: SyncJobSnapshot(
+            status=JobStatusEnum.FAILED,
+            bytes_synced=0,
+            records_synced=0,
+            start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
         get_attempts=lambda: [
             _attempt(FAILED_ATTEMPT, 0),
             _attempt(succeeded_attempt, 1),
@@ -205,7 +215,12 @@ def test_get_cloud_sync_status_caps_failure_messages(
         records_synced=0,
         start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
         job_url="https://cloud.example.com/jobs",
-        get_job_status=lambda: JobStatusEnum.FAILED,
+        get_job_snapshot=lambda: SyncJobSnapshot(
+            status=JobStatusEnum.FAILED,
+            bytes_synced=0,
+            records_synced=0,
+            start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
         get_attempts=lambda: [_attempt(long_attempt, 0)],
     )
     connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
@@ -254,3 +269,46 @@ def test_sync_result_job_snapshot_fetches_job_info_once(
     assert snapshot.bytes_synced == 10
     assert snapshot.records_synced == 2
     assert snapshot.start_time == datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    "job_with_attempts",
+    [
+        pytest.param({"attempts": None}, id="attempts-null"),
+        pytest.param(
+            {"attempts": [None, "bad", {"attempt": None}]}, id="malformed-entries"
+        ),
+    ],
+)
+def test_get_attempts_skips_null_and_malformed_attempts(
+    job_with_attempts: dict[str, Any],
+) -> None:
+    """Null or malformed attempt entries yield no attempts instead of raising."""
+    sync_result = SyncResult(
+        workspace=WORKSPACE,
+        connection=CONNECTION,
+        job_id=123,
+        _job_with_attempts_info=job_with_attempts,
+    )
+
+    assert sync_result.get_attempts() == []
+
+
+def test_failures_skip_non_dict_items() -> None:
+    """Non-dict failure entries and a malformed summary are ignored."""
+    attempt = _attempt({
+        "attempt": {
+            "id": 1,
+            "status": "failed",
+            "createdAt": 1767225600,
+            "failureSummary": {
+                "failures": [None, "bad", {"externalMessage": "Real failure."}]
+            },
+        }
+    })
+    malformed_summary = _attempt({
+        "attempt": {"id": 2, "status": "failed", "createdAt": 1, "failureSummary": "x"}
+    })
+
+    assert [f.external_message for f in attempt.failures] == ["Real failure."]
+    assert malformed_summary.failures == []

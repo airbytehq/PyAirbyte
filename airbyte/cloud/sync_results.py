@@ -185,7 +185,9 @@ class SyncAttempt:
     @property
     def failures(self) -> list[SyncAttemptFailure]:
         """Structured failure reasons for this attempt; empty if the attempt did not fail."""
-        failure_summary = self._get_attempt_data().get("failureSummary") or {}
+        failure_summary = self._get_attempt_data().get("failureSummary")
+        if not isinstance(failure_summary, dict):
+            return []
         return [
             SyncAttemptFailure(
                 failure_origin=failure.get("failureOrigin"),
@@ -194,6 +196,7 @@ class SyncAttempt:
                 retryable=failure.get("retryable"),
             )
             for failure in failure_summary.get("failures") or []
+            if isinstance(failure, dict)
         ]
 
     def _get_attempt_data(self) -> dict[str, Any]:
@@ -407,7 +410,7 @@ class SyncResult:
     def get_attempts(self) -> list[SyncAttempt]:
         """Return a list of attempts for this sync job."""
         job_with_attempts = self._fetch_job_with_attempts()
-        attempts_data = job_with_attempts.get("attempts", [])
+        attempts_data = job_with_attempts.get("attempts") or []
 
         return [
             SyncAttempt(
@@ -418,6 +421,7 @@ class SyncResult:
                 _attempt_data=attempt_data,
             )
             for i, attempt_data in enumerate(attempts_data, start=0)
+            if isinstance(attempt_data, dict) and isinstance(attempt_data.get("attempt"), dict)
         ]
 
     def raise_failure_status(
