@@ -218,4 +218,4 @@ DEP003 = []
 
 [tool.uv.sources]
 # TK-TODO: Replace with the fastmcp-extensions release containing airbytehq/fastmcp-extensions#130.
-fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", branch = "devin/1790642406-expose-minted-session-token" }
+fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", rev = "138d88f9b98dac30cfcbed1965ac9ad467967873" }
