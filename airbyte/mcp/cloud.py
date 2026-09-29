@@ -1418,7 +1418,9 @@ def get_cloud_sync_status(
             description=(
                 "Whether to include detailed attempts information. Each attempt includes "
                 "`failures` (failure origin, type, message and retryable), which is empty "
-                "for attempts that did not fail."
+                "for attempts that did not fail. If attempts cannot be read, `attempts` is "
+                "empty and `attempts_error` explains why; `attempts_unreadable` counts "
+                "attempts the API returned that could not be read."
             ),
             default=False,
         ),
@@ -1446,11 +1448,26 @@ def get_cloud_sync_status(
     }
 
     if include_attempts:
-        attempts = sync_result.get_attempts()
+        try:
+            attempts = sync_result.get_attempts()
+            unreadable = sync_result.get_raw_attempt_count() - len(attempts)
+        except (
+            AirbyteError,
+            requests.RequestException,
+            NotImplementedError,
+            KeyError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            result["attempts_error"] = _section_error_text(error, "Attempts could not be read: ")
+            return result
         result["attempts"] = [
             _sync_status_attempt(attempt) for attempt in attempts[-TROUBLESHOOT_MAX_ATTEMPTS:]
         ]
         result["attempts_omitted"] = max(0, len(attempts) - TROUBLESHOOT_MAX_ATTEMPTS)
+        if unreadable > 0:
+            result["attempts_unreadable"] = unreadable
 
     return result
 
@@ -2561,25 +2578,35 @@ def check_cloud_connector(
     """Check the configuration and credentials of a deployed source or destination."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connector = _get_cloud_connector(workspace, connector_id, connector_type)
+    safe_context: dict[str, Any] = {
+        "connector_id": connector_id,
+        "connector_type": connector.connector_type,
+    }
     try:
         check_result = connector.check(raise_on_error=False)
     except AirbyteError as error:
-        _, message, error_text = _check_error_outcome(error)
-        message = message or error_text
+        succeeded, message, error_text = _check_error_outcome(error)
+        if succeeded is False:
+            return ConnectorCheckResult(
+                connector_id=connector_id,
+                connector_type=connector.connector_type,
+                succeeded=False,
+                message=message,
+            )
+        raise AirbyteError(
+            message=error_text or _section_error_text(error),
+            context={**safe_context, "status_code": _error_status_code(error)},
+        ) from None
     except requests.RequestException as error:
-        message = _section_error_text(error, "Check request failed: ")
-    else:
-        return ConnectorCheckResult(
-            connector_id=connector_id,
-            connector_type=connector.connector_type,
-            succeeded=check_result.success,
-            message=_bounded_message(_get_connector_check_message(check_result))[0],
-        )
+        raise AirbyteError(
+            message=_section_error_text(error, "Check request failed: "),
+            context={**safe_context, "status_code": _error_status_code(error)},
+        ) from None
     return ConnectorCheckResult(
         connector_id=connector_id,
         connector_type=connector.connector_type,
-        succeeded=False,
-        message=message,
+        succeeded=check_result.success,
+        message=_bounded_message(_get_connector_check_message(check_result))[0],
     )
 
 
@@ -2590,9 +2617,12 @@ def _cap_text(text: str, limit: int = TROUBLESHOOT_MAX_MESSAGE_CHARS) -> tuple[s
     return text[: limit - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER, True
 
 
-def _bounded_text(text: str | None) -> str | None:
-    """Cut `text` to `TROUBLESHOOT_MAX_MESSAGE_CHARS`, marking any cut with `TRUNCATION_MARKER`."""
-    return None if text is None else _cap_text(text)[0]
+def _bounded_text(text: object) -> str | None:
+    """Cut `text` to `TROUBLESHOOT_MAX_MESSAGE_CHARS`, marking any cut with `TRUNCATION_MARKER`.
+
+    Returns None for anything that is not a string.
+    """
+    return _cap_text(text)[0] if isinstance(text, str) else None
 
 
 def _bounded_message(text: str | None) -> tuple[str | None, bool]:

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
+import requests
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import CloudJobInfo, JobStatusEnum
@@ -160,6 +161,7 @@ def test_get_cloud_sync_status_includes_attempt_failures(
             _attempt(FAILED_ATTEMPT, 0),
             _attempt(succeeded_attempt, 1),
         ],
+        get_raw_attempt_count=lambda: 2,
     )
     connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
     workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
@@ -224,6 +226,7 @@ def test_get_cloud_sync_status_caps_failure_messages(
             start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ),
         get_attempts=lambda: [_attempt(long_attempt, 0)],
+        get_raw_attempt_count=lambda: 1,
     )
     connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
     workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
@@ -368,6 +371,7 @@ def _status_with_attempts(
     monkeypatch: pytest.MonkeyPatch,
     attempts: list[SyncAttempt],
     get_attempts: Callable[[], list[SyncAttempt]] | None = None,
+    raw_attempt_count: int | None = None,
 ) -> dict[str, Any]:
     sync_result = SimpleNamespace(
         job_id=123,
@@ -379,6 +383,9 @@ def _status_with_attempts(
             start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
         ),
         get_attempts=get_attempts or (lambda: attempts),
+        get_raw_attempt_count=lambda: (
+            len(attempts) if raw_attempt_count is None else raw_attempt_count
+        ),
     )
     connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
     workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
@@ -690,13 +697,74 @@ def test_fetch_job_with_attempts_rejects_non_dict_body(
 def test_get_cloud_sync_status_non_dict_job_body(
     monkeypatch: pytest.MonkeyPatch, body: object
 ) -> None:
-    """`get_cloud_sync_status` raises a body-free error for a non-object job body."""
+    """A non-object job body yields `attempts_error`, keeping the status fields."""
     monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: body)
     sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
 
-    with pytest.raises(AirbyteError, match="Unexpected API response.") as exc_info:
-        _status_with_attempts(
-            monkeypatch, cast(Any, None), get_attempts=sync_result.get_attempts
-        )
+    result = _status_with_attempts(
+        monkeypatch, cast(Any, None), get_attempts=sync_result.get_attempts
+    )
 
-    assert "leaked-body" not in str(exc_info.value)
+    assert result["attempts"] == []
+    assert result["attempts_error"] == (
+        "Attempts could not be read: Unexpected API response."
+    )
+    assert result["status"] == JobStatusEnum.FAILED
+    assert "leaked-body" not in str(result)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        cloud_mcp.AirbyteError(
+            message="Forbidden.",
+            context={"status_code": 403, "response": "leaked-body"},
+        ),
+        requests.ConnectionError("connection refused"),
+        NotImplementedError("no config api root"),
+        KeyError("attempts"),
+    ],
+)
+def test_get_cloud_sync_status_isolates_attempts_errors(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    """An attempts lookup failure sets `attempts_error` and keeps the status fields."""
+
+    def _raise() -> list[SyncAttempt]:
+        raise error
+
+    result = _status_with_attempts(monkeypatch, [], get_attempts=_raise)
+
+    assert result["attempts"] == []
+    assert result["attempts_error"].startswith("Attempts could not be read: ")
+    assert result["status"] == JobStatusEnum.FAILED
+    assert result["job_id"] == 123
+    assert "leaked-body" not in str(result)
+
+
+def test_get_cloud_sync_status_reports_unreadable_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Attempts the API returned but that could not be read are counted."""
+    attempt = _attempt({
+        "attempt": {"id": 1, "status": "failed", "createdAt": 1767225600}
+    })
+
+    result = _status_with_attempts(monkeypatch, [attempt], raw_attempt_count=3)
+
+    assert result["attempts_unreadable"] == 2
+    assert "attempts_error" not in result
+    assert len(result["attempts"]) == 1
+
+
+def test_get_cloud_sync_status_omits_unreadable_when_all_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`attempts_unreadable` is absent when every attempt was read."""
+    attempt = _attempt({
+        "attempt": {"id": 1, "status": "failed", "createdAt": 1767225600}
+    })
+
+    result = _status_with_attempts(monkeypatch, [attempt])
+
+    assert "attempts_unreadable" not in result

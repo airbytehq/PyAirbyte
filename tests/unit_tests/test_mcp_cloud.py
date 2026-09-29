@@ -4426,9 +4426,13 @@ class _ApiCheckConnector:
 
 
 def _check_cloud_connector_with(
-    monkeypatch: pytest.MonkeyPatch, response: object
+    monkeypatch: pytest.MonkeyPatch,
+    response: object,
+    make_request: Callable[..., object] | None = None,
 ) -> cloud_mcp.ConnectorCheckResult:
-    monkeypatch.setattr(api_util, "_make_config_api_request", lambda **_: response)
+    monkeypatch.setattr(
+        api_util, "_make_config_api_request", make_request or (lambda **_: response)
+    )
     workspace = SimpleNamespace(get_source=lambda *, source_id: _ApiCheckConnector())
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
@@ -4484,25 +4488,26 @@ def test_check_connector_error_context_bounds_external_message(
     assert message.endswith(" [truncated]")
 
 
-def test_check_cloud_connector_platform_failure_is_result(
+def test_check_cloud_connector_platform_failure_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A platform-origin check failure returns succeeded=False without leaking details."""
-    result = _check_cloud_connector_with(monkeypatch, _LEAKY_CHECK_RESPONSE)
+    """A platform-origin check failure raises a safe error instead of a failed check."""
+    with pytest.raises(AirbyteError) as exc_info:
+        _check_cloud_connector_with(monkeypatch, _LEAKY_CHECK_RESPONSE)
 
-    assert result.succeeded is False
-    assert result.message == (
+    assert exc_info.value.get_message() == (
         "Check did not complete (failure origin: airbyte_platform): Workload launch failed."
     )
-    rendered = result.model_dump_json()
+    rendered = str(exc_info.value)
     assert "leaked-internal-detail" not in rendered
     assert "leaked-stacktrace" not in rendered
+    assert exc_info.value.__cause__ is None
 
 
-def test_check_cloud_connector_platform_failure_without_message(
+def test_check_cloud_connector_platform_failure_without_message_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A platform failure with no external message still returns a bounded fallback message."""
+    """A platform failure with no external message raises the bounded fallback text."""
     response = {
         "status": "failed",
         "jobInfo": {
@@ -4513,38 +4518,92 @@ def test_check_cloud_connector_platform_failure_without_message(
         },
     }
 
+    with pytest.raises(AirbyteError) as exc_info:
+        _check_cloud_connector_with(monkeypatch, response)
+
+    assert exc_info.value.get_message() == "Connector check did not complete."
+    assert "leaked-internal-detail" not in str(exc_info.value)
+
+
+def test_check_cloud_connector_connector_failure_is_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connector-origin check failure without a message is a failed check result."""
+    response = {
+        "status": "failed",
+        "jobInfo": {
+            "failureReason": {
+                "failureOrigin": "source",
+                "externalMessage": "Invalid password.",
+                "internalMessage": "leaked-internal-detail",
+            }
+        },
+    }
+
     result = _check_cloud_connector_with(monkeypatch, response)
 
     assert result.succeeded is False
-    assert result.message == "Connector check did not complete."
+    assert result.message == "Invalid password."
 
 
-def test_check_cloud_connector_request_error_is_result(
+def test_check_cloud_connector_http_403_raises_without_body(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A transport error during the check returns succeeded=False with a safe message."""
+    """An Airbyte API 403 raises; the error keeps the status code but no response body."""
+    forbidden = AirbyteError(
+        message="API request failed with status 403",
+        context={
+            "status_code": 403,
+            "response": {"text": '{"internalMessage": "leaked-internal-detail"}'},
+            "body": "leaked-request-body",
+        },
+    )
 
     def _raise(**_: object) -> object:
-        raise requests.ConnectionError("connection refused")
+        raise forbidden
 
-    result = _check_cloud_connector_with(monkeypatch, None)
-    assert result.succeeded is False  # null body -> "Unexpected check response."
-    assert result.message == "Unexpected check response."
+    with pytest.raises(AirbyteError) as exc_info:
+        _check_cloud_connector_with(monkeypatch, None, make_request=_raise)
 
-    monkeypatch.setattr(api_util, "_make_config_api_request", _raise)
-    workspace = SimpleNamespace(get_source=lambda *, source_id: _ApiCheckConnector())
-    monkeypatch.setattr(
-        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
-    )
-    result = cloud_mcp.check_cloud_connector(
-        ctx=cast(Context, object()),
-        connector_id="source-id",
-        connector_type="source",
-        workspace_id="workspace-id",
-    )
-    assert result.succeeded is False
-    assert result.message is not None
-    assert result.message.startswith("Check request failed: ")
+    rendered = str(exc_info.value)
+    assert "leaked-internal-detail" not in rendered
+    assert "leaked-request-body" not in rendered
+    assert exc_info.value.context == {
+        "connector_id": "source-id",
+        "connector_type": "source",
+        "status_code": 403,
+    }
+    assert exc_info.value.get_message() == "API request failed with status 403"
+
+
+@pytest.mark.parametrize(
+    ("make_request", "expected_message"),
+    [
+        pytest.param(None, "Unexpected check response.", id="null-body"),
+        pytest.param(
+            requests.ConnectionError("connection refused"),
+            "Check request failed: connection refused",
+            id="transport-error",
+        ),
+    ],
+)
+def test_check_cloud_connector_non_check_errors_raise(
+    monkeypatch: pytest.MonkeyPatch,
+    make_request: Exception | None,
+    expected_message: str,
+) -> None:
+    """Unexpected bodies and transport errors raise instead of looking like check failures."""
+
+    def _raise(**_: object) -> object:
+        assert make_request is not None
+        raise make_request
+
+    with pytest.raises(AirbyteError) as exc_info:
+        _check_cloud_connector_with(
+            monkeypatch, None, make_request=None if make_request is None else _raise
+        )
+
+    assert exc_info.value.get_message() == expected_message
 
 
 def test_check_cloud_connector_message_filters_stack_traces(
@@ -4626,3 +4685,32 @@ def test_guidance_describes_combined_markers() -> None:
 
     assert 'Text containing " [truncated]"' in guidance
     assert "both markers can appear together" in guidance
+
+
+def test_troubleshoot_billing_non_str_organization_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-string organization name becomes None instead of failing the section."""
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name=12345,
+        get_billing_status=lambda: SimpleNamespace(
+            payment_status="ok",
+            subscription_status="subscribed",
+            is_account_locked=False,
+        ),
+    )
+
+    billing = _troubleshoot(
+        monkeypatch, _TroubleshootConnection(), organization=organization
+    ).billing
+
+    assert billing.error is None
+    assert billing.status is not None
+    assert billing.status.organization_name is None
+
+
+@pytest.mark.parametrize("value", [12345, None, ["x"], {"a": 1}])
+def test_bounded_text_non_str_is_none(value: object) -> None:
+    """`_bounded_text` returns None for anything that is not a string."""
+    assert cloud_mcp._bounded_text(value) is None  # noqa: SLF001
