@@ -81,6 +81,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     format_user_facing_error,
 )
+from airbyte.mcp._scope import CallScopeMiddleware, call_scope_properties
 from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
 from airbyte.mcp._telemetry import ServerConnectedTelemetryMiddleware, request_properties
 from airbyte.mcp._tool_utils import (
@@ -468,7 +469,11 @@ app = mcp_server(
         package_name="airbyte",
         segment_write_key=segment_write_key,
         segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
-        extra_properties=lambda: {**request_properties(), **airbyte_user_properties()},
+        extra_properties=lambda: {
+            **request_properties(),
+            **call_scope_properties(),
+            **airbyte_user_properties(),
+        },
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,
@@ -476,6 +481,7 @@ app = mcp_server(
 """The Airbyte MCP Server application instance."""
 
 app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
+app.middleware.insert(0, CallScopeMiddleware())
 app.middleware.insert(0, AirbyteUserMiddleware())
 
 # Register tools from each module
