@@ -121,7 +121,7 @@ def _native_http_contract():
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from unittest.mock import patch
 
-    import ddtrace.auto
+    import ddtrace.auto  # noqa: F401  # Install native HTTP instrumentation for the contract.
     from ddtrace import tracer
     from ddtrace._trace.processor import TraceProcessor
     from ddtrace.llmobs import LLMObs
