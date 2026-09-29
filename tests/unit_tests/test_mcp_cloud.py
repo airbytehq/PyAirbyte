@@ -2338,12 +2338,13 @@ class _TroubleshootSyncResult(_SyncResultLike):
         | AirbyteError
         | requests.RequestException
         | NotImplementedError
+        | TypeError
     ) = dataclasses.field(default_factory=list)
 
     def get_attempts(self) -> list[_TroubleshootAttempt]:
         if isinstance(
             self.attempts,
-            (AirbyteError, requests.RequestException, NotImplementedError),
+            (AirbyteError, requests.RequestException, NotImplementedError, TypeError),
         ):
             raise self.attempts
         return self.attempts
@@ -2364,7 +2365,7 @@ class _TroubleshootConnection:
     jobs: list[_TroubleshootSyncResult] | AirbyteError = dataclasses.field(
         default_factory=list
     )
-    enabled: bool = True
+    status: str = "active"
     connection_id: str = "connection-id"
     name: str | None = "Postgres to Snowflake"
     connection_url: str = "https://cloud.example.com/connections/connection-id"
@@ -2395,7 +2396,7 @@ class _TroubleshootWorkspace:
     """Subset of `CloudWorkspace` read by `troubleshoot_cloud_connection`."""
 
     connection: _TroubleshootConnection | AirbyteError
-    organization: object | requests.RequestException | None = None
+    organization: object | AirbyteError | requests.RequestException | None = None
 
     def get_connection(self, *, connection_id: str) -> _TroubleshootConnection:
         assert connection_id == "connection-id"
@@ -2403,10 +2404,12 @@ class _TroubleshootWorkspace:
             raise self.connection
         return self.connection
 
-    def get_organization(self, *, raise_on_error: bool = True) -> object | None:
-        assert raise_on_error is False
-        if isinstance(self.organization, requests.RequestException):
+    def get_organization(self, *, raise_on_error: bool = True) -> object:
+        assert raise_on_error is True
+        if isinstance(self.organization, (AirbyteError, requests.RequestException)):
             raise self.organization
+        if self.organization is None:
+            raise AirbyteError(message="Organization info is incomplete.")
         return self.organization
 
 
@@ -2437,7 +2440,7 @@ def _troubleshoot(
     monkeypatch: pytest.MonkeyPatch,
     connection: _TroubleshootConnection | AirbyteError,
     *,
-    organization: object | requests.RequestException | None = None,
+    organization: object | AirbyteError | requests.RequestException | None = None,
     max_log_lines: int = cloud_mcp.TROUBLESHOOT_DEFAULT_MAX_LOG_LINES,
 ) -> cloud_mcp.TroubleshootConnectionResult:
     workspace = _TroubleshootWorkspace(
@@ -2724,8 +2727,9 @@ def test_troubleshoot_reports_disabled_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A disabled connection is reported as such."""
-    result = _troubleshoot(monkeypatch, _TroubleshootConnection(enabled=False))
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(status="inactive"))
 
+    assert result.connection.status == "inactive"
     assert result.connection.enabled is False
 
 
@@ -2793,7 +2797,8 @@ def test_troubleshoot_log_tail_drops_stack_trace_lines(
     log_tail = _troubleshoot(monkeypatch, connection).log_tail
 
     assert log_tail.log_text == "line-0\nline-1"
-    assert log_tail.total_log_lines_available == 2
+    assert log_tail.total_log_lines_available == 3
+    assert log_tail.filtered_line_count == 1
 
 
 def test_troubleshoot_guidance_classifies_and_restricts_actions(
@@ -2893,7 +2898,8 @@ def test_troubleshoot_log_tail_drops_prefixed_stack_trace_lines(
     assert log_tail.log_text == (
         "[2026-09-28T11:54:32] INFO: line-0\n[2026-09-28T11:54:34] INFO: line-1"
     )
-    assert log_tail.total_log_lines_available == 2
+    assert log_tail.total_log_lines_available == 3
+    assert log_tail.filtered_line_count == 1
 
 
 def test_troubleshoot_attempts_transport_error_is_isolated(
@@ -3220,6 +3226,7 @@ def test_troubleshoot_log_tail_drops_java_and_python_stack_frames(
         "\t... 12 more",
         "Traceback (most recent call last):",
         '  File "/app/main.py", line 10, in run',
+        "ValueError: leaked-exception",
         "[2026-01-01 00:00:00] INFO: stacktrace: leaked-stack",
         "internalMessage: leaked-internal",
         'failureReason: {"externalMessage": "x", "internalMessage": "leaked-json"}',
@@ -3244,7 +3251,8 @@ def test_troubleshoot_log_tail_drops_java_and_python_stack_frames(
         "at least one record was emitted",
         "Sync failed",
     ]
-    assert log_tail.total_log_lines_available == 3
+    assert log_tail.total_log_lines_available == 15
+    assert log_tail.filtered_line_count == 12
 
 
 def test_troubleshoot_log_tail_char_cap_drops_partial_line(
@@ -3270,6 +3278,7 @@ def test_troubleshoot_log_tail_char_cap_drops_partial_line(
     assert log_tail.log_text_truncated is True
     assert log_tail.log_text_line_count == 1
     assert log_tail.total_log_lines_available == 3
+    assert log_tail.filtered_line_count == 0
 
 
 class _CountingDefinitionConnector(_DescribedConnector):
@@ -3395,7 +3404,7 @@ def test_troubleshoot_guidance_forbids_configuration_changes() -> None:
         "permanently_delete_*",
     ]:
         assert tool_name in guidance
-    assert "never change connector or connection configuration yourself" in guidance
+    assert "Never change connector, connection or definition configuration" in guidance
     assert "do not enable it yourself" in guidance
     assert "its output is unfiltered" in guidance
     assert "log_text_line_count lower than total_log_lines_available" in guidance
@@ -3408,3 +3417,273 @@ def test_troubleshoot_guidance_checks_non_sync_jobs_before_rerun() -> None:
     assert "recent_jobs lists sync jobs only" in guidance
     assert "list_cloud_sync_jobs (no job_type filter)" in guidance
     assert callable(cloud_mcp.list_cloud_sync_jobs)
+
+
+_LEAKY_CONTEXT_ERROR = AirbyteError(
+    message="Lookup failed.",
+    context={"response": '{"internalMessage": "leaked-internal-detail"}'},
+)
+
+_LOG_PREFIXES = [
+    pytest.param("", id="no-prefix"),
+    pytest.param("[2026-09-28T11:54:32] ERROR: ", id="event-prefix"),
+    pytest.param("2026-09-28 11:54:32 source > ", id="legacy-prefix"),
+    pytest.param(
+        "\x1b[32m2026-09-28 11:54:32\x1b[0m \x1b[36mreplication-orchestrator\x1b[0m > ",
+        id="legacy-ansi-prefix",
+    ),
+]
+
+_STACK_TRACE_BLOCKS = [
+    pytest.param(
+        [
+            "Traceback (most recent call last):",
+            '  File "/app/main.py", line 10, in run',
+            "    raise ValueError(secret)",
+            "          ^^^^^^^^^^^^^^^^^^",
+            "ValueError: leaked-python-exception",
+        ],
+        id="python-traceback",
+    ),
+    pytest.param(
+        [
+            "\tat io.airbyte.Foo.bar(Foo.java:12)",
+            "\tat io.airbyte.Foo.baz(Native Method)",
+            "Caused by: java.io.IOException: leaked-cause",
+            "\tat io.airbyte.Bar.run(Bar.java:3)",
+            "\t... 4 more",
+        ],
+        id="java-frames-caused-by",
+    ),
+    pytest.param(
+        [
+            "\tSuppressed: java.lang.IllegalStateException: leaked-suppressed",
+            "\t\tat io.airbyte.Baz.close(Baz.java:7)",
+        ],
+        id="java-suppressed",
+    ),
+    pytest.param(
+        [
+            "    at Object.<anonymous> (/app/index.js:10:5)",
+            "    at /app/lib/leaked.js:1:2",
+        ],
+        id="node-frames",
+    ),
+    pytest.param(
+        [
+            "failureReason=FailureReason{internalMessage=leaked-internal, retryable=false}"
+        ],
+        id="internal-message-equals",
+    ),
+    pytest.param(
+        ['payload={\\"internalMessage\\": \\"leaked-internal\\"}'],
+        id="internal-message-escaped-json",
+    ),
+    pytest.param(['{"stack_trace": "leaked-stack"}'], id="stack-trace-json"),
+]
+
+
+@pytest.mark.parametrize("prefix", _LOG_PREFIXES)
+@pytest.mark.parametrize("block", _STACK_TRACE_BLOCKS)
+def test_filter_log_lines_drops_stack_trace_blocks(
+    prefix: str, block: list[str]
+) -> None:
+    """Known stack-trace blocks and internal-detail keys are dropped under either prefix."""
+    lines = [
+        f"{prefix}before",
+        *(f"{prefix}{line}" for line in block),
+        f"{prefix}after",
+    ]
+
+    kept = cloud_mcp._filter_log_lines(lines)  # noqa: SLF001
+
+    assert kept == [f"{prefix}before", f"{prefix}after"]
+
+
+def test_describe_warnings_do_not_leak_error_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every describe warning renders only the error message, never its context."""
+
+    def _raise(_connector: object) -> object:
+        raise _LEAKY_CONTEXT_ERROR
+
+    monkeypatch.setattr(connector_docs, "build_connection_details", _raise)
+    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+    connector.config = _LEAKY_CONTEXT_ERROR
+    connector.guidance = _LEAKY_CONTEXT_ERROR
+    connector.replication_docs = _LEAKY_CONTEXT_ERROR
+
+    result = _describe(
+        connector,
+        with_config=True,
+        with_replication_details=True,
+        with_direct_access_guidance=True,
+        with_data_replication_docs=True,
+    )
+
+    assert len(result.warnings) == 4
+    assert all("Lookup failed." in warning for warning in result.warnings)
+    assert not any("leaked-internal-detail" in warning for warning in result.warnings)
+    fallback = cloud_mcp._feature_lookup_warning(_LEAKY_CONTEXT_ERROR)  # noqa: SLF001
+    assert "leaked-internal-detail" not in fallback
+    assert fallback.endswith("Lookup failed.")
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            AirbyteCloudApiError(message="Forbidden.", status_code=403),
+            "Organization lookup was denied for this workspace; this requires "
+            "ORGANIZATION_READER permission.",
+            id="forbidden",
+        ),
+        pytest.param(
+            AirbyteError(
+                message="Organization info is incomplete.",
+                context=_LEAKY_CONTEXT_ERROR.context,
+            ),
+            "Organization lookup failed: Organization info is incomplete.",
+            id="airbyte-error",
+        ),
+        pytest.param(
+            requests.ConnectionError("dns failure"),
+            "Organization lookup failed: dns failure",
+            id="transport",
+        ),
+    ],
+)
+def test_troubleshoot_billing_organization_errors(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, expected: str
+) -> None:
+    """Only access denials get the ORGANIZATION_READER hint; other errors are sanitized."""
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(), organization=error)
+
+    assert result.billing.error == expected
+    assert result.source_check.succeeded is True
+
+
+def test_troubleshoot_billing_config_api_root_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing Config API root fills billing.error without the permission hint."""
+
+    def _raise(**_: object) -> object:
+        raise NotImplementedError("Config API root unknown.")
+
+    workspace = _TroubleshootWorkspace(connection=_TroubleshootConnection())
+    monkeypatch.setattr(workspace, "get_organization", _raise)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+
+    result = cloud_mcp.troubleshoot_cloud_connection(
+        cast(Context, object()), connection_id="connection-id", workspace_id=None
+    )
+
+    assert (
+        result.billing.error == "Organization lookup failed: Config API root unknown."
+    )
+
+
+def test_troubleshoot_isolates_attempt_parsing_type_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed attempts payload fills latest_failed_job.error only."""
+    connection = _TroubleshootConnection(
+        jobs=[_job(4, JobStatusEnum.FAILED, attempts=TypeError("malformed attempts"))]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.error == "malformed attempts"
+    assert result.billing.error is None
+
+
+def test_troubleshoot_reports_deleted_connection_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deleted connection reports its raw `deprecated` status and guidance never says enable it."""
+    result = _troubleshoot(monkeypatch, _TroubleshootConnection(status="deprecated"))
+
+    assert result.connection.status == "deprecated"
+    assert result.connection.enabled is False
+    guidance = " ".join(result.guidance.split())
+    assert (
+        "connection.status is deprecated. The connection was deleted and cannot be enabled"
+        in guidance
+    )
+    assert "connection.status is inactive" in guidance
+
+
+def test_troubleshoot_guidance_round_two_rules() -> None:
+    """Rerun needs a complete job list and the newest job overall; tools are allowlisted."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert "require recent_jobs.error to be null" in guidance
+    assert "the newest job of any type is latest_failed_job.job_id" in guidance
+    assert (
+        "only call read-only tools, plus run_cloud_sync and cancel_cloud_sync under the "
+        "conditions in rule 2" in guidance
+    )
+    for tool in (
+        "update_custom_source_definition",
+        "publish_custom_source_definition",
+        "deploy_connector_to_cloud",
+        "deploy_noop_destination_to_cloud",
+        "create_connection_on_cloud",
+        "set_cloud_connection_selected_streams",
+    ):
+        assert tool in guidance
+    assert "always removed" not in guidance
+    assert (
+        "Known stack-trace and internal-detail formats are removed; never quote any that remain"
+        in guidance
+    )
+    assert (
+        "total_log_lines_available is the raw line count used by get_cloud_sync_logs"
+        in guidance
+    )
+    assert "filtered_line_count" in guidance
+
+
+def test_get_cloud_sync_status_uses_one_job_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Status, counts and start time all come from a single job snapshot."""
+    calls: list[int] = []
+    start_time = datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+    def _snapshot() -> SyncJobSnapshot:
+        calls.append(1)
+        return SyncJobSnapshot(
+            status=JobStatusEnum.SUCCEEDED,
+            bytes_synced=42,
+            records_synced=7,
+            start_time=start_time,
+        )
+
+    sync_result = SimpleNamespace(
+        job_id=9, job_url="https://cloud.example.com/jobs/9", get_job_snapshot=_snapshot
+    )
+    connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
+    workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+
+    result = cloud_mcp.get_cloud_sync_status(
+        cast(Context, object()),
+        connection_id="connection-id",
+        job_id=9,
+        workspace_id=None,
+        include_attempts=False,
+    )
+
+    assert calls == [1]
+    assert result["status"] == JobStatusEnum.SUCCEEDED
+    assert result["bytes_synced"] == 42
+    assert result["records_synced"] == 7
+    assert result["start_time"] == start_time.isoformat()
