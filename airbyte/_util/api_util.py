@@ -2248,6 +2248,11 @@ def check_connector(
         return True, None
 
     if result == "failed":
+        if not message:
+            job_info = json_result.get("jobInfo")
+            failure = job_info.get("failureReason") if isinstance(job_info, dict) else None
+            if isinstance(failure, dict):
+                message = failure.get("externalMessage")
         return False, message
 
     raise AirbyteError(

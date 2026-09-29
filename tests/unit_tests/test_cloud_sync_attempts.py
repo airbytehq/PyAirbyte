@@ -226,3 +226,31 @@ def test_get_cloud_sync_status_caps_failure_messages(
     assert len(failure["external_message"]) == cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
     assert failure["external_message"].endswith(cloud_mcp.TRUNCATION_MARKER)
     assert failure["external_message_truncated"] is True
+
+
+def test_sync_result_job_snapshot_fetches_job_info_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A running job's snapshot reads status, counts and start time from one lookup."""
+    lookups: list[int] = []
+
+    def _get_job_info(*, job_id: int, **_kwargs: object) -> SimpleNamespace:
+        lookups.append(job_id)
+        return SimpleNamespace(
+            job_id=job_id,
+            status="running",
+            bytes_synced=10 * len(lookups),
+            rows_synced=2,
+            start_time="2026-01-01T00:00:00Z",
+        )
+
+    monkeypatch.setattr(api_util, "get_job_info", _get_job_info)
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    snapshot = sync_result.get_job_snapshot()
+
+    assert lookups == [123]
+    assert snapshot.status == JobStatusEnum.RUNNING
+    assert snapshot.bytes_synced == 10
+    assert snapshot.records_synced == 2
+    assert snapshot.start_time == datetime(2026, 1, 1, tzinfo=timezone.utc)

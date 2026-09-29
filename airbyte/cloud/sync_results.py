@@ -240,6 +240,20 @@ class SyncAttempt:
         return result
 
 
+@dataclass(frozen=True)
+class SyncJobSnapshot:
+    """A sync job's status, counts and start time, all from one job lookup."""
+
+    status: JobStatusEnum
+    """The job status."""
+    bytes_synced: int
+    """The number of bytes synced."""
+    records_synced: int
+    """The number of records synced."""
+    start_time: datetime
+    """The job start time in UTC."""
+
+
 @dataclass
 class SyncResult:
     """The result of a sync operation.
@@ -333,11 +347,29 @@ class SyncResult:
         """Return the number of records processed."""
         return self._fetch_latest_job_info().rows_synced or 0
 
+    def get_job_snapshot(self) -> SyncJobSnapshot:
+        """Return the job's status, counts and start time from a single job lookup.
+
+        Unlike reading `get_job_status()`, `bytes_synced`, `records_synced` and `start_time`
+        separately, this fetches a running job's info once, so all values are consistent.
+        """
+        job_info = self._fetch_latest_job_info()
+        return SyncJobSnapshot(
+            status=job_info.status,
+            bytes_synced=job_info.bytes_synced or 0,
+            records_synced=job_info.rows_synced or 0,
+            start_time=self._parse_start_time(job_info),
+        )
+
     @property
     def start_time(self) -> datetime:
         """Return the start time of the sync job in UTC."""
+        return self._parse_start_time(self._fetch_latest_job_info())
+
+    def _parse_start_time(self, job_info: CloudJobInfo) -> datetime:
+        """Parse `job_info`'s start time, falling back to the Config API for invalid values."""
         try:
-            return ab_datetime_parse(self._fetch_latest_job_info().start_time)
+            return ab_datetime_parse(job_info.start_time)
         except (ValueError, TypeError) as e:
             if "Invalid isoformat string" in str(e):
                 job_info_raw = api_util._make_config_api_request(  # noqa: SLF001

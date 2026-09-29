@@ -908,3 +908,34 @@ def test_get_job_info_wraps_sdk_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert exc_info.value.__cause__ is sdk_error
     assert exc_info.value.context["job_id"] == 123
+
+
+def test_check_connector_failed_without_message_uses_failure_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed check with no message falls back to the job's external failure message."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {
+            "status": "failed",
+            "message": None,
+            "jobInfo": {
+                "failureReason": {
+                    "externalMessage": "Invalid password.",
+                    "internalMessage": "leaked-internal",
+                }
+            },
+        },
+    )
+
+    result = api_util.check_connector(
+        actor_id="source-id",
+        connector_type="source",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        config_api_root="https://config.example.com",
+    )
+
+    assert result == (False, "Invalid password.")
