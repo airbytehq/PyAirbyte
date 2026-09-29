@@ -29,7 +29,7 @@ from airbyte._direct_connectors.models import (
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
-from airbyte.cloud.sync_results import SyncAttemptFailure
+from airbyte.cloud.sync_results import SyncAttemptFailure, SyncJobSnapshot
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
@@ -1855,7 +1855,7 @@ def test_describe_helper_integration_name_failure_warns() -> None:
     result = _describe(connector)
 
     assert result.integration_name is None
-    assert any("Integration name lookup failed" in w for w in result.warnings)
+    assert any("Connector definition lookup failed" in w for w in result.warnings)
 
 
 def test_describe_helper_canonical_name_failure_warns() -> None:
@@ -1867,7 +1867,7 @@ def test_describe_helper_canonical_name_failure_warns() -> None:
 
     assert result.canonical_connector_name is None
     assert result.integration_name == "GitHub"
-    assert any("Canonical connector name lookup failed" in w for w in result.warnings)
+    assert any("Connector definition lookup failed" in w for w in result.warnings)
 
 
 def test_describe_helper_collects_inspect_warnings() -> None:
@@ -2347,6 +2347,14 @@ class _TroubleshootSyncResult(_SyncResultLike):
         ):
             raise self.attempts
         return self.attempts
+
+    def get_job_snapshot(self) -> SyncJobSnapshot:
+        return SyncJobSnapshot(
+            status=self.get_job_status(),
+            bytes_synced=self.bytes_synced,
+            records_synced=self.records_synced,
+            start_time=self.start_time,
+        )
 
 
 @dataclass
@@ -2978,7 +2986,7 @@ def test_troubleshoot_connector_definition_error_is_isolated(
 def test_troubleshoot_log_tail_is_bounded_by_characters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A huge log line is cut to the character cap and marked as truncated."""
+    """A last line over the character cap is omitted whole, never cut mid-line."""
     huge_line = "x" * (cloud_mcp.TROUBLESHOOT_MAX_LOG_CHARS + 500)
     connection = _TroubleshootConnection(
         jobs=[
@@ -2992,9 +3000,9 @@ def test_troubleshoot_log_tail_is_bounded_by_characters(
 
     log_tail = _troubleshoot(monkeypatch, connection).log_tail
 
-    assert len(log_tail.log_text) == cloud_mcp.TROUBLESHOOT_MAX_LOG_CHARS
+    assert log_tail.log_text == ""
     assert log_tail.log_text_truncated is True
-    assert log_tail.log_text_line_count == 1
+    assert log_tail.log_text_line_count == 0
     assert log_tail.total_log_lines_available == 2
 
 
@@ -3197,3 +3205,206 @@ def test_troubleshoot_guidance_requires_failed_job_to_be_newest() -> None:
     """Guidance only allows a rerun when no newer job exists."""
     assert "newest entry in" in cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE
     assert "external_message_truncated" in cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE
+
+
+def test_troubleshoot_log_tail_drops_java_and_python_stack_frames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stack frames and internal-detail lines are dropped, with or without event prefixes."""
+    log_text = "\n".join([
+        "Starting sync",
+        "\tat io.airbyte.Foo.bar(Foo.java:12)",
+        "[2026-01-01 00:00:00] ERROR: at io.airbyte.Foo.baz(Foo.java:34)",
+        "Caused by: java.io.IOException: boom",
+        "[2026-01-01 00:00:00] ERROR: caused by: leaked-cause",
+        "\t... 12 more",
+        "Traceback (most recent call last):",
+        '  File "/app/main.py", line 10, in run',
+        "[2026-01-01 00:00:00] INFO: stacktrace: leaked-stack",
+        "internalMessage: leaked-internal",
+        'failureReason: {"externalMessage": "x", "internalMessage": "leaked-json"}',
+        '{"stacktrace": "leaked-json-stack"}',
+        "at least one record was emitted",
+        "Sync failed",
+    ])
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", log_text)],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert log_tail.log_text.splitlines() == [
+        "Starting sync",
+        "at least one record was emitted",
+        "Sync failed",
+    ]
+    assert log_tail.total_log_lines_available == 3
+
+
+def test_troubleshoot_log_tail_char_cap_drops_partial_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The character cap keeps only whole lines and counts them accurately."""
+    half = "y" * (cloud_mcp.TROUBLESHOOT_MAX_LOG_CHARS // 2)
+    connection = _TroubleshootConnection(
+        jobs=[
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[
+                    _TroubleshootAttempt(0, "failed", f"{half}a\n{half}b\n{half}c")
+                ],
+            )
+        ]
+    )
+
+    log_tail = _troubleshoot(monkeypatch, connection).log_tail
+
+    assert log_tail.log_text == f"{half}c"
+    assert log_tail.log_text_truncated is True
+    assert log_tail.log_text_line_count == 1
+    assert log_tail.total_log_lines_available == 3
+
+
+class _CountingDefinitionConnector(_DescribedConnector):
+    """Connector whose definition lookup fails with a transport error and counts calls."""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.definition_lookups = 0
+
+    @property
+    def integration_name(self) -> str:
+        self.definition_lookups += 1
+        raise requests.ConnectionError("dns failure")
+
+    @property
+    def canonical_name(self) -> str:
+        self.definition_lookups += 1
+        raise requests.ConnectionError("dns failure")
+
+
+def test_describe_helper_definition_failure_warns_once() -> None:
+    """A failed definition lookup is attempted once and yields one warning."""
+    connector = _CountingDefinitionConnector()
+
+    result = _describe(connector)
+
+    assert connector.definition_lookups == 1
+    assert result.warnings == ["Connector definition lookup failed: dns failure"]
+    assert result.integration_name is None
+    assert result.canonical_connector_name is None
+
+
+def test_describe_helper_definition_warning_omits_error_context() -> None:
+    """Definition lookup warnings never include error context or log text."""
+    connector = _DescribedConnector()
+    connector._integration_name = AirbyteError(  # noqa: SLF001
+        message="API error occurred: boom",
+        context={"body": "leaked-body"},
+        log_text="leaked-log",
+    )
+
+    result = _describe(connector)
+
+    assert result.warnings == [
+        "Connector definition lookup failed: API error occurred: boom"
+    ]
+
+
+def test_troubleshoot_check_connector_failure_reason_is_failed_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connector-origin failure reason is a failed check with a message, not an error."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = AirbyteError(
+        context={
+            "response": {
+                "jobInfo": {
+                    "failureReason": {
+                        "failureOrigin": "source",
+                        "externalMessage": "403 Forbidden: invalid API key",
+                        "internalMessage": "leaked-internal",
+                    }
+                }
+            }
+        },
+    )
+
+    section = _troubleshoot(monkeypatch, connection).source_check
+
+    assert section.succeeded is False
+    assert section.message == "403 Forbidden: invalid API key"
+    assert section.error is None
+
+
+@dataclass
+class _SnapshotErrorSyncResult(_TroubleshootSyncResult):
+    """Sync result whose job info lookup fails."""
+
+    def get_job_snapshot(self) -> SyncJobSnapshot:
+        raise AirbyteError(message="API error occurred: job lookup failed")
+
+
+def test_troubleshoot_recent_jobs_isolates_per_job_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One job's lookup error omits only that job; an older failed job is still diagnosed."""
+    broken = _SnapshotErrorSyncResult(
+        job_id=5,
+        status=JobStatusEnum.RUNNING,
+        start_time=datetime(2026, 1, 5, tzinfo=timezone.utc),
+    )
+    connection = _TroubleshootConnection(
+        jobs=[
+            broken,
+            _job(
+                4,
+                JobStatusEnum.FAILED,
+                attempts=[_TroubleshootAttempt(0, "failed", "boom")],
+            ),
+        ]
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert [job.job_id for job in result.recent_jobs.jobs] == [4]
+    assert result.recent_jobs.error is not None
+    assert "Job 5: API error occurred: job lookup failed" in result.recent_jobs.error
+    assert result.latest_failed_job.job_id == 4
+    assert result.latest_failed_job.error is None
+    assert result.log_tail.log_text == "boom"
+
+
+def test_troubleshoot_guidance_forbids_configuration_changes() -> None:
+    """Guidance forbids every configuration-mutating tool and flags unfiltered logs."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    for tool_name in [
+        "update_cloud_connector_config",
+        "update_cloud_connection",
+        "set_cloud_connection_table_prefix",
+        "rename_cloud_*",
+        "set_cloud_connection_selected_streams",
+        "permanently_delete_*",
+    ]:
+        assert tool_name in guidance
+    assert "never change connector or connection configuration yourself" in guidance
+    assert "do not enable it yourself" in guidance
+    assert "its output is unfiltered" in guidance
+    assert "log_text_line_count lower than total_log_lines_available" in guidance
+
+
+def test_troubleshoot_guidance_checks_non_sync_jobs_before_rerun() -> None:
+    """Guidance says recent_jobs is sync-only and to check other jobs before re-running."""
+    guidance = " ".join(cloud_mcp.TROUBLESHOOT_CONNECTION_GUIDANCE.split())
+
+    assert "recent_jobs lists sync jobs only" in guidance
+    assert "list_cloud_sync_jobs (no job_type filter)" in guidance
+    assert callable(cloud_mcp.list_cloud_sync_jobs)
