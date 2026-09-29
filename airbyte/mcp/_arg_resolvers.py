@@ -14,7 +14,10 @@ from typing import Any, overload
 import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
-from airbyte.mcp._guards import raise_if_untrusted_execution_context
+from airbyte.mcp._guards import (
+    is_trusted_execution_enabled,
+    raise_if_untrusted_execution_context,
+)
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret
 
@@ -84,6 +87,30 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
 
     # Fallback to CSV split:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def resolve_manifest_yaml(manifest_yaml: str | Path | None) -> str | Path | None:
+    """Resolve inline YAML or gate local manifest paths behind trusted execution.
+
+    A local manifest path is a trusted-machine input and is rejected when trusted execution is
+    disabled.
+    """
+    if manifest_yaml is None:
+        return None
+
+    if isinstance(manifest_yaml, Path):
+        raise_if_untrusted_execution_context(
+            "Reading a connector manifest from a local file (`manifest_yaml` path)"
+        )
+        return manifest_yaml
+
+    if "\n" in manifest_yaml:
+        return manifest_yaml
+
+    if is_trusted_execution_enabled():
+        return Path(manifest_yaml)
+
+    return manifest_yaml
 
 
 def resolve_connector_config(  # noqa: PLR0912

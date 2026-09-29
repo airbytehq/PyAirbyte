@@ -60,7 +60,11 @@ from airbyte.exceptions import (
     AirbyteMissingWorkspaceContextError,
     PyAirbyteInputError,
 )
-from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import (
+    resolve_connector_config,
+    resolve_list_of_strings,
+    resolve_manifest_yaml,
+)
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
@@ -2242,8 +2246,9 @@ def publish_custom_source_definition(
         str | Path | None,
         Field(
             description=(
-                "The Low-code CDK manifest as a YAML string or file path. "
-                "Required for YAML connectors."
+                "The Low-code CDK manifest as inline YAML or a file path. File paths are "
+                "honored only when trusted execution is enabled; otherwise, the value is "
+                "treated as inline YAML. Required for YAML connectors."
             ),
             default=None,
         ),
@@ -2294,9 +2299,7 @@ def publish_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    processed_manifest = manifest_yaml
-    if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
-        processed_manifest = Path(manifest_yaml)
+    processed_manifest = resolve_manifest_yaml(manifest_yaml)
 
     # Resolve testing values from inline config and/or secret
     testing_values_dict: dict[str, Any] | None = None
@@ -2486,7 +2489,8 @@ def update_custom_source_definition(
         str | Path | None,
         Field(
             description=(
-                "New manifest as YAML string or file path. "
+                "New manifest as inline YAML or a file path. File paths are honored only when "
+                "trusted execution is enabled; otherwise, the value is treated as inline YAML. "
                 "Optional; omit to update only testing values."
             ),
             default=None,
@@ -2556,9 +2560,7 @@ def update_custom_source_definition(
             },
         )
 
-    processed_manifest: str | Path | None = manifest_yaml
-    if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
-        processed_manifest = Path(manifest_yaml)
+    processed_manifest = resolve_manifest_yaml(manifest_yaml)
 
     # Resolve testing values from inline config and/or secret
     testing_values_dict: dict[str, Any] | None = None
