@@ -148,6 +148,7 @@ def test_requested_action_survives_real_tool_execution(
         assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
             "action": action,
             **({"intent": intent} if intent is not None else {}),
+            **({"entity_name": "contacts"} if name != SQL else {}),
         }
     else:
         assert "_dd.ml_obs.metadata" not in attrs

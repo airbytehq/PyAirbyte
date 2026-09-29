@@ -119,7 +119,9 @@ surrounding whitespace are retained, truncating those longer than 256 characters
 for telemetry and removing trailing spaces at the cut. Other values are omitted;
 the original tool arguments are unchanged. These are caller-supplied names, which
 can include customer-defined or sensitive text; format checks are not
-anonymization or verification that an entity was accessed. Other tool arguments,
+anonymization or verification that an entity was accessed. With Datadog enabled,
+the validated name also appears as `entity_name` in Input alongside captured
+intent and action. Other tool arguments,
 results and HTTP headers are not recorded. Unregistered
 tool names are dropped. Segment requests are excluded from instrumentation.
 Session tokens are hashed before FastMCP sees them, while their extension

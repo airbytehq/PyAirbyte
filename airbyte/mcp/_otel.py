@@ -584,7 +584,11 @@ class RedactingExporter(SpanExporter):
                 attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
             tool_input = {
                 label: metadata[key]
-                for label, key in (("intent", "intent"), ("action", "agent.action"))
+                for label, key in (
+                    ("intent", "intent"),
+                    ("action", "agent.action"),
+                    ("entity_name", "agent.entity_type"),
+                )
                 if isinstance(metadata.get(key), str) and metadata[key]
             }
             if (

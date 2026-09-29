@@ -10,9 +10,11 @@ from collections.abc import Iterator
 from unittest.mock import Mock
 
 import pytest
+import fastmcp.client.telemetry
+import fastmcp.telemetry
+import mcp.shared._otel
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.server import telemetry as fastmcp_telemetry
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
@@ -84,9 +86,13 @@ def entity_export(request, monkeypatch, isolated_otel, vendor):
         else BatchSpanProcessor(redacted)
     )
     provider.add_span_processor(processor)
+    monkeypatch.setattr(fastmcp.telemetry, "otel_get_tracer", provider.get_tracer)
+    monkeypatch.setattr(trace, "get_tracer", provider.get_tracer)
+    # In-process clients must not parent server spans: production clients are remote.
     monkeypatch.setattr(
-        fastmcp_telemetry, "get_tracer", lambda: provider.get_tracer("fastmcp")
+        fastmcp.client.telemetry, "get_tracer", lambda *_, **__: trace.NoOpTracer()
     )
+    monkeypatch.setattr(mcp.shared._otel, "_tracer", trace.NoOpTracer())
     yield provider, exporter
     provider.shutdown()
 
@@ -105,10 +111,13 @@ def _assert_entity(span, expected, vendor):
         assert attrs[ATTRIBUTE] == expected
         assert isinstance(attrs[ATTRIBUTE], str)
     metadata = json.loads(attrs.get("_dd.ml_obs.metadata", "{}"))
+    tool_input = json.loads(attrs.get("gen_ai.tool.call.arguments", "{}"))
     if vendor == "datadog" and expected is not None:
         assert metadata["agent.entity_type"] == expected
+        assert tool_input["entity_name"] == expected
     else:
         assert "agent.entity_type" not in metadata
+        assert "entity_name" not in tool_input
     assert "airbyte.mcp.entity_type_valid" not in attrs
 
 
@@ -520,16 +529,19 @@ def test_failed_cancelled_timed_out_calls_reset_before_next_attempt(
     assert "SENTINEL" not in "\n".join(span.to_json() for span in spans)
 
 
-def test_immediate_export_precedes_middleware_return(monkeypatch, isolated_otel):
+def test_immediate_export_follows_middleware_return(monkeypatch, isolated_otel):
     provider = TracerProvider()
     exporter = InMemorySpanExporter()
     provider.add_span_processor(observability.IntentStampProcessor())
     provider.add_span_processor(
         SimpleSpanProcessor(observability.RedactingExporter(exporter))
     )
+    monkeypatch.setattr(fastmcp.telemetry, "otel_get_tracer", provider.get_tracer)
+    monkeypatch.setattr(trace, "get_tracer", provider.get_tracer)
     monkeypatch.setattr(
-        fastmcp_telemetry, "get_tracer", lambda: provider.get_tracer("fastmcp")
+        fastmcp.client.telemetry, "get_tracer", lambda *_, **__: trace.NoOpTracer()
     )
+    monkeypatch.setattr(mcp.shared._otel, "_tracer", trace.NoOpTracer())
     app = FastMCP("timing")
 
     @app.tool(name=TOOLS[0])
@@ -541,9 +553,9 @@ def test_immediate_export_precedes_middleware_return(monkeypatch, isolated_otel)
         async def on_call_tool(self, context, call_next):
             async def observe(inner_context):
                 result = await call_next(inner_context)
-                spans = exporter.get_finished_spans()
-                assert len(spans) == 1
-                assert spans[0].attributes[ATTRIBUTE] == "issues"
+                # FastMCP 4 owns the seam span above the middleware chain.
+                assert not exporter.get_finished_spans()
+                assert trace.get_current_span().attributes[ATTRIBUTE] == "issues"
                 return result
 
             return await super().on_call_tool(context, observe)
@@ -552,6 +564,9 @@ def test_immediate_export_precedes_middleware_return(monkeypatch, isolated_otel)
     app.add_middleware(ObserveReturn(app))
     try:
         asyncio.run(_call(app, TOOLS[0], {"entity_type": "issues", "action": "get"}))
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].attributes[ATTRIBUTE] == "issues"
     finally:
         provider.shutdown()
 
@@ -560,9 +575,9 @@ def test_tracing_disabled_preserves_default_schema_and_execution(
     monkeypatch, isolated_otel, uninitialized_provider, otel_provider
 ):
     monkeypatch.setattr(
-        fastmcp_telemetry,
-        "get_tracer",
-        lambda: trace.NoOpTracerProvider().get_tracer("fastmcp"),
+        fastmcp.telemetry,
+        "otel_get_tracer",
+        lambda *_, **__: trace.NoOpTracer(),
     )
     app = FastMCP("disabled")
 
