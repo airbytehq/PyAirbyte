@@ -30,6 +30,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util
 from airbyte.cloud import CloudConnection, CloudWorkspace
+from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.sync_results import (
     SyncAttempt,
@@ -4268,6 +4269,7 @@ def test_filter_log_lines_frame_block_continues_on_any_at_line() -> None:
     [
         "java.lang.IllegalStateException: leaked\\n\\tat io.airbyte.Foo.bar(Foo.java:12)",
         "failure: leaked\\\\n\\\\tat io.airbyte.Foo.bar(Foo.java:12)",
+        "Error: failed\\n    at Object.run (/app/index.js:1:2)",
         "Sync failed: Traceback (most recent call last): File x.py leaked",
         '{"exception": "leaked-exception"}',
         '{\\"throwable\\": \\"leaked\\"}',
@@ -4805,3 +4807,26 @@ def test_troubleshoot_billing_non_str_organization_id(
     assert result.connection.connection_id == "connection-id"
     assert result.source_check.succeeded is True
     assert [job.job_id for job in result.recent_jobs.jobs] == [2]
+
+
+@pytest.mark.parametrize(
+    "billing",
+    [
+        {"paymentStatus": ["locked"], "subscriptionStatus": "subscribed"},
+        {"paymentStatus": "okay", "subscriptionStatus": {"state": "unsubscribed"}},
+    ],
+)
+def test_organization_billing_status_ignores_non_str_values(
+    monkeypatch: pytest.MonkeyPatch, billing: dict[str, object]
+) -> None:
+    """Array or object billing statuses are treated as unknown instead of raising."""
+    monkeypatch.setattr(
+        api_util, "get_organization_info", lambda **_: {"billing": billing}
+    )
+    organization = CloudOrganization(organization_id="org-id", bearer_token="token")
+
+    info = organization.get_billing_status()
+
+    assert not isinstance(info.payment_status, (list, dict))
+    assert not isinstance(info.subscription_status, (list, dict))
+    assert info.is_account_locked is False

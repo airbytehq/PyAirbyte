@@ -560,10 +560,11 @@ _INTERNAL_DETAIL_KEY = re.compile(
 """Matches internal-detail keys anywhere in a line: `internalMessage`/`stacktrace` quoted or not,
 and `exception`/`throwable`/`stack` as quoted JSON keys."""
 _SERIALIZED_TRACE = re.compile(
-    r"\\{1,2}n\\{1,2}tat\s|traceback\s+\(most\s+recent\s+call\s+last\):",
+    r"\\{1,2}n(?:\\{1,2}t|[ \t])+at\s|traceback\s+\(most\s+recent\s+call\s+last\):",
     re.IGNORECASE,
 )
-"""Matches a stack trace serialized onto one line: an escaped `\\n\\tat ` or an inline traceback."""
+"""Matches a stack trace serialized onto one line: an escaped newline then indented `at `, or an
+inline traceback."""
 _FRAME_CONTINUATION = re.compile(r"^\s*at\s+\S")
 """Matches any `at ...` line, which continues a frame block once one has started."""
 _STACK_FRAME = re.compile(

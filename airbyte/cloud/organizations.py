@@ -131,11 +131,11 @@ class CloudOrganization:
             )
         payment_status = billing.get("paymentStatus")
         subscription_status = billing.get("subscriptionStatus")
+        payment_status = payment_status if isinstance(payment_status, str) else None
+        subscription_status = subscription_status if isinstance(subscription_status, str) else None
         return CloudOrganizationBillingInfo(
-            payment_status=payment_status if isinstance(payment_status, str) else None,
-            subscription_status=(
-                subscription_status if isinstance(subscription_status, str) else None
-            ),
+            payment_status=payment_status,
+            subscription_status=subscription_status,
             is_account_locked=api_util.is_account_locked(payment_status, subscription_status),
         )
 
@@ -143,13 +143,17 @@ class CloudOrganization:
     def payment_status(self) -> str | None:
         """Payment status of the organization."""
         info = self._fetch_organization_info()
-        return (info.get("billing") or {}).get("paymentStatus")
+        billing = info.get("billing")
+        value = billing.get("paymentStatus") if isinstance(billing, dict) else None
+        return value if isinstance(value, str) else None
 
     @property
     def subscription_status(self) -> str | None:
         """Subscription status of the organization."""
         info = self._fetch_organization_info()
-        return (info.get("billing") or {}).get("subscriptionStatus")
+        billing = info.get("billing")
+        value = billing.get("subscriptionStatus") if isinstance(billing, dict) else None
+        return value if isinstance(value, str) else None
 
     @property
     def is_account_locked(self) -> bool:
