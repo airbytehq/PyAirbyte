@@ -57,7 +57,11 @@ _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
 
 @dataclass(frozen=True)
 class AirbyteUser:
-    """Canonical Airbyte user identity and its default workspace, when available."""
+    """Canonical Airbyte user identity and its default workspace, when available.
+
+    Cached without expiry, so `default_workspace_id` may be stale. It is only used to derive the
+    organization of `ServerConnected` telemetry; tools resolve the default workspace live.
+    """
 
     user_id: str
     default_workspace_id: str | None
