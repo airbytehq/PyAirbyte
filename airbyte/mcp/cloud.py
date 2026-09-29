@@ -533,6 +533,8 @@ TROUBLESHOOT_MAX_MESSAGE_CHARS: Final[int] = 2_000
 """Upper bound on each free-text message or error in troubleshooting and attempt results."""
 TRUNCATION_MARKER: Final[str] = " [truncated]"
 """Suffix marking a message cut to `TROUBLESHOOT_MAX_MESSAGE_CHARS`."""
+STACK_TRACE_REMOVED_MARKER: Final[str] = " [stack trace removed]"
+"""Suffix marking a message from which stack-trace or internal-detail lines were removed."""
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _LOG_LINE_PREFIX = re.compile(
     r"""
@@ -552,7 +554,9 @@ _INTERNAL_DETAIL_KEY = re.compile(
 _STACK_FRAME = re.compile(
     r"""
     ^\s*(?:
-        at\s+(?:[\w$.<>/\[\]-]+\(.*\)|.*\(\S+:\d+(?::\d+)?\)|\S+:\d+:\d+)\s*$  # Java/Node frames
+        at\s+[\w$.<>/\[\]-]+\([^)]*\)                  # Java frames, any suffix after `)`
+        | at\s+.*\(\S+:\d+(?::\d+)?\)\s*$                 # Node `at X (/path:1:2)` frames
+        | at\s+\S+:\d+:\d+\s*$                           # Node `at /path:1:2` frames
         | \.\.\.\s*\d+\s+(?:more|common\s+frames\s+omitted)\s*$
         | file\s+"[^"]*",\s+line\s+\d+                    # Python `File "x.py", line 12` frames
     )
@@ -566,7 +570,7 @@ _STACK_BLOCK_START = re.compile(
         caused\s+by:
         | suppressed:
         | exception\s+in\s+thread\s
-        | traceback\s+\(most\s+recent\s+call\s+last\):
+        | (?:exception\s+group\s+)?traceback\s+\(most\s+recent\s+call\s+last\):
         | during\s+handling\s+of\s+the\s+above\s+exception
         | the\s+above\s+exception\s+was\s+the\s+direct\s+cause
     )
@@ -575,14 +579,24 @@ _STACK_BLOCK_START = re.compile(
 )
 """Matches lines that start or continue a Java or Python stack trace."""
 _PYTHON_TRACEBACK_START = re.compile(
-    r"^\s*traceback\s+\(most\s+recent\s+call\s+last\):", re.IGNORECASE
+    r"^\s*(?:exception\s+group\s+)?traceback\s+\(most\s+recent\s+call\s+last\):",
+    re.IGNORECASE,
 )
+_EXCEPTION_GROUP_START = re.compile(
+    r"^\s*exception\s+group\s+traceback\s+\(most\s+recent\s+call\s+last\):",
+    re.IGNORECASE,
+)
+_EXCEPTION_GROUP_GUTTER = re.compile(r"^\s*[|+]\s*")
+"""Matches the `|`/`+` gutter Python 3.11+ prints before each line of an exception group."""
 _CARET_LINE = re.compile(r"^\s*[\^~]+\s*$")
 _EXCEPTION_HEADER = re.compile(
     r"""
     ^\s*(?:exception\s+in\s+thread\s+"[^"]*"\s+)?
     (?:.*\s-\s)?                                    # `... - ` logger message separator
-    (?:[\w$]+\.)*[\w$]*(?:exception|error|throwable)(?::.*)?$
+    (?:
+        (?:[\w$]+\.)*[\w$]*(?:exception|error|throwable)
+        | (?:[\w$]+\.)+[\w$]+                          # any fully qualified class name
+    )(?::.*)?$
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -599,11 +613,20 @@ def _filter_log_lines(lines: list[str]) -> list[str]:
     kept: list[str] = []
     in_block = False
     in_python_traceback = False
+    in_exception_group = False
     previous_kept_body: str | None = None
     for line in lines:
         plain = _ANSI_ESCAPE.sub("", line)
         body = _LOG_LINE_PREFIX.sub("", plain, count=1)
         last_kept_body, previous_kept_body = previous_kept_body, None
+        if in_exception_group and _EXCEPTION_GROUP_GUTTER.match(body):
+            continue
+        in_exception_group = False
+        unguttered = _EXCEPTION_GROUP_GUTTER.sub("", body, count=1)
+        if _EXCEPTION_GROUP_START.match(unguttered):
+            in_exception_group = True
+            in_block = in_python_traceback = False
+            continue
         if _INTERNAL_DETAIL_KEY.search(body):
             continue
         if _STACK_BLOCK_START.match(body) or _STACK_FRAME.match(body):
@@ -811,11 +834,7 @@ class SyncAttemptFailureResult(BaseModel):
     @classmethod
     def from_failure(cls, failure: SyncAttemptFailure) -> "SyncAttemptFailureResult":
         """Build a bounded result from a `SyncAttemptFailure`."""
-        message, truncated = (
-            _cap_text(failure.external_message)
-            if failure.external_message is not None
-            else (None, False)
-        )
+        message, truncated = _bounded_message(failure.external_message)
         return cls(
             failure_origin=failure.failure_origin,
             failure_type=failure.failure_type,
@@ -1303,6 +1322,30 @@ def deploy_noop_destination_to_cloud(
     )
 
 
+def _sync_status_attempt(attempt: SyncAttempt) -> dict[str, Any]:
+    """Build one `get_cloud_sync_status` attempt entry, or an error entry if it is malformed."""
+    try:
+        return {
+            "attempt_number": attempt.attempt_number,
+            "attempt_id": attempt.attempt_id,
+            "status": attempt.status,
+            "bytes_synced": attempt.bytes_synced,
+            "records_synced": attempt.records_synced,
+            "created_at": attempt.created_at.isoformat(),
+            "failures": [
+                SyncAttemptFailureResult.from_failure(failure).model_dump()
+                for failure in attempt.failures
+            ],
+        }
+    except (KeyError, ValueError, TypeError, AttributeError) as error:
+        return {
+            "attempt_number": attempt.attempt_number,
+            "error": _section_error_text(
+                error, f"Attempt {attempt.attempt_number} could not be read: "
+            ),
+        }
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -1366,21 +1409,8 @@ def get_cloud_sync_status(
     }
 
     if include_attempts:
-        attempts = sync_result.get_attempts()
         result["attempts"] = [
-            {
-                "attempt_number": attempt.attempt_number,
-                "attempt_id": attempt.attempt_id,
-                "status": attempt.status,
-                "bytes_synced": attempt.bytes_synced,
-                "records_synced": attempt.records_synced,
-                "created_at": attempt.created_at.isoformat(),
-                "failures": [
-                    SyncAttemptFailureResult.from_failure(failure).model_dump()
-                    for failure in attempt.failures
-                ],
-            }
-            for attempt in attempts
+            _sync_status_attempt(attempt) for attempt in sync_result.get_attempts()
         ]
 
     return result
@@ -2513,6 +2543,20 @@ def _bounded_text(text: str | None) -> str | None:
     return None if text is None else _cap_text(text)[0]
 
 
+def _filter_message(text: str) -> str:
+    """Drop stack-trace and internal-detail lines from a message, marking any removal."""
+    lines = text.splitlines()
+    kept = _filter_log_lines(lines)
+    if len(kept) == len(lines):
+        return text
+    return ("\n".join(kept) + STACK_TRACE_REMOVED_MARKER).strip()
+
+
+def _bounded_message(text: str | None) -> tuple[str | None, bool]:
+    """Filter stack traces out of a message, then cap it; return it and whether it was cut."""
+    return (None, False) if text is None else _cap_text(_filter_message(text))
+
+
 def _error_status_code(error: Exception) -> object | None:
     """Return the HTTP status code carried by an error or its cause, if any."""
     status_code: object | None = None
@@ -2586,9 +2630,9 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
             section.error = _section_error_text(error)
         elif failure[0] in {"source", "destination"}:
             section.succeeded = False
-            section.message = _bounded_text(failure[1])
+            section.message = _bounded_message(failure[1])[0]
         else:
-            section.error = _cap_text(
+            section.error = _bounded_message(
                 f"Check did not complete (failure origin: {failure[0]}): {failure[1]}"
             )[0]
         return section
@@ -2599,7 +2643,7 @@ def _troubleshoot_check_section(connector: CloudConnector) -> TroubleshootCheckS
         section.error = _section_error_text(error, "Check could not run: ")
         return section
     section.succeeded = check_result.success
-    section.message = _bounded_text(_get_connector_check_message(check_result))
+    section.message = _bounded_message(_get_connector_check_message(check_result))[0]
     return section
 
 
@@ -2779,6 +2823,33 @@ def _troubleshoot_recent_jobs_section(
     return recent_jobs, job_snapshots
 
 
+def _troubleshoot_failed_job_attempts(
+    sync_result: SyncResult,
+    attempts: list[SyncAttempt],
+    latest_failed_job: TroubleshootFailedJobSection,
+    max_lines: int,
+) -> TroubleshootLogTailSection:
+    """Fill `latest_failed_job`'s attempts and errors, and build the log tail from them."""
+    readable_attempts, attempt_errors = _troubleshoot_attempts(attempts)
+    latest_failed_job.attempts = [row for _, row in readable_attempts]
+    dropped_count = sync_result.get_raw_attempt_count() - len(attempts)
+    if dropped_count > 0:
+        attempt_errors.insert(0, f"{dropped_count} attempts returned by the API could not be read.")
+    if attempt_errors:
+        latest_failed_job.error = _cap_text(" ".join(attempt_errors))[0]
+    log_tail = TroubleshootLogTailSection()
+    if not attempts and dropped_count <= 0:
+        latest_failed_job.message = "Job has no attempts."
+        log_tail.message = "No attempts, so no logs were fetched."
+    elif not readable_attempts:
+        log_tail.error = "Attempts unavailable; see latest_failed_job.error."
+    else:
+        log_tail = _troubleshoot_log_tail_section(
+            sync_result, [attempt for attempt, _ in readable_attempts], max_lines
+        )
+    return log_tail
+
+
 @mcp_tool(
     read_only=False,
     idempotent=False,
@@ -2883,21 +2954,9 @@ def troubleshoot_cloud_connection(
             latest_failed_job.error = _section_error_text(error)
             log_tail.error = "Attempts unavailable; see latest_failed_job.error."
         else:
-            readable_attempts, attempt_errors = _troubleshoot_attempts(attempts)
-            latest_failed_job.attempts = [row for _, row in readable_attempts]
-            if attempt_errors:
-                latest_failed_job.error = _cap_text(" ".join(attempt_errors))[0]
-            if not attempts:
-                latest_failed_job.message = "Job has no attempts."
-                log_tail.message = "No attempts, so no logs were fetched."
-            elif not readable_attempts:
-                log_tail.error = "Attempts unavailable; see latest_failed_job.error."
-            else:
-                log_tail = _troubleshoot_log_tail_section(
-                    failed_sync_result,
-                    [attempt for attempt, _ in readable_attempts],
-                    effective_max_lines,
-                )
+            log_tail = _troubleshoot_failed_job_attempts(
+                failed_sync_result, attempts, latest_failed_job, effective_max_lines
+            )
 
     return TroubleshootConnectionResult(
         connection=connection_section,

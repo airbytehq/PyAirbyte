@@ -360,3 +360,154 @@ def test_failures_coerce_field_types() -> None:
             retryable=None,
         )
     ]
+
+
+def _status_with_attempts(
+    monkeypatch: pytest.MonkeyPatch, attempts: list[SyncAttempt]
+) -> dict[str, Any]:
+    sync_result = SimpleNamespace(
+        job_id=123,
+        job_url="https://cloud.example.com/jobs",
+        get_job_snapshot=lambda: SyncJobSnapshot(
+            status=JobStatusEnum.FAILED,
+            bytes_synced=0,
+            records_synced=0,
+            start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ),
+        get_attempts=lambda: attempts,
+    )
+    connection = SimpleNamespace(get_sync_result=lambda job_id=None: sync_result)
+    workspace = SimpleNamespace(get_connection=lambda connection_id: connection)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+    return cloud_mcp.get_cloud_sync_status(
+        cast(Context, object()),
+        connection_id="connection-id",
+        job_id=None,
+        workspace_id=None,
+        include_attempts=True,
+    )
+
+
+def test_get_cloud_sync_status_isolates_malformed_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An attempt missing `createdAt` gets an `error`; other attempts are unaffected."""
+    missing_created_at = {"attempt": {"id": 12, "status": "failed"}}
+
+    result = _status_with_attempts(
+        monkeypatch,
+        [_attempt(FAILED_ATTEMPT, 0), _attempt(missing_created_at, 1)],
+    )
+
+    good, bad = result["attempts"]
+    assert good["created_at"] == "2026-01-01T00:00:00+00:00"
+    assert "error" not in good
+    assert bad["attempt_number"] == 1
+    assert bad["error"].startswith("Attempt 1 could not be read: ")
+    assert len(bad["error"]) <= cloud_mcp.TROUBLESHOOT_MAX_MESSAGE_CHARS
+    assert result["status"] == "failed"
+
+
+def test_get_cloud_sync_status_filters_failure_stack_traces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failure messages drop stack-trace lines in `get_cloud_sync_status`."""
+    attempt = {
+        "attempt": {
+            "id": 1,
+            "status": "failed",
+            "createdAt": 1767225600,
+            "failureSummary": {
+                "failures": [
+                    {
+                        "failureOrigin": "source",
+                        "externalMessage": "Sync failed.\n"
+                        "java.lang.IllegalStateException: leaked\n"
+                        "\tat io.airbyte.Foo.bar(Foo.java:12) ~[io.airbyte-foo.jar:?]",
+                    }
+                ]
+            },
+        }
+    }
+
+    result = _status_with_attempts(monkeypatch, [_attempt(attempt, 0)])
+
+    failure = result["attempts"][0]["failures"][0]
+    assert failure["external_message"] == "Sync failed. [stack trace removed]"
+
+
+@pytest.mark.parametrize(
+    ("job", "expected"),
+    [
+        pytest.param(
+            {"startedAt": 1767225600, "createdAt": 1767225000},
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            id="started-at",
+        ),
+        pytest.param(
+            {"startedAt": None, "createdAt": 1767225600},
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            id="created-at",
+        ),
+    ],
+)
+def test_parse_start_time_invalid_iso_falls_back_to_job_epoch(
+    monkeypatch: pytest.MonkeyPatch, job: dict[str, Any], expected: datetime
+) -> None:
+    """An unparseable start time falls back to the Config API job's epoch timestamps."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123, **job}, "attempts": []},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    start_time = sync_result._parse_start_time(  # noqa: SLF001
+        cast(Any, SimpleNamespace(start_time="not-a-date"))
+    )
+
+    assert start_time == expected
+
+
+def test_parse_start_time_without_fallback_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without job epoch timestamps, the original parse error propagates."""
+    monkeypatch.setattr(
+        api_util, "_make_config_api_request", lambda **_: {"job": {"id": 123}}
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    with pytest.raises(ValueError, match="not-a-date"):
+        sync_result._parse_start_time(  # noqa: SLF001
+            cast(Any, SimpleNamespace(start_time="not-a-date"))
+        )
+
+
+@pytest.mark.parametrize(
+    ("attempts", "raw_count", "readable_count"),
+    [
+        pytest.param([FAILED_ATTEMPT], 1, 1, id="all-readable"),
+        pytest.param([FAILED_ATTEMPT, None, "oops"], 3, 1, id="some-dropped"),
+        pytest.param([None, 5], 2, 0, id="all-dropped"),
+        pytest.param(None, 0, 0, id="null"),
+    ],
+)
+def test_get_raw_attempt_count_includes_skipped_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+    attempts: object,
+    raw_count: int,
+    readable_count: int,
+) -> None:
+    """`get_raw_attempt_count` counts entries `get_attempts` skips as malformed."""
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: {"job": {"id": 123}, "attempts": attempts},
+    )
+    sync_result = SyncResult(workspace=WORKSPACE, connection=CONNECTION, job_id=123)
+
+    assert len(sync_result.get_attempts()) == readable_count
+    assert sync_result.get_raw_attempt_count() == raw_count

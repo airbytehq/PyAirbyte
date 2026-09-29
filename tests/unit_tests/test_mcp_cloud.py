@@ -2341,6 +2341,14 @@ class _TroubleshootSyncResult(_SyncResultLike):
         | NotImplementedError
         | TypeError
     ) = dataclasses.field(default_factory=list)
+    raw_attempt_count: int | None = None
+
+    def get_raw_attempt_count(self) -> int:
+        return (
+            self.raw_attempt_count
+            if self.raw_attempt_count is not None
+            else len(self.get_attempts())
+        )
 
     def get_attempts(self) -> list[_TroubleshootAttempt]:
         if isinstance(
@@ -3517,7 +3525,201 @@ _STACK_TRACE_BLOCKS = [
         ],
         id="node-header-frames",
     ),
+    pytest.param(
+        [
+            "java.lang.IllegalStateException: leaked-log4j-header",
+            "\tat io.airbyte.Foo.bar(Foo.java:12) ~[io.airbyte-foo.jar:?]",
+            "\tat java.base/java.lang.Thread.run(Thread.java:1583) [?:?]",
+        ],
+        id="java-log4j-suffix-frames",
+    ),
+    pytest.param(
+        [
+            "io.airbyte.workers.LeakedFailure: leaked-dotted-header",
+            "\tat io.airbyte.Foo.bar(Foo.java:12) ~[io.airbyte-foo.jar:?]",
+        ],
+        id="dotted-header-with-message",
+    ),
+    pytest.param(
+        [
+            "io.airbyte.workers.LeakedFailure",
+            "\tat io.airbyte.Foo.bar(Foo.java:12)",
+        ],
+        id="dotted-header-alone",
+    ),
+    pytest.param(
+        [
+            "  + Exception Group Traceback (most recent call last):",
+            '  |   File "/app/main.py", line 3, in <module>',
+            '  |     raise ExceptionGroup("leaked-group", [ValueError("leaked-a")])',
+            "  | ExceptionGroup: leaked-group (1 sub-exception)",
+            "  +-+---------------- 1 ----------------",
+            "    | ValueError: leaked-a",
+            "    +------------------------------------",
+        ],
+        id="python-exception-group",
+    ),
 ]
+
+
+def test_filter_log_lines_keeps_standalone_dotted_names() -> None:
+    """A dotted name not followed by a stack block is ordinary log output."""
+    lines = ["io.airbyte.workers.Worker: sync started", "records: 10"]
+
+    assert cloud_mcp._filter_log_lines(lines) == lines  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        pytest.param("Invalid credentials.", "Invalid credentials.", id="plain"),
+        pytest.param(
+            "Invalid credentials.\njava.lang.IllegalStateException: leaked\n"
+            "\tat io.airbyte.Foo.bar(Foo.java:12) ~[io.airbyte-foo.jar:?]",
+            "Invalid credentials. [stack trace removed]",
+            id="java-trace",
+        ),
+        pytest.param(
+            "Traceback (most recent call last):\n"
+            '  File "/app/main.py", line 1, in run\nValueError: leaked',
+            "[stack trace removed]",
+            id="only-trace",
+        ),
+    ],
+)
+def test_failure_result_filters_stack_traces(message: str, expected: str) -> None:
+    """Structured failure messages drop stack-trace lines and mark the removal."""
+    result = cloud_mcp.SyncAttemptFailureResult.from_failure(
+        SyncAttemptFailure(
+            failure_origin="source",
+            failure_type=None,
+            external_message=message,
+            retryable=None,
+        )
+    )
+
+    assert result.external_message == expected
+    assert result.external_message_truncated is False
+
+
+def test_failure_result_filters_then_caps() -> None:
+    """Filtering happens before the length cap, which still marks truncation."""
+    message = "x" * 5_000 + "\n\tat io.airbyte.Foo.bar(Foo.java:12)"
+
+    result = cloud_mcp.SyncAttemptFailureResult.from_failure(
+        SyncAttemptFailure(
+            failure_origin="source",
+            failure_type=None,
+            external_message=message,
+            retryable=None,
+        )
+    )
+
+    assert result.external_message is not None
+    assert result.external_message.endswith(cloud_mcp.TRUNCATION_MARKER)
+    assert "Foo.java" not in result.external_message
+    assert result.external_message_truncated is True
+
+
+_TRACE_MESSAGE = (
+    "Invalid API key.\njava.lang.IllegalStateException: leaked-check\n"
+    "\tat io.airbyte.Foo.bar(Foo.java:12) ~[io.airbyte-foo.jar:?]"
+)
+
+
+def test_troubleshoot_check_message_filters_stack_traces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Check messages, including the failure-reason fallback, drop stack traces."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = CheckResult(
+        success=False, error_message=_TRACE_MESSAGE
+    )
+    connection.destination.check_result = AirbyteError(
+        context={
+            "response": {
+                "jobInfo": {
+                    "failureReason": {
+                        "failureOrigin": "destination",
+                        "externalMessage": _TRACE_MESSAGE,
+                    }
+                }
+            }
+        },
+    )
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    for section in (result.source_check, result.destination_check):
+        assert section.message == "Invalid API key. [stack trace removed]"
+        assert section.error is None
+
+
+def test_troubleshoot_platform_check_error_filters_stack_traces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A platform-origin check failure's `error` also drops stack traces."""
+    connection = _TroubleshootConnection()
+    connection.source.check_result = AirbyteError(
+        context={
+            "response": {
+                "jobInfo": {
+                    "failureReason": {
+                        "failureOrigin": "airbyte_platform",
+                        "externalMessage": _TRACE_MESSAGE,
+                    }
+                }
+            }
+        },
+    )
+
+    section = _troubleshoot(monkeypatch, connection).source_check
+
+    assert section.error is not None
+    assert section.error.endswith("Invalid API key. [stack trace removed]")
+    assert "leaked-check" not in section.error
+
+
+@pytest.mark.parametrize(
+    ("readable", "raw_count", "expected_error"),
+    [
+        pytest.param(1, 1, None, id="all-readable"),
+        pytest.param(
+            1, 3, "2 attempts returned by the API could not be read.", id="some-dropped"
+        ),
+        pytest.param(
+            0, 2, "2 attempts returned by the API could not be read.", id="all-dropped"
+        ),
+    ],
+)
+def test_troubleshoot_reports_dropped_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+    readable: int,
+    raw_count: int,
+    expected_error: str | None,
+) -> None:
+    """Attempts the API returned but `get_attempts` skipped are reported, not hidden."""
+    failed_job = _job(
+        4,
+        JobStatusEnum.FAILED,
+        attempts=[_TroubleshootAttempt(0, "failed", "boom")][:readable],
+    )
+    failed_job.raw_attempt_count = raw_count
+    connection = _TroubleshootConnection(jobs=[failed_job])
+
+    result = _troubleshoot(monkeypatch, connection)
+
+    assert result.latest_failed_job.error == expected_error
+    if readable:
+        assert result.log_tail.log_text == "boom"
+        assert result.log_tail.error is None
+    else:
+        assert result.latest_failed_job.attempts == []
+        assert result.log_tail.error is not None
+        assert "no attempts" not in result.log_tail.error.lower()
+        assert result.log_tail.message is None or (
+            "no attempts" not in result.log_tail.message.lower()
+        )
 
 
 @pytest.mark.parametrize("prefix", _LOG_PREFIXES)

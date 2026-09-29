@@ -103,6 +103,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
@@ -119,8 +120,6 @@ DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 """The default timeout for waiting for a sync job to complete, in seconds."""
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     import sqlalchemy
 
     from airbyte.caches.base import CacheBase
@@ -374,23 +373,22 @@ class SyncResult:
         return self._parse_start_time(self._fetch_latest_job_info())
 
     def _parse_start_time(self, job_info: CloudJobInfo) -> datetime:
-        """Parse `job_info`'s start time, falling back to the Config API for invalid values."""
+        """Parse `job_info`'s start time.
+
+        For a missing or unparseable value, fall back to the Config API job's `startedAt`, or
+        else its `createdAt`, in epoch seconds.
+        """
         try:
             return ab_datetime_parse(job_info.start_time)
-        except (ValueError, TypeError) as e:
-            if "Invalid isoformat string" in str(e):
-                job_info_raw = api_util._make_config_api_request(  # noqa: SLF001
-                    api_root=self.workspace.api_root,
-                    config_api_root=self.workspace.config_api_root,
-                    path="/jobs/get",
-                    json={"id": self.job_id},
-                    client_id=self.workspace.client_id,
-                    client_secret=self.workspace.client_secret,
-                    bearer_token=self.workspace.bearer_token,
-                )
-                raw_start_time = job_info_raw.get("startTime")
-                if raw_start_time:
-                    return ab_datetime_parse(raw_start_time)
+        except (ValueError, TypeError):
+            job = self._fetch_job_with_attempts().get("job")
+            if isinstance(job, dict):
+                for key in ("startedAt", "createdAt"):
+                    epoch_seconds = job.get(key)
+                    if isinstance(epoch_seconds, (int, float)) and not isinstance(
+                        epoch_seconds, bool
+                    ):
+                        return datetime.fromtimestamp(epoch_seconds, tz=UTC)
             raise
 
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
@@ -410,6 +408,11 @@ class SyncResult:
             bearer_token=self.workspace.bearer_token,
         )
         return self._job_with_attempts_info
+
+    def get_raw_attempt_count(self) -> int:
+        """Return how many attempts the API returned, including ones `get_attempts` skips."""
+        attempts_data = self._fetch_job_with_attempts().get("attempts")
+        return len(attempts_data) if isinstance(attempts_data, list) else 0
 
     def get_attempts(self) -> list[SyncAttempt]:
         """Return a list of attempts for this sync job."""

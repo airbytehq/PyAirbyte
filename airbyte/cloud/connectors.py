@@ -852,7 +852,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         Derived from the connector definition's Docker repository. This does not identify the
         version the connector is running; deployed connectors may be pinned or overridden.
         """
-        return self._fetch_connector_definition().docker_repository.split("/")[-1]
+        docker_repository = self._fetch_connector_definition().docker_repository
+        if not docker_repository:
+            raise exc.AirbyteError(message="Connector definition has no docker repository.")
+        return docker_repository.rsplit("/", 1)[-1]
 
     def _direct_access_guidance_id(self) -> str | None:
         """The skill ID serving this connector's direct-access docs, if any."""

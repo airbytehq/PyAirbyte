@@ -35,6 +35,7 @@ from airbyte.cloud.models import (
     CloudSourceInfo,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.mcp import cloud as cloud_mcp
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteError,
@@ -1052,3 +1053,56 @@ def test_check_connector_non_str_message_is_none(
     )
 
     assert result == (False, None)
+
+
+@pytest.mark.parametrize("docker_repository", [None, ""])
+def test_canonical_name_missing_docker_repository_raises(
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str | None
+) -> None:
+    """A definition without a Docker repository raises `AirbyteError`."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_source_definition",
+        lambda **_: SimpleNamespace(
+            name="Postgres", docker_repository=docker_repository
+        ),
+    )
+    source = _seed_source(workspace, "source-1", "Postgres")
+
+    with pytest.raises(
+        AirbyteError, match="Connector definition has no docker repository."
+    ):
+        _ = source.canonical_name
+
+
+@pytest.mark.parametrize("docker_repository", [None, ""])
+def test_missing_docker_repository_isolated_in_troubleshoot_and_describe(
+    monkeypatch: pytest.MonkeyPatch, docker_repository: str | None
+) -> None:
+    """The troubleshoot section gets an `error`; describe adds a warning."""
+    workspace = _make_workspace(monkeypatch)
+    monkeypatch.setattr(
+        "airbyte._util.api_util.get_source_definition",
+        lambda **_: SimpleNamespace(
+            name="Postgres", docker_repository=docker_repository
+        ),
+    )
+    source = _seed_source(workspace, "source-1", "Postgres")
+
+    section = cloud_mcp._troubleshoot_connector_section(source)  # noqa: SLF001
+    described = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert section.error is not None
+    assert "Connector definition has no docker repository." in section.error
+    assert section.canonical_connector_name is None
+    assert described.canonical_connector_name is None
+    assert any(
+        "Connector definition has no docker repository." in warning
+        for warning in described.warnings
+    )
