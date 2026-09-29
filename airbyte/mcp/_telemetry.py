@@ -21,7 +21,11 @@ from typing import TYPE_CHECKING, Literal, TypeVar
 from fastmcp.server.dependencies import get_context, get_http_request
 from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import TelemetryRecord, get_mcp_config
-from fastmcp_extensions.capability_tokens import SessionToken, decode_session_token
+from fastmcp_extensions.capability_tokens import (
+    SessionToken,
+    decode_session_token,
+    minted_session_token,
+)
 from starlette.datastructures import Headers
 
 from airbyte.constants import (
@@ -346,7 +350,7 @@ class McpRequestTelemetryMiddleware:
         started = time.perf_counter()
         headers = Headers(scope=scope)
         auth_method = _auth_method_from_headers(headers)
-        raw_session_id = headers.get(MCP_SESSION_ID_HEADER)
+        raw_session_id = minted_session_token(scope) or headers.get(MCP_SESSION_ID_HEADER)
         session_token = decode_session_token(raw_session_id) if raw_session_id else None
         session_id = session_id_digest(raw_session_id) if raw_session_id else None
         state = scope.setdefault("state", {})

@@ -153,6 +153,7 @@ def test_hosted_session_context_reaches_every_event(records, hosted) -> None:
     assert connected.extra["edition"] == "cloud"
     assert connected.extra["organization_id"] == "org-123"
     assert connected.extra["workspace_id"] == "ws-456"
+    assert connected.extra["session_id"] == hashlib.sha256(token.encode()).hexdigest()
 
     (call,) = asyncio.run(
         _stateless_session(
