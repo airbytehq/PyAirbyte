@@ -99,7 +99,9 @@ hosted redaction boundary and continue exporting after rollback.
   precedence over the installed PyAirbyte version.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
 - `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
-  intent available as Datadog metadata. Leave unset for other OTLP backends.
+  intent available as Datadog metadata. Tool spans also show captured intent and
+  validated action in Datadog Input, without raw tool arguments or results.
+  Leave unset for other OTLP backends.
 - `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
   guidance to omit credentials, identifiers and data values, even without an
   export endpoint. Removing this flag stops synthetic advertisement; declared

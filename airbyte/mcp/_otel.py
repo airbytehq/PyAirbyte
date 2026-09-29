@@ -525,6 +525,9 @@ class RedactingExporter(SpanExporter):
                 "http.host",
                 "server.address",
                 "network.peer.address",
+                # Rebuild Datadog Input from approved metadata, never raw tool data.
+                "gen_ai.tool.call.arguments",
+                "gen_ai.tool.call.result",
             }
         }
         for key in ("http.url", "url.full"):
@@ -579,6 +582,18 @@ class RedactingExporter(SpanExporter):
             }
             if metadata:
                 attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
+            tool_input = {
+                label: metadata[key]
+                for label, key in (("intent", "intent"), ("action", "agent.action"))
+                if isinstance(metadata.get(key), str) and metadata[key]
+            }
+            if (
+                span.kind == SpanKind.SERVER
+                and span.name.startswith("tools/call ")
+                and tool_name in _TOOL_MODULES
+                and tool_input
+            ):
+                attrs["gen_ai.tool.call.arguments"] = json.dumps(tool_input)
         events = [
             Event(
                 "exception",
