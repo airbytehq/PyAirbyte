@@ -15,10 +15,11 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, TypeVar
 
-from fastmcp.server.dependencies import get_context, get_http_request
+from fastmcp.server.dependencies import get_access_token, get_context, get_http_request
 from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import TelemetryRecord, get_mcp_config
 from fastmcp_extensions.capability_tokens import SessionToken, decode_session_token
@@ -31,17 +32,26 @@ from airbyte.constants import (
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_WORKSPACE_ID_HEADER,
     is_hosted_mcp_mode,
 )
+from airbyte.mcp._user_identity import (
+    airbyte_user_context,
+    resolve_airbyte_user_for_token,
+    resolve_workspace_organization_id,
+)
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from fastmcp.server.context import Context
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp_extensions import TelemetrySinks
     from mcp import types as mcp_types
@@ -62,12 +72,23 @@ OAUTH_CALLBACK_PATH = "/auth/callback"
 _SESSION_TOKEN_STATE_KEY = "airbyte_mcp_session_token"
 _SESSION_ID_STATE_KEY = "airbyte_mcp_session_id"
 _AUTH_METHOD_STATE_KEY = "airbyte_mcp_auth_method"
+_PENDING_SERVER_CONNECTED_STATE_KEY = "airbyte_mcp_pending_server_connected"
 
 _STDIO_SESSION_ID = uuid.uuid4().hex
 """A stdio process serves exactly one client session."""
 
 AuthMethod = Literal["bearer", "client_credentials", "none"]
 Transport = Literal["streamable-http", "stdio"]
+
+
+@dataclass(frozen=True)
+class _PendingServerConnected:
+    """Handshake record and identity lookup context deferred until the HTTP response."""
+
+    record: TelemetryRecord
+    bearer_token: SecretString | None
+    api_root: str
+    config_api_root: str | None
 
 
 def session_id_digest(raw_session_id: str) -> str:
@@ -128,13 +149,39 @@ def context_properties(
     }
 
 
-def _request_state() -> Mapping[str, object]:
+def _mutable_request_state() -> dict[str, object] | None:
     try:
         request = get_http_request()
     except RuntimeError:
-        return {}
+        return None
     state = request.scope.get("state")
-    return state if isinstance(state, dict) else {}
+    return state if isinstance(state, dict) else None
+
+
+def _request_state() -> Mapping[str, object]:
+    return _mutable_request_state() or {}
+
+
+def _pending_server_connected_context(
+    ctx: Context | None,
+) -> tuple[SecretString | None, str, str | None]:
+    bearer_token: SecretString | None = None
+    try:
+        access_token = get_access_token()
+        if access_token is not None and access_token.token:
+            bearer_token = SecretString(access_token.token)
+    except Exception:
+        logger.debug("MCP access token unavailable for ServerConnected", exc_info=True)
+
+    api_root = CLOUD_API_ROOT
+    config_api_root: str | None = None
+    if ctx is not None:
+        try:
+            api_root = get_mcp_config(ctx, MCP_CONFIG_API_URL) or CLOUD_API_ROOT
+            config_api_root = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL) or None
+        except (AttributeError, KeyError, RuntimeError, ValueError):
+            logger.debug("MCP API roots unavailable for ServerConnected", exc_info=True)
+    return bearer_token, api_root, config_api_root
 
 
 def _config_value(name: str) -> str | None:
@@ -283,17 +330,37 @@ class ServerConnectedTelemetryMiddleware(Middleware):
         finally:
             try:
                 properties = self._properties(client_info, protocol_version)
-                self._sinks.emit(
-                    _record(
-                        self._sinks,
-                        event=SERVER_CONNECTED_EVENT,
-                        name=name,
-                        started=started,
-                        success=error_type is None,
-                        error_type=error_type,
-                        properties=properties,
-                    )
+                record = _record(
+                    self._sinks,
+                    event=SERVER_CONNECTED_EVENT,
+                    name=name,
+                    started=started,
+                    success=error_type is None,
+                    error_type=error_type,
+                    properties=properties,
                 )
+                state = _mutable_request_state() if is_hosted_mcp_mode() else None
+                if state is None:
+                    self._sinks.emit(
+                        replace(
+                            record,
+                            extra={
+                                **record.extra,
+                                "airbyte_user_id": None,
+                                "scope_source": None,
+                            },
+                        )
+                    )
+                else:
+                    bearer_token, api_root, config_api_root = _pending_server_connected_context(
+                        context.fastmcp_context
+                    )
+                    state[_PENDING_SERVER_CONNECTED_STATE_KEY] = _PendingServerConnected(
+                        record=record,
+                        bearer_token=bearer_token,
+                        api_root=api_root,
+                        config_api_root=config_api_root,
+                    )
             except Exception:
                 logger.debug("ServerConnected telemetry failed", exc_info=True)
 
@@ -323,12 +390,13 @@ def _auth_failure_reason(
 
 
 class McpRequestTelemetryMiddleware:
-    """Resolve per-request telemetry context and emit `Airbyte.MCP.AuthFailed`.
+    """Finalize `ServerConnected` events and emit `Airbyte.MCP.AuthFailed`.
 
     Sits outside the client-credentials exchange and FastMCP's auth so it sees the raw
     credential scheme, the raw `Mcp-Session-Id`, and every `401`/`403`. The decoded
     session token, the session ID digest, and the auth method are stored in the ASGI
-    scope state for the in-app telemetry to read.
+    scope state for the in-app telemetry to read. Hosted `ServerConnected` events are
+    emitted after the HTTP response exposes the minted session ID.
     """
 
     def __init__(self, app: ASGIApp, *, sinks: TelemetrySinks, mcp_path: str) -> None:
@@ -362,7 +430,24 @@ class McpRequestTelemetryMiddleware:
                 response["headers"] = Headers(raw=message.get("headers", []))
             await send(message)
 
-        await self.app(scope, receive, send_wrapper)
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            state = scope.get("state")
+            pending = (
+                state.pop(_PENDING_SERVER_CONNECTED_STATE_KEY, None)
+                if isinstance(state, dict)
+                else None
+            )
+            if isinstance(pending, _PendingServerConnected):
+                try:
+                    response_headers = response.get("headers")
+                    await self._emit_server_connected(
+                        pending,
+                        response_headers if isinstance(response_headers, Headers) else None,
+                    )
+                except Exception:
+                    logger.debug("ServerConnected telemetry failed", exc_info=True)
 
         status = response.get("status")
         response_headers = response.get("headers")
@@ -404,6 +489,58 @@ class McpRequestTelemetryMiddleware:
             )
         except Exception:
             logger.debug("AuthFailed telemetry failed", exc_info=True)
+
+    async def _emit_server_connected(
+        self,
+        pending: _PendingServerConnected,
+        response_headers: Headers | None,
+    ) -> None:
+        record = pending.record
+        extra = dict(record.extra)
+        if extra.get("session_id") is None and response_headers is not None:
+            response_session_id = response_headers.get(MCP_SESSION_ID_HEADER)
+            if response_session_id:
+                extra["session_id"] = session_id_digest(response_session_id)
+
+        airbyte_user_id: str | None = None
+        scope_source: str | None = None
+        if pending.bearer_token is not None:
+            user = await resolve_airbyte_user_for_token(
+                pending.bearer_token,
+                api_root=pending.api_root,
+                config_api_root=pending.config_api_root,
+            )
+            if user is not None:
+                airbyte_user_id = user.user_id
+
+            workspace_id = extra.get("workspace_id")
+            if isinstance(workspace_id, str) and workspace_id:
+                scope_source = "header"
+            elif user is not None and user.default_workspace_id is not None:
+                workspace_id = user.default_workspace_id
+                scope_source = "default"
+                extra["workspace_id"] = workspace_id
+
+            organization_id = extra.get("organization_id")
+            if (
+                (not isinstance(organization_id, str) or not organization_id)
+                and isinstance(workspace_id, str)
+                and workspace_id
+            ):
+                organization_id = await resolve_workspace_organization_id(
+                    workspace_id,
+                    bearer_token=pending.bearer_token,
+                    api_root=pending.api_root,
+                    config_api_root=pending.config_api_root,
+                )
+                if organization_id is not None:
+                    extra["organization_id"] = organization_id
+
+        extra["airbyte_user_id"] = airbyte_user_id
+        extra["scope_source"] = scope_source
+        enriched_record = replace(record, extra=extra)
+        with airbyte_user_context(airbyte_user_id):
+            self._sinks.emit(enriched_record)
 
     def _is_tracked_path(self, path: str) -> bool:
         normalized = path.rstrip("/") or "/"
