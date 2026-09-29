@@ -29,6 +29,8 @@ from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_ORGANIZATION_ID_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_ORGANIZATION_ID_HEADER,
@@ -383,8 +385,10 @@ class McpRequestTelemetryMiddleware:
             client_name=session_token.client_name if session_token else None,
             client_version=session_token.client_version if session_token else None,
             protocol_version=session_token.protocol_version if session_token else None,
-            organization_id=headers.get(MCP_ORGANIZATION_ID_HEADER),
-            workspace_id=headers.get(MCP_WORKSPACE_ID_HEADER),
+            organization_id=headers.get(MCP_ORGANIZATION_ID_HEADER)
+            or os.getenv(CLOUD_ORGANIZATION_ID_ENV_VAR),
+            workspace_id=headers.get(MCP_WORKSPACE_ID_HEADER)
+            or os.getenv(CLOUD_WORKSPACE_ID_ENV_VAR),
         ) | {"http_status": status, "reason": reason}
         try:
             self._sinks.emit(

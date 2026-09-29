@@ -319,6 +319,35 @@ def test_auth_failures_are_classified(
     assert record.extra["organization_id"] == "org-123"
 
 
+def test_auth_failures_fall_back_to_env_scope(
+    records, hosted, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`AuthFailed` resolves scope from env when headers are absent, like tool calls."""
+    sinks, captured = records
+    monkeypatch.setenv(constants.CLOUD_ORGANIZATION_ID_ENV_VAR, "org-env")
+    monkeypatch.setenv(constants.CLOUD_WORKSPACE_ID_ENV_VAR, "ws-env")
+    app = McpRequestTelemetryMiddleware(
+        _status_app(401, None), sinks=sinks, mcp_path="/mcp"
+    )
+
+    async def send_request() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            return await client.post(
+                "/mcp",
+                headers={
+                    "authorization": "Bearer x",
+                    constants.MCP_WORKSPACE_ID_HEADER: "ws-header",
+                },
+            )
+
+    assert asyncio.run(send_request()).status_code == 401
+    (record,) = captured
+    assert record.extra["organization_id"] == "org-env"
+    assert record.extra["workspace_id"] == "ws-header"
+
+
 def test_server_registers_lifecycle_telemetry() -> None:
     """The shared app emits `ServerConnected` and resolves tool-call context per call."""
     lifecycle = [
