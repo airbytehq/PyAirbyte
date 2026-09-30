@@ -849,15 +849,13 @@ class CloudWorkspace:
             )
         ]
         if connections:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteConnectorInUseError(
                 message=(
                     f"The {connector_type} '{connector_id}' is used by {len(connections)} "
                     "connection(s) and cannot be deleted."
                 ),
                 guidance="Delete those connections first.",
                 context={
-                    "connector_id": connector_id,
-                    "connector_type": connector_type,
                     "connections": [
                         {
                             "connection_id": connection.connection_id,
@@ -866,6 +864,9 @@ class CloudWorkspace:
                         for connection in connections
                     ],
                 },
+                connector_id=connector_id,
+                connector_type=connector_type,
+                connection_ids=[connection.connection_id for connection in connections],
             )
 
     def permanently_delete_source(

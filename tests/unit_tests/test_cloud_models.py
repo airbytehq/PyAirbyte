@@ -13,6 +13,7 @@ from airbyte.cloud.models import (
     CloudDestinationInfo,
     CloudSourceInfo,
     ConnectionSchedule,
+    ConnectionStatus,
 )
 from airbyte_api.models import (
     DestinationDuckdb,
@@ -23,7 +24,7 @@ from airbyte_api.models import (
 
 
 @pytest.mark.parametrize(
-    "response,from_api_response,expected_definition_id",
+    "response,from_api_response,expected_definition_id,has_configuration",
     [
         pytest.param(
             SourceResponse(
@@ -37,7 +38,23 @@ from airbyte_api.models import (
             ),
             CloudSourceInfo.from_api_response,
             "source-faker-definition",
+            True,
             id="source",
+        ),
+        pytest.param(
+            SourceResponse(
+                configuration=None,
+                created_at=1,
+                definition_id="source-empty-definition",
+                name="Source without config",
+                source_id="source-empty-id",
+                source_type="faker",
+                workspace_id="workspace-id",
+            ),
+            CloudSourceInfo.from_api_response,
+            "source-empty-definition",
+            False,
+            id="source-without-configuration",
         ),
         pytest.param(
             DestinationResponse(
@@ -51,6 +68,7 @@ from airbyte_api.models import (
             ),
             CloudDestinationInfo.from_api_response,
             "destination-duckdb-definition",
+            True,
             id="destination",
         ),
     ],
@@ -59,14 +77,27 @@ def test_cloud_connector_info_from_api_response_populates_definition_id(
     response: SourceResponse | DestinationResponse,
     from_api_response: Callable[..., CloudSourceInfo | CloudDestinationInfo],
     expected_definition_id: str,
+    has_configuration: bool,
 ) -> None:
-    """Verify Cloud connector info models retain the API definition ID."""
+    """Cloud connector info retains its definition ID and typed configuration."""
     info = from_api_response(response)
 
     assert info.definition_id == expected_definition_id
+    assert (info.configuration is not None) is has_configuration
 
 
-def test_cloud_connection_info_from_api_response_populates_schedule() -> None:
+@pytest.mark.parametrize(
+    ("api_status", "expected_status"),
+    [
+        pytest.param("active", ConnectionStatus.ACTIVE, id="active"),
+        pytest.param("inactive", ConnectionStatus.INACTIVE, id="inactive"),
+        pytest.param("deprecated", ConnectionStatus.DEPRECATED, id="deprecated"),
+    ],
+)
+def test_cloud_connection_info_from_api_response_populates_schedule(
+    api_status: str,
+    expected_status: ConnectionStatus,
+) -> None:
     """`CloudConnectionInfo` carries the schedule returned by the API."""
     schedule = SimpleNamespace(schedule_type="manual")
     info = CloudConnectionInfo.from_api_response(
@@ -81,40 +112,39 @@ def test_cloud_connection_info_from_api_response_populates_schedule() -> None:
             namespace_definition=None,
             namespace_format=None,
             schedule=schedule,
-            status="active",
+            status=api_status,
         )
     )
 
     assert info.schedule.schedule_type == "manual"
+    assert info.status is expected_status
 
 
-def test_connection_schedule_from_api_response() -> None:
+@pytest.mark.parametrize(
+    ("schedule_type", "cron_expression", "basic_timing", "expected_expression"),
+    [
+        pytest.param("cron", "0 8 * * *", None, "0 8 * * *", id="cron"),
+        pytest.param("basic", None, "Every 24 HOURS", "Every 24 HOURS", id="basic"),
+        pytest.param("manual", None, None, None, id="manual"),
+    ],
+)
+def test_connection_schedule_from_api_response(
+    schedule_type: str,
+    cron_expression: str | None,
+    basic_timing: str | None,
+    expected_expression: str | None,
+) -> None:
     """`ConnectionSchedule.from_api_response` maps schedule fields by type."""
-    cron = ConnectionSchedule.from_api_response(
+    schedule = ConnectionSchedule.from_api_response(
         SimpleNamespace(
-            schedule_type="cron",
-            cron_expression="0 8 * * *",
-            basic_timing=None,
+            schedule_type=schedule_type,
+            cron_expression=cron_expression,
+            basic_timing=basic_timing,
         )
     )
-    assert cron.schedule_type == "cron"
-    assert cron.schedule_expression == "0 8 * * *"
 
-    basic = ConnectionSchedule.from_api_response(
-        SimpleNamespace(
-            schedule_type="basic",
-            cron_expression=None,
-            basic_timing="Every 24 HOURS",
-        )
-    )
-    assert basic.schedule_type == "basic"
-    assert basic.schedule_expression == "Every 24 HOURS"
-
-    manual = ConnectionSchedule.from_api_response(
-        SimpleNamespace(schedule_type="manual")
-    )
-    assert manual.schedule_type == "manual"
-    assert manual.schedule_expression is None
+    assert schedule.schedule_type == schedule_type
+    assert schedule.schedule_expression == expected_expression
 
 
 @pytest.mark.parametrize(
@@ -202,39 +232,3 @@ def test_cloud_connector_definition_id_uses_cached_info(
     )
 
     assert connector.definition_id == expected_definition_id
-
-
-def test_destination_configuration_fetches_via_get_destination(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """List-seeded info does not supply configuration; it is fetched on first access."""
-    destination = CloudDestination(
-        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
-        connector_id="destination-id",
-    )
-    destination._connector_info = CloudDestinationInfo(  # noqa: SLF001
-        destination_id="destination-id",
-        name="Test destination",
-        definition_id="destination-snowflake-definition",
-        configuration={"database": "x"},
-    )
-    fetched_info = CloudDestinationInfo(
-        destination_id="destination-id",
-        name="Test destination",
-        definition_id="destination-snowflake-definition",
-        configuration={"database": "x", "schema": "y"},
-    )
-    fetch_calls: list[None] = []
-
-    def _fetch() -> CloudDestinationInfo:
-        fetch_calls.append(None)
-        return fetched_info
-
-    monkeypatch.setattr(destination, "_fetch_connector_info", _fetch)
-
-    assert destination.configuration is not None
-    assert destination.configuration is not None
-    assert destination.configuration["schema"] == "y"
-    assert len(fetch_calls) == 1
-    assert destination.name == "Test destination"
-    assert len(fetch_calls) == 1

@@ -5,42 +5,21 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteConnectorInUseError,
+    AirbyteMissingResourceError,
+    PyAirbyteError,
+    PyAirbyteInputError,
+)
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     format_user_facing_error,
 )
 from fastmcp_extensions import mcp_server
-
-
-def test_user_facing_errors_are_concise() -> None:
-    server = mcp_server(
-        "test",
-        telemetry=False,
-        user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
-        user_facing_error_formatter=format_user_facing_error,
-    )
-
-    @server.tool
-    def raise_input_error() -> None:
-        raise PyAirbyteInputError(message="bad", guidance="fix it")
-
-    async def call_tool() -> None:
-        async with Client(server) as client:
-            try:
-                await client.call_tool("raise_input_error")
-            except ToolError as error:
-                text = str(error)
-                assert "bad" in text
-                assert "fix it" in text
-                assert "Traceback" not in text
-                return
-        raise AssertionError("Expected ToolError")
-
-    asyncio.run(call_tool())
 
 
 def test_unexpected_errors_keep_fastmcp_default_handling() -> None:
@@ -62,6 +41,58 @@ def test_unexpected_errors_keep_fastmcp_default_handling() -> None:
             except ToolError as error:
                 assert "boom" in str(error)
                 assert "fix it" not in str(error)
+                return
+        raise AssertionError("Expected ToolError")
+
+    asyncio.run(call_tool())
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(
+            PyAirbyteInputError(message="bad", guidance="fix it"),
+            id="input-error",
+        ),
+        pytest.param(
+            AirbyteConnectorInUseError(
+                message="Connector is in use.",
+                guidance="Delete its connections first.",
+            ),
+            id="connector-in-use",
+        ),
+        pytest.param(
+            AirbyteMissingResourceError(
+                resource_type="sync job",
+                resource_name_or_id="42",
+                message="Job 42 is unavailable.",
+                guidance="Find a valid job ID.",
+            ),
+            id="missing-resource",
+        ),
+    ],
+)
+def test_expected_errors_are_presented_concisely(error: PyAirbyteError) -> None:
+    server = mcp_server(
+        "test",
+        telemetry=False,
+        user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
+        user_facing_error_formatter=format_user_facing_error,
+    )
+
+    @server.tool
+    def raise_resource_error() -> None:
+        raise error
+
+    async def call_tool() -> None:
+        async with Client(server) as client:
+            try:
+                await client.call_tool("raise_resource_error")
+            except ToolError as tool_error:
+                text = str(tool_error)
+                assert "Traceback" not in text
+                assert error.get_message() in text
+                assert error.guidance in text
                 return
         raise AssertionError("Expected ToolError")
 

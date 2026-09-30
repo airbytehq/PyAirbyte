@@ -28,6 +28,7 @@ from airbyte._direct_connectors.models import (
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     ConnectionSchedule,
+    ConnectionStatus,
     ConnectorFeature,
     CloudDestinationInfo,
     CloudSourceInfo,
@@ -187,7 +188,7 @@ def _fake_connection(
         ),
         prefix="raw_",
         namespace_definition="destination",
-        status="active",
+        status=ConnectionStatus.ACTIVE,
     )
     return connection
 
@@ -657,7 +658,7 @@ def test_build_connection_details_reads_cached_schedule(
         name="sync",
         configurations=SimpleNamespace(streams=[SimpleNamespace(name="issues")]),
         schedule=ConnectionSchedule(schedule_type="manual"),
-        status="active",
+        status=ConnectionStatus.ACTIVE,
     )
     monkeypatch.setattr(
         CloudWorkspace, "list_connections", lambda *_, **__: [connection]

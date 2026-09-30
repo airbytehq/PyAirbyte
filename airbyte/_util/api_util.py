@@ -1150,7 +1150,10 @@ def get_source(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.SourceResponse:
-    """Get a connection."""
+    """Get a source with its raw configuration.
+
+    Secrets in the returned configuration are redacted by the API.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1168,7 +1171,11 @@ def get_source(
         raise _wrap_sdk_error(e, base_context) from e
 
     if status_ok(response.status_code) and response.source_response:
-        return response.source_response
+        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
+        source = response.source_response
+        config = raw_response.get("configuration") or {}
+        source.configuration = config  # pyrefly: ignore[bad-assignment]  # Raw config.
+        return source
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=source_id,

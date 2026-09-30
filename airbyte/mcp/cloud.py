@@ -47,6 +47,7 @@ from airbyte.cloud.models import (
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
     ConnectionSchedule,
+    ConnectionStatus,
     ConnectorFeature,
     ConnectorType,
     JobTypeEnum,
@@ -127,8 +128,9 @@ CLOUD_AUTH_TIP_TEXT = (
     f"ask the user to choose one; do not select automatically."
 )
 DELETE_NAME_GUARD_TIP_TEXT = (
-    "IMPORTANT: Do not rename the resource yourself to satisfy the 'delete-me' name requirement; "
-    "ask the user to confirm deletion or rename it themselves first."
+    'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
+    '"deleteme" (case insensitive). Do not rename the resource yourself to satisfy this '
+    "requirement; ask the user to confirm deletion or rename it themselves first."
 )
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the "
@@ -324,7 +326,7 @@ class CloudConnectionDetails(BaseModel):
     """List of stream names selected for syncing."""
     table_prefix: str | None
     """Table prefix applied when syncing to the destination."""
-    status: str | None = None
+    status: ConnectionStatus | None = None
     """The connection status, such as `active` or `inactive`."""
     schedule: ConnectionSchedule | None = None
     """The connection's sync schedule."""
@@ -1375,8 +1377,7 @@ class CloudConnectorDetailsResult(BaseModel):
     config: dict[str, Any] | None = None
     """The connector configuration, populated only by `with_config`.
 
-    Secret values are redacted by the Cloud API. Always `None` for sources, which the
-    API does not expose configuration for."""
+    Secret values are redacted by the Cloud API."""
 
     replication_details: list[CloudConnectorConnectionInfo] | None = None
     """Connections touching this connector, populated only by `with_replication_details`."""
@@ -1394,7 +1395,7 @@ class CloudConnectorDetailsResult(BaseModel):
     """Fatal issues encountered while describing optional connector details."""
 
 
-def _describe_cloud_connector(  # noqa: PLR0912
+def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     connector: CloudConnector,
     *,
     with_config: bool,
@@ -1441,16 +1442,14 @@ def _describe_cloud_connector(  # noqa: PLR0912
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
 
-    if with_config and connector_type == ConnectorType.DESTINATION:
+    if with_config:
         try:
-            result.config = connector.as_cloud_destination().configuration
+            if connector_type == ConnectorType.SOURCE:
+                result.config = connector.as_cloud_source().configuration
+            elif connector_type == ConnectorType.DESTINATION:
+                result.config = connector.as_cloud_destination().configuration
         except AirbyteError as error:
             warnings.append(f"Connector configuration lookup failed: {error}")
-    elif with_config and connector_type == ConnectorType.SOURCE:
-        warnings.append(
-            "Source configuration is not exposed by the Airbyte Cloud API, "
-            "so `config` is always null for sources."
-        )
 
     if with_replication_details:
         try:
@@ -3384,9 +3383,6 @@ def permanently_delete_custom_source_definition(
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
-    IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
-    (case insensitive).
-
     If the connector does not meet this requirement, the deletion will be rejected.
 
     The provided name must match the actual name of the definition for the operation to proceed.
@@ -3456,9 +3452,6 @@ def permanently_delete_cloud_connector(
     ],
 ) -> str:
     """Permanently delete a deployed source or destination connector from Airbyte Cloud.
-
-    IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
-    (case insensitive).
 
     If the connector does not meet this requirement, the deletion will be rejected.
 
@@ -3544,9 +3537,6 @@ def permanently_delete_cloud_connection(
     ],
 ) -> str:
     """Permanently delete a connection from Airbyte Cloud.
-
-    IMPORTANT: This operation requires the connection name to contain "delete-me" or "deleteme"
-    (case insensitive).
 
     If the connection does not meet this requirement, the deletion will be rejected.
 
