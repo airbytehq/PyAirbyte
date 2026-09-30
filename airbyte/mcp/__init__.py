@@ -131,6 +131,17 @@ and are only allowed for objects created in the current session.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
 
+### Consent Prompts for Permanent Deletion
+
+The `permanently_delete_*` Cloud tools ask the user to confirm through MCP elicitation when the
+client supports it, and cancel the deletion if the user declines. Clients on the 2026-07-28
+protocol are prompted on any transport; older clients are prompted only over stateful transports
+such as stdio. When the client cannot show a prompt, the deletion proceeds without one.
+
+These prompts are a best-effort courtesy, not a safety control. To prevent deletions, hide
+destructive tools with the `X-MCP-No-Destructive-Tools: 1` request header (or the
+`MCP_NO_DESTRUCTIVE_TOOLS=1` environment variable), or block the tools in the client.
+
 ### Airbyte Cloud Read-Only Mode
 
 Read-only mode is not enabled by default and is controlled by the
