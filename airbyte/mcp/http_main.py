@@ -39,6 +39,9 @@ Environment variables:
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
   to `0.0.0.0`.
+- `KAPA_DOCS_MCP_BEARER_TOKEN`: optional; enables Airbyte knowledge search tools
+  proxied from Kapa's hosted MCP server.
+- `KAPA_MCP_SERVER_URL`: optional; overrides Kapa's hosted MCP server URL.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:
@@ -228,6 +231,7 @@ from airbyte.mcp._transport_security import (
     HostOriginGuardMiddleware,
     resolve_allowed_hosts,
 )
+from airbyte.mcp.kapa import mount_kapa_knowledge_proxy
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -349,6 +353,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
+    mount_kapa_knowledge_proxy(app)
     install(app)
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
