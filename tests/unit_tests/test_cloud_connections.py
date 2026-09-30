@@ -59,6 +59,42 @@ def _connection() -> CloudConnection:
     return CloudConnection(workspace=workspace, connection_id="connection-id")
 
 
+@pytest.mark.parametrize("status", ["active", "inactive"])
+@pytest.mark.parametrize("preloaded", [False, True])
+def test_connection_status_uses_cached_api_info(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    preloaded: bool,
+) -> None:
+    """Status preserves the API value and shares the connection info cache."""
+    connection = _connection()
+    response = models.ConnectionResponse(
+        connection_id="connection-id",
+        created_at=0,
+        destination_id="destination-id",
+        name="Test connection",
+        source_id="source-id",
+        status=models.ConnectionStatusEnum(status),
+        workspace_id="workspace-id",
+        configurations=models.StreamConfigurations(streams=[]),
+        schedule=models.ConnectionScheduleResponse(
+            schedule_type=models.ScheduleTypeWithBasicEnum.MANUAL,
+        ),
+        tags=[],
+    )
+    get_connection = MagicMock(return_value=response)
+    monkeypatch.setattr(api_util, "get_connection", get_connection)
+    if preloaded:
+        connection = CloudConnection._from_connection_response(
+            connection.workspace, response
+        )
+
+    assert connection.status == status
+    assert connection.status == status
+    assert connection.name == "Test connection"
+    assert get_connection.call_count == (0 if preloaded else 1)
+
+
 def _patch_cancel_job(
     monkeypatch: pytest.MonkeyPatch,
     captured_job_ids: list[int],

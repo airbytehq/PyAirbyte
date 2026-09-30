@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 from airbyte import Destination, Source
+from airbyte._util import api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
@@ -34,6 +35,7 @@ from airbyte.cloud.models import (
     CloudWorkspaceInfo,
     JobStatusEnum,
 )
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
 from airbyte.mcp.cloud import (
@@ -47,7 +49,128 @@ from airbyte.exceptions import (
     AirbyteError,
     PyAirbyteInputError,
 )
-from fastmcp import Context
+from airbyte_api import models
+from fastmcp import Client, Context, FastMCP
+
+
+@pytest.mark.parametrize("status", ["active", "inactive"])
+@pytest.mark.parametrize(
+    ("schedule", "expected_schedule"),
+    [
+        pytest.param(
+            models.ConnectionScheduleResponse(
+                schedule_type=models.ScheduleTypeWithBasicEnum.MANUAL,
+            ),
+            {"schedule_type": "manual", "schedule_expression": None},
+            id="manual",
+        ),
+        pytest.param(
+            models.ConnectionScheduleResponse(
+                schedule_type=models.ScheduleTypeWithBasicEnum.CRON,
+                cron_expression="0 0 9 ? * MON-FRI US/Pacific",
+            ),
+            {
+                "schedule_type": "cron",
+                "schedule_expression": "0 0 9 ? * MON-FRI US/Pacific",
+            },
+            id="cron-with-timezone",
+        ),
+        pytest.param(
+            models.ConnectionScheduleResponse(
+                schedule_type=models.ScheduleTypeWithBasicEnum.BASIC,
+                basic_timing="Every 6 HOURS",
+            ),
+            {"schedule_type": "basic", "schedule_expression": "Every 6 HOURS"},
+            id="basic-interval",
+        ),
+        pytest.param(None, None, id="unknown-schedule"),
+    ],
+)
+def test_describe_cloud_connection_serializes_schedule_and_status(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    schedule: models.ConnectionScheduleResponse | None,
+    expected_schedule: dict[str, str | None] | None,
+) -> None:
+    """Connection descriptions expose API schedule and status in the MCP payload."""
+    workspace = CloudWorkspace(workspace_id="workspace-id", bearer_token="token")
+    connection_response = models.ConnectionResponse(
+        connection_id="connection-id",
+        created_at=0,
+        destination_id="destination-id",
+        name="Test connection",
+        source_id="source-id",
+        status=models.ConnectionStatusEnum(status),
+        workspace_id="workspace-id",
+        configurations=models.StreamConfigurations(
+            streams=[models.StreamConfiguration(name="users")],
+        ),
+        prefix="test_",
+        schedule=schedule,
+        tags=[],
+    )
+    get_connection = MagicMock(return_value=connection_response)
+    monkeypatch.setattr(api_util, "get_connection", get_connection)
+    monkeypatch.setattr(
+        api_util,
+        "get_source",
+        MagicMock(
+            return_value=models.SourceResponse(
+                configuration=models.SourceFaker(),
+                created_at=0,
+                definition_id="source-faker-definition",
+                name="Test source",
+                source_id="source-id",
+                source_type="faker",
+                workspace_id="workspace-id",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_destination",
+        MagicMock(
+            return_value=models.DestinationResponse(
+                configuration=models.DestinationDuckdb(
+                    destination_path="/tmp/test.duckdb"
+                ),
+                created_at=0,
+                definition_id="destination-duckdb-definition",
+                destination_id="destination-id",
+                destination_type="duckdb",
+                name="Test destination",
+                workspace_id="workspace-id",
+            ),
+        ),
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    server = FastMCP("connection-details-test")
+    cloud_mcp.register_cloud_tools(server)
+
+    async def describe_connection() -> dict[str, object] | None:
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "describe_cloud_connection",
+                {"connection_id": "connection-id", "workspace_id": "workspace-id"},
+            )
+            return result.structured_content
+
+    payload = asyncio.run(describe_connection())
+
+    assert payload == {
+        "connection_id": "connection-id",
+        "connection_name": "Test connection",
+        "connection_url": "https://cloud.airbyte.com/workspaces/workspace-id/connections/connection-id",
+        "source_id": "source-id",
+        "source_name": "Test source",
+        "destination_id": "destination-id",
+        "destination_name": "Test destination",
+        "selected_streams": ["users"],
+        "table_prefix": "test_",
+        "schedule": expected_schedule,
+        "status": status,
+    }
+    assert get_connection.call_count == 1
 
 
 @dataclass

@@ -46,6 +46,7 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    ConnectionSchedule,
     ConnectorFeature,
     ConnectorType,
     JobTypeEnum,
@@ -318,6 +319,10 @@ class CloudConnectionDetails(BaseModel):
     """List of stream names selected for syncing."""
     table_prefix: str | None
     """Table prefix applied when syncing to the destination."""
+    schedule: ConnectionSchedule | None = None
+    """The connection's sync schedule, or `None` if unknown."""
+    status: str
+    """The connection's status, such as `active` or `inactive`."""
 
 
 class CloudOrganizationResult(BaseModel):
@@ -2125,6 +2130,8 @@ def describe_cloud_connection(
         destination_name=cast(str, connection.destination.name),
         selected_streams=connection.stream_names,
         table_prefix=connection.table_prefix,
+        schedule=connection.schedule,
+        status=connection.status,
     )
 
 
