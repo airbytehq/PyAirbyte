@@ -102,6 +102,7 @@ from airbyte.mcp._user_identity import forget_cached_airbyte_user
 from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
     get_connector_metadata,
+    get_connector_metadata_by_definition_id,
 )
 
 
@@ -764,6 +765,29 @@ def _deploy_deferred_to_cloud(
     )
 
 
+def _get_suggested_streams_for_source(
+    workspace: CloudWorkspace,
+    source_id: str,
+) -> list[str]:
+    """Resolve the source connector's suggested streams from the connector registry."""
+    source = workspace.get_source(source_id)
+    metadata = get_connector_metadata_by_definition_id(source.definition_id)
+    suggested_streams = metadata.suggested_streams if metadata else None
+    if not suggested_streams:
+        raise PyAirbyteInputError(
+            message=(
+                f"No `selected_streams` provided and source '{source_id}' has no "
+                "suggested streams in the connector registry."
+            ),
+            guidance=(
+                "Pass `selected_streams` explicitly with the stream names to sync. "
+                "Custom or deferred-credential connectors may not have suggested "
+                "streams."
+            ),
+        )
+    return suggested_streams
+
+
 @mcp_tool(
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -782,21 +806,23 @@ def create_connection_on_cloud(
         str,
         Field(description="The ID of the deployed destination."),
     ],
-    selected_streams: Annotated[
-        str | list[str],
-        Field(
-            description=(
-                "The selected stream names to sync within the connection. "
-                "Must be an explicit stream name or list of streams. "
-                "Cannot be empty or '*'."
-            )
-        ),
-    ],
     *,
     workspace_id: Annotated[
         str | None,
         Field(
             description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+    selected_streams: Annotated[
+        str | list[str] | None,
+        Field(
+            description=(
+                "The selected stream names to sync within the connection. "
+                "Must be an explicit stream name or list of streams. "
+                "Cannot be empty or '*'. "
+                "If not provided, the source connector's suggested streams are used."
+            ),
             default=None,
         ),
     ],
@@ -808,9 +834,19 @@ def create_connection_on_cloud(
         ),
     ],
 ) -> str:
-    """Create a connection between a deployed source and destination on Airbyte Cloud."""
-    resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams)
+    """Create a connection between a deployed source and destination on Airbyte Cloud.
+
+    When `selected_streams` is not provided, the connection selects the source
+    connector's suggested streams from the connector registry. If the connector has
+    no suggested streams, the call fails with guidance to pass streams explicitly.
+    """
+    resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    used_suggested_streams = False
+    if not resolved_streams_list:
+        resolved_streams_list = _get_suggested_streams_for_source(workspace, source_id)
+        used_suggested_streams = True
+
     deployed_connection = workspace.deploy_connection(
         connection_name=connection_name,
         source=source_id,
@@ -820,11 +856,17 @@ def create_connection_on_cloud(
     )
 
     register_guid_created_in_session(deployed_connection.connection_id)
-    return (
+    result = (
         f"Successfully created connection '{connection_name}' "
         f"with ID '{deployed_connection.connection_id}' and "
         f"URL: {deployed_connection.connection_url}"
     )
+    if used_suggested_streams:
+        result += (
+            f" No streams were specified, so the source's suggested streams "
+            f"were selected: {resolved_streams_list}."
+        )
+    return result
 
 
 @mcp_tool(
