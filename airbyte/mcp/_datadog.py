@@ -23,6 +23,7 @@ from airbyte.mcp._otel import (
     INTENT_INSTRUCTIONS_SENTENCE,
     IntentCaptureMiddleware,
     _build_tool_maps,
+    _env,
     _flag,
 )
 from airbyte.version import get_version
@@ -103,7 +104,7 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
     index = next(
         i for i, item in enumerate(middleware) if isinstance(item, FastMCPServerMiddleware)
     )
-    middleware.insert(index, _DatadogRequestMiddleware())
+    middleware.insert(index, _DatadogRequestMiddleware(environ=environ))
     if _flag(environ, "AIRBYTE_MCP_INTENT_CAPTURE") and (
         INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or "")
     ):
@@ -209,7 +210,37 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
 
 
 class _DatadogRequestMiddleware:
-    async def __call__(
+    def __init__(self, *, environ: Mapping[str, str] | None = None) -> None:
+        self.distributed_tracing = _env(environ).get(
+            "DD_MCP_DISTRIBUTED_TRACING", "true"
+        ).lower() in {"true", "1"}
+
+    def _activate_distributed_context(self, params: dict[str, Any]) -> None:
+        from ddtrace import tracer  # noqa: PLC0415
+        from ddtrace.llmobs import LLMObs  # noqa: PLC0415
+        from ddtrace.propagation.http import HTTPPropagator  # noqa: PLC0415
+
+        meta = params.get("_meta")
+        headers = meta.get("_dd_trace_context") if isinstance(meta, dict) else None
+        if not self.distributed_tracing or not isinstance(headers, dict):
+            return
+        if not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in headers.items()
+        ):
+            return
+        context = HTTPPropagator.extract(headers)
+        current = tracer.current_trace_context()
+        # Match native MCP instrumentation: keep the nearer HTTP parent when
+        # that request already joined the client's trace through HTTP headers.
+        if (
+            context is None
+            or not context.trace_id
+            or (current and current.trace_id == context.trace_id)
+        ):
+            return
+        LLMObs.activate_distributed_headers(headers)
+
+    async def __call__(  # noqa: PLR0912, PLR0915
         self,
         ctx: ServerRequestContext[Any],
         call_next: Callable[[ServerRequestContext[Any]], Awaitable[Any]],
@@ -226,9 +257,25 @@ class _DatadogRequestMiddleware:
             previous = tracer.context_provider.active()
         except Exception:
             previous = None
+        # Datadog maintains a separate LLM context; its public activation API
+        # updates both, but exposes no public restoration API.
+        llm_provider = None
+        previous_llm = None
+        try:
+            if LLMObs._instance is not None:  # noqa: SLF001
+                llm_provider = LLMObs._instance._llmobs_context_provider  # noqa: SLF001
+                previous_llm = llm_provider.active()
+        except Exception:
+            llm_provider = None
+            logger.debug("Datadog LLM context unavailable")
         tool_call = ctx.method == "tools/call"
         try:
             params = ctx.params if isinstance(ctx.params, dict) else {}
+            if tool_call and llm_provider is not None:
+                try:
+                    self._activate_distributed_context(params)
+                except Exception:
+                    logger.debug("Datadog MCP distributed context unavailable")
             name = str(params.get("name", "unknown_tool")) if tool_call else f"mcp.{ctx.method}"
             start = LLMObs.tool if tool_call else LLMObs.task
             span = start(name=name)
@@ -274,3 +321,9 @@ class _DatadogRequestMiddleware:
                     tracer.context_provider.activate(previous)
                 except Exception:
                     logger.debug("Datadog context restoration failed")
+                finally:
+                    if llm_provider is not None:
+                        try:
+                            llm_provider.activate(previous_llm)
+                        except Exception:
+                            logger.debug("Datadog LLM context restoration failed")

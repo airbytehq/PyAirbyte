@@ -98,6 +98,188 @@ def test_native_datadog_http_contract_in_fresh_process():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+async def _native_distributed_context_contract(app):
+    import asyncio
+    from unittest.mock import patch
+
+    import httpx
+    from ddtrace import tracer
+    from ddtrace.llmobs import LLMObs
+
+    headers = {
+        "x-datadog-trace-id": "123456",
+        "x-datadog-parent-id": "654321",
+        "x-datadog-sampling-priority": "1",
+    }
+    llm_provider = LLMObs._instance._llmobs_context_provider
+    # Use SDK-produced headers as well as a plain APM carrier: LLM and APM
+    # have separate parent/trace IDs, and both must survive propagation.
+    with LLMObs.task(name="remote-agent") as remote:
+        llm_headers = LLMObs.inject_distributed_headers({})
+        remote_ids = LLMObs.export_span(remote)
+    llm_provider.activate(None)
+    # A broken telemetry provider must neither abort the tool nor replace its
+    # result while unwinding the span. Do not activate remote context if its
+    # previous LLM context could not be saved.
+    for failing_method in ("active", "activate"):
+        with tracer.trace("provider-failure-parent") as parent:
+
+            async def unaffected_call(_ctx):
+                return {"content": []}
+
+            with patch.object(
+                llm_provider,
+                failing_method,
+                side_effect=RuntimeError("provider failure"),
+            ):
+                result = await _datadog._DatadogRequestMiddleware()(
+                    SimpleNamespace(
+                        method="tools/call",
+                        params={
+                            "name": "synthetic",
+                            "_meta": {"_dd_trace_context": headers},
+                        },
+                    ),
+                    unaffected_call,
+                )
+            assert result == {"content": []}
+            assert tracer.current_span() is parent
+            llm_provider.activate(None)
+    for incoming, environ, inherited in [
+        ({"_dd_trace_context": headers}, {}, True),
+        ({"_dd_trace_context": llm_headers}, {}, True),
+        (
+            {"_dd_trace_context": headers},
+            {"DD_MCP_DISTRIBUTED_TRACING": "false"},
+            False,
+        ),
+        ({"_dd_trace_context": headers}, {"DD_MCP_DISTRIBUTED_TRACING": "0"}, False),
+        ({}, {}, False),
+        (None, {}, False),
+        ({"_dd_trace_context": "invalid"}, {}, False),
+        ({"_dd_trace_context": {"x-datadog-trace-id": []}}, {}, False),
+        ({"_dd_trace_context": {"x-datadog-trace-id": "bad"}}, {}, False),
+    ]:
+        for outcome in ("success", "exception", "cancel"):
+            with LLMObs.task(name="local-agent") as local:
+                with tracer.trace("http-parent") as http_parent:
+                    before_llm = llm_provider.active()
+                    seen = []
+
+                    async def call_next(_ctx):
+                        seen.append(tracer.current_span())
+                        if outcome == "exception":
+                            raise ValueError("synthetic failure")
+                        if outcome == "cancel":
+                            raise asyncio.CancelledError()
+                        return {"content": [], "isError": False}
+
+                    ctx = SimpleNamespace(
+                        method="tools/call",
+                        params={
+                            "name": "synthetic",
+                            "arguments": {},
+                            "_meta": incoming,
+                        },
+                    )
+                    middleware = _datadog._DatadogRequestMiddleware(environ=environ)
+                    if outcome == "success":
+                        assert await middleware(ctx, call_next) == {
+                            "content": [],
+                            "isError": False,
+                        }
+                    else:
+                        error = (
+                            ValueError
+                            if outcome == "exception"
+                            else asyncio.CancelledError
+                        )
+                        with pytest.raises(error):
+                            await middleware(ctx, call_next)
+                    assert tracer.current_span() is http_parent
+                    assert llm_provider.active() is before_llm is local
+                    span = seen[0]
+                    if inherited:
+                        carrier = incoming["_dd_trace_context"]
+                        assert span.trace_id == (
+                            remote.trace_id if carrier is llm_headers else 123456
+                        )
+                        assert span.parent_id == (
+                            remote.span_id if carrier is llm_headers else 654321
+                        )
+                    else:
+                        assert span.trace_id == http_parent.trace_id
+                        assert span.parent_id == http_parent.span_id
+                    event = span._get_ctx_item("_llmobs.cached_event")
+                    assert "_dd_trace_context" not in json.dumps(event)
+                    assert "x-datadog-" not in json.dumps(event)
+                    if inherited and incoming["_dd_trace_context"] is llm_headers:
+                        assert event["parent_id"] == remote_ids["span_id"]
+                        assert event["trace_id"] == remote_ids["trace_id"]
+
+    # If HTTP propagation already joined this trace, preserve the nearer HTTP
+    # span instead of replacing it with the remote metadata's parent.
+    with tracer.trace("http-parent") as http_parent:
+        same_trace = {
+            **headers,
+            "x-datadog-trace-id": str(http_parent.trace_id & ((1 << 64) - 1)),
+        }
+        from ddtrace.propagation.http import HTTPPropagator
+
+        HTTPPropagator.inject(http_parent.context, same_trace)
+        same_trace["x-datadog-parent-id"] = "654321"
+
+        async def same_trace_call(_ctx):
+            assert tracer.current_span().parent_id == http_parent.span_id
+            return {"content": []}
+
+        await _datadog._DatadogRequestMiddleware()(
+            SimpleNamespace(
+                method="tools/call",
+                params={
+                    "name": "synthetic",
+                    "_meta": {"_dd_trace_context": same_trace},
+                },
+            ),
+            same_trace_call,
+        )
+        assert tracer.current_span() is http_parent
+
+    # Exercise the actual MCP/HTTP boundary to verify the wire `_meta` carrier
+    # reaches the middleware, rather than testing only a synthetic context.
+    raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
+    async with raw.router.lifespan_context(raw):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=raw), base_url="http://testserver"
+        ) as client:
+            captured = []
+
+            @app.tool()
+            def propagated_tool() -> str:
+                captured.append(tracer.current_span())
+                return "synthetic response"
+
+            response = await client.post(
+                "/mcp",
+                headers={"accept": "application/json, text/event-stream"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 123,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "propagated_tool",
+                        "arguments": {},
+                        "_meta": {"_dd_trace_context": headers},
+                    },
+                },
+            )
+            assert (
+                response.status_code == 200 and not response.json()["result"]["isError"]
+            )
+            assert captured[0].trace_id == 123456
+            assert captured[0].parent_id == 654321
+
+
 def _native_http_contract():
     import asyncio
     import hashlib
@@ -498,6 +680,7 @@ def _native_http_contract():
         assert events[6]["name"] == "unknown_tool" and primary[6].error
         for span_id, correlation in correlations[:3]:
             assert str(span_id) == correlation["dd.span_id"]
+        asyncio.run(_native_distributed_context_contract(app))
         print(
             "Native Datadog HTTP, payload, redaction, hierarchy, logs, and fault contracts passed"
         )
