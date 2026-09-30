@@ -294,10 +294,11 @@ Advertisement and model guidance do not require an export endpoint.
 - `datadog` uses the optional `airbyte[datadog]` extra and native Datadog LLM
   Observability configuration; it does not require an OTLP endpoint. It records
   initialization, tool listing and tool calls in the deployment's native trace
-  hierarchy, including unknown tools and errors. It uses the platform payload
-  policy: `config`, `testing_values` and `api_args` arguments are redacted, as
-  are complete outputs of the sensitive tools listed in `airbyte.mcp.http_main`.
-  Other arguments, results and error messages may be exported in clear text.
+  hierarchy, including unknown tools and errors. Tool Input contains only
+  captured intent, validated action and the bounded entity name described below.
+  All other tool arguments and all tool results are omitted; tool error messages
+  and stacks are not captured. Error status and type remain available. This
+  policy covers MCP spans; deployment-owned HTTP tracing remains unchanged.
   Disable automatic Datadog MCP instrumentation with
   `DD_TRACE_MCP_ENABLED=false` to avoid duplicate MCP spans.
 
@@ -310,8 +311,8 @@ name. This caller-supplied field can include customer-defined names or sensitive
 text: format checks do not anonymize it. It describes the request, including
 failed attempts, rather than verified access to records. Both tracing backends
 share this extraction. `datadog-otlp` also exposes the bounded name as
-`entity_name` in approved Input; native `datadog` keeps the original entity
-argument in Input under the platform payload policy above.
+`entity_name` in approved Input; native `datadog` exposes the same bounded value
+as `entity_type` in its approved Input envelope.
 
 For OTel session grouping, the unsigned, client-echoed `Mcp-Session-Id` is
 replaced with a SHA-256 digest; it is not a verified identity. Intent itself

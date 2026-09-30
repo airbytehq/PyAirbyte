@@ -100,14 +100,16 @@ when the backend setting is absent. An explicit backend takes precedence;
 the legacy vendor setting is ignored. Existing vendor-only deployments retain
 their transport, credentials, and payload policy.
 
-The native Datadog backend adopts the public platform's existing payload policy:
-only `config`, `testing_values`, and `api_args` argument values are replaced with
-`[REDACTED]`. Entire outputs are redacted for `execute_agent_connector`,
-`execute_agent_connector_ro`, `get_cloud_sync_logs`, `get_connection_artifact`,
-`get_stream_previews`, `read_source_stream_records`, and `run_sql_query`.
-Other argument values, results, and error messages can be exported in clear text.
-Malformed tool input is fully redacted; captured outbound MCP client Input/Output
-is fully redacted. This is deliberately different from the default OTel policy.
+The native Datadog backend excludes raw tool payloads. Server tool Input is
+rebuilt from approved telemetry only: captured intent, validated action and the
+bounded requested entity name. These explicit free-text telemetry fields may
+contain sensitive information; do not place customer data in intent or entity
+names. All other tool arguments and every tool result are omitted. Tool error
+status and type are retained, but messages and stacks are not captured because
+they can echo arguments or results. Captured outbound MCP client Input/Output
+is fully redacted. Initialization and tool listing keep their protocol payloads.
+This MCP span policy intentionally differs from the platform's selective payload
+redaction; it does not change deployment-owned HTTP spans, logs or other tracing.
 
 For a public deployment, verify native task/tool Input/Output, error status, and
 HTTP → MCP → requests/urllib3 ancestry against the existing Datadog example before

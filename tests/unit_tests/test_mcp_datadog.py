@@ -14,46 +14,31 @@ from airbyte.mcp import _datadog
 from airbyte.version import get_version
 
 
-@pytest.mark.parametrize("name", ["config", "testing_values", "api_args"])
-def test_selected_argument_redaction_preserves_other_payloads(name):
-    original = {
-        "method": "tools/call",
-        "params": {"arguments": {name: "private", "other": "visible"}},
-    }
+@pytest.mark.parametrize("original_input", [[{"content": "private"}], [object()], []])
+def test_tool_payloads_rebuilt_only_from_approved_metadata(original_input):
     span = SimpleNamespace(
-        input=[{"content": json.dumps(original)}],
-        output=[{"content": "visible result"}],
+        input=original_input,
+        output=[{"content": "private output"}],
+        metadata={
+            "intent": "Find matching records",
+            "agent.action": "list",
+            "agent.entity_type": "contacts",
+            "unrelated": "private metadata",
+        },
         get_tag=lambda key: {"mcp_tool": "example"}.get(key),
     )
     _datadog.redact_tool_span(span)
-    assert json.loads(span.input[0]["content"])["params"]["arguments"] == {
-        name: "[REDACTED]",
-        "other": "visible",
+    assert json.loads(span.input[0]["content"]) == {
+        "method": "tools/call",
+        "params": {
+            "name": "example",
+            "arguments": {
+                "intent": "Find matching records",
+                "action": "list",
+                "entity_type": "contacts",
+            },
+        },
     }
-    assert span.output == [{"content": "visible result"}]
-    assert original["params"]["arguments"][name] == "private"
-
-
-@pytest.mark.parametrize(
-    "tool",
-    [
-        "execute_agent_connector",
-        "execute_agent_connector_ro",
-        "get_cloud_sync_logs",
-        "get_connection_artifact",
-        "get_stream_previews",
-        "read_source_stream_records",
-        "run_sql_query",
-    ],
-)
-def test_selected_outputs_and_malformed_inputs_are_fully_redacted(tool):
-    span = SimpleNamespace(
-        input=[object()],
-        output=[{"content": "private"}],
-        get_tag=lambda key: tool if key == "mcp_tool" else None,
-    )
-    _datadog.redact_tool_span(span)
-    assert span.input == [{"content": "[REDACTED]", "role": ""}]
     assert span.output == [{"content": "[REDACTED]", "role": ""}]
 
 
@@ -130,7 +115,6 @@ def _native_http_contract():
     import requests
     from fastmcp import FastMCP
     from fastmcp.tools import ToolResult
-    from mcp.types import CallToolRequest, CallToolResult
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -184,6 +168,14 @@ def _native_http_contract():
     correlations = []
     entities = []
     calls = []
+    private_arguments = {
+        "name_contains": "private-name-canary",
+        "stream_name": "private-stream-canary",
+        "connection_id": "private-id-canary",
+        "manifest_yaml": "private-manifest-canary",
+        "nested": {"values": ["private-nested-canary"]},
+    }
+    private_payload = json.dumps(private_arguments, sort_keys=True)
 
     @app.tool(name="execute_external_api_query")
     def execute(
@@ -191,7 +183,20 @@ def _native_http_contract():
         action: str = "list",
         config: dict | None = None,
         entity_type: str = "",
+        name_contains: str = "",
+        stream_name: str = "",
+        connection_id: str = "",
+        manifest_yaml: str = "",
+        nested: dict | None = None,
     ) -> ToolResult:
+        if name_contains:
+            assert {
+                "name_contains": name_contains,
+                "stream_name": stream_name,
+                "connection_id": connection_id,
+                "manifest_yaml": manifest_yaml,
+                "nested": nested,
+            } == private_arguments
         calls.append(mode)
         entities.append(entity_type)
         active = tracer.current_span()
@@ -200,8 +205,8 @@ def _native_http_contract():
             f"http://127.0.0.1:{upstream.server_port}/synthetic", timeout=3
         ).raise_for_status()
         if mode == "raise":
-            raise ValueError("visible synthetic error")
-        return ToolResult(content="visible synthetic result", is_error=mode == "error")
+            raise ValueError(private_payload)
+        return ToolResult(content=private_payload, is_error=mode == "error")
 
     @app.tool()
     def run_sql_query() -> str:
@@ -258,6 +263,7 @@ def _native_http_contract():
                             {
                                 "name": "execute_external_api_query",
                                 "arguments": {
+                                    **private_arguments,
                                     "mode": mode,
                                     "entity_type": "Custom Entities/東京" * 20,
                                     "action": "list",
@@ -314,39 +320,6 @@ def _native_http_contract():
                     )
                     assert len(calls) == before + 1
 
-                # Failed request serialization must not bypass sensitive output redaction.
-                with patch.object(
-                    _datadog,
-                    "CallToolRequest",
-                    SimpleNamespace(
-                        model_validate=lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                            ValueError("capture failure")
-                        )
-                    ),
-                ):
-                    response = await client.post(
-                        "/mcp",
-                        headers={"accept": "application/json, text/event-stream"},
-                        json={
-                            "jsonrpc": "2.0",
-                            "id": 30,
-                            "method": "tools/call",
-                            "params": {"name": "run_sql_query", "arguments": {}},
-                        },
-                    )
-                assert (
-                    response.json()["result"]["content"][0]["text"]
-                    == "private synthetic result"
-                )
-                failed_capture = next(
-                    span for span in reversed(spans) if span.span_type == "llm"
-                )
-                assert (
-                    failed_capture._get_ctx_item("_llmobs.cached_event")["meta"][
-                        "output"
-                    ]["value"]
-                    == "[REDACTED]"
-                )
                 before = len([span for span in spans if span.span_type == "llm"])
                 response = await client.post(
                     "/mcp",
@@ -368,6 +341,24 @@ def _native_http_contract():
                     handled._get_ctx_item("_llmobs.cached_event")["name"]
                     == "handle_error"
                 )
+
+        # An exception escaping the protocol boundary must retain its class/status
+        # without exporting a payload-containing message or traceback.
+        async def fail(_ctx):
+            raise ValueError(private_payload)
+
+        with pytest.raises(ValueError, match="private-name-canary"):
+            await _datadog._DatadogRequestMiddleware()(
+                SimpleNamespace(
+                    method="tools/call",
+                    params={"name": "escaped_error", "arguments": private_arguments},
+                ),
+                fail,
+            )
+        escaped = next(span for span in reversed(spans) if span.span_type == "llm")
+        assert escaped.error and escaped.get_tag("error.type") == "ValueError"
+        assert escaped.get_tag("error.message") is None
+        assert escaped.get_tag("error.stack") is None
         # Cancellation must propagate and restore the previous Datadog context.
         with tracer.trace("cancellation-parent") as parent:
             before = tracer.current_span()
@@ -397,6 +388,20 @@ def _native_http_contract():
             "Native backend must not create duplicate OTel spans"
         )
         native = [span for span in spans if span.span_type == "llm"]
+        serialized_native = json.dumps([
+            {"apm": span.get_tags(), "llm": span._get_ctx_item("_llmobs.cached_event")}
+            for span in native
+        ])
+        for secret in (
+            "private-name-canary",
+            "private-stream-canary",
+            "private-id-canary",
+            "private-manifest-canary",
+            "private-nested-canary",
+            "private argument",
+            "private synthetic result",
+        ):
+            assert secret not in serialized_native
         primary = native[:7]
         assert len(primary) == 7
         lookup = {span.span_id: span for span in spans}
@@ -423,25 +428,23 @@ def _native_http_contract():
         ] + ["server_tool_call"] * 5
         for index in (2, 3, 4):
             span, event = primary[index], events[index]
-            method, params, response = responses[index]
-            expected_input = CallToolRequest.model_validate({
-                "method": method,
-                "params": params,
-            }).model_dump(exclude={"params": {"meta": "_dd_trace_context"}})
-            expected_input["params"]["arguments"]["config"] = "[REDACTED]"
-            assert json.loads(event["meta"]["input"]["value"]) == expected_input
-            expected_output = CallToolResult.model_validate(
-                response["result"]
-            ).model_dump(mode="json")
-            assert json.loads(event["meta"]["output"]["value"]) == expected_output, (
-                json.loads(event["meta"]["output"]["value"]),
-                expected_output,
-            )
+            assert json.loads(event["meta"]["input"]["value"]) == {
+                "method": "tools/call",
+                "params": {
+                    "name": "execute_external_api_query",
+                    "arguments": {
+                        "intent": "Keep Mixed Case Intent",
+                        "action": "list",
+                        "entity_type": ("Custom Entities/東京" * 20)[:256].rstrip(),
+                    },
+                },
+            }
+            assert event["meta"]["output"]["value"] == "[REDACTED]"
             assert event["meta"]["metadata"]["intent"] == "Keep Mixed Case Intent"
             assert event["meta"]["metadata"]["agent.action"] == "list"
             entity = "Custom Entities/東京" * 20
-            # Bound the common metadata field, preserving platform payload
-            # policy and the actual connector request unchanged.
+            # Only bounded approved telemetry leaves the process; execution
+            # receives the original argument.
             assert entities[index - 2] == entity
             assert (
                 event["meta"]["metadata"]["agent.entity_type"] == entity[:256].rstrip()
@@ -449,7 +452,6 @@ def _native_http_contract():
             assert (
                 span.get_tag("airbyte.mcp.agent.entity_type") == entity[:256].rstrip()
             )
-            assert expected_input["params"]["arguments"]["entity_type"] == entity
             assert event["meta"]["metadata"]["client_name"] == "Custom Agent"
             assert event["meta"]["metadata"]["client_version"] == "v" * 256
             assert span.get_tag("airbyte.mcp.client_name") == "Custom Agent"
@@ -474,6 +476,14 @@ def _native_http_contract():
                 and s.name == "urllib3.request"
                 for s in spans
             )
+        assert (
+            json.loads(responses[2][2]["result"]["content"][0]["text"])
+            == private_arguments
+        )
+        assert (
+            json.loads(responses[3][2]["result"]["content"][0]["text"])
+            == private_arguments
+        )
         assert primary[2].error == 0
         assert all(
             span.error == 1 and span.get_tag("error.type") == "ToolError"
