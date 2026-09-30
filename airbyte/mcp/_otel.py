@@ -594,10 +594,10 @@ class RedactingExporter(SpanExporter):
             canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
             if canonical_action is not None:
                 attrs["airbyte.mcp.agent.action"] = canonical_action
-        is_execution_root = root_tool_span and tool_name in _ENTITY_TYPE_ACTIONS
+        if not root_tool_span or tool_name not in _ENTITY_TYPE_ACTIONS:
+            entity_type = None
         if (
-            is_execution_root
-            and isinstance(entity_type, str)
+            isinstance(entity_type, str)
             and entity_type
             and entity_type.isprintable()
             and entity_type == entity_type.strip()
