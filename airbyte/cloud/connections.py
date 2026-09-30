@@ -317,6 +317,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.schedule
 
     @property
+    def status(self) -> str:
+        """The connection's status."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.status
+
+    @property
     def connection_url(self) -> str | None:
         """The web URL to the connection."""
         return f"{self.workspace.workspace_url}/connections/{self.connection_id}"

@@ -17,7 +17,11 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls, get_connector_info
+from airbyte.mcp.registry import (
+    get_api_docs_urls,
+    get_available_connectors,
+    get_connector_info,
+)
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -544,6 +548,50 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
     mock_get_spec.assert_called_once_with(
         "source-faker", version=None, platform="cloud"
     )
+
+
+def test_get_connector_info_finds_java_connector_without_docker() -> None:
+    """A Java registry connector is discoverable when Docker is unavailable."""
+    connector_metadata = ConnectorMetadata(
+        name="source-postgres",
+        display_name="Postgres",
+        connector_type="source",
+        definition_id="source-postgres-definition",
+        docker_repository="airbyte/source-postgres",
+        latest_available_version="3.0.0",
+        pypi_package_name=None,
+        language="java",
+        install_types=set(),
+        support_level="certified",
+        release_stage="generally_available",
+        source_type="database",
+        documentation_url="https://docs.airbyte.com/integrations/sources/postgres",
+    )
+    connector = MagicMock()
+    connector.name = "source-postgres"
+    connector.docs_url = connector_metadata.documentation_url
+
+    with (
+        patch("airbyte.registry.is_docker_installed", return_value=False),
+        patch(
+            "airbyte.registry._get_registry_cache",
+            return_value={"source-postgres": connector_metadata},
+        ),
+        patch("airbyte.mcp.registry.get_source", return_value=connector),
+        patch(
+            "airbyte.mcp.registry.get_connector_metadata",
+            return_value=connector_metadata,
+        ),
+        patch(
+            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            return_value=None,
+        ),
+    ):
+        assert get_available_connectors() == []
+        result = get_connector_info("source-postgres")
+
+    assert not isinstance(result, str)
+    assert result.connector_name == "source-postgres"
 
 
 def test_get_connector_info_falls_back_to_oss_spec() -> None:

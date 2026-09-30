@@ -46,6 +46,7 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    ConnectionSchedule,
     ConnectorFeature,
     ConnectorType,
     JobTypeEnum,
@@ -319,6 +320,10 @@ class CloudConnectionDetails(BaseModel):
     """List of stream names selected for syncing."""
     table_prefix: str | None
     """Table prefix applied when syncing to the destination."""
+    status: str | None = None
+    """The connection status, such as `active` or `inactive`."""
+    schedule: ConnectionSchedule | None = None
+    """The connection's sync schedule."""
 
 
 class CloudOrganizationResult(BaseModel):
@@ -965,13 +970,16 @@ def get_cloud_sync_status(
     connection_id: Annotated[
         str,
         Field(
-            description="The ID of the Airbyte Cloud connection.",
+            description="Required ID of the Airbyte Cloud connection that owns the job.",
         ),
     ],
     job_id: Annotated[
         int | None,
         Field(
-            description="Optional job ID. If not provided, the latest job will be used.",
+            description=(
+                "Optional job ID; it must belong to `connection_id`. Use "
+                "`list_cloud_sync_jobs` to find job IDs for this connection."
+            ),
             default=None,
         ),
     ],
@@ -991,41 +999,62 @@ def get_cloud_sync_status(
         ),
     ],
 ) -> dict[str, Any]:
-    """Get the status of a sync job from the Airbyte Cloud."""
+    """Get the status of a sync job from Airbyte Cloud.
+
+    `connection_id` is required, and any supplied `job_id` must belong to that connection. Use
+    `list_cloud_sync_jobs` to find job IDs for the connection.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    # If a job ID is provided, get the job by ID.
-    sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
+    try:
+        # If a job ID is provided, get the job by ID.
+        sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
-    if not sync_result:
-        return {"status": None, "job_id": None, "attempts": []}
+        if not sync_result:
+            return {"status": None, "job_id": None, "attempts": []}
 
-    result = {
-        "status": sync_result.get_job_status(),
-        "job_id": sync_result.job_id,
-        "bytes_synced": sync_result.bytes_synced,
-        "records_synced": sync_result.records_synced,
-        "start_time": sync_result.start_time.isoformat(),
-        "job_url": sync_result.job_url,
-        "attempts": [],
-    }
+        result = {
+            "status": sync_result.get_job_status(),
+            "job_id": sync_result.job_id,
+            "bytes_synced": sync_result.bytes_synced,
+            "records_synced": sync_result.records_synced,
+            "start_time": sync_result.start_time.isoformat(),
+            "job_url": sync_result.job_url,
+            "attempts": [],
+        }
 
-    if include_attempts:
-        attempts = sync_result.get_attempts()
-        result["attempts"] = [
-            {
-                "attempt_number": attempt.attempt_number,
-                "attempt_id": attempt.attempt_id,
-                "status": attempt.status,
-                "bytes_synced": attempt.bytes_synced,
-                "records_synced": attempt.records_synced,
-                "created_at": attempt.created_at.isoformat(),
-            }
-            for attempt in attempts
-        ]
+        if include_attempts:
+            attempts = sync_result.get_attempts()
+            result["attempts"] = [
+                {
+                    "attempt_number": attempt.attempt_number,
+                    "attempt_id": attempt.attempt_id,
+                    "status": attempt.status,
+                    "bytes_synced": attempt.bytes_synced,
+                    "records_synced": attempt.records_synced,
+                    "created_at": attempt.created_at.isoformat(),
+                }
+                for attempt in attempts
+            ]
 
-    return result
+        return result
+    except AirbyteError as ex:
+        status_code = (ex.context or {}).get("status_code")
+        if status_code is None:
+            status_code = getattr(ex, "status_code", None)
+        if job_id is not None and status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+            raise PyAirbyteInputError(
+                message=(
+                    f"Job {job_id} was not found on connection {connection_id}, "
+                    "or you don't have access to it."
+                ),
+                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                context={"connection_id": connection_id, "job_id": job_id},
+            ) from ex
+        raise
+    else:
+        return result
 
 
 @mcp_tool(
@@ -1236,6 +1265,8 @@ def list_cloud_connectors(
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
+    Use `list_cloud_connections` to find the pipelines between these connectors.
+
     Pass `feature_filter` (for example `direct_api_query` for sources,
     `direct_sql_query` for destinations, or `direct_access` or `search_indexing` for
     either) to return only matching connectors with their `enabled_features`
@@ -1378,7 +1409,7 @@ class CloudConnectorDetailsResult(BaseModel):
     """Fatal issues encountered while describing optional connector details."""
 
 
-def _describe_cloud_connector(
+def _describe_cloud_connector(  # noqa: PLR0912
     connector: CloudConnector,
     *,
     with_config: bool,
@@ -1430,6 +1461,11 @@ def _describe_cloud_connector(
             result.config = connector.as_cloud_destination().configuration
         except AirbyteError as error:
             warnings.append(f"Connector configuration lookup failed: {error}")
+    elif with_config and connector_type == ConnectorType.SOURCE:
+        warnings.append(
+            "Source configuration is not exposed by the Airbyte Cloud API, "
+            "so `config` is always null for sources."
+        )
 
     if with_replication_details:
         try:
@@ -2167,6 +2203,8 @@ def describe_cloud_connection(
         destination_name=cast(str, connection.destination.name),
         selected_streams=connection.stream_names,
         table_prefix=connection.table_prefix,
+        status=connection.status,
+        schedule=connection.schedule,
     )
 
 
@@ -2364,6 +2402,9 @@ def list_cloud_connections(
     ],
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
+
+    Each connection links a source to a destination; use `list_cloud_connectors` to list those
+    deployed resources.
 
     When with_connection_status is True, each connection result will include
     information about the most recent sync job status, skipping over any
@@ -3360,9 +3401,9 @@ def permanently_delete_custom_source_definition(
     IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the connector does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the connector appropriately to authorize
-    the deletion.
+    If the connector does not meet this requirement, the deletion will be rejected. Do not rename
+    the connector yourself to satisfy this condition; ask the user to confirm deletion or rename
+    it themselves first.
 
     The provided name must match the actual name of the definition for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3435,9 +3476,9 @@ def permanently_delete_cloud_connector(
     IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the connector does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the connector appropriately to authorize
-    the deletion.
+    If the connector does not meet this requirement, the deletion will be rejected. Do not rename
+    the connector yourself to satisfy this condition; ask the user to confirm deletion or rename
+    it themselves first.
 
     The provided name must match the actual name of the connector for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3461,6 +3502,38 @@ def permanently_delete_cloud_connector(
                 "connector_type": resolved_type.value,
                 "expected_name": name,
                 "actual_name": actual_name,
+            },
+        )
+
+    connections = [
+        connection
+        for connection in workspace.list_connections()
+        if (
+            connection.source_id == connector_id
+            if resolved_type == ConnectorType.SOURCE
+            else connection.destination_id == connector_id
+        )
+    ]
+    if connections:
+        raise PyAirbyteInputError(
+            message=(
+                f"The {resolved_type.value} '{actual_name}' is used by {len(connections)} "
+                "connection(s) and cannot be deleted."
+            ),
+            guidance=(
+                "Delete those connections first with `permanently_delete_cloud_connection`, "
+                "after confirming with the user."
+            ),
+            context={
+                "connector_id": connector_id,
+                "connector_type": resolved_type.value,
+                "connections": [
+                    {
+                        "connection_id": connection.connection_id,
+                        "name": connection.name,
+                    }
+                    for connection in connections
+                ],
             },
         )
 
@@ -3525,9 +3598,9 @@ def permanently_delete_cloud_connection(
     IMPORTANT: This operation requires the connection name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the connection does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the connection appropriately to authorize
-    the deletion.
+    If the connection does not meet this requirement, the deletion will be rejected. Do not rename
+    the connection yourself to satisfy this condition; ask the user to confirm deletion or rename
+    it themselves first.
 
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3775,7 +3848,33 @@ def set_cloud_connection_selected_streams(
     connection = workspace.get_connection(connection_id=connection_id)
 
     resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
-    connection.set_selected_streams(stream_names=resolved_streams_list)
+    try:
+        connection.set_selected_streams(stream_names=resolved_streams_list)
+    except AirbyteError as ex:
+        try:
+            catalog = connection.dump_raw_catalog()
+        except Exception:
+            catalog = None
+
+        if not isinstance(catalog, dict) or not isinstance(catalog.get("streams"), list):
+            raise
+
+        available_streams = [
+            stream["stream"]["name"]
+            for stream in catalog["streams"]
+            if isinstance(stream, dict)
+            and isinstance(stream.get("stream"), dict)
+            and isinstance(stream["stream"].get("name"), str)
+        ]
+        raise PyAirbyteInputError(
+            message=(f"Could not set selected streams for connection '{connection_id}': {ex}"),
+            guidance="Use stream names from `available_streams`.",
+            context={
+                "connection_id": connection_id,
+                "requested_streams": resolved_streams_list,
+                "available_streams": available_streams,
+            },
+        ) from ex
 
     return (
         f"Successfully set selected streams for connection '{connection_id}' "

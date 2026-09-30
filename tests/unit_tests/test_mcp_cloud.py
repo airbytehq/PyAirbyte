@@ -8,7 +8,7 @@ import functools
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Callable, cast
+from typing import Any, Callable, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -27,11 +27,14 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
     _SQL_PASSTHROUGH_DESTINATION_DIALECTS,
 )
+from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CheckResult, ConnectorFeature, ConnectorType
 from airbyte.cloud.models import (
+    CloudConnectionInfo,
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
+    ConnectionSchedule,
     JobStatusEnum,
 )
 from airbyte.mcp import cloud as cloud_mcp
@@ -863,6 +866,7 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
     workspace = SimpleNamespace(**{
         getter: lambda **_: resource,
         deleter: lambda **_: None,
+        "list_connections": lambda: [],
     })
 
     def fake_get_cloud_workspace(
@@ -884,6 +888,264 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 
     assert seen_workspace_ids == ["explicit-workspace-id"]
     assert "resource-id" in result
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "connection_source_id", "connection_destination_id", "deleter"),
+    [
+        pytest.param(
+            ConnectorType.SOURCE,
+            "connector-id",
+            "other-destination",
+            "permanently_delete_source",
+            id="source",
+        ),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            "other-source",
+            "connector-id",
+            "permanently_delete_destination",
+            id="destination",
+        ),
+    ],
+)
+def test_permanently_delete_cloud_connector_rejects_in_use_connector(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    connection_source_id: str,
+    connection_destination_id: str,
+    deleter: str,
+) -> None:
+    """An in-use source or destination cannot be deleted."""
+    connector = SimpleNamespace(
+        name="delete-me connector",
+        connector_type=connector_type,
+    )
+    connection = SimpleNamespace(
+        connection_id="connection-1",
+        name="Orders pipeline",
+        source_id=connection_source_id,
+        destination_id=connection_destination_id,
+    )
+    unrelated_connection = SimpleNamespace(
+        connection_id="connection-2",
+        name="Other pipeline",
+        source_id="other-source",
+        destination_id="other-destination",
+    )
+    delete = MagicMock()
+    workspace = SimpleNamespace(
+        get_source=lambda **_: connector,
+        get_destination=lambda **_: connector,
+        list_connections=lambda: [connection, unrelated_connection],
+        **{deleter: delete},
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    with pytest.raises(PyAirbyteInputError, match="used by 1 connection") as exc_info:
+        cloud_mcp.permanently_delete_cloud_connector(
+            cast(Context, object()),
+            connector_id="connector-id",
+            name="delete-me connector",
+            connector_type=connector_type,
+            workspace_id=None,
+        )
+
+    assert exc_info.value.context == {
+        "connector_id": "connector-id",
+        "connector_type": connector_type.value,
+        "connections": [{"connection_id": "connection-1", "name": "Orders pipeline"}],
+    }
+    assert "permanently_delete_cloud_connection" in (exc_info.value.guidance or "")
+    assert "confirming with the user" in (exc_info.value.guidance or "")
+    delete.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "deleter"),
+    [
+        pytest.param(
+            ConnectorType.SOURCE,
+            "permanently_delete_source",
+            id="source",
+        ),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            "permanently_delete_destination",
+            id="destination",
+        ),
+    ],
+)
+def test_permanently_delete_unused_cloud_connector(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    deleter: str,
+) -> None:
+    """An unused connector continues to be deleted."""
+    connector = SimpleNamespace(
+        name="delete-me connector",
+        connector_type=connector_type,
+    )
+    delete = MagicMock()
+    workspace = SimpleNamespace(
+        get_source=lambda **_: connector,
+        get_destination=lambda **_: connector,
+        list_connections=lambda: [],
+        **{deleter: delete},
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    result = cloud_mcp.permanently_delete_cloud_connector(
+        cast(Context, object()),
+        connector_id="connector-id",
+        name="delete-me connector",
+        connector_type=connector_type,
+        workspace_id=None,
+    )
+
+    assert "Successfully deleted" in result
+    delete.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "status_code",
+    [requests.codes.forbidden, requests.codes.not_found],
+    ids=["forbidden", "not-found"],
+)
+def test_get_cloud_sync_status_explains_unavailable_job_id(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    """403/404 job lookups explain how to find jobs for the connection."""
+    original_error = AirbyteError(
+        message="API request failed",
+        context={"status_code": status_code},
+    )
+    sync_result = SimpleNamespace(
+        get_job_status=MagicMock(side_effect=original_error),
+    )
+    connection = SimpleNamespace(
+        get_sync_result=MagicMock(return_value=sync_result),
+    )
+    workspace = SimpleNamespace(
+        get_connection=lambda **_: connection,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        cloud_mcp.get_cloud_sync_status(
+            cast(Context, object()),
+            connection_id="connection-1",
+            job_id=42,
+            workspace_id=None,
+            include_attempts=False,
+        )
+
+    assert exc_info.value.get_message() == (
+        "Job 42 was not found on connection connection-1, or you don't have access to it."
+    )
+    assert exc_info.value.guidance == (
+        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+    )
+    assert exc_info.value.context == {"connection_id": "connection-1", "job_id": 42}
+    assert exc_info.value.__cause__ is original_error
+
+
+def test_get_cloud_sync_status_propagates_other_job_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Job errors other than 403/404 retain their original type and identity."""
+    original_error = AirbyteError(
+        message="API request failed",
+        context={"status_code": requests.codes.internal_server_error},
+    )
+    sync_result = SimpleNamespace(
+        get_job_status=MagicMock(side_effect=original_error),
+    )
+    connection = SimpleNamespace(
+        get_sync_result=MagicMock(return_value=sync_result),
+    )
+    workspace = SimpleNamespace(
+        get_connection=lambda **_: connection,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        cloud_mcp.get_cloud_sync_status(
+            cast(Context, object()),
+            connection_id="connection-1",
+            job_id=42,
+            workspace_id=None,
+            include_attempts=False,
+        )
+
+    assert exc_info.value is original_error
+
+
+def test_set_cloud_connection_selected_streams_lists_available_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid stream selection includes names from the configured catalog."""
+    original_error = AirbyteError(message="Invalid stream name")
+    connection = SimpleNamespace(
+        set_selected_streams=MagicMock(side_effect=original_error),
+        dump_raw_catalog=MagicMock(
+            return_value={
+                "streams": [
+                    {"stream": {"name": "orders"}, "selected": True},
+                    {"stream": {"name": "customers"}, "selected": False},
+                ]
+            }
+        ),
+    )
+    workspace = SimpleNamespace(get_connection=lambda **_: connection)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        cloud_mcp.set_cloud_connection_selected_streams(
+            cast(Context, object()),
+            connection_id="connection-1",
+            stream_names=["missing", "orders"],
+            workspace_id=None,
+        )
+
+    assert exc_info.value.get_message().startswith("Could not set selected streams")
+    assert exc_info.value.guidance == "Use stream names from `available_streams`."
+    assert exc_info.value.context == {
+        "connection_id": "connection-1",
+        "requested_streams": ["missing", "orders"],
+        "available_streams": ["orders", "customers"],
+    }
+    assert exc_info.value.__cause__ is original_error
+
+
+def test_set_cloud_connection_selected_streams_propagates_original_error_if_catalog_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A catalog lookup failure does not replace the selected-stream error."""
+    original_error = AirbyteError(message="Invalid stream name")
+    connection = SimpleNamespace(
+        set_selected_streams=MagicMock(side_effect=original_error),
+        dump_raw_catalog=MagicMock(
+            side_effect=AirbyteError(message="Catalog unavailable")
+        ),
+    )
+    workspace = SimpleNamespace(get_connection=lambda **_: connection)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        cloud_mcp.set_cloud_connection_selected_streams(
+            cast(Context, object()),
+            connection_id="connection-1",
+            stream_names=["missing"],
+            workspace_id=None,
+        )
+
+    assert exc_info.value is original_error
 
 
 @pytest.mark.parametrize(
@@ -2049,6 +2311,10 @@ def test_describe_helper_with_config_source_has_no_config() -> None:
     result = _describe(connector, with_config=True)
 
     assert result.config is None
+    assert result.warnings == [
+        "Source configuration is not exposed by the Airbyte Cloud API, "
+        "so `config` is always null for sources."
+    ]
 
 
 def test_describe_helper_with_config_failure_warns() -> None:
@@ -2060,6 +2326,69 @@ def test_describe_helper_with_config_failure_warns() -> None:
 
     assert result.config is None
     assert any("Connector configuration lookup failed" in w for w in result.warnings)
+
+
+def test_describe_cloud_connection_includes_status_and_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The connection detail response exposes connection status and schedule."""
+    schedule = ConnectionSchedule(
+        schedule_type="cron",
+        schedule_expression="0 0 * * * ? UTC",
+    )
+    connection = SimpleNamespace(
+        connection_id="connection-1",
+        name="Postgres to Snowflake",
+        connection_url="https://cloud.airbyte.com/connections/connection-1",
+        source_id="source-1",
+        source=SimpleNamespace(name="Postgres"),
+        destination_id="destination-1",
+        destination=SimpleNamespace(name="Snowflake"),
+        stream_names=["orders"],
+        table_prefix="raw_",
+        status="active",
+        schedule=schedule,
+    )
+    workspace = SimpleNamespace(get_connection=lambda **_: connection)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+
+    result = cloud_mcp.describe_cloud_connection(
+        cast(Context, object()),
+        connection_id="connection-1",
+        workspace_id=None,
+    )
+
+    assert result.status == "active"
+    assert result.schedule == schedule
+    assert result.schedule is not None
+    assert result.schedule.schedule_type == "cron"
+    assert result.schedule.schedule_expression == "0 0 * * * ? UTC"
+
+
+def test_cloud_connection_status_uses_cached_connection_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reading status uses the cached connection info without refreshing it."""
+    connection = CloudConnection(
+        workspace=cast(Any, object()),
+        connection_id="connection-1",
+    )
+    connection._connection_info = CloudConnectionInfo(
+        connection_id="connection-1",
+        workspace_id="workspace-1",
+        source_id="source-1",
+        destination_id="destination-1",
+        name="Postgres to Snowflake",
+        configurations={},
+        status="active",
+    )
+    monkeypatch.setattr(
+        CloudConnection,
+        "_fetch_connection_info",
+        MagicMock(side_effect=AssertionError),
+    )
+
+    assert connection.status == "active"
 
 
 def test_describe_helper_with_replication_details(
