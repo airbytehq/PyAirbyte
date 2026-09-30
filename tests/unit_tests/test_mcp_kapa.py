@@ -21,50 +21,58 @@ def clear_kapa_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(kapa.KAPA_MCP_SERVER_URL_ENV_VAR, raising=False)
 
 
-def test_mount_is_disabled_outside_hosted_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(kapa.KAPA_DOCS_MCP_BEARER_TOKEN_ENV_VAR, "dummy-token")
-    monkeypatch.setattr(kapa, "is_hosted_mcp_mode", lambda: False)
-    app = MagicMock(spec=FastMCP)
-
-    assert kapa.mount_kapa_knowledge_proxy(app) is False
-    app.mount.assert_not_called()
-
-
-@pytest.mark.parametrize("token", [None, "  \t "])
-def test_mount_is_disabled_without_a_nonempty_token(
+@pytest.mark.parametrize(
+    ("hosted", "token", "server_url", "expected_url"),
+    [
+        pytest.param(False, "dummy-token", None, None, id="not-hosted"),
+        pytest.param(True, None, None, None, id="missing-token"),
+        pytest.param(True, "  \t ", None, None, id="blank-token"),
+        pytest.param(
+            True,
+            "dummy-token",
+            None,
+            kapa.DEFAULT_KAPA_MCP_SERVER_URL,
+            id="default-url",
+        ),
+        pytest.param(
+            True,
+            "dummy-token",
+            "https://kapa.example.test/mcp",
+            "https://kapa.example.test/mcp",
+            id="custom-url",
+        ),
+    ],
+)
+def test_mount_kapa_knowledge_proxy(
     monkeypatch: pytest.MonkeyPatch,
+    hosted: bool,
     token: str | None,
+    server_url: str | None,
+    expected_url: str | None,
 ) -> None:
-    monkeypatch.setattr(kapa, "is_hosted_mcp_mode", lambda: True)
+    monkeypatch.setattr(kapa, "is_hosted_mcp_mode", lambda: hosted)
     if token is not None:
         monkeypatch.setenv(kapa.KAPA_DOCS_MCP_BEARER_TOKEN_ENV_VAR, token)
-    app = MagicMock(spec=FastMCP)
-
-    assert kapa.mount_kapa_knowledge_proxy(app) is False
-    app.mount.assert_not_called()
-
-
-def test_mount_creates_proxy_with_custom_url_and_no_namespace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    server_url = "https://kapa.example.test/mcp"
-    monkeypatch.setattr(kapa, "is_hosted_mcp_mode", lambda: True)
-    monkeypatch.setenv(kapa.KAPA_DOCS_MCP_BEARER_TOKEN_ENV_VAR, "dummy-token")
-    monkeypatch.setenv(kapa.KAPA_MCP_SERVER_URL_ENV_VAR, server_url)
+    if server_url is not None:
+        monkeypatch.setenv(kapa.KAPA_MCP_SERVER_URL_ENV_VAR, server_url)
     app = MagicMock(spec=FastMCP)
 
     with patch(
         "airbyte.mcp.kapa.StreamableHttpTransport",
         wraps=StreamableHttpTransport,
     ) as transport_factory:
-        assert kapa.mount_kapa_knowledge_proxy(app) is True
+        assert kapa.mount_kapa_knowledge_proxy(app) == (expected_url is not None)
 
-    transport_factory.assert_called_once()
-    assert transport_factory.call_args.args == (server_url,)
-    proxy = app.mount.call_args.args[0]
-    assert isinstance(proxy, FastMCPProxy)
-    assert proxy.name == "airbyte-knowledge"
-    app.mount.assert_called_once_with(proxy)
+    if expected_url is None:
+        app.mount.assert_not_called()
+        transport_factory.assert_not_called()
+    else:
+        transport_factory.assert_called_once()
+        assert transport_factory.call_args.args == (expected_url,)
+        proxy = app.mount.call_args.args[0]
+        assert isinstance(proxy, FastMCPProxy)
+        assert proxy.name == "airbyte-knowledge"
+        app.mount.assert_called_once_with(proxy)
 
 
 def test_kapa_http_client_factory_does_not_forward_request_credentials() -> None:
