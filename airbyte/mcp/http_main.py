@@ -142,12 +142,15 @@ hosted redaction boundary and continue exporting after rollback.
   Use `otel` for other OTLP backends.
 - `AIRBYTE_MCP_OTEL_DIGEST_KEY`: optional exact UTF-8 HMAC key for
   `airbyte.mcp.args_digest` (first 32 lowercase hex characters of HMAC-SHA256).
-  Missing, blank or unencodable keys disable it; there is no unsalted fallback.
+  Supported by all three tracing backends, using the same canonicalization and key.
+  The native backend needs no OTLP endpoint. Missing, blank or unencodable keys
+  disable it; there is no unsalted fallback.
   Bounded supplied arguments, exact tool name and canonicalization version
   determine equality. Synthetic top-level intent and legacy telemetry are excluded;
   declared parameters and nested fields are retained. Invalid/oversized input
-  omits the field. Datadog opt-in also mirrors it as `args_digest` in metadata
-  and Input, including calls without intent. Raw arguments remain excluded.
+  omits the field. Both Datadog backends include `args_digest` in metadata, including
+  calls without intent. `datadog-otlp` also displays it in Input without raw arguments;
+  native `datadog` retains the platform payload policy described above.
   This is pseudonymization, not anonymity: equality, frequency, chosen-input
   correlation, contextual inference and key compromise remain risks. Matching
   digests do not identify a user/session. Removing or rotating the key requires

@@ -83,7 +83,8 @@ def test_native_startup_rejects_duplicate_instrumentation(monkeypatch, conflict)
         _datadog.install(FastMCP("duplicate-test"))
 
 
-def test_native_datadog_http_contract_in_fresh_process():
+@pytest.mark.parametrize("digest_key_mode", ["enabled", "missing", "blank", "invalid"])
+def test_native_datadog_http_contract_in_fresh_process(digest_key_mode):
     # ddtrace and OTel own process-global state. Keep this real integration test
     # independent from the suite's OTel provider and prohibit external exporters.
     env = {
@@ -92,6 +93,7 @@ def test_native_datadog_http_contract_in_fresh_process():
         if not key.startswith(("DD_", "OTEL_", "AIRBYTE_MCP_"))
     }
     env.update(
+        DIGEST_KEY_MODE=digest_key_mode,
         DO_NOT_TRACK="1",
         DD_TRACE_HTTPX_ENABLED="false",
         DD_TRACE_MCP_ENABLED="false",
@@ -137,6 +139,7 @@ def _native_http_contract():
         InMemorySpanExporter,
     )
     from airbyte.mcp import _otel
+    from airbyte.mcp._args_digest import args_digest
 
     # Assert every socket is loopback; writers are captured and never started.
     connect = socket.socket.connect
@@ -211,13 +214,22 @@ def _native_http_contract():
             return "handled"
         raise AssertionError("Expected inner tool failure")
 
-    _otel.install(
-        app,
-        environ={
-            "AIRBYTE_MCP_TRACING_BACKEND": "datadog",
-            "AIRBYTE_MCP_INTENT_CAPTURE": "1",
-        },
-    )
+    environment = {
+        "AIRBYTE_MCP_TRACING_BACKEND": "datadog",
+        "AIRBYTE_MCP_INTENT_CAPTURE": "1",
+    }
+    key_mode = os.environ.get("DIGEST_KEY_MODE", "missing")
+    if key_mode != "missing":
+        environment["AIRBYTE_MCP_OTEL_DIGEST_KEY"] = {
+            "enabled": " synthetic-native-key ",
+            "blank": " ",
+            "invalid": "\ud800",
+        }[key_mode]
+    digest_key = b" synthetic-native-key " if key_mode == "enabled" else None
+    _otel.install(app, environ=environment)
+    # Configuration is read once; later environment changes cannot rotate a key.
+    environment["AIRBYTE_MCP_OTEL_DIGEST_KEY"] = "changed-after-install"
+
     assert isinstance(
         trace.get_tracer_provider(), TracerProvider
     )  # Existing provider is untouched.
@@ -351,6 +363,9 @@ def _native_http_contract():
                 handled = native_after[-1]
                 assert not handled.error
                 assert handled.get_tag("airbyte.mcp.error_type") is None
+                assert handled.get_tag("airbyte.mcp.args_digest") == (
+                    args_digest("handle_error", {}, digest_key) if digest_key else None
+                )
                 assert (
                     handled._get_ctx_item("_llmobs.cached_event")["name"]
                     == "handle_error"
@@ -417,6 +432,17 @@ def _native_http_contract():
             )
             assert event["meta"]["metadata"]["intent"] == "Keep Mixed Case Intent"
             assert event["meta"]["metadata"]["agent.action"] == "list"
+            expected_digest = (
+                args_digest(
+                    "execute_external_api_query",
+                    {k: v for k, v in params["arguments"].items() if k != "intent"},
+                    digest_key,
+                )
+                if digest_key
+                else None
+            )
+            assert event["meta"]["metadata"].get("args_digest") == expected_digest
+            assert span.get_tag("airbyte.mcp.args_digest") == expected_digest
             assert (
                 event["meta"]["metadata"]["tool_id"]
                 == hashlib.sha256(str(index + 1).encode()).hexdigest()
@@ -449,6 +475,17 @@ def _native_http_contract():
             == "private synthetic result"
         )
         assert events[6]["name"] == "unknown_tool" and primary[6].error
+        # Initialization, listing, and unknown tools never inherit another call's digest.
+        for index in (0, 1, 6):
+            assert primary[index].get_tag("airbyte.mcp.args_digest") is None
+            assert "args_digest" not in events[index]["meta"].get("metadata", {})
+        assert events[5]["meta"]["metadata"].get("args_digest") == (
+            args_digest("run_sql_query", {}, digest_key) if digest_key else None
+        )
+        serialized = json.dumps(events)
+        assert "private argument" not in serialized
+        assert "synthetic-native-key" not in serialized
+        assert "changed-after-install" not in serialized
         for span_id, correlation in correlations[:3]:
             assert str(span_id) == correlation["dd.span_id"]
         print(

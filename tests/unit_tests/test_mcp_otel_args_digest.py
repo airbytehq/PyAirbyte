@@ -237,7 +237,11 @@ def harness(monkeypatch, request):
         async def api(api_args: dict | str | None = None) -> str:
             return str(api_args)
 
-        environment = {"AIRBYTE_MCP_OTEL_VENDOR": vendor}
+        environment = {
+            "AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"
+            if vendor == "datadog"
+            else "otel"
+        }
         if key is not None:
             environment["AIRBYTE_MCP_OTEL_DIGEST_KEY"] = key
         if endpoint:

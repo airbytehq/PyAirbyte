@@ -181,16 +181,11 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
                 raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
     # Set the guard only once ownership is established, so a refused startup stays refused.
     _INSTALLED, _ENVIRON = True, environ
-    digest_key = None
-    if provider is not None:
-        try:
-            key_text = environment.get("AIRBYTE_MCP_OTEL_DIGEST_KEY", "")
-            if key_text.strip():
-                digest_key = key_text.encode("utf-8")
-        except Exception:
-            # Invalid key configuration silently disables fingerprinting.
-            pass
-    app.add_middleware(IntentCaptureMiddleware(app, environ=environ, digest_key=digest_key))
+    app.add_middleware(
+        IntentCaptureMiddleware(
+            app, environ=environ, digest_key=_digest_key(environ) if provider is not None else None
+        )
+    )
     if _flag(
         environ, "AIRBYTE_MCP_INTENT_CAPTURE"
     ) and INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or ""):
@@ -201,6 +196,18 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
         RequestsInstrumentor().instrument(excluded_urls="api.segment.io")  # type: ignore[missing-attribute]  # Instrumentor singleton is non-null.
     except Exception:
         logger.debug("Optional OpenTelemetry setup failed")
+
+
+def _digest_key(environ: Mapping[str, str] | None) -> bytes | None:
+    """Read the optional exact UTF-8 key once after either tracing backend is ready."""
+    try:
+        key_text = _env(environ).get("AIRBYTE_MCP_OTEL_DIGEST_KEY", "")
+        if key_text.strip():
+            return key_text.encode("utf-8")
+    except Exception:
+        # Invalid key configuration silently disables fingerprinting.
+        pass
+    return None
 
 
 def _build_provider(exporter: SpanExporter) -> TracerProvider:

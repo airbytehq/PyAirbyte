@@ -24,6 +24,7 @@ from airbyte.mcp._otel import (
     INTENT_INSTRUCTIONS_SENTENCE,
     IntentCaptureMiddleware,
     _build_tool_maps,
+    _digest_key,
     _flag,
 )
 
@@ -110,7 +111,9 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
         raise RuntimeError("Native Datadog tracing requires LLM Observability to be enabled.")
     LLMObs.register_processor(redact_tool_span)
     _build_tool_maps()
-    app.add_middleware(_DatadogIntentMiddleware(app, environ=environ))
+    app.add_middleware(
+        _DatadogIntentMiddleware(app, environ=environ, digest_key=_digest_key(environ))
+    )
     # The SDK boundary sees the complete response, including exceptions converted
     # to isError results, and surrounds FastMCP's own seam span.
     from fastmcp.server.low_level import FastMCPServerMiddleware  # noqa: PLC0415
