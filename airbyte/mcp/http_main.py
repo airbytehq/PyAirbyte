@@ -168,6 +168,7 @@ names. Labels retain case, are trimmed and capped at 256 characters, and are
 omitted if they contain control characters. These bounds do not sanitize
 arbitrary text or secrets; clients must not put customer data in these labels
 (or in free-text intent).
+
 Tool spans include tool/server/protocol identity, timing, session correlation and
 error status. Returned `isError` results are marked as errors with the fixed
 category `ToolError`; raised exceptions retain their cause class. Neither path

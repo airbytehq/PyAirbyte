@@ -46,7 +46,7 @@ def client_app(monkeypatch):
 def test_http_client_identity_success_validation_and_request_isolation(
     monkeypatch, client_app, otel_provider, modern
 ):
-    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
     sinks = TelemetrySinks(package_name="airbyte")
     monkeypatch.setattr(sinks, "emit", lambda _: None)
     raw = client_app.http_app(path="/mcp", stateless_http=True, json_response=True)
@@ -194,11 +194,11 @@ def test_client_lookup_failure_preserves_execution_and_intent(
     assert PRIVATE not in _export_text(otel_provider)
 
 
-@pytest.mark.parametrize("vendor", ["", "datadog"])
+@pytest.mark.parametrize("backend", ["otel", "datadog-otlp"])
 def test_exporter_revalidates_injected_client_fields(
-    monkeypatch, client_app, otel_provider, vendor
+    monkeypatch, client_app, otel_provider, backend
 ):
-    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", backend)
     provider, _ = otel_provider
     tracer = provider.get_tracer("client-test")
     for name, kind in [
@@ -230,7 +230,7 @@ def test_exporter_revalidates_injected_client_fields(
         assert attrs.get("airbyte.mcp.client_name") == expected
         assert "airbyte.mcp.client_version" not in attrs
         assert "gen_ai.tool.call.arguments" not in attrs
-        if vendor and expected:
+        if backend == "datadog-otlp" and expected:
             assert json.loads(attrs["_dd.ml_obs.metadata"]) == {"client_name": expected}
         else:
             assert "_dd.ml_obs.metadata" not in attrs
