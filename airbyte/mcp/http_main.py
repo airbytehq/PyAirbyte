@@ -91,8 +91,8 @@ Tracing backend selection:
   requests/urllib3, and log correlation; it does not install an OTel provider or
   duplicate HTTP instrumentation. It captures initialize and tools/call, plus
   tools/list discovery, as native task/tool spans. Unknown tool calls are retained.
-  Intent/action are included as span tags and metadata alongside the full MCP
-  request/response Input/Output.
+  Intent, action and bounded entity name are included as span tags, metadata and
+  approved tool Input; all other tool arguments and all tool outputs are redacted.
 
 Only `AIRBYTE_MCP_TRACING_BACKEND` is needed to select tracing behavior. For
 backward compatibility, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`
