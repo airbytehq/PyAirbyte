@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from airbyte.mcp import _datadog
+from airbyte.version import get_version
 
 
 @pytest.mark.parametrize("name", ["config", "testing_values", "api_args"])
@@ -402,6 +403,8 @@ def _native_http_contract():
         for span in primary:
             assert lookup[span.parent_id].name == "starlette.request"
         events = [span._get_ctx_item("_llmobs.cached_event") for span in primary]
+        for event in events:
+            assert event["meta"]["metadata"]["pyairbyte.version"] == get_version()
         assert [event["meta"]["span"]["kind"] for event in events] == [
             "task",
             "task",

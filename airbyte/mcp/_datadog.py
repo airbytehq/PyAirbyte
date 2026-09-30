@@ -26,6 +26,7 @@ from airbyte.mcp._otel import (
     _build_tool_maps,
     _flag,
 )
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
@@ -207,7 +208,7 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
     session = get_http_headers(include={"mcp-session-id"}).get("mcp-session-id")
     if session:
         tags["mcp_session_id"] = session
-    LLMObs.annotate(span, tags=tags)
+    LLMObs.annotate(span, tags=tags, metadata={"pyairbyte.version": get_version()})
     # Match native SDK serialization, including defaults and model field
     # names, rather than constructing a different wire-shaped envelope.
     request = (
