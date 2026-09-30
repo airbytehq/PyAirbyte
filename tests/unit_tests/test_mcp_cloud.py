@@ -982,6 +982,134 @@ def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
         )
 
 
+class _DeployConnectionWorkspace:
+    """Fake `CloudWorkspace` capturing `deploy_connection` and `get_source` calls."""
+
+    def __init__(self) -> None:
+        self.deploy_calls: list[dict[str, object]] = []
+        self.get_source_calls: list[str] = []
+
+    def get_source(self, source_id: str) -> SimpleNamespace:
+        """Return a source double exposing the connector definition ID."""
+        self.get_source_calls.append(source_id)
+        return SimpleNamespace(definition_id="definition-id")
+
+    def deploy_connection(self, **kwargs: object) -> SimpleNamespace:
+        """Capture the deploy request and return a connection double."""
+        self.deploy_calls.append(kwargs)
+        return SimpleNamespace(
+            connection_id="connection-id",
+            connection_url="https://cloud.airbyte.com/connection-id",
+        )
+
+
+def _patch_deploy_connection_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> _DeployConnectionWorkspace:
+    workspace = _DeployConnectionWorkspace()
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", lambda *args: None
+    )
+    return workspace
+
+
+def test_create_connection_on_cloud_uses_explicit_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit `selected_streams` are forwarded without a registry lookup."""
+    workspace = _patch_deploy_connection_workspace(monkeypatch)
+
+    def fail_lookup(_definition_id: str) -> None:
+        raise AssertionError("registry lookup should not happen")
+
+    monkeypatch.setattr(
+        cloud_mcp, "get_connector_metadata_by_definition_id", fail_lookup
+    )
+
+    result = cloud_mcp.create_connection_on_cloud(
+        cast(Context, object()),
+        connection_name="My Connection",
+        source_id="source-id",
+        destination_id="destination-id",
+        workspace_id=None,
+        selected_streams=["users", "orders"],
+        table_prefix=None,
+    )
+
+    assert workspace.get_source_calls == []
+    assert workspace.deploy_calls == [
+        {
+            "connection_name": "My Connection",
+            "source": "source-id",
+            "destination": "destination-id",
+            "selected_streams": ["users", "orders"],
+            "table_prefix": None,
+        }
+    ]
+    assert "suggested streams" not in result
+
+
+def test_create_connection_on_cloud_defaults_to_suggested_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted `selected_streams` fall back to the connector's suggested streams."""
+    workspace = _patch_deploy_connection_workspace(monkeypatch)
+    metadata = SimpleNamespace(suggested_streams=["users"])
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_metadata_by_definition_id",
+        lambda definition_id: metadata if definition_id == "definition-id" else None,
+    )
+
+    result = cloud_mcp.create_connection_on_cloud(
+        cast(Context, object()),
+        connection_name="My Connection",
+        source_id="source-id",
+        destination_id="destination-id",
+        workspace_id=None,
+        selected_streams=None,
+        table_prefix=None,
+    )
+
+    assert workspace.get_source_calls == ["source-id"]
+    assert workspace.deploy_calls[0]["selected_streams"] == ["users"]
+    assert "suggested streams" in result
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        pytest.param(None, id="unregistered-connector"),
+        pytest.param(
+            SimpleNamespace(suggested_streams=None), id="no-suggested-streams"
+        ),
+    ],
+)
+def test_create_connection_on_cloud_without_suggested_streams_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    metadata: object,
+) -> None:
+    """Missing `selected_streams` and missing suggestions raise `PyAirbyteInputError`."""
+    workspace = _patch_deploy_connection_workspace(monkeypatch)
+    monkeypatch.setattr(
+        cloud_mcp, "get_connector_metadata_by_definition_id", lambda _id: metadata
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="suggested streams"):
+        cloud_mcp.create_connection_on_cloud(
+            cast(Context, object()),
+            connection_name="My Connection",
+            source_id="source-id",
+            destination_id="destination-id",
+            workspace_id=None,
+            selected_streams=None,
+            table_prefix=None,
+        )
+
+    assert workspace.deploy_calls == []
+
+
 class _CombinedListingWorkspace:
     """Fake `CloudWorkspace` returning one source and one destination."""
 
