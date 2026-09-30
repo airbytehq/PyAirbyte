@@ -462,12 +462,19 @@ def test_registered_external_api_keeps_full_declared_intent_in_digest_and_reques
         == roots[1].attributes["airbyte.mcp.intent"]
     )
     for span in roots:
-        assert json.loads(span.attributes["gen_ai.tool.call.arguments"]) == {
+        tool_input = json.loads(span.attributes["gen_ai.tool.call.arguments"])
+        expected = {
             "intent": span.attributes["airbyte.mcp.intent"],
             "action": "list",
             "args_digest": span.attributes[ATTRIBUTE],
         }
+        assert tool_input.items() >= expected.items()
+        # Entity tracing is an independent feature; allow only its approved field.
+        assert tool_input.keys() <= expected.keys() | {"entity_name"}
+        if "entity_name" in tool_input:
+            assert tool_input["entity_name"] == "issues"
         assert "connector-SENTINEL" not in span.to_json()
+        assert all(intent not in span.to_json() for intent in intents)
 
 
 @pytest.mark.parametrize("key", [None, "", " \t\n", "\ud800"])
