@@ -1328,6 +1328,35 @@ def _sdk_status_error(status_code: int) -> SDKError:
     )
 
 
+def test_get_job_info_wraps_sdk_403_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 403 from the SDK is wrapped with its status code and job ID."""
+    sdk_error = _sdk_status_error(403)
+    airbyte_instance = Mock()
+    airbyte_instance.jobs.get_job.side_effect = sdk_error
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        Mock(return_value=airbyte_instance),
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util.get_job_info(
+            job_id=42,
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+        )
+
+    assert exc_info.value.context is not None
+    assert exc_info.value.context["job_id"] == 42
+    assert exc_info.value.context["status_code"] == 403
+    assert exc_info.value.__cause__ is sdk_error
+    airbyte_instance.jobs.get_job.assert_called_once_with(api.GetJobRequest(job_id=42))
+
+
 @pytest.mark.parametrize(
     "source_status",
     [

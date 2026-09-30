@@ -1018,11 +1018,15 @@ def get_job_info(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.jobs.get_job(
-        api.GetJobRequest(
-            job_id=job_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.jobs.get_job(
+            api.GetJobRequest(
+                job_id=job_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"job_id": job_id}) from e
+
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 

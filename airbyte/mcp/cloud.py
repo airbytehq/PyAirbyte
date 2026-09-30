@@ -1012,33 +1012,31 @@ def get_cloud_sync_status(
         sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
         if not sync_result:
-            return {"status": None, "job_id": None, "attempts": []}
+            result = {"status": None, "job_id": None, "attempts": []}
+        else:
+            result = {
+                "status": sync_result.get_job_status(),
+                "job_id": sync_result.job_id,
+                "bytes_synced": sync_result.bytes_synced,
+                "records_synced": sync_result.records_synced,
+                "start_time": sync_result.start_time.isoformat(),
+                "job_url": sync_result.job_url,
+                "attempts": [],
+            }
 
-        result = {
-            "status": sync_result.get_job_status(),
-            "job_id": sync_result.job_id,
-            "bytes_synced": sync_result.bytes_synced,
-            "records_synced": sync_result.records_synced,
-            "start_time": sync_result.start_time.isoformat(),
-            "job_url": sync_result.job_url,
-            "attempts": [],
-        }
-
-        if include_attempts:
-            attempts = sync_result.get_attempts()
-            result["attempts"] = [
-                {
-                    "attempt_number": attempt.attempt_number,
-                    "attempt_id": attempt.attempt_id,
-                    "status": attempt.status,
-                    "bytes_synced": attempt.bytes_synced,
-                    "records_synced": attempt.records_synced,
-                    "created_at": attempt.created_at.isoformat(),
-                }
-                for attempt in attempts
-            ]
-
-        return result
+            if include_attempts:
+                attempts = sync_result.get_attempts()
+                result["attempts"] = [
+                    {
+                        "attempt_number": attempt.attempt_number,
+                        "attempt_id": attempt.attempt_id,
+                        "status": attempt.status,
+                        "bytes_synced": attempt.bytes_synced,
+                        "records_synced": attempt.records_synced,
+                        "created_at": attempt.created_at.isoformat(),
+                    }
+                    for attempt in attempts
+                ]
     except AirbyteError as ex:
         status_code = (ex.context or {}).get("status_code")
         if status_code is None:
@@ -1053,8 +1051,7 @@ def get_cloud_sync_status(
                 context={"connection_id": connection_id, "job_id": job_id},
             ) from ex
         raise
-    else:
-        return result
+    return result
 
 
 @mcp_tool(
