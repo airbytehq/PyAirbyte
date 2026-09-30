@@ -170,7 +170,7 @@ logger = logging.getLogger(__name__)
 
 # Human-facing landing page shown when a browser GETs the MCP endpoint.
 MCP_LANDING_TITLE = "Airbyte MCP Server"
-MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
+MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/community/mcp-servers/replication-mcp"
 RELEASE_TAG_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/releases/tag/v{}"
 COMMIT_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/commit/{}"
 RELEASES_URL = "https://github.com/airbytehq/PyAirbyte/releases"
