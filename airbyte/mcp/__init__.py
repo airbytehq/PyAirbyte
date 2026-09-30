@@ -280,9 +280,12 @@ tools' existing `intent` parameter serves the same purpose and passes through
 unchanged to the Agents API; only the trace copy is trimmed and capped.
 Advertisement and model guidance do not require an export endpoint.
 
-`AIRBYTE_MCP_TRACING_BACKEND` selects the export backend and payload policy:
+`AIRBYTE_MCP_TRACING_BACKEND` selects the export backend and payload policy.
+When neither it nor the legacy `AIRBYTE_MCP_OTEL_VENDOR` is set,
+`DD_LLMOBS_ENABLED=1` or `true` defaults to `datadog`; otherwise the default is
+`otel`. Explicit backend and legacy vendor settings take precedence.
 
-- `otel` (default) and `datadog-otlp` require a configured OTLP traces endpoint.
+- `otel` and `datadog-otlp` require a configured OTLP traces endpoint.
   They export supplied intent (capped at 4096 characters), validated action,
   tool name, outcome class, validated workspace/organization UUIDs, tool
   annotations and outbound HTTP methods, recognized public Airbyte API routes

@@ -921,6 +921,30 @@ def test_segment_urls_excluded(otel_provider):
     "configuration,native",
     [
         ({}, False),
+        ({"DD_LLMOBS_ENABLED": "1"}, True),
+        ({"DD_LLMOBS_ENABLED": " TRUE "}, True),
+        ({"DD_LLMOBS_ENABLED": "false"}, False),
+        ({"DD_LLMOBS_ENABLED": "0"}, False),
+        ({"DD_LLMOBS_ENABLED": ""}, False),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_TRACING_BACKEND": "otel"},
+            False,
+        ),
+        (
+            {
+                "DD_LLMOBS_ENABLED": "true",
+                "AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp",
+            },
+            False,
+        ),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_OTEL_VENDOR": "datadog"},
+            False,
+        ),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_OTEL_VENDOR": "other"},
+            False,
+        ),
         ({"AIRBYTE_MCP_OTEL_VENDOR": "datadog"}, False),
         ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"}, False),
         ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog"}, True),
@@ -972,6 +996,7 @@ def test_invalid_backend_does_not_fall_back_to_legacy_vendor(backend):
             environ={
                 "AIRBYTE_MCP_TRACING_BACKEND": backend,
                 "AIRBYTE_MCP_OTEL_VENDOR": "datadog",
+                "DD_LLMOBS_ENABLED": "true",
             },
         )
 

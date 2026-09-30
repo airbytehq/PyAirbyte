@@ -424,7 +424,7 @@ def _native_http_contract():
     _otel.install(
         app,
         environ={
-            "AIRBYTE_MCP_TRACING_BACKEND": "datadog",
+            "DD_LLMOBS_ENABLED": "true",
             "AIRBYTE_MCP_INTENT_CAPTURE": "1",
         },
     )
