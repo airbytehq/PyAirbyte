@@ -301,6 +301,18 @@ Advertisement and model guidance do not require an export endpoint.
   Disable automatic Datadog MCP instrumentation with
   `DD_TRACE_MCP_ENABLED=false` to avoid duplicate MCP spans.
 
+For `execute_external_api_query`, `airbyte.mcp.agent.entity_type` records the
+requested entity name for `list`, `get`, or `search`, including the default
+`list` action. Names must be nonempty printable strings with no surrounding
+whitespace. Valid names longer than 256 characters are truncated in metadata,
+with trailing spaces at the cut removed; execution receives the full original
+name. This caller-supplied field can include customer-defined names or sensitive
+text: format checks do not anonymize it. It describes the request, including
+failed attempts, rather than verified access to records. Both tracing backends
+share this extraction. `datadog-otlp` also exposes the bounded name as
+`entity_name` in approved Input; native `datadog` keeps the original entity
+argument in Input under the platform payload policy above.
+
 For OTel session grouping, the unsigned, client-echoed `Mcp-Session-Id` is
 replaced with a SHA-256 digest; it is not a verified identity. Intent itself
 is free text and may contain customer information, so keep it free of sensitive

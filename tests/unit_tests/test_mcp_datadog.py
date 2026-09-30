@@ -181,13 +181,18 @@ def _native_http_contract():
     threading.Thread(target=upstream.serve_forever, daemon=True).start()
     app = FastMCP("native-mcp-contract")
     correlations = []
+    entities = []
     calls = []
 
     @app.tool(name="execute_external_api_query")
     def execute(
-        mode: str = "ok", action: str = "list", config: dict | None = None
+        mode: str = "ok",
+        action: str = "list",
+        config: dict | None = None,
+        entity_type: str = "",
     ) -> ToolResult:
         calls.append(mode)
+        entities.append(entity_type)
         active = tracer.current_span()
         correlations.append((active.span_id, tracer.get_log_correlation_context()))
         requests.get(
@@ -253,6 +258,7 @@ def _native_http_contract():
                                 "name": "execute_external_api_query",
                                 "arguments": {
                                     "mode": mode,
+                                    "entity_type": "Custom Entities/東京" * 20,
                                     "action": "list",
                                     "config": {"secret": "private argument"},
                                     "intent": "Keep Mixed Case Intent",
@@ -430,6 +436,17 @@ def _native_http_contract():
             )
             assert event["meta"]["metadata"]["intent"] == "Keep Mixed Case Intent"
             assert event["meta"]["metadata"]["agent.action"] == "list"
+            entity = "Custom Entities/東京" * 20
+            # Bound the common metadata field, preserving platform payload
+            # policy and the actual connector request unchanged.
+            assert entities[index - 2] == entity
+            assert (
+                event["meta"]["metadata"]["agent.entity_type"] == entity[:256].rstrip()
+            )
+            assert (
+                span.get_tag("airbyte.mcp.agent.entity_type") == entity[:256].rstrip()
+            )
+            assert expected_input["params"]["arguments"]["entity_type"] == entity
             assert event["meta"]["metadata"]["client_name"] == "Custom Agent"
             assert event["meta"]["metadata"]["client_version"] == "v" * 256
             assert span.get_tag("airbyte.mcp.client_name") == "Custom Agent"

@@ -202,9 +202,24 @@ def agents_app(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
 
     monkeypatch.setenv("AIRBYTE_MCP_INSIDERS", "1")
     monkeypatch.setattr(server.app, "middleware", list(server.app.middleware))
+    monkeypatch.setattr(
+        server.app._mcp_server, "middleware", list(server.app._mcp_server.middleware)
+    )
     monkeypatch.setattr(server.app, "instructions", server.app.instructions)
     _capture(server.app)
     return server.app
+
+
+@pytest.mark.parametrize("_repeat", range(2))
+def test_agents_app_does_not_accumulate_trace_context_guards(agents_app, _repeat):
+    """Each fixture use restores SDK middleware as well as FastMCP middleware."""
+    assert (
+        sum(
+            isinstance(middleware, observability._StripMetaTraceContextMiddleware)
+            for middleware in agents_app._mcp_server.middleware
+        )
+        == 1
+    )
 
 
 def test_list_tools_advertises_optional_intent_without_mutating_tool_parameters(

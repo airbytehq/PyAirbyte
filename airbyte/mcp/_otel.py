@@ -92,6 +92,10 @@ _SAFE_HTTP_URL = re.compile(
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
 _MAX_INTENT_LENGTH = 4096
 _MAX_LATE_ATTRIBUTES = 4096
+_MAX_ENTITY_TYPE_LENGTH = 256
+_ENTITY_TYPE_ACTIONS = {
+    "execute_external_api_query": tuple(member.value for member in ExternalApiReadOnlyAction),
+}
 _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
@@ -434,6 +438,17 @@ class IntentCaptureMiddleware(Middleware):
             canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
             if canonical_action is not None:
                 attrs["airbyte.mcp.agent.action"] = canonical_action
+        if isinstance(action, str) and action in _ENTITY_TYPE_ACTIONS.get(name, ()):
+            entity_type = arguments.get("entity_type")
+            if (
+                isinstance(entity_type, str)
+                and entity_type
+                and entity_type.isprintable()
+                and entity_type == entity_type.strip()
+            ):
+                attrs["airbyte.mcp.agent.entity_type"] = entity_type[
+                    :_MAX_ENTITY_TYPE_LENGTH
+                ].rstrip()
         if name in _TOOL_MODULES:
             hints = _TOOL_ANNOTATIONS.get(name, {})
             attrs.update(
@@ -542,7 +557,7 @@ class IntentStampProcessor(SpanProcessor):
 
 
 class RedactingExporter(SpanExporter):
-    """The sole exporter boundary: only public, rebuilt spans can leave the process."""
+    """The sole exporter boundary: only validated, rebuilt spans can leave the process."""
 
     def __init__(self, exporter: SpanExporter, *, environ: Mapping[str, str] | None = None) -> None:
         """Wrap the destination exporter without exposing it to a span processor."""
@@ -593,18 +608,28 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
         action = attrs.pop("airbyte.mcp.agent.action", None)
         tool_name = span.name.removeprefix("tools/call ")
-        if (
+        root_tool_span = (
             span.kind == SpanKind.SERVER
             and span.parent is None
             and span.name.startswith("tools/call ")
             and tool_name in _TOOL_MODULES
-            and isinstance(action, str)
-        ):
+        )
+        if root_tool_span and isinstance(action, str):
             canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
             if canonical_action is not None:
                 attrs["airbyte.mcp.agent.action"] = canonical_action
+        if not root_tool_span or tool_name not in _ENTITY_TYPE_ACTIONS:
+            entity_type = None
+        if (
+            isinstance(entity_type, str)
+            and entity_type
+            and entity_type.isprintable()
+            and entity_type == entity_type.strip()
+        ):
+            attrs["airbyte.mcp.agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
         for key in ("client_name", "client_version"):
             value = _client_label(attrs.pop(f"airbyte.mcp.{key}", None))
             if (
@@ -628,6 +653,7 @@ class RedactingExporter(SpanExporter):
                     "scope_source",
                     "error_type",
                     "agent.action",
+                    "agent.entity_type",
                     "client_name",
                     "client_version",
                 )
@@ -637,7 +663,11 @@ class RedactingExporter(SpanExporter):
                 attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
             tool_input = {
                 label: metadata[key]
-                for label, key in (("intent", "intent"), ("action", "agent.action"))
+                for label, key in (
+                    ("intent", "intent"),
+                    ("action", "agent.action"),
+                    ("entity_name", "agent.entity_type"),
+                )
                 if isinstance(metadata.get(key), str) and metadata[key]
             }
             if (
