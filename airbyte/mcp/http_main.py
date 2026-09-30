@@ -82,6 +82,9 @@ Tracing backend selection:
 
 - `AIRBYTE_MCP_TRACING_BACKEND=otel` (default): the OpenTelemetry behavior below,
   including its argument/result redaction, remains unchanged.
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: use OpenTelemetry with Datadog's
+  metadata and Input mapping, including intent/action, and the same strict
+  argument/result redaction as the generic OTel backend.
 - `AIRBYTE_MCP_TRACING_BACKEND=datadog`: opt in to native Datadog MCP spans. Install
   `airbyte[datadog]` and run under the deployment's `ddtrace-run`/Datadog Agent
   configuration. This backend reuses LLM Observability and its HTTP, outgoing
@@ -89,8 +92,13 @@ Tracing backend selection:
   duplicate HTTP instrumentation. It captures initialize and tools/call, plus
   tools/list discovery, as native task/tool spans. Unknown tool calls are retained.
   Intent/action are included as span tags and metadata alongside the full MCP
-  request/response Input/Output. `AIRBYTE_MCP_OTEL_VENDOR=datadog` alone continues
-  to mean OTel mapping, and does not select this native backend.
+  request/response Input/Output.
+
+Only `AIRBYTE_MCP_TRACING_BACKEND` is needed to select tracing behavior. For
+backward compatibility, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`
+when the backend setting is absent. An explicit backend takes precedence;
+the legacy vendor setting is ignored. Existing vendor-only deployments retain
+their transport, credentials, and payload policy.
 
 The native Datadog backend adopts the public platform's existing payload policy:
 only `config`, `testing_values`, and `api_args` argument values are replaced with
@@ -128,10 +136,10 @@ hosted redaction boundary and continue exporting after rollback.
   `deployment.environment.name=preview`. An explicit `service.version` takes
   precedence over the installed PyAirbyte version.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
-- `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: opt in to `_dd.ml_obs.metadata`, which makes
   intent available as Datadog metadata. Tool spans also show captured intent and
   validated action in Datadog Input, without raw tool arguments or results.
-  Leave unset for other OTLP backends.
+  Use `otel` for other OTLP backends.
 - `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
   guidance to omit credentials, identifiers and data values, even without an
   export endpoint. Removing this flag stops synthetic advertisement; declared

@@ -119,6 +119,20 @@ def _flag(environ: Mapping[str, str] | None, name: str) -> bool:
     return _env(environ).get(name, "").strip().lower() in {"1", "true"}
 
 
+def _tracing_backend(environ: Mapping[str, str] | None) -> str:
+    environment = _env(environ)
+    backend = environment.get("AIRBYTE_MCP_TRACING_BACKEND")
+    if backend is None:
+        # Preserve existing OTLP deployments; the legacy vendor flag never
+        # switches them to native Datadog or its different payload policy.
+        vendor = environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower()
+        return "datadog-otlp" if vendor == "datadog" else "otel"
+    backend = backend.strip().lower()
+    if backend not in {"otel", "datadog-otlp", "datadog"}:
+        raise ValueError("AIRBYTE_MCP_TRACING_BACKEND must be 'otel', 'datadog-otlp', or 'datadog'")
+    return backend
+
+
 def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
     """Install one hosted backend; OTel exports only with a configured endpoint.
 
@@ -131,9 +145,7 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
     global _INSTALLED, _ENVIRON
     if _INSTALLED:
         return
-    backend = _env(environ).get("AIRBYTE_MCP_TRACING_BACKEND", "otel").strip().lower()
-    if backend not in {"otel", "datadog"}:
-        raise ValueError("AIRBYTE_MCP_TRACING_BACKEND must be 'otel' or 'datadog'")
+    backend = _tracing_backend(environ)
     if backend == "datadog":
         from airbyte.mcp._datadog import install as install_datadog
 
@@ -568,7 +580,7 @@ class RedactingExporter(SpanExporter):
                 attrs["airbyte.mcp.agent.action"] = canonical_action
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
-        if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
+        if _tracing_backend(environment) == "datadog-otlp":
             metadata = {
                 key: attrs[f"airbyte.mcp.{key}"]
                 for key in (

@@ -902,9 +902,29 @@ def test_segment_urls_excluded(otel_provider):
     assert spans[0].attributes["http.url"] == "https://api.airbyte.com/v1/connections"
 
 
-def test_install_is_noop_without_endpoint_and_idempotent(
-    monkeypatch, uninitialized_provider
+@pytest.mark.parametrize(
+    "configuration,native",
+    [
+        ({}, False),
+        ({"AIRBYTE_MCP_OTEL_VENDOR": "datadog"}, False),
+        ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"}, False),
+        ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog"}, True),
+        (
+            {
+                "AIRBYTE_MCP_TRACING_BACKEND": " DATADOG ",
+                "AIRBYTE_MCP_OTEL_VENDOR": "datadog",
+            },
+            True,
+        ),
+    ],
+)
+def test_install_selects_transport_without_endpoint_and_is_idempotent(
+    monkeypatch, uninitialized_provider, configuration, native
 ):
+    from airbyte.mcp import _datadog
+
+    native_install = Mock()
+    monkeypatch.setattr(_datadog, "install", native_install)
     exporter = Mock()
     monkeypatch.setattr(
         "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter",
@@ -912,7 +932,7 @@ def test_install_is_noop_without_endpoint_and_idempotent(
     )
     server = FastMCP("disabled")
     before = list(server.middleware)
-    observability.install(server, environ={})
+    observability.install(server, environ=configuration)
     observability.install(
         server,
         environ={
@@ -920,8 +940,25 @@ def test_install_is_noop_without_endpoint_and_idempotent(
         },
     )
     exporter.assert_not_called()
+    if native:
+        native_install.assert_called_once_with(server, environ=configuration)
+        assert server.middleware == before
+        return
+    native_install.assert_not_called()
     assert server.middleware[:-1] == before
     assert isinstance(server.middleware[-1], observability.IntentCaptureMiddleware)
+
+
+@pytest.mark.parametrize("backend", ["", "unknown"])
+def test_invalid_backend_does_not_fall_back_to_legacy_vendor(backend):
+    with pytest.raises(ValueError, match="AIRBYTE_MCP_TRACING_BACKEND"):
+        observability.install(
+            FastMCP("invalid"),
+            environ={
+                "AIRBYTE_MCP_TRACING_BACKEND": backend,
+                "AIRBYTE_MCP_OTEL_VENDOR": "datadog",
+            },
+        )
 
 
 def test_install_leaves_provider_unset_when_build_fails(
@@ -1026,10 +1063,20 @@ def test_install_respects_explicit_environ(
         provider.shutdown()
 
 
-@pytest.mark.parametrize("vendor", ["", "other", "datadog"])
+@pytest.mark.parametrize(
+    "vendor,backend,datadog_mapping",
+    [
+        ("", None, False),
+        ("other", None, False),
+        ("datadog", None, True),
+        ("", "datadog-otlp", True),
+        ("other", " DATADOG-OTLP ", True),
+        ("datadog", "otel", False),
+    ],
+)
 @pytest.mark.parametrize("valid_ids", [False, True])
-def test_datadog_metadata_attribute_only_with_vendor_opt_in(
-    agents_app, monkeypatch, otel_provider, vendor, valid_ids
+def test_datadog_metadata_uses_backend_with_legacy_vendor_fallback(
+    agents_app, monkeypatch, otel_provider, vendor, backend, datadog_mapping, valid_ids
 ):
     """UUID config headers are validated before ordinary or vendor export."""
     from airbyte.mcp.interactive import _registry_ui
@@ -1038,6 +1085,8 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         _registry_ui, "_list_public_registry_connectors", lambda **kwargs: []
     )
     monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
+    if backend is not None:
+        monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", backend)
     workspace = (
         "12345678-1234-1234-1234-123456789ABC" if valid_ids else "workspace-SENTINEL"
     )
@@ -1061,27 +1110,25 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
     )
     assert not result.json()["result"].get("isError")
     attributes = _tool_span(otel_provider).attributes
-    metadata = (
-        json.loads(attributes["_dd.ml_obs.metadata"]) if vendor == "datadog" else {}
-    )
+    metadata = json.loads(attributes["_dd.ml_obs.metadata"]) if datadog_mapping else {}
     for field, value in (
         ("workspace_id", workspace),
         ("organization_id", organization),
     ):
         if valid_ids:
             assert attributes[f"airbyte.mcp.{field}"] == value.lower()
-            if vendor == "datadog":
+            if datadog_mapping:
                 assert metadata[field] == value.lower()
         else:
             assert f"airbyte.mcp.{field}" not in attributes
             assert field not in metadata
     if valid_ids:
         assert attributes["airbyte.mcp.scope_source"] == "header"
-        if vendor == "datadog":
+        if datadog_mapping:
             assert metadata["scope_source"] == "header"
     else:
         assert "airbyte.mcp.scope_source" not in attributes
-    if vendor == "datadog":
+    if datadog_mapping:
         assert metadata["intent"] == "Inspect state"
         assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
             "intent": "Inspect state"
@@ -1098,11 +1145,18 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
 
 
 @pytest.mark.parametrize("intent", [None, "  ", "  Inspect state  ", "x" * 5000])
+@pytest.mark.parametrize(
+    "setting,value",
+    [
+        ("AIRBYTE_MCP_OTEL_VENDOR", "datadog"),
+        ("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp"),
+    ],
+)
 def test_datadog_input_contains_only_bounded_intent(
-    app, monkeypatch, otel_provider, intent
+    app, monkeypatch, otel_provider, intent, setting, value
 ):
     """Render the safe intent copy, even when instrumentation captures raw data."""
-    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+    monkeypatch.setenv(setting, value)
 
     @app.tool()
     def input_probe(secret: str) -> str:
