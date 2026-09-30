@@ -358,13 +358,27 @@ def test_validate_airbyte_domains_rejects_unknown_domain(
     assert "not_a_real_domain" in exc_info.value.context["unknown_domains"]
 
 
+@pytest.mark.parametrize(
+    ("include_domains", "disabled_domains"),
+    [
+        pytest.param("cloud", None, id="include-cloud"),
+        pytest.param("cloud,kapa", None, id="include-cloud-and-kapa"),
+        pytest.param(None, "kapa", id="disable-kapa"),
+    ],
+)
 def test_validate_airbyte_domains_allows_known_single_domain(
     monkeypatch: MonkeyPatch,
+    include_domains: str | None,
+    disabled_domains: str | None,
 ) -> None:
-    """A single valid include domain passes validation."""
+    """Known domains pass validation when included or disabled."""
     from airbyte.mcp._tool_utils import validate_airbyte_domains
     from airbyte.mcp.server import app
 
     monkeypatch.delenv(TRUSTED_DOMAINS_EXCLUDE_ENV, raising=False)
-    monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, "cloud")
+    monkeypatch.delenv(TRUSTED_DOMAINS_INCLUDE_ENV, raising=False)
+    if include_domains is not None:
+        monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, include_domains)
+    if disabled_domains is not None:
+        monkeypatch.setenv(TRUSTED_DOMAINS_EXCLUDE_ENV, disabled_domains)
     validate_airbyte_domains(app)
