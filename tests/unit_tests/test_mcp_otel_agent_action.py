@@ -17,6 +17,7 @@ import pytest
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.telemetry import server_span
 from mcp.types import CallToolRequestParams
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -429,8 +430,8 @@ def test_cancel_and_timeout_reset_action_context(monkeypatch, otel_provider, tim
     monkeypatch.setitem(observability._TOOL_MODULES, GENERAL, "cloud")
 
     async def execute(context):
-        with trace.get_tracer("action-cancel-test").start_as_current_span(
-            f"tools/call {GENERAL}", kind=SpanKind.SERVER
+        with server_span(
+            f"tools/call {GENERAL}", "tools/call", app.name, "tool", GENERAL
         ):
             if timed_out:
                 await asyncio.Event().wait()

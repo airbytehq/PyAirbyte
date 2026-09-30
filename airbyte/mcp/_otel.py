@@ -13,18 +13,19 @@ import logging
 import os
 import re
 import sys
+from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastmcp.server.middleware import Middleware
-from fastmcp.server.telemetry import _active_seam_span  # noqa: PLC2701
+from fastmcp.server.telemetry import _active_seam_span, seam_span  # noqa: PLC2701
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import SpanKind, Status
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from airbyte._direct_connectors.models import ExternalApiReadOnlyAction, ExternalSearchType
 from airbyte.constants import (
@@ -122,17 +123,38 @@ def _flag(environ: Mapping[str, str] | None, name: str) -> bool:
     return _env(environ).get(name, "").strip().lower() in {"1", "true"}
 
 
+def _tracing_backend(environ: Mapping[str, str] | None) -> str:
+    environment = _env(environ)
+    backend = environment.get("AIRBYTE_MCP_TRACING_BACKEND")
+    if backend is None:
+        # Preserve existing OTLP deployments; the legacy vendor flag never
+        # switches them to native Datadog or its different payload policy.
+        vendor = environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower()
+        return "datadog-otlp" if vendor == "datadog" else "otel"
+    backend = backend.strip().lower()
+    if backend not in {"otel", "datadog-otlp", "datadog"}:
+        raise ValueError("AIRBYTE_MCP_TRACING_BACKEND must be 'otel', 'datadog-otlp', or 'datadog'")
+    return backend
+
+
 def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-    """Install once in hosted mode; export only with an explicitly configured endpoint.
+    """Install one hosted backend; OTel exports only with a configured endpoint.
 
     `environ` is a test seam for enablement and the `AIRBYTE_MCP_*` controls only.
     The OTel SDK always reads exporter and resource configuration from process
-    environment; production callers should omit `environ`. An existing global
+    environment; production callers should omit `environ`. For OTel, an existing global
     provider or requests instrumentation prevents safe redaction and therefore
     refuses hosted startup, including when this integration's endpoint is unset.
     """
     global _INSTALLED, _ENVIRON
     if _INSTALLED:
+        return
+    backend = _tracing_backend(environ)
+    if backend == "datadog":
+        from airbyte.mcp._datadog import install as install_datadog
+
+        install_datadog(app, environ=environ)
+        _INSTALLED, _ENVIRON = True, environ
         return
     if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004  # Conflicting process state, not an invalid argument type.
@@ -289,7 +311,6 @@ class IntentCaptureMiddleware(Middleware):
     ) -> ToolResult:
         """Strip synthetic arguments and untrusted tracing context before dispatch."""
         attrs: dict[str, str | bool] = {}
-        intent = None
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
@@ -313,37 +334,57 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
-        # FastMCP 4 opens a single seam SERVER span *above* the middleware
-        # chain (later renamed to `tools/call <name>`), so `on_start` stamping
-        # runs before this middleware exists; stamp the in-flight span here.
+        return await self._trace_call(context, call_next, attrs)
+
+    async def _trace_call(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, ToolResult],
+        attrs: dict[str, str | bool],
+    ) -> ToolResult:
+        """Record an OTel call after common argument preparation."""
+        # HTTP already owns a seam span above middleware. Nested/in-process calls
+        # need their own seam, kept alive until we inspect the result. FastMCP
+        # enriches that same span, avoiding a second span or an ended-span race.
         nested = _INTENT_ATTRIBUTES.get() is not None
-        try:
-            current_span = trace.get_current_span()
-            if current_span.is_recording() and not nested:
-                current_span.set_attributes(attrs)
-        except Exception:
-            logger.debug("Intent stamping skipped")
-        # FastMCP enriches the active seam span for in-process calls; give nested
-        # calls their own child span so they cannot rename or relabel the outer one.
-        seam_token = _active_seam_span.set(None) if nested else None
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
-            return await call_next(context)
-        except Exception as exc:
-            # FastMCP 4 wraps tool failures in `ToolError` below the span's
-            # `on_end`, so the cause class is captured here, at the middleware.
-            try:
-                _record_late_attributes(
-                    {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
-                )
-            except Exception:
-                logger.debug("Exception class capture skipped")
-            raise
+            with (
+                seam_span("tools/call", self._app.name)
+                if nested or _active_seam_span.get() is None
+                else nullcontext(trace.get_current_span())
+            ) as span:
+                try:
+                    try:
+                        span.set_attributes(attrs)
+                    except Exception:
+                        logger.debug("Intent stamping skipped")
+                    result = await call_next(context)
+                    try:
+                        if result.is_error and context.message.name in _TOOL_MODULES:
+                            # Never read error content: only a fixed category leaves here.
+                            span.set_status(Status(StatusCode.ERROR))
+                            span.set_attributes(
+                                {"airbyte.mcp.error_type": "ToolError", "error.type": "ToolError"}
+                            )
+                    except Exception:
+                        logger.debug("Tool error status capture skipped")
+                except Exception as exc:
+                    # HTTP converts exceptions into protocol errors before its
+                    # seam ends, so retain the original class at this boundary.
+                    try:
+                        _record_late_attributes(
+                            {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
+                        )
+                    except Exception:
+                        logger.debug("Exception class capture skipped")
+                    raise
+                else:
+                    return result
+                finally:
+                    _record_default_workspace()
         finally:
-            _record_default_workspace()
             _INTENT_ATTRIBUTES.reset(token)
-            if seam_token is not None:
-                _active_seam_span.reset(seam_token)
 
     @staticmethod
     def _attributes(
@@ -564,7 +605,7 @@ class RedactingExporter(SpanExporter):
             attrs["airbyte.mcp.agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
-        if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
+        if _tracing_backend(environment) == "datadog-otlp":
             metadata = {
                 key: attrs[f"airbyte.mcp.{key}"]
                 for key in (

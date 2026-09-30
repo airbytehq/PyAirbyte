@@ -78,6 +78,44 @@ Opt-in static client credentials:
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
 
+Tracing backend selection:
+
+- `AIRBYTE_MCP_TRACING_BACKEND=otel` (default): the OpenTelemetry behavior below,
+  including its argument/result redaction, remains unchanged.
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: use OpenTelemetry with Datadog's
+  metadata and Input mapping, including intent/action, and the same strict
+  argument/result redaction as the generic OTel backend.
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog`: opt in to native Datadog MCP spans. Install
+  `airbyte[datadog]` and run under the deployment's `ddtrace-run`/Datadog Agent
+  configuration. This backend reuses LLM Observability and its HTTP, outgoing
+  requests/urllib3, and log correlation; it does not install an OTel provider or
+  duplicate HTTP instrumentation. It captures initialize and tools/call, plus
+  tools/list discovery, as native task/tool spans. Unknown tool calls are retained.
+  Intent/action are included as span tags and metadata alongside the full MCP
+  request/response Input/Output.
+
+Only `AIRBYTE_MCP_TRACING_BACKEND` is needed to select tracing behavior. For
+backward compatibility, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`
+when the backend setting is absent. An explicit backend takes precedence;
+the legacy vendor setting is ignored. Existing vendor-only deployments retain
+their transport, credentials, and payload policy.
+
+The native Datadog backend adopts the public platform's existing payload policy:
+only `config`, `testing_values`, and `api_args` argument values are replaced with
+`[REDACTED]`. Entire outputs are redacted for `execute_agent_connector`,
+`execute_agent_connector_ro`, `get_cloud_sync_logs`, `get_connection_artifact`,
+`get_stream_previews`, `read_source_stream_records`, and `run_sql_query`.
+Other argument values, results, and error messages can be exported in clear text.
+Malformed tool input is fully redacted; captured outbound MCP client Input/Output
+is fully redacted. This is deliberately different from the default OTel policy.
+
+For a public deployment, verify native task/tool Input/Output, error status, and
+HTTP → MCP → requests/urllib3 ancestry against the existing Datadog example before
+removing the platform MCP wrapper. Other platform tracing stays enabled. Disable
+Datadog's automatic MCP integration with `DD_TRACE_MCP_ENABLED=false` when enabling
+this backend on an SDK version where that integration is active; startup refuses
+two active MCP span producers. No platform deployment change is made by this code.
+
 Optional OpenTelemetry observability. Nothing is exported unless a traces endpoint
 is configured. The hosted entrypoint installs tracing after hosted mode is set;
 no launcher or agent is needed. The exporter uses OTLP/HTTP protobuf.
@@ -98,10 +136,10 @@ hosted redaction boundary and continue exporting after rollback.
   `deployment.environment.name=preview`. An explicit `service.version` takes
   precedence over the installed PyAirbyte version.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
-- `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: opt in to `_dd.ml_obs.metadata`, which makes
   intent available as Datadog metadata. Tool spans also show captured intent and
   validated action in Datadog Input, without raw tool arguments or results.
-  Leave unset for other OTLP backends.
+  Use `otel` for other OTLP backends.
 - `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
   guidance to omit credentials, identifiers and data values, even without an
   export endpoint. Removing this flag stops synthetic advertisement; declared
@@ -126,6 +164,15 @@ results and HTTP headers are not recorded. Unregistered
 tool names are dropped. Segment requests are excluded from instrumentation.
 Session tokens are hashed before FastMCP sees them, while their extension
 declarations are preserved. Intent is free text capped at 4096 characters.
+
+Tool spans include tool/server/protocol identity, timing, session correlation and
+error status. Returned `isError` results are marked as errors with the fixed
+category `ToolError`; raised exceptions retain their cause class. Neither path
+exports error messages or result content. Nested tool errors stay on the child
+span when the caller handles them successfully. Hosting-level HTTP, Cloud Run,
+and log instrumentation remains the deployment's responsibility. Verify an
+example public-endpoint span in Datadog before retiring platform MCP tracing;
+local exporter tests do not establish public deployment parity.
 
 Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
 to disable export. The hosted entrypoint still strips
