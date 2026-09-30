@@ -69,7 +69,9 @@ def otel_provider() -> Iterator[tuple[TracerProvider, InMemorySpanExporter]]:
 
 @pytest.fixture(params=["", "datadog"])
 def vendor(request, monkeypatch):
-    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", request.param)
+    monkeypatch.setenv(
+        "AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp" if request.param else "otel"
+    )
     return request.param
 
 
