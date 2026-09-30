@@ -1007,50 +1007,67 @@ def get_cloud_sync_status(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    try:
-        # If a job ID is provided, get the job by ID.
-        sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
+    if job_id is not None:
+        try:
+            job_info = api_util.get_job_info(
+                job_id=job_id,
+                api_root=workspace.api_root,
+                client_id=workspace.client_id,
+                client_secret=workspace.client_secret,
+                bearer_token=workspace.bearer_token,
+            )
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Job {job_id} was not found on connection {connection_id}, "
+                        "or you don't have access to it."
+                    ),
+                    guidance=(
+                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                    ),
+                    context={"connection_id": connection_id, "job_id": job_id},
+                ) from ex
+            raise
 
-        if not sync_result:
-            result = {"status": None, "job_id": None, "attempts": []}
-        else:
-            result = {
-                "status": sync_result.get_job_status(),
-                "job_id": sync_result.job_id,
-                "bytes_synced": sync_result.bytes_synced,
-                "records_synced": sync_result.records_synced,
-                "start_time": sync_result.start_time.isoformat(),
-                "job_url": sync_result.job_url,
-                "attempts": [],
-            }
-
-            if include_attempts:
-                attempts = sync_result.get_attempts()
-                result["attempts"] = [
-                    {
-                        "attempt_number": attempt.attempt_number,
-                        "attempt_id": attempt.attempt_id,
-                        "status": attempt.status,
-                        "bytes_synced": attempt.bytes_synced,
-                        "records_synced": attempt.records_synced,
-                        "created_at": attempt.created_at.isoformat(),
-                    }
-                    for attempt in attempts
-                ]
-    except AirbyteError as ex:
-        status_code = (ex.context or {}).get("status_code")
-        if status_code is None:
-            status_code = getattr(ex, "status_code", None)
-        if job_id is not None and status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+        if job_info.connection_id != connection.connection_id:
             raise PyAirbyteInputError(
-                message=(
-                    f"Job {job_id} was not found on connection {connection_id}, "
-                    "or you don't have access to it."
-                ),
+                message=f"Job {job_id} belongs to a different connection, not {connection_id}.",
                 guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
                 context={"connection_id": connection_id, "job_id": job_id},
-            ) from ex
-        raise
+            )
+
+    sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
+    if not sync_result:
+        return {"status": None, "job_id": None, "attempts": []}
+
+    result = {
+        "status": sync_result.get_job_status(),
+        "job_id": sync_result.job_id,
+        "bytes_synced": sync_result.bytes_synced,
+        "records_synced": sync_result.records_synced,
+        "start_time": sync_result.start_time.isoformat(),
+        "job_url": sync_result.job_url,
+        "attempts": [],
+    }
+
+    if include_attempts:
+        attempts = sync_result.get_attempts()
+        result["attempts"] = [
+            {
+                "attempt_number": attempt.attempt_number,
+                "attempt_id": attempt.attempt_id,
+                "status": attempt.status,
+                "bytes_synced": attempt.bytes_synced,
+                "records_synced": attempt.records_synced,
+                "created_at": attempt.created_at.isoformat(),
+            }
+            for attempt in attempts
+        ]
+
     return result
 
 
@@ -3848,6 +3865,12 @@ def set_cloud_connection_selected_streams(
     try:
         connection.set_selected_streams(stream_names=resolved_streams_list)
     except AirbyteError as ex:
+        status_code = (ex.context or {}).get("status_code")
+        if status_code is None:
+            status_code = getattr(ex, "status_code", None)
+        if status_code != HTTPStatus.BAD_REQUEST:
+            raise
+
         try:
             catalog = connection.dump_raw_catalog()
         except Exception:

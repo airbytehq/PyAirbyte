@@ -608,6 +608,35 @@ def test_patch_connection_normalizes_status_string(
     )
 
 
+def test_patch_connection_wraps_sdk_errors_with_status_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Speakeasy SDK errors preserve their HTTP status in connection context."""
+    sdk_error = _sdk_status_error(400)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(patch_connection=Mock(side_effect=sdk_error))
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util.patch_connection(
+            connection_id="connection-1",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.context is not None
+    assert exc_info.value.context["connection_id"] == "connection-1"
+    assert exc_info.value.context["status_code"] == 400
+    assert exc_info.value.__cause__ is sdk_error
+
+
 def test_patch_connection_rejects_invalid_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

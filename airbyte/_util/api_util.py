@@ -1965,18 +1965,22 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     else:
         status_value = status
 
-    response = airbyte_instance.connections.patch_connection(
-        api.PatchConnectionRequest(
-            connection_id=connection_id,
-            connection_patch_request=models.ConnectionPatchRequest(
-                name=name,
-                configurations=configurations,
-                schedule=schedule,
-                prefix=prefix,
-                status=status_value,
+    try:
+        response = airbyte_instance.connections.patch_connection(
+            api.PatchConnectionRequest(
+                connection_id=connection_id,
+                connection_patch_request=models.ConnectionPatchRequest(
+                    name=name,
+                    configurations=configurations,
+                    schedule=schedule,
+                    prefix=prefix,
+                    status=status_value,
+                ),
             ),
-        ),
-    )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"connection_id": connection_id}) from e
+
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
