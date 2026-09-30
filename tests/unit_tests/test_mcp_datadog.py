@@ -136,7 +136,7 @@ def _native_http_contract():
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
-    from airbyte.mcp import _otel
+    from airbyte.mcp import _otel, _telemetry
 
     # Assert every socket is loopback; writers are captured and never started.
     connect = socket.socket.connect
@@ -222,6 +222,12 @@ def _native_http_contract():
         trace.get_tracer_provider(), TracerProvider
     )  # Existing provider is untouched.
     responses = []
+    # Client attribution comes from the same resolver analytics uses. Native
+    # tracing must apply its label bounds without modifying analytics values.
+    client_properties = {
+        "mcp_client_name": " Custom Agent ",
+        "mcp_client_version": "v" * 300,
+    }
 
     async def run():
         raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
@@ -372,7 +378,14 @@ def _native_http_contract():
             assert tracer.current_span() is before is parent
 
     try:
-        asyncio.run(run())
+        with patch.object(
+            _telemetry, "request_properties", return_value=client_properties
+        ):
+            asyncio.run(run())
+        assert client_properties == {
+            "mcp_client_name": " Custom Agent ",
+            "mcp_client_version": "v" * 300,
+        }
         assert not exporter.get_finished_spans(), (
             "Native backend must not create duplicate OTel spans"
         )
@@ -417,6 +430,10 @@ def _native_http_contract():
             )
             assert event["meta"]["metadata"]["intent"] == "Keep Mixed Case Intent"
             assert event["meta"]["metadata"]["agent.action"] == "list"
+            assert event["meta"]["metadata"]["client_name"] == "Custom Agent"
+            assert event["meta"]["metadata"]["client_version"] == "v" * 256
+            assert span.get_tag("airbyte.mcp.client_name") == "Custom Agent"
+            assert span.get_tag("airbyte.mcp.client_version") == "v" * 256
             assert (
                 event["meta"]["metadata"]["tool_id"]
                 == hashlib.sha256(str(index + 1).encode()).hexdigest()
