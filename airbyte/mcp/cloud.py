@@ -126,6 +126,10 @@ CLOUD_AUTH_TIP_TEXT = (
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
     f"ask the user to choose one; do not select automatically."
 )
+DELETE_NAME_GUARD_TIP_TEXT = (
+    "IMPORTANT: Do not rename the resource yourself to satisfy the 'delete-me' name requirement; "
+    "ask the user to confirm deletion or rename it themselves first."
+)
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the "
     f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
@@ -1006,39 +1010,6 @@ def get_cloud_sync_status(
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
-
-    if job_id is not None:
-        try:
-            job_info = api_util.get_job_info(
-                job_id=job_id,
-                api_root=workspace.api_root,
-                client_id=workspace.client_id,
-                client_secret=workspace.client_secret,
-                bearer_token=workspace.bearer_token,
-            )
-        except AirbyteError as ex:
-            status_code = (ex.context or {}).get("status_code")
-            if status_code is None:
-                status_code = getattr(ex, "status_code", None)
-            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
-                raise PyAirbyteInputError(
-                    message=(
-                        f"Job {job_id} was not found on connection {connection_id}, "
-                        "or you don't have access to it."
-                    ),
-                    guidance=(
-                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
-                    ),
-                    context={"connection_id": connection_id, "job_id": job_id},
-                ) from ex
-            raise
-
-        if job_info.connection_id != connection.connection_id:
-            raise PyAirbyteInputError(
-                message=f"Job {job_id} belongs to a different connection, not {connection_id}.",
-                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
-                context={"connection_id": connection_id, "job_id": job_id},
-            )
 
     sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
     if not sync_result:
@@ -3390,6 +3361,7 @@ def update_custom_source_definition(
 @mcp_tool(
     destructive=True,
     open_world=True,
+    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
 )
 def permanently_delete_custom_source_definition(
     ctx: Context,
@@ -3415,9 +3387,7 @@ def permanently_delete_custom_source_definition(
     IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the connector does not meet this requirement, the deletion will be rejected. Do not rename
-    the connector yourself to satisfy this condition; ask the user to confirm deletion or rename
-    it themselves first.
+    If the connector does not meet this requirement, the deletion will be rejected.
 
     The provided name must match the actual name of the definition for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3457,7 +3427,7 @@ def permanently_delete_custom_source_definition(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
 )
 def permanently_delete_cloud_connector(
     ctx: Context,
@@ -3490,9 +3460,7 @@ def permanently_delete_cloud_connector(
     IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the connector does not meet this requirement, the deletion will be rejected. Do not rename
-    the connector yourself to satisfy this condition; ask the user to confirm deletion or rename
-    it themselves first.
+    If the connector does not meet this requirement, the deletion will be rejected.
 
     The provided name must match the actual name of the connector for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3519,38 +3487,6 @@ def permanently_delete_cloud_connector(
             },
         )
 
-    connections = [
-        connection
-        for connection in workspace.list_connections()
-        if (
-            connection.source_id == connector_id
-            if resolved_type == ConnectorType.SOURCE
-            else connection.destination_id == connector_id
-        )
-    ]
-    if connections:
-        raise PyAirbyteInputError(
-            message=(
-                f"The {resolved_type.value} '{actual_name}' is used by {len(connections)} "
-                "connection(s) and cannot be deleted."
-            ),
-            guidance=(
-                "Delete those connections first with `permanently_delete_cloud_connection`, "
-                "after confirming with the user."
-            ),
-            context={
-                "connector_id": connector_id,
-                "connector_type": resolved_type.value,
-                "connections": [
-                    {
-                        "connection_id": connection.connection_id,
-                        "name": connection.name,
-                    }
-                    for connection in connections
-                ],
-            },
-        )
-
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     if resolved_type == ConnectorType.SOURCE:
         workspace.permanently_delete_source(
@@ -3568,7 +3504,7 @@ def permanently_delete_cloud_connector(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
 )
 def permanently_delete_cloud_connection(
     ctx: Context,
@@ -3612,9 +3548,7 @@ def permanently_delete_cloud_connection(
     IMPORTANT: This operation requires the connection name to contain "delete-me" or "deleteme"
     (case insensitive).
 
-    If the connection does not meet this requirement, the deletion will be rejected. Do not rename
-    the connection yourself to satisfy this condition; ask the user to confirm deletion or rename
-    it themselves first.
+    If the connection does not meet this requirement, the deletion will be rejected.
 
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3862,39 +3796,7 @@ def set_cloud_connection_selected_streams(
     connection = workspace.get_connection(connection_id=connection_id)
 
     resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
-    try:
-        connection.set_selected_streams(stream_names=resolved_streams_list)
-    except AirbyteError as ex:
-        status_code = (ex.context or {}).get("status_code")
-        if status_code is None:
-            status_code = getattr(ex, "status_code", None)
-        if status_code != HTTPStatus.BAD_REQUEST:
-            raise
-
-        try:
-            catalog = connection.dump_raw_catalog()
-        except Exception:
-            catalog = None
-
-        if not isinstance(catalog, dict) or not isinstance(catalog.get("streams"), list):
-            raise
-
-        available_streams = [
-            stream["stream"]["name"]
-            for stream in catalog["streams"]
-            if isinstance(stream, dict)
-            and isinstance(stream.get("stream"), dict)
-            and isinstance(stream["stream"].get("name"), str)
-        ]
-        raise PyAirbyteInputError(
-            message=(f"Could not set selected streams for connection '{connection_id}': {ex}"),
-            guidance="Use stream names from `available_streams`.",
-            context={
-                "connection_id": connection_id,
-                "requested_streams": resolved_streams_list,
-                "available_streams": available_streams,
-            },
-        ) from ex
+    connection.set_selected_streams(stream_names=resolved_streams_list)
 
     return (
         f"Successfully set selected streams for connection '{connection_id}' "

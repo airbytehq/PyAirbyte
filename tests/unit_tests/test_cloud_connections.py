@@ -11,7 +11,12 @@ from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import JobStatusEnum, JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteConnectionSyncError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteCloudApiError,
+    AirbyteConnectionSyncError,
+    AirbyteError,
+    PyAirbyteInputError,
+)
 from airbyte_api import models
 from airbyte_api.errors import SDKError
 
@@ -103,6 +108,230 @@ def _patch_get_job_info(
         return response
 
     monkeypatch.setattr(api_util, "get_job_info", get_job_info)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "use_status_attribute"),
+    [
+        pytest.param(403, False, id="forbidden-context-status"),
+        pytest.param(404, True, id="not-found-direct-status"),
+    ],
+)
+def test_get_sync_result_maps_unavailable_job_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    use_status_attribute: bool,
+) -> None:
+    """Unavailable job lookups provide actionable input guidance."""
+    if use_status_attribute:
+        original_error: AirbyteError = AirbyteCloudApiError(
+            message="Job lookup failed",
+            status_code=status_code,
+        )
+    else:
+        original_error = AirbyteError(
+            message="Job lookup failed",
+            context={"status_code": status_code},
+        )
+    get_job_info = MagicMock(side_effect=original_error)
+    monkeypatch.setattr(api_util, "get_job_info", get_job_info)
+    connection = _connection()
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        connection.get_sync_result(job_id=42)
+
+    assert exc_info.value.get_message() == (
+        "Job 42 was not found on connection connection-id, or you don't have access to it."
+    )
+    assert exc_info.value.guidance == (
+        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+    )
+    assert exc_info.value.context == {"connection_id": "connection-id", "job_id": 42}
+    assert exc_info.value.__cause__ is original_error
+    get_job_info.assert_called_once_with(
+        job_id=42,
+        api_root=connection.workspace.api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+    )
+
+
+def test_get_sync_result_propagates_other_job_lookup_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Job lookup errors other than 403/404 retain their original identity."""
+    original_error = AirbyteError(
+        message="Job lookup failed",
+        context={"status_code": 500},
+    )
+    monkeypatch.setattr(api_util, "get_job_info", MagicMock(side_effect=original_error))
+    connection = _connection()
+
+    with pytest.raises(AirbyteError) as exc_info:
+        connection.get_sync_result(job_id=42)
+
+    assert exc_info.value is original_error
+
+
+def test_get_sync_result_rejects_job_from_different_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit job ID must belong to this connection."""
+    monkeypatch.setattr(
+        api_util,
+        "get_job_info",
+        MagicMock(
+            return_value=_job_response(
+                42,
+                models.JobStatusEnum.SUCCEEDED,
+                connection_id="other-connection",
+            )
+        ),
+    )
+    connection = _connection()
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        connection.get_sync_result(job_id=42)
+
+    assert exc_info.value.get_message() == (
+        "Job 42 belongs to a different connection, not connection-id."
+    )
+    assert exc_info.value.guidance == (
+        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+    )
+    assert exc_info.value.context == {"connection_id": "connection-id", "job_id": 42}
+    assert "other-connection" not in str(exc_info.value.context)
+
+
+def test_get_sync_result_reuses_final_job_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The initial job lookup is reused by the returned sync result."""
+    response = _job_response(42, models.JobStatusEnum.SUCCEEDED)
+    get_job_info = MagicMock(return_value=response)
+    monkeypatch.setattr(api_util, "get_job_info", get_job_info)
+    connection = _connection()
+
+    result = connection.get_sync_result(job_id=42)
+
+    assert result is not None
+    assert result.get_job_status() == JobStatusEnum.SUCCEEDED
+    get_job_info.assert_called_once_with(
+        job_id=42,
+        api_root=connection.workspace.api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+    )
+
+
+def test_set_selected_streams_lists_available_streams_for_bad_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An HTTP 400 selection error includes catalog stream names."""
+    original_error = AirbyteError(
+        message="Invalid stream name",
+        context={"status_code": 400},
+    )
+    monkeypatch.setattr(
+        api_util, "patch_connection", MagicMock(side_effect=original_error)
+    )
+    connection = _connection()
+    dump_raw_catalog = MagicMock(
+        return_value={
+            "streams": [
+                {"stream": {"name": "orders"}, "selected": True},
+                {"stream": {"name": "customers"}, "selected": False},
+            ]
+        }
+    )
+    monkeypatch.setattr(connection, "dump_raw_catalog", dump_raw_catalog)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        connection.set_selected_streams(["missing", "orders"])
+
+    assert exc_info.value.get_message().startswith(
+        "Could not set selected streams for connection 'connection-id': Invalid stream name"
+    )
+    assert exc_info.value.guidance == "Use stream names from `available_streams`."
+    assert exc_info.value.context == {
+        "connection_id": "connection-id",
+        "requested_streams": ["missing", "orders"],
+        "available_streams": ["orders", "customers"],
+    }
+    assert exc_info.value.__cause__ is original_error
+    dump_raw_catalog.assert_called_once_with()
+
+
+def test_set_selected_streams_preserves_error_when_catalog_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A catalog lookup failure does not replace the original 400 error."""
+    original_error = AirbyteError(
+        message="Invalid stream name",
+        context={"status_code": 400},
+    )
+    monkeypatch.setattr(
+        api_util, "patch_connection", MagicMock(side_effect=original_error)
+    )
+    connection = _connection()
+    monkeypatch.setattr(
+        connection,
+        "dump_raw_catalog",
+        MagicMock(side_effect=AirbyteError(message="Catalog unavailable")),
+    )
+
+    with pytest.raises(AirbyteError) as exc_info:
+        connection.set_selected_streams(["missing"])
+
+    assert exc_info.value is original_error
+
+
+def test_set_selected_streams_preserves_error_when_catalog_shape_is_unexpected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected catalog shape does not replace the original 400 error."""
+    original_error = AirbyteError(
+        message="Invalid stream name",
+        context={"status_code": 400},
+    )
+    monkeypatch.setattr(
+        api_util, "patch_connection", MagicMock(side_effect=original_error)
+    )
+    connection = _connection()
+    dump_raw_catalog = MagicMock(return_value={"streams": "unexpected"})
+    monkeypatch.setattr(connection, "dump_raw_catalog", dump_raw_catalog)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        connection.set_selected_streams(["missing"])
+
+    assert exc_info.value is original_error
+    dump_raw_catalog.assert_called_once_with()
+
+
+def test_set_selected_streams_does_not_fetch_catalog_for_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-400 patch error propagates without loading the catalog."""
+    original_error = AirbyteError(
+        message="API request failed",
+        context={"status_code": 500},
+    )
+    monkeypatch.setattr(
+        api_util, "patch_connection", MagicMock(side_effect=original_error)
+    )
+    connection = _connection()
+    dump_raw_catalog = MagicMock(
+        return_value={"streams": [{"stream": {"name": "orders"}}]}
+    )
+    monkeypatch.setattr(connection, "dump_raw_catalog", dump_raw_catalog)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        connection.set_selected_streams(["missing"])
+
+    assert exc_info.value is original_error
+    dump_raw_catalog.assert_not_called()
 
 
 def test_cancel_sync_resolves_latest_incomplete_job(

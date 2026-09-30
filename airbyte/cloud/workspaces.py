@@ -834,6 +834,40 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
 
+    def _raise_if_connector_in_use(
+        self,
+        connector_id: str,
+        connector_type: Literal["source", "destination"],
+    ) -> None:
+        connections = [
+            connection
+            for connection in self.list_connections()
+            if (
+                connection.source_id == connector_id
+                if connector_type == "source"
+                else connection.destination_id == connector_id
+            )
+        ]
+        if connections:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"The {connector_type} '{connector_id}' is used by {len(connections)} "
+                    "connection(s) and cannot be deleted."
+                ),
+                guidance="Delete those connections first.",
+                context={
+                    "connector_id": connector_id,
+                    "connector_type": connector_type,
+                    "connections": [
+                        {
+                            "connection_id": connection.connection_id,
+                            "name": connection.name,
+                        }
+                        for connection in connections
+                    ],
+                },
+            )
+
     def permanently_delete_source(
         self,
         source: str | cloud_connectors.CloudSource,
@@ -855,10 +889,13 @@ class CloudWorkspace:
                 input_value=type(source).__name__,
             )
 
+        source_id = (
+            source.connector_id if isinstance(source, cloud_connectors.CloudSource) else source
+        )
+        self._raise_if_connector_in_use(source_id, "source")
+
         api_util.delete_source(
-            source_id=(
-                source.connector_id if isinstance(source, cloud_connectors.CloudSource) else source
-            ),
+            source_id=source_id,
             source_name=(source.name if isinstance(source, cloud_connectors.CloudSource) else None),
             api_root=self.api_root,
             client_id=self.client_id,
@@ -890,10 +927,15 @@ class CloudWorkspace:
                 input_value=type(destination).__name__,
             )
 
+        destination_id = (
+            destination.destination_id
+            if isinstance(destination, cloud_connectors.CloudDestination)
+            else destination
+        )
+        self._raise_if_connector_in_use(destination_id, "destination")
+
         api_util.delete_destination(
-            destination_id=(
-                destination if isinstance(destination, str) else destination.destination_id
-            ),
+            destination_id=destination_id,
             destination_name=(
                 destination.name
                 if isinstance(destination, cloud_connectors.CloudDestination)

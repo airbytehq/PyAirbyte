@@ -35,6 +35,7 @@ from airbyte.cloud.models import (
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
+    AirbyteError,
     AirbyteWorkspaceMismatchError,
     PyAirbyteInputError,
 )
@@ -525,6 +526,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Get the sync result for the connection.
 
         If `job_id` is not provided, the most recent sync job will be used.
+        A supplied `job_id` must belong to this connection.
 
         Returns `None` if job_id is omitted and no previous jobs are found.
         """
@@ -538,11 +540,45 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
             return None
 
-        # Get the sync job by ID (lazy loaded)
+        try:
+            job_response = api_util.get_job_info(
+                job_id=job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Job {job_id} was not found on connection {self.connection_id}, "
+                        "or you don't have access to it."
+                    ),
+                    guidance=(
+                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                    ),
+                    context={"connection_id": self.connection_id, "job_id": job_id},
+                ) from ex
+            raise
+
+        if job_response.connection_id != self.connection_id:
+            raise PyAirbyteInputError(
+                message=(
+                    f"Job {job_id} belongs to a different connection, not {self.connection_id}."
+                ),
+                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                context={"connection_id": self.connection_id, "job_id": job_id},
+            )
+
         return SyncResult(
             workspace=self.workspace,
             connection=self,
             job_id=job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
         )
 
     # Artifacts
@@ -946,14 +982,50 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """
         configurations = api_util.build_stream_configurations(stream_names)
 
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            configurations=configurations,
-        )
+        try:
+            updated_response = api_util.patch_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                configurations=configurations,
+            )
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code != HTTPStatus.BAD_REQUEST:
+                raise
+
+            try:
+                catalog = self.dump_raw_catalog()
+            except Exception:
+                catalog = None
+
+            if not isinstance(catalog, dict) or not isinstance(catalog.get("streams"), list):
+                raise
+
+            available_streams = [
+                stream["stream"]["name"]
+                for stream in catalog["streams"]
+                if isinstance(stream, dict)
+                and isinstance(stream.get("stream"), dict)
+                and isinstance(stream["stream"].get("name"), str)
+            ]
+            raise PyAirbyteInputError(
+                message=(
+                    f"Could not set selected streams for connection '{self.connection_id}': "
+                    f"{ex}"
+                ),
+                guidance="Use stream names from `available_streams`.",
+                context={
+                    "connection_id": self.connection_id,
+                    "requested_streams": stream_names,
+                    "available_streams": available_streams,
+                },
+            ) from ex
+
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
