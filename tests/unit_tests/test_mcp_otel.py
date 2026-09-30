@@ -1567,6 +1567,7 @@ def test_users_default_organization_is_exported_for_an_unscoped_call(
     )
     _user_identity._user_id_cache.clear()
     _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
     try:
         result = asyncio.run(
             _http_rpc(
@@ -1581,6 +1582,7 @@ def test_users_default_organization_is_exported_for_an_unscoped_call(
     finally:
         _user_identity._user_id_cache.clear()
         _user_identity._workspace_organization_id_cache.clear()
+        _user_identity._default_organization_lookup_failed_at.clear()
     assert "result" in result.json()
     attributes = _tool_span(otel_provider).attributes
     assert attributes["airbyte.mcp.organization_id"] == organization_id

@@ -8,8 +8,8 @@ came from:
 - `header`: the `X-Airbyte-Workspace-Id` / `X-Airbyte-Organization-Id` header, or the
   matching environment variable on stdio.
 - `default`: the caller's default workspace, resolved by the tool itself.
-- `user_default`: for calls that name no workspace or organization, the organization of
-  the authenticated user's default workspace. `workspace_id` stays null.
+- `user_default`: for calls that name no workspace or organization, by ID or by name, the
+  organization of the authenticated user's default workspace. `workspace_id` stays null.
 
 Only UUID-shaped values are recorded. Except for `user_default`, `organization_id` is
 never looked up from the workspace; reporting derives it by joining `workspace_id` to
@@ -40,6 +40,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ScopeSource = Literal["arg", "header", "default", "user_default"]
+
+_NAME_SELECTOR_ARGS = ("workspace_name", "organization_name")
+"""Tool arguments that select a workspace or organization by name rather than ID."""
 
 _UUID_RE = re.compile(
     r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z", re.IGNORECASE
@@ -158,7 +161,9 @@ class CallScopeMiddleware(Middleware):
     ) -> ToolResult:
         """Resolve the known scope, then let the tool fill in its default workspace."""
         scope = scope_from_request(context)
-        if scope.workspace_id is None and scope.organization_id is None:
+        arguments = context.message.arguments or {}
+        names_a_scope = any(arguments.get(name) is not None for name in _NAME_SELECTOR_ARGS)
+        if scope.workspace_id is None and scope.organization_id is None and not names_a_scope:
             try:
                 scope.user_default_organization_id = await resolve_user_default_organization_id(
                     context.fastmcp_context

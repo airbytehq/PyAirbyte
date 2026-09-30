@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -48,6 +49,15 @@ USER_ID_CACHE_MAX_ENTRIES = 4096
 
 USER_ID_LOOKUP_TIMEOUT_SECONDS = 30.0
 """Longest an MCP request waits on identity or scope lookup before proceeding."""
+
+USER_DEFAULT_ORGANIZATION_WAIT_SECONDS = 1.0
+"""Longest a tool call waits on its user's default organization before dispatching.
+
+A slower lookup keeps running in the background and caches its result for later calls.
+"""
+
+USER_DEFAULT_ORGANIZATION_RETRY_SECONDS = 300.0
+"""How long a failed or slow default-organization lookup is not retried."""
 
 _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
     "airbyte_mcp_airbyte_user_id",
@@ -107,6 +117,8 @@ class _LruCache(Generic[_ValueT]):
 
 _user_id_cache = _LruCache[AirbyteUser](max_entries=USER_ID_CACHE_MAX_ENTRIES)
 _workspace_organization_id_cache = _LruCache[str](max_entries=USER_ID_CACHE_MAX_ENTRIES)
+_default_organization_lookup_failed_at = _LruCache[float](max_entries=USER_ID_CACHE_MAX_ENTRIES)
+_pending_default_organization_lookups: set[asyncio.Task[str | None]] = set()
 
 
 def forget_cached_airbyte_user() -> None:
@@ -298,22 +310,48 @@ async def resolve_workspace_organization_id(
 async def resolve_user_default_organization_id(ctx: Context | None) -> str | None:
     """Resolve the organization of the current tool call's user's default workspace.
 
-    Requires `AirbyteUserMiddleware` to have resolved the user for this call.
+    Requires `AirbyteUserMiddleware` to have resolved the user for this call. Waits at
+    most `USER_DEFAULT_ORGANIZATION_WAIT_SECONDS`, and skips workspaces whose lookup
+    failed or timed out in the last `USER_DEFAULT_ORGANIZATION_RETRY_SECONDS`.
     """
     user = _current_airbyte_user.get()
     if user is None or user.default_workspace_id is None:
+        return None
+    workspace_id = user.default_workspace_id
+    cached_organization_id = _workspace_organization_id_cache.get(workspace_id)
+    if cached_organization_id is not None:
+        return cached_organization_id
+    failed_at = _default_organization_lookup_failed_at.get(workspace_id)
+    if (
+        failed_at is not None
+        and time.monotonic() - failed_at < USER_DEFAULT_ORGANIZATION_RETRY_SECONDS
+    ):
         return None
     credentials = _request_credentials(ctx)
     if credentials is None:
         return None
 
     bearer_token, api_root, config_api_root = credentials
-    return await resolve_workspace_organization_id(
-        user.default_workspace_id,
-        bearer_token=bearer_token,
-        api_root=api_root,
-        config_api_root=config_api_root,
+    lookup = asyncio.create_task(
+        resolve_workspace_organization_id(
+            workspace_id,
+            bearer_token=bearer_token,
+            api_root=api_root,
+            config_api_root=config_api_root,
+        )
     )
+    _pending_default_organization_lookups.add(lookup)
+    lookup.add_done_callback(_pending_default_organization_lookups.discard)
+    organization_id: str | None = None
+    try:
+        organization_id = await asyncio.wait_for(
+            asyncio.shield(lookup), timeout=USER_DEFAULT_ORGANIZATION_WAIT_SECONDS
+        )
+    except TimeoutError:
+        logger.debug("MCP user default organization lookup still pending")
+    if organization_id is None:
+        _default_organization_lookup_failed_at.set(workspace_id, time.monotonic())
+    return organization_id
 
 
 @contextmanager

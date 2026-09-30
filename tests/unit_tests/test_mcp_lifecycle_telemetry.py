@@ -124,9 +124,11 @@ def hosted_identity(
     )
     _user_identity._user_id_cache.clear()
     _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
     yield user_lookups, organization_lookups
     _user_identity._user_id_cache.clear()
     _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
 
 
 def _probe_app(sinks: TelemetrySinks, *, tool_telemetry: bool = False) -> FastMCP:

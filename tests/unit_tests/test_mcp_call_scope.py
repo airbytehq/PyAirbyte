@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Iterator
 from typing import Any
 
@@ -233,9 +234,11 @@ def verified_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     )
     _user_identity._user_id_cache.clear()
     _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
     yield organization_lookups
     _user_identity._user_id_cache.clear()
     _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
 
 
 def test_unscoped_call_falls_back_to_the_users_default_organization(
@@ -282,3 +285,65 @@ def test_unscoped_call_without_a_default_workspace_records_nulls(
     _call("get_connector_info", {"connector_name": "source-faker"})
     assert _scope_of(events[-1]) == (None, None, None)
     assert verified_user == []
+
+
+def test_name_scoped_call_does_not_fall_back_to_the_users_default_organization(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[TelemetryRecord],
+    verified_user: list[str],
+) -> None:
+    monkeypatch.setattr(CloudClient, "list_workspaces", lambda self, **_: [])
+    _call("list_cloud_workspaces", {"organization_name": "Other Org"})
+    assert _scope_of(events[-1]) == (None, None, None)
+    assert verified_user == []
+
+
+def test_failed_default_organization_lookup_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[TelemetryRecord],
+    verified_user: list[str],
+) -> None:
+    def fail(workspace_id: str, **_: Any) -> dict[str, str]:
+        verified_user.append(workspace_id)
+        raise ConnectionError(workspace_id)
+
+    monkeypatch.setattr(api_util, "get_workspace_organization_info", fail)
+    _call("get_connector_info", {"connector_name": "source-faker"})
+    _call("get_connector_info", {"connector_name": "source-faker"})
+    assert [_scope_of(event) for event in events[-2:]] == [(None, None, None)] * 2
+    assert verified_user == [OTHER_WORKSPACE]
+
+
+def test_slow_default_organization_lookup_does_not_block_the_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    events: list[TelemetryRecord],
+    verified_user: list[str],
+) -> None:
+    monkeypatch.setattr(_user_identity, "USER_DEFAULT_ORGANIZATION_WAIT_SECONDS", 0.05)
+    release = threading.Event()
+
+    def slow(workspace_id: str, **_: Any) -> dict[str, str]:
+        verified_user.append(workspace_id)
+        release.wait(timeout=10)
+        return {"organizationId": ORGANIZATION}
+
+    monkeypatch.setattr(api_util, "get_workspace_organization_info", slow)
+
+    async def run() -> None:
+        async with Client(server.app) as client:
+            arguments = {"connector_name": "source-faker"}
+            await asyncio.wait_for(client.call_tool("get_connector_info", arguments), 5)
+            release.set()
+            while _user_identity._pending_default_organization_lookups:
+                await asyncio.sleep(0.01)
+            await client.call_tool("get_connector_info", arguments)
+
+    try:
+        asyncio.run(run())
+    finally:
+        release.set()
+    assert [_scope_of(event) for event in events[-2:]] == [
+        (None, None, None),
+        (None, ORGANIZATION, "user_default"),
+    ]
+    assert verified_user == [OTHER_WORKSPACE]
