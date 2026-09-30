@@ -464,16 +464,25 @@ class IntentCaptureMiddleware(Middleware):
 
 
 def _record_default_workspace() -> None:
-    """Attach the default workspace, which is only known once the tool has resolved it."""
-    scope = current_call_scope()
-    if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
+    """Attach the scope only known once the tool has run: its default workspace or org."""
+    call_scope = current_call_scope()
+    scope = call_scope.resolved() if call_scope is not None else None
+    if scope is None:
+        return
+    late_attributes: dict[str, str] = {}
+    if scope.workspace_source == "default" and scope.workspace_id:
+        late_attributes = {
+            "airbyte.mcp.workspace_id": scope.workspace_id,
+            "airbyte.mcp.scope_source": "default",
+        }
+    elif scope.organization_source == "user_default" and scope.organization_id:
+        late_attributes = {
+            "airbyte.mcp.organization_id": scope.organization_id,
+            "airbyte.mcp.scope_source": "user_default",
+        }
+    if late_attributes:
         try:
-            _record_late_attributes(
-                {
-                    "airbyte.mcp.workspace_id": scope.workspace_id,
-                    "airbyte.mcp.scope_source": "default",
-                }
-            )
+            _record_late_attributes(late_attributes)
         except Exception:
             logger.debug("Default workspace capture skipped")
 
