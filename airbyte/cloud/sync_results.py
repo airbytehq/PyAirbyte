@@ -269,7 +269,12 @@ class SyncResult:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        return asdict(destination_response.configuration)
+        configuration = destination_response.configuration
+        if isinstance(configuration, Mapping):
+            configuration_dict = configuration
+        else:
+            configuration_dict = asdict(configuration)
+        return {**configuration_dict, "destinationType": destination_response.destination_type}
 
     def is_job_complete(self) -> bool:
         """Check if the sync job is complete."""
