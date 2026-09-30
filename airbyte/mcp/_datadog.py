@@ -230,15 +230,16 @@ class _DatadogRequestMiddleware:
             return
         context = HTTPPropagator.extract(headers)
         current = tracer.current_trace_context()
-        # Match native MCP instrumentation: keep the nearer HTTP parent when
-        # that request already joined the client's trace through HTTP headers.
-        if (
-            context is None
-            or not context.trace_id
-            or (current and current.trace_id == context.trace_id)
-        ):
+        if context is None or not context.trace_id:
             return
-        LLMObs.activate_distributed_headers(headers)
+        previous = tracer.context_provider.active()
+        try:
+            LLMObs.activate_distributed_headers(headers)
+        finally:
+            # HTTP may already have joined the APM trace without the separate
+            # LLM context. Activate both, then keep the nearer HTTP APM parent.
+            if current and current.trace_id == context.trace_id:
+                tracer.context_provider.activate(previous)
 
     async def __call__(  # noqa: PLR0912, PLR0915
         self,

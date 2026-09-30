@@ -217,33 +217,50 @@ async def _native_distributed_context_contract(app):
                         assert event["parent_id"] == remote_ids["span_id"]
                         assert event["trace_id"] == remote_ids["trace_id"]
 
-    # If HTTP propagation already joined this trace, preserve the nearer HTTP
-    # span instead of replacing it with the remote metadata's parent.
-    with tracer.trace("http-parent") as http_parent:
-        same_trace = {
-            **headers,
-            "x-datadog-trace-id": str(http_parent.trace_id & ((1 << 64) - 1)),
-        }
-        from ddtrace.propagation.http import HTTPPropagator
+    # HTTP may have joined the APM trace without activating the separate LLM
+    # context. Keep that nearer HTTP parent and inherit the remote LLM parent.
+    from ddtrace.propagation.http import HTTPPropagator
 
-        HTTPPropagator.inject(http_parent.context, same_trace)
-        same_trace["x-datadog-parent-id"] = "654321"
+    for carrier in (headers, llm_headers):
+        for outcome in ("success", "exception", "cancel"):
+            llm_provider.activate(None)
+            with tracer.start_span(
+                "http-parent", child_of=HTTPPropagator.extract(carrier), activate=True
+            ) as http_parent:
+                seen = []
 
-        async def same_trace_call(_ctx):
-            assert tracer.current_span().parent_id == http_parent.span_id
-            return {"content": []}
+                async def same_trace_call(_ctx):
+                    seen.append(tracer.current_span())
+                    assert seen[0].parent_id == http_parent.span_id
+                    if outcome == "exception":
+                        raise ValueError("synthetic failure")
+                    if outcome == "cancel":
+                        raise asyncio.CancelledError()
+                    return {"content": []}
 
-        await _datadog._DatadogRequestMiddleware()(
-            SimpleNamespace(
-                method="tools/call",
-                params={
-                    "name": "synthetic",
-                    "_meta": {"_dd_trace_context": same_trace},
-                },
-            ),
-            same_trace_call,
-        )
-        assert tracer.current_span() is http_parent
+                ctx = SimpleNamespace(
+                    method="tools/call",
+                    params={
+                        "name": "synthetic",
+                        "_meta": {"_dd_trace_context": carrier},
+                    },
+                )
+                middleware = _datadog._DatadogRequestMiddleware()
+                if outcome == "success":
+                    assert await middleware(ctx, same_trace_call) == {"content": []}
+                else:
+                    error = (
+                        ValueError if outcome == "exception" else asyncio.CancelledError
+                    )
+                    with pytest.raises(error):
+                        await middleware(ctx, same_trace_call)
+                assert tracer.current_span() is http_parent
+                assert llm_provider.active() is None
+                assert seen[0].trace_id == http_parent.trace_id
+                if carrier is llm_headers:
+                    event = seen[0]._get_ctx_item("_llmobs.cached_event")
+                    assert event["parent_id"] == remote_ids["span_id"]
+                    assert event["trace_id"] == remote_ids["trace_id"]
 
     # Exercise the actual MCP/HTTP boundary to verify the wire `_meta` carrier
     # reaches the middleware, rather than testing only a synthetic context.
