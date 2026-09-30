@@ -128,10 +128,11 @@ def _tracing_backend(environ: Mapping[str, str] | None) -> str:
     environment = _env(environ)
     backend = environment.get("AIRBYTE_MCP_TRACING_BACKEND")
     if backend is None:
-        # Preserve existing OTLP deployments; the legacy vendor flag never
-        # switches them to native Datadog or its different payload policy.
-        vendor = environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower()
-        return "datadog-otlp" if vendor == "datadog" else "otel"
+        # Explicit legacy settings retain their OTLP transport.
+        vendor = environment.get("AIRBYTE_MCP_OTEL_VENDOR")
+        if vendor is not None:
+            return "datadog-otlp" if vendor.strip().lower() == "datadog" else "otel"
+        return "datadog" if _flag(environ, "DD_LLMOBS_ENABLED") else "otel"
     backend = backend.strip().lower()
     if backend not in {"otel", "datadog-otlp", "datadog"}:
         raise ValueError("AIRBYTE_MCP_TRACING_BACKEND must be 'otel', 'datadog-otlp', or 'datadog'")

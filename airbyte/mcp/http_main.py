@@ -80,12 +80,12 @@ Opt-in static client credentials:
 
 Tracing backend selection:
 
-- `AIRBYTE_MCP_TRACING_BACKEND=otel` (default): the OpenTelemetry behavior below,
+- `AIRBYTE_MCP_TRACING_BACKEND=otel`: the OpenTelemetry behavior below,
   including its argument/result redaction, remains unchanged.
 - `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: use OpenTelemetry with Datadog's
   metadata and Input mapping, including intent/action, and the same strict
   argument/result redaction as the generic OTel backend.
-- `AIRBYTE_MCP_TRACING_BACKEND=datadog`: opt in to native Datadog MCP spans. Install
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog`: use native Datadog MCP spans. Install
   `airbyte[datadog]` and run under the deployment's `ddtrace-run`/Datadog Agent
   configuration. This backend reuses LLM Observability and its HTTP, outgoing
   requests/urllib3, and log correlation; it does not install an OTel provider or
@@ -98,7 +98,10 @@ Only `AIRBYTE_MCP_TRACING_BACKEND` is needed to select tracing behavior. For
 backward compatibility, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`
 when the backend setting is absent. An explicit backend takes precedence;
 the legacy vendor setting is ignored. Existing vendor-only deployments retain
-their transport, credentials, and payload policy.
+their transport, credentials, and payload policy. When neither setting is present,
+`DD_LLMOBS_ENABLED=1` or `true` selects native Datadog; otherwise the default is
+`otel`. Automatic selection has the same SDK requirements and duplicate MCP
+instrumentation checks as explicitly selecting `datadog`.
 
 The native Datadog backend excludes raw tool payloads. Server tool Input is
 rebuilt from approved telemetry only: captured intent, validated action and the
