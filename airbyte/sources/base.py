@@ -36,6 +36,7 @@ from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
+from airbyte.registry import ConnectorType
 from airbyte.results import ReadResult
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.strategies import WriteStrategy
@@ -67,7 +68,7 @@ from airbyte.constants import (
 class Source(ConnectorBase):  # noqa: PLR0904
     """A class representing a source that can be called."""
 
-    connector_type = "source"
+    connector_type = ConnectorType.SOURCE
 
     def __init__(
         self,

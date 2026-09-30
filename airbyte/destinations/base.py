@@ -20,6 +20,7 @@ from airbyte.caches._utils._dest_to_cache import (
 )
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
+from airbyte.registry import ConnectorType
 from airbyte.results import ReadResult, WriteResult
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.state_providers import (
@@ -45,7 +46,7 @@ _CANONICAL_PREFIX = "destination-"
 class Destination(ConnectorBase, AirbyteWriterInterface):
     """A class representing a destination that can be called."""
 
-    connector_type = "destination"
+    connector_type = ConnectorType.DESTINATION
 
     def __init__(
         self,

@@ -27,7 +27,7 @@ from prefab_ui.components import (
 from prefab_ui.components.charts import BarChart, ChartSeries, LineChart
 from pydantic import Field
 
-from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.cloud import CLOUD_AUTH_TIP_TEXT, WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
 
 
@@ -76,9 +76,6 @@ def _time_label(dt: datetime, *, include_date: bool = False) -> str:
     read_only=True,
     idempotent=True,
     open_world=True,
-    annotations={
-        INTERACTIVE_UI_ANNOTATION: True,
-    },
     app=PrefabAppConfig(),
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -361,8 +358,12 @@ def _build_sync_history_app(  # noqa: PLR0913
                 BarChart(
                     data=chart_data,
                     series=[
-                        ChartSeries(data_key="succeeded", label="Succeeded", color="#22c55e"),
-                        ChartSeries(data_key="failed", label="Failed", color="#ef4444"),
+                        ChartSeries(
+                            data_key="succeeded", label="Succeeded", color="#22c55e"
+                        ),  # pyrefly: ignore[missing-argument]
+                        ChartSeries(
+                            data_key="failed", label="Failed", color="#ef4444"
+                        ),  # pyrefly: ignore[missing-argument]
                     ],
                     x_axis="time",
                     stacked=True,
@@ -374,7 +375,9 @@ def _build_sync_history_app(  # noqa: PLR0913
                 LineChart(
                     data=chart_data,
                     series=[
-                        ChartSeries(data_key="records", label="Records", color="#3b82f6"),
+                        ChartSeries(
+                            data_key="records", label="Records", color="#3b82f6"
+                        ),  # pyrefly: ignore[missing-argument]
                     ],
                     x_axis="time",
                     height=280,
@@ -387,7 +390,9 @@ def _build_sync_history_app(  # noqa: PLR0913
                 LineChart(
                     data=chart_data,
                     series=[
-                        ChartSeries(data_key="bytes", label="Bytes", color="#8b5cf6"),
+                        ChartSeries(
+                            data_key="bytes", label="Bytes", color="#8b5cf6"
+                        ),  # pyrefly: ignore[missing-argument]
                     ],
                     x_axis="time",
                     height=280,

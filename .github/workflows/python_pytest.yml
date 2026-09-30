@@ -5,7 +5,7 @@
 #    missing `requires_creds` markers are caught. Also runs on forks.
 # 2. pytest-unit: Run unit and docs tests across multiple Python versions and operating systems, failing fast.
 # 3. pytest-integration: Run integration tests on a single Python version across four shards.
-# 4. pytest-coverage-combined: Combine coverage from pytest-unit (3.10/Ubuntu) and the integration shards into one report.
+# 4. pytest-coverage-combined: Combine coverage from pytest-unit (3.11/Ubuntu) and the integration shards into one report.
 #
 name: Run Tests
 
@@ -41,7 +41,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -100,7 +100,6 @@ jobs:
     strategy:
       matrix:
         python-version: [
-          '3.10',
           '3.11',
           # '3.12', # Commented out: Certain tests don't work in Python 3.12, although PyAirbyte itself does work on 3.12
         ]
@@ -165,7 +164,7 @@ jobs:
         path: htmlcov/
 
     - name: Upload coverage data for combined report
-      if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      if: always() && matrix.python-version == '3.11' && matrix.os == 'Ubuntu'
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: coverage-data-unit
@@ -174,7 +173,7 @@ jobs:
         if-no-files-found: error
 
     - name: Upload coverage to GitHub Code Quality
-      if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      if: always() && matrix.python-version == '3.11' && matrix.os == 'Ubuntu'
       uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
       with:
         file: htmlcov/coverage.xml
@@ -191,7 +190,7 @@ jobs:
 
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
-      if: always() && !cancelled() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      if: always() && !cancelled() && matrix.python-version == '3.11' && matrix.os == 'Ubuntu'
       continue-on-error: true
       with:
         check_name: "PyTest Results (Unit)"
@@ -233,7 +232,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -311,7 +310,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev
@@ -357,7 +356,7 @@ jobs:
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
-        python-version: '3.10'
+        python-version: '3.11'
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev

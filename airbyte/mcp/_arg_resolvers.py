@@ -2,7 +2,7 @@
 """Argument resolver functions for MCP tools.
 
 This module provides functions to resolve and validate arguments passed to MCP tools,
-including connector configurations and list-of-strings arguments.
+including connector configurations, list-of-strings, and list-of-objects arguments.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any, overload
 import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
     raise_if_untrusted_execution_context,
@@ -230,3 +231,51 @@ def resolve_connector_config(  # noqa: PLR0912
         )
 
     return config_dict
+
+
+def resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | None:
+    """Resolve `api_args` from a dictionary or a JSON object string."""
+    if api_args is None or isinstance(api_args, dict):
+        return api_args
+
+    try:
+        parsed: Any = json.loads(api_args)
+    except json.JSONDecodeError as ex:
+        raise PyAirbyteInputError(
+            message="The `api_args` string is not valid JSON.",
+            guidance="Pass `api_args` as an object, or as a JSON object string.",
+        ) from ex
+
+    if not isinstance(parsed, dict):
+        raise PyAirbyteInputError(
+            message="The `api_args` string is not a JSON object.",
+            guidance="Pass `api_args` as an object, or as a JSON object string.",
+            context={"parsed_type": type(parsed).__name__},
+        )
+    return parsed
+
+
+def resolve_list_of_dicts(
+    value: list[dict[str, Any]] | str | None,
+    *,
+    arg_name: str = "value",
+) -> list[dict[str, Any]] | None:
+    """Resolve a list of objects from a list or a JSON array string."""
+    if value is None or isinstance(value, list):
+        return value
+
+    try:
+        parsed: Any = json.loads(value)
+    except json.JSONDecodeError as ex:
+        raise PyAirbyteInputError(
+            message=f"The `{arg_name}` string is not valid JSON.",
+            guidance=f"Pass `{arg_name}` as a list of objects, or as a JSON array string.",
+        ) from ex
+
+    if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
+        raise PyAirbyteInputError(
+            message=f"The `{arg_name}` string is not a JSON array of objects.",
+            guidance=f"Pass `{arg_name}` as a list of objects, or as a JSON array string.",
+            context={"parsed_type": type(parsed).__name__},
+        )
+    return parsed

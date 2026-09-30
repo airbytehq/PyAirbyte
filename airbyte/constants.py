@@ -227,6 +227,7 @@ secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment va
 For more information, see the `airbyte.secrets` module documentation.
 """
 
+
 # Cloud Constants
 
 CLOUD_CLIENT_ID_ENV_VAR: str = "AIRBYTE_CLOUD_CLIENT_ID"
@@ -248,11 +249,6 @@ the public API URL has been overridden and the Config API cannot be derived
 from it automatically.
 """
 
-AGENTS_API_ROOT_ENV_VAR: str = "AIRBYTE_AGENTS_API_URL"
-"""Environment variable to override the Airbyte Agents API root.
-
-Normally unset: the Agents API is a hosted Airbyte Cloud service with a single root.
-"""
 
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
@@ -345,7 +341,7 @@ This allows per-request organization ID configuration when using HTTP transport,
 tools that scope a listing to an organization rather than a workspace.
 """
 
-MCP_INSIDERS_MODULES: frozenset[str] = frozenset({"agents"})
+MCP_INSIDERS_MODULES: frozenset[str] = frozenset()
 """MCP tool modules that are hidden unless insiders mode is enabled.
 
 Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the module in

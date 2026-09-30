@@ -35,6 +35,7 @@ from airbyte.exceptions import (
     AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
 )
+from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.util import try_get_secret
 
@@ -1152,11 +1153,16 @@ def get_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.get_source(
-        api.GetSourceRequest(
-            source_id=source_id,
-        ),
-    )
+    base_context = {"source_id": source_id, "api_root": api_root}
+    try:
+        response = airbyte_instance.sources.get_source(
+            api.GetSourceRequest(
+                source_id=source_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1391,11 +1397,16 @@ def get_destination(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.get_destination(
-        api.GetDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
+    base_context = {"destination_id": destination_id, "api_root": api_root}
+    try:
+        response = airbyte_instance.destinations.get_destination(
+            api.GetDestinationRequest(
+                destination_id=destination_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.destination_response:
         raw_response: dict[str, Any] = json.loads(response.raw_response.text)
         response.destination_response.configuration = (
@@ -1406,6 +1417,146 @@ def get_destination(
     raise AirbyteMissingResourceError(
         resource_name_or_id=destination_id,
         resource_type="destination",
+        log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+    )
+
+
+def get_connector(
+    connector_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> tuple[ConnectorType, models.SourceResponse | models.DestinationResponse]:
+    """Get a connector of unknown kind, returning its kind with the API response.
+
+    Tries the source endpoint first, then the destination endpoint. The source lookup
+    falls through on a 404 or a 403, because the API hides a destination's existence
+    from the source endpoint behind a 403. Raises `AirbyteMissingResourceError` when
+    both lookups 404; otherwise re-raises the source lookup's error when the
+    destination lookup also 403s or 404s. Other failures (401, 5xx) raise as-is.
+    """
+    try:
+        return ConnectorType.SOURCE, get_source(
+            source_id=connector_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteError as error:
+        if not _is_not_found_or_forbidden(error):
+            raise
+        source_error = error
+
+    try:
+        return ConnectorType.DESTINATION, get_destination(
+            destination_id=connector_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteError as error:
+        if not _is_not_found_or_forbidden(error):
+            raise
+        if _status_code(source_error) == _status_code(error) == HTTPStatus.NOT_FOUND:
+            raise AirbyteMissingResourceError(
+                resource_name_or_id=connector_id,
+                resource_type="connector",
+            ) from error
+        raise source_error from error
+
+
+def _status_code(error: AirbyteError) -> object:
+    """Return the HTTP status code recorded in `error`'s context.
+
+    An `AirbyteMissingResourceError` without a recorded status counts as a 404.
+    """
+    status_code = (error.context or {}).get("status_code")
+    if status_code is None and isinstance(error, AirbyteMissingResourceError):
+        return HTTPStatus.NOT_FOUND
+    return status_code
+
+
+def _is_not_found_or_forbidden(error: AirbyteError) -> bool:
+    """Return whether `error` is a 404 or 403, which may just mean the other connector kind.
+
+    Checked by status code: `get_source`/`get_destination` raise
+    `AirbyteMissingResourceError` for any non-success response, including 5xx.
+    """
+    return _status_code(error) in {HTTPStatus.NOT_FOUND, HTTPStatus.FORBIDDEN}
+
+
+def get_source_definition(
+    definition_id: str,
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> models.DefinitionResponse:
+    """Get a source connector definition, including its `docker_repository` name."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    response = airbyte_instance.source_definitions.get_source_definition(
+        api.GetSourceDefinitionRequest(
+            definition_id=definition_id,
+            workspace_id=workspace_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.definition_response:
+        return response.definition_response
+
+    raise AirbyteMissingResourceError(
+        resource_name_or_id=definition_id,
+        resource_type="source definition",
+        log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+    )
+
+
+def get_destination_definition(
+    definition_id: str,
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> models.DefinitionResponse:
+    """Get a destination connector definition, including its `docker_repository` name."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    response = airbyte_instance.destination_definitions.get_destination_definition(
+        api.GetDestinationDefinitionRequest(
+            definition_id=definition_id,
+            workspace_id=workspace_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.definition_response:
+        return response.definition_response
+
+    raise AirbyteMissingResourceError(
+        resource_name_or_id=definition_id,
+        resource_type="destination definition",
         log_text=response.raw_response.text,
         context={
             "request_url": response.raw_response.url,
@@ -1879,6 +2030,7 @@ def _make_config_api_request(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
     headers = _config_api_headers(
@@ -1886,6 +2038,7 @@ def _make_config_api_request(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     full_url = config_api_root + path
     response = requests.request(
@@ -1893,6 +2046,7 @@ def _make_config_api_request(
         url=full_url,
         headers=headers,
         json=json,
+        timeout=timeout,
     )
     if not status_ok(response.status_code):
         try:
@@ -2024,7 +2178,7 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
 def check_connector(
     *,
     actor_id: str,
-    connector_type: Literal["source", "destination"],
+    connector_type: ConnectorType,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
@@ -2041,17 +2195,28 @@ def check_connector(
     """
     _ = workspace_id  # Not used (yet)
 
-    json_result = _make_config_api_request(
-        path=f"/{connector_type}s/check_connection",
-        json={
-            f"{connector_type}Id": actor_id,
-        },
-        api_root=api_root,
-        config_api_root=config_api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
+    try:
+        json_result = _make_config_api_request(
+            path=f"/{connector_type}s/check_connection",
+            json={
+                f"{connector_type}Id": actor_id,
+            },
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteError as ex:
+        # A draft connector with incomplete configuration returns HTTP 422; report it as
+        # a failed check rather than an operational error so a person can finish setup.
+        if (ex.context or {}).get("status_code") == HTTPStatus.UNPROCESSABLE_ENTITY:
+            return (
+                False,
+                "Connector configuration is incomplete or invalid; "
+                "finish setup in Airbyte Cloud.",
+            )
+        raise
     result, message = json_result.get("status"), json_result.get("message")
 
     if result == "succeeded":
@@ -2063,7 +2228,7 @@ def check_connector(
     raise AirbyteError(
         context={
             "actor_id": actor_id,
-            "connector_type": connector_type,
+            "connector_type": str(connector_type),
             "response": json_result,
         },
     )
@@ -2703,6 +2868,7 @@ def get_workspace_organization_info(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Get organization info for a workspace.
 
@@ -2718,6 +2884,7 @@ def get_workspace_organization_info(
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
+        timeout: Optional connect and read timeout for the request.
 
     Returns:
         Dictionary containing organization info:
@@ -2734,6 +2901,7 @@ def get_workspace_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     if isinstance(result, dict):
         return result
@@ -3014,6 +3182,7 @@ def get_user_by_auth_id(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    timeout: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Get an Airbyte user by the authentication provider user ID."""
     result = _make_config_api_request(
@@ -3027,6 +3196,7 @@ def get_user_by_auth_id(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=timeout,
     )
     if isinstance(result, dict):
         return result

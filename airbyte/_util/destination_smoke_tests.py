@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -65,7 +65,7 @@ def generate_namespace(
     default suffix.
     """
     suffix = namespace_suffix or DEFAULT_NAMESPACE_SUFFIX
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     ts = now.strftime("%Y%m%d_%H%M")
     return f"{NAMESPACE_PREFIX}_{ts}_{suffix}"
 

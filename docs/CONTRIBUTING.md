@@ -131,7 +131,7 @@ poe mcp-tool-test run_sync \
     '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
 poe mcp-tool-test get_default_cloud_context '{}'
-poe mcp-tool-test list_deployed_cloud_connections '{}'
+poe mcp-tool-test list_cloud_connections '{}'
 ```
 
 You can also invoke the server using one of these helper tasks:
@@ -174,5 +174,5 @@ PyAirbyte server that is:
 Inside each module page, primitives are grouped by kind (`## Tools`,
 `## Prompts`, `## Resources`), and each primitive has an HTML anchor
 (`<a id="name"></a>`) above its H3 so links like
-`cloud.md#deploy_source_to_cloud` resolve in both pdoc and Docusaurus.
+`cloud.md#deploy_connector_to_cloud` resolve in both pdoc and Docusaurus.
 Regenerate after any change to MCP tool signatures, descriptions, or schemas.
