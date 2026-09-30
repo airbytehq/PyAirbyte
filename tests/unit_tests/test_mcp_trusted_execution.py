@@ -15,7 +15,7 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.mcp import local
-from airbyte.mcp._arg_resolvers import resolve_connector_config
+from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
     raise_if_untrusted_execution_context,
@@ -162,6 +162,78 @@ def test_resolve_connector_config_allows_when_trusted(
     _set_trusted(monkeypatch, enabled=True)
     kwargs, expected = build_case(tmp_path)
     assert resolve_connector_config(**kwargs) == expected
+
+
+def test_resolve_manifest_yaml_rejects_path_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A `Path` manifest input requires trusted execution."""
+    _set_trusted(monkeypatch, enabled=False)
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
+        resolve_manifest_yaml(tmp_path / "manifest.yaml")
+
+
+@pytest.mark.parametrize(
+    "manifest_yaml",
+    [
+        pytest.param("manifest.yaml", id="single-line-text"),
+        pytest.param(
+            '{"version": "0.1.0", "type": "DeclarativeSource"}', id="inline-json"
+        ),
+        pytest.param("version: 0.1.0\ntype: DeclarativeSource", id="multiline-yaml"),
+    ],
+)
+def test_resolve_manifest_yaml_preserves_inline_values_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    manifest_yaml: str,
+) -> None:
+    """Untrusted execution preserves manifest strings as inline YAML."""
+    _set_trusted(monkeypatch, enabled=False)
+    resolved = resolve_manifest_yaml(manifest_yaml)
+    assert isinstance(resolved, str)
+    assert resolved == manifest_yaml
+
+
+def test_resolve_manifest_yaml_preserves_existing_path_when_trusted(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A `Path` manifest input is returned when trusted execution is enabled."""
+    _set_trusted(monkeypatch, enabled=True)
+    manifest_path = tmp_path / "manifest.yaml"
+    assert resolve_manifest_yaml(manifest_path) is manifest_path
+
+
+def test_resolve_manifest_yaml_converts_single_line_string_when_trusted(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A single-line manifest string is treated as a file path when trusted."""
+    _set_trusted(monkeypatch, enabled=True)
+    assert resolve_manifest_yaml("manifest.yaml") == Path("manifest.yaml")
+
+
+@pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])
+def test_resolve_manifest_yaml_preserves_none(
+    monkeypatch: MonkeyPatch,
+    enabled: bool,
+) -> None:
+    """A missing manifest stays missing in either execution mode."""
+    _set_trusted(monkeypatch, enabled=enabled)
+    assert resolve_manifest_yaml(None) is None
+
+
+def test_resolve_manifest_yaml_does_not_read_file_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A path string remains inline YAML when trusted execution is disabled."""
+    _set_trusted(monkeypatch, enabled=False)
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text("version: 0.1.0\ntype: DeclarativeSource\n")
+    resolved = resolve_manifest_yaml(str(manifest_path))
+    assert isinstance(resolved, str)
+    assert resolved == str(manifest_path)
 
 
 _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [

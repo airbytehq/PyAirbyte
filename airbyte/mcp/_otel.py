@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import sys
+import unicodedata
 from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
@@ -273,6 +274,15 @@ def _install_meta_trace_context_middleware(app: FastMCP) -> None:
     low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
 
 
+def _client_label(value: object) -> str | None:
+    """Bound reported application labels; this is not arbitrary-text sanitization."""
+    if not isinstance(value, str) or any(
+        unicodedata.category(char).startswith("C") for char in value
+    ):
+        return None
+    return value.strip()[:256] or None
+
+
 class IntentCaptureMiddleware(Middleware):
     """Advertise optional intent and carry it into FastMCP's existing tool span."""
 
@@ -394,6 +404,7 @@ class IntentCaptureMiddleware(Middleware):
         from fastmcp.server.dependencies import get_http_headers
 
         from airbyte._util.meta import get_cloud_api_analytic_source
+        from airbyte.mcp._telemetry import request_properties
 
         name = context.message.name
         intent = intent.strip() if isinstance(intent, str) else ""
@@ -406,6 +417,13 @@ class IntentCaptureMiddleware(Middleware):
             "airbyte.mcp.intent_present": bool(intent),
             "airbyte.mcp.analytic_source": get_cloud_api_analytic_source(),
         }
+        try:
+            properties = request_properties()
+            for key in ("client_name", "client_version"):
+                if value := _client_label(properties.get(f"mcp_{key}")):
+                    attrs[f"airbyte.mcp.{key}"] = value
+        except Exception:
+            logger.debug("Client trace attributes unavailable")
         if intent:
             attrs["airbyte.mcp.intent"] = intent
         arguments = context.message.arguments or {}
@@ -461,16 +479,25 @@ class IntentCaptureMiddleware(Middleware):
 
 
 def _record_default_workspace() -> None:
-    """Attach the default workspace, which is only known once the tool has resolved it."""
-    scope = current_call_scope()
-    if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
+    """Attach the scope only known once the tool has run: its default workspace or org."""
+    call_scope = current_call_scope()
+    scope = call_scope.resolved() if call_scope is not None else None
+    if scope is None:
+        return
+    late_attributes: dict[str, str] = {}
+    if scope.workspace_source == "default" and scope.workspace_id:
+        late_attributes = {
+            "airbyte.mcp.workspace_id": scope.workspace_id,
+            "airbyte.mcp.scope_source": "default",
+        }
+    elif scope.organization_source == "user_default" and scope.organization_id:
+        late_attributes = {
+            "airbyte.mcp.organization_id": scope.organization_id,
+            "airbyte.mcp.scope_source": "user_default",
+        }
+    if late_attributes:
         try:
-            _record_late_attributes(
-                {
-                    "airbyte.mcp.workspace_id": scope.workspace_id,
-                    "airbyte.mcp.scope_source": "default",
-                }
-            )
+            _record_late_attributes(late_attributes)
         except Exception:
             logger.debug("Default workspace capture skipped")
 
@@ -603,6 +630,15 @@ class RedactingExporter(SpanExporter):
             and entity_type == entity_type.strip()
         ):
             attrs["airbyte.mcp.agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
+        for key in ("client_name", "client_version"):
+            value = _client_label(attrs.pop(f"airbyte.mcp.{key}", None))
+            if (
+                value is not None
+                and span.kind == SpanKind.SERVER
+                and span.name.startswith("tools/call ")
+                and tool_name in _TOOL_MODULES
+            ):
+                attrs[f"airbyte.mcp.{key}"] = value
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
         if _tracing_backend(environment) == "datadog-otlp":
@@ -618,6 +654,8 @@ class RedactingExporter(SpanExporter):
                     "error_type",
                     "agent.action",
                     "agent.entity_type",
+                    "client_name",
+                    "client_version",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }

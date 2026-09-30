@@ -1719,3 +1719,54 @@ def test_default_workspace_resolved_by_the_tool_is_exported(
     attributes = _tool_span(otel_provider).attributes
     assert attributes["airbyte.mcp.workspace_id"] == workspace_id
     assert attributes["airbyte.mcp.scope_source"] == "default"
+
+
+def test_users_default_organization_is_exported_for_an_unscoped_call(
+    agents_app, monkeypatch, otel_provider
+):
+    """A call that names no workspace or org exports the user's default organization."""
+    from fastmcp.server.auth import AccessToken
+
+    from airbyte._util import api_util
+    from airbyte.mcp import _user_identity
+
+    organization_id = "87654321-4321-4321-4321-cba987654321"
+    monkeypatch.setattr(
+        _user_identity,
+        "get_access_token",
+        lambda: AccessToken(token="verified-token", client_id="client", scopes=[]),
+    )
+    monkeypatch.setattr(api_util, "get_user_id_from_bearer_token", lambda _: "kc-user")
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": "user", "defaultWorkspaceId": "workspace"},
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_workspace_organization_info",
+        lambda *_, **__: {"organizationId": organization_id},
+    )
+    _user_identity._user_id_cache.clear()
+    _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
+    try:
+        result = asyncio.run(
+            _http_rpc(
+                agents_app,
+                "tools/call",
+                {
+                    "name": "get_connector_info",
+                    "arguments": {"connector_name": "source-faker"},
+                },
+            )
+        )
+    finally:
+        _user_identity._user_id_cache.clear()
+        _user_identity._workspace_organization_id_cache.clear()
+        _user_identity._default_organization_lookup_failed_at.clear()
+    assert "result" in result.json()
+    attributes = _tool_span(otel_provider).attributes
+    assert attributes["airbyte.mcp.organization_id"] == organization_id
+    assert attributes["airbyte.mcp.scope_source"] == "user_default"
+    assert "airbyte.mcp.workspace_id" not in attributes

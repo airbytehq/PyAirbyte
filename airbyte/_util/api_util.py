@@ -14,7 +14,6 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import base64
-import contextlib
 import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
@@ -1388,7 +1387,10 @@ def get_destination(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DestinationResponse:
-    """Get a connection."""
+    """Get a destination with its configuration as the raw API dictionary.
+
+    Secrets in the returned configuration are redacted by the API.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1406,27 +1408,10 @@ def get_destination(
         raise _wrap_sdk_error(e, base_context) from e
 
     if status_ok(response.status_code) and response.destination_response:
-        # TODO: This is a temporary workaround to resolve an issue where
-        # the destination API response is of the wrong type.
-        # https://github.com/airbytehq/pyairbyte/issues/320
         raw_response: dict[str, Any] = json.loads(response.raw_response.text)
-        raw_configuration: dict[str, Any] | None = raw_response.get("configuration")
-
-        destination_type = raw_response.get("destinationType")
-        destination_mapping = {
-            "snowflake": models.DestinationSnowflake,
-            "bigquery": models.DestinationBigquery,
-            "postgres": models.DestinationPostgres,
-            "duckdb": models.DestinationDuckdb,
-        }
-
-        if destination_type in destination_mapping and raw_configuration is not None:
-            # Draft destinations may hold a partial configuration that the typed
-            # model cannot represent; keep the SDK's deserialized value in that case.
-            with contextlib.suppress(TypeError):
-                response.destination_response.configuration = destination_mapping[
-                    destination_type  # pyrefly: ignore[index-error]
-                ](**raw_configuration)
+        response.destination_response.configuration = (
+            raw_response.get("configuration") or {}  # pyrefly: ignore[bad-assignment]
+        )
         return response.destination_response
 
     raise AirbyteMissingResourceError(
