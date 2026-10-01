@@ -423,6 +423,7 @@ class IntentCaptureMiddleware(Middleware):
                     try:
                         span.set_status(Status(StatusCode.ERROR))
                         _record_late_attributes(_exception_attributes(exc))
+                        span.set_attributes(result_error_like_attributes(context, None))
                     except Exception:
                         logger.debug("Exception class capture skipped")
                     raise
@@ -591,15 +592,19 @@ def _arg_trace_attributes(
 
 
 def result_error_like_attributes(
-    context: MiddlewareContext[CallToolRequestParams], result: ToolResult
+    context: MiddlewareContext[CallToolRequestParams], result: ToolResult | None
 ) -> dict[str, bool]:
-    """Classify a registered tool result by its declared `Literal` error strings only."""
+    """Classify a registered tool result by its declared `Literal` error strings only.
+
+    A raised exception (`result is None`) is `false`; `outcome` already records it.
+    """
     name = context.message.name
     if name not in _TOOL_ARG_CLASSES:
         return {}
     errors = _TOOL_ERROR_STRINGS.get(name, frozenset())
     return {
-        _arg_trace.RESULT_ERROR_LIKE_KEY: not result.is_error
+        _arg_trace.RESULT_ERROR_LIKE_KEY: result is not None
+        and not result.is_error
         and _arg_trace.is_error_like(result, errors)
     }
 

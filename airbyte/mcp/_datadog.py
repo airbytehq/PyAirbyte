@@ -139,6 +139,10 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
             result = await call_next(context)
         except BaseException as exc:
             attrs.update(_exception_attributes(exc))
+            try:
+                attrs.update(result_error_like_attributes(context, None))
+            except Exception:
+                logger.debug("Result classification skipped")
             raise
         else:
             try:

@@ -452,7 +452,11 @@ def lookup_app(monkeypatch):
     app = FastMCP("lookup")
 
     @app.tool()
-    def lookup(mode: Literal["found", "missing", "error"] = "found") -> ToolResult:
+    def lookup(
+        mode: Literal["found", "missing", "error", "raise"] = "found",
+    ) -> ToolResult:
+        if mode == "raise":
+            raise ValueError("boom")
         if mode == "error":
             return ToolResult(content="Not found.", is_error=True)
         return ToolResult(content="Not found." if mode == "missing" else "a row")
@@ -476,11 +480,18 @@ def test_result_error_like_is_structural_and_separate_from_outcome(lookup_app, e
         ("lookup", {"mode": "missing"}),
         ("lookup", {"mode": "found"}),
         ("lookup", {"mode": "error"}),
+        ("lookup", {"mode": "raise"}),
     )
     spans = [dict(s.attributes) for s in _finished(export) if s.parent is None]
-    assert [s[_arg_trace.RESULT_ERROR_LIKE_KEY] for s in spans] == [True, False, False]
+    assert [s[_arg_trace.RESULT_ERROR_LIKE_KEY] for s in spans] == [
+        True,
+        False,
+        False,
+        False,
+    ]
     assert spans[0]["airbyte.mcp.outcome"] == "success"
     assert spans[2]["airbyte.mcp.outcome"] == "tool_error"
+    assert spans[3]["airbyte.mcp.outcome"] == "exception"
     assert _record(spans[0], "mode") == {"value": "missing"}
 
 
