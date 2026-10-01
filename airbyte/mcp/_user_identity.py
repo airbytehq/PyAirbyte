@@ -311,8 +311,9 @@ async def resolve_user_default_organization_id(ctx: Context | None) -> str | Non
     """Resolve the organization of the current tool call's user's default workspace.
 
     Requires `AirbyteUserMiddleware` to have resolved the user for this call. Waits at
-    most `USER_DEFAULT_ORGANIZATION_WAIT_SECONDS`, and skips workspaces whose lookup
-    failed or timed out in the last `USER_DEFAULT_ORGANIZATION_RETRY_SECONDS`.
+    most `USER_DEFAULT_ORGANIZATION_WAIT_SECONDS`, sharing any pending lookup.
+    Failed or timed-out lookups are not restarted within
+    `USER_DEFAULT_ORGANIZATION_RETRY_SECONDS`.
     """
     user = _current_airbyte_user.get()
     if user is None or user.default_workspace_id is None:
@@ -327,19 +328,20 @@ async def resolve_call_workspace_organization_id(
     cached_organization_id = _workspace_organization_id_cache.get(workspace_id)
     if cached_organization_id is not None:
         return cached_organization_id
-    failed_at = _default_organization_lookup_failed_at.get(workspace_id)
-    if (
-        failed_at is not None
-        and time.monotonic() - failed_at < USER_DEFAULT_ORGANIZATION_RETRY_SECONDS
-    ):
-        return None
-    credentials = _request_credentials(ctx)
-    if credentials is None:
-        return None
-
-    bearer_token, api_root, config_api_root = credentials
     lookup = _pending_default_organization_lookups.get(workspace_id)
     if lookup is None:
+        # Suppression prevents new work, not another bounded wait for a lookup
+        # that survived an earlier caller's timeout.
+        failed_at = _default_organization_lookup_failed_at.get(workspace_id)
+        if (
+            failed_at is not None
+            and time.monotonic() - failed_at < USER_DEFAULT_ORGANIZATION_RETRY_SECONDS
+        ):
+            return None
+        credentials = _request_credentials(ctx)
+        if credentials is None:
+            return None
+        bearer_token, api_root, config_api_root = credentials
         lookup = asyncio.create_task(
             resolve_workspace_organization_id(
                 workspace_id,

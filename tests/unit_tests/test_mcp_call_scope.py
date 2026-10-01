@@ -448,3 +448,48 @@ def test_concurrent_workspace_lookups_share_work_and_survive_waiter_cancellation
 
     asyncio.run(run())
     assert sorted(verified_user) == sorted([WORKSPACE, OTHER_WORKSPACE])
+
+
+def test_later_call_joins_pending_lookup_after_first_waiter_times_out(
+    monkeypatch, verified_user
+):
+    resolve = _user_identity.resolve_workspace_organization_id
+    monkeypatch.setattr(_user_identity, "USER_DEFAULT_ORGANIZATION_WAIT_SECONDS", 0.01)
+
+    async def run():
+        release = asyncio.Event()
+        lookup_count = 0
+
+        async def delayed(*args, **kwargs):
+            nonlocal lookup_count
+            lookup_count += 1
+            await release.wait()
+            return await resolve(*args, **kwargs)
+
+        monkeypatch.setattr(
+            _user_identity, "resolve_workspace_organization_id", delayed
+        )
+        assert (
+            await _user_identity.resolve_call_workspace_organization_id(WORKSPACE, None)
+            is None
+        )
+        assert _user_identity._default_organization_lookup_failed_at.get(WORKSPACE)
+        pending = _user_identity._pending_default_organization_lookups[WORKSPACE]
+        monkeypatch.setattr(_user_identity, "USER_DEFAULT_ORGANIZATION_WAIT_SECONDS", 1)
+        later = asyncio.create_task(
+            _user_identity.resolve_call_workspace_organization_id(WORKSPACE, None)
+        )
+        try:
+            # Let the later caller join while the cache is still cold and the
+            # timeout marker is present, then complete the original API lookup.
+            await asyncio.sleep(0)
+            release.set()
+            assert await later == ORGANIZATION
+            assert lookup_count == 1
+            assert not _user_identity._pending_default_organization_lookups
+        finally:
+            release.set()
+            await asyncio.gather(pending, later, return_exceptions=True)
+
+    asyncio.run(run())
+    assert verified_user == [WORKSPACE]

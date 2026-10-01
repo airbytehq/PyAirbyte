@@ -10,7 +10,11 @@ import json
 import httpx
 import pytest
 from fastmcp import FastMCP
-from fastmcp_extensions import CapabilityTokenMiddleware, TelemetrySinks
+from fastmcp_extensions import (
+    CapabilityTokenMiddleware,
+    TelemetrySinks,
+    ToolCallTelemetryMiddleware,
+)
 from opentelemetry.trace import SpanKind, StatusCode
 
 from airbyte.mcp import _otel as observability
@@ -312,3 +316,66 @@ def test_http_session_header_is_hashed_once(
     assert attrs["airbyte.mcp.session_id"] == attrs["gen_ai.conversation.id"] == digest
     assert json.loads(attrs["_dd.ml_obs.metadata"])["session_id"] == digest
     assert raw_session not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("process_credentials", [False, True])
+@pytest.mark.parametrize(
+    "headers, expected",
+    [
+        ({}, "none"),
+        ({"authorization": "Bearer private-SENTINEL"}, "bearer"),
+        (
+            {"client-id": "synthetic", "client-secret": "private-SENTINEL"},
+            "client_credentials",
+        ),
+        ({"authorization": "Basic private-SENTINEL"}, "client_credentials"),
+    ],
+)
+def test_manually_hosted_http_auth_matches_request_and_analytics(
+    client_app, monkeypatch, otel_provider, process_credentials, headers, expected
+):
+    from airbyte import constants
+
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+    monkeypatch.delenv("AIRBYTE_CLOUD_CLIENT_ID", raising=False)
+    if process_credentials:
+        monkeypatch.setenv("AIRBYTE_CLOUD_BEARER_TOKEN", "process-private-SENTINEL")
+    else:
+        monkeypatch.delenv("AIRBYTE_CLOUD_BEARER_TOKEN", raising=False)
+    records = []
+    telemetry = ToolCallTelemetryMiddleware(
+        extra_properties=_telemetry.request_properties
+    )
+    monkeypatch.setattr(telemetry._sinks, "emit", records.append)
+    client_app.middleware.insert(0, telemetry)
+
+    async def run():
+        raw = client_app.http_app(path="/mcp", stateless_http=True, json_response=True)
+        async with raw.router.lifespan_context(raw):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=raw), base_url="http://testserver"
+            ) as client:
+                response = await client.post(
+                    "/mcp",
+                    headers={
+                        "accept": "application/json, text/event-stream",
+                        **headers,
+                    },
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": "echo", "arguments": {"value": "ok"}},
+                    },
+                )
+                assert response.status_code == 200
+                assert not response.json()["result"].get("isError")
+
+    asyncio.run(run())
+    attrs = _tool_span(otel_provider).attributes
+    assert (
+        attrs["airbyte.mcp.auth_method"] == records[-1].extra["auth_method"] == expected
+    )
+    assert json.loads(attrs["_dd.ml_obs.metadata"])["auth_method"] == expected
+    assert "SENTINEL" not in _export_text(otel_provider)
