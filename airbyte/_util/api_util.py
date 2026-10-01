@@ -2050,7 +2050,7 @@ def set_connection_interval_schedule(
         path="/web_backend/connections/update",
         json={
             "connectionId": connection_id,
-            "scheduleType": "basic",
+            "scheduleType": models.ScheduleTypeWithBasicEnum.BASIC,
             "scheduleData": {
                 "basicSchedule": {"timeUnit": "hours", "units": interval_hours},
             },

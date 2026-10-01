@@ -1128,7 +1128,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
         # The Config API response differs from the public API connection model.
-        # Reload lazily so subsequent property reads see the updated schedule.
+        # Clear cached details so the next property read fetches the updated schedule.
         self._connection_info = None
 
     def set_schedule(
