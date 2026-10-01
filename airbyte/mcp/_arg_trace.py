@@ -329,7 +329,7 @@ def _normalize(value: object, depth: int, budget: list[int]) -> object:
             raise _Unsupported
         return int(value) if value.is_integer() and abs(value) < _MAX_SAFE_INT else value
     if isinstance(value, Path):
-        return str(value)
+        return value.as_posix()
     if isinstance(value, dict):
         if depth >= MAX_DEPTH or not all(isinstance(key, str) for key in value):
             raise _Unsupported

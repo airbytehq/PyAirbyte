@@ -424,8 +424,12 @@ def test_hand_made_session_id_with_verified_token_is_approximate(
 def test_key_is_loaded_once_and_never_logged(monkeypatch, caplog):
     raw = base64.urlsafe_b64encode(KEY).decode().rstrip("=")
     monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_HMAC_KEY", raw)
-    with caplog.at_level(logging.INFO, logger="airbyte.mcp._otel"):
-        observability._build_tool_maps()
+    observability.logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="airbyte.mcp._otel"):
+            observability._build_tool_maps()
+    finally:
+        observability.logger.removeHandler(caplog.handler)
     assert observability._ARG_MASTER == KEY
     assert f"key_id={_arg_trace.key_id(KEY)}" in caplog.text
     assert raw not in caplog.text
