@@ -92,7 +92,7 @@ from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,
     render_connector_docs_result,
 )
-from airbyte.mcp._scope import record_default_workspace
+from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
@@ -2484,6 +2484,8 @@ def list_cloud_workspaces(
         )
         for ws in workspaces
     ]
+    for result in results:
+        record_resolved_organization(result.organization_id, workspace_id=result.workspace_id)
     organization_ids = {
         result.organization_id for result in results if result.organization_id is not None
     }
@@ -2497,6 +2499,8 @@ def list_cloud_workspaces(
     )
     if len(organization_ids) == 1:
         resolved_organization_id = next(iter(organization_ids))
+        if organization_name is not None:
+            record_resolved_organization(resolved_organization_id)
         try:
             organization = client.get_organization(organization_id=resolved_organization_id)
         except AirbyteError:
@@ -2532,6 +2536,12 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     user's explicit workspace and organization memberships.
     """
     context: CloudDefaultContextInfo = _get_cloud_client(ctx).get_default_context_for_user()
+    if context.default_workspace_verified and context.default_workspace_id is not None:
+        record_resolved_organization(
+            context.default_organization_id, workspace_id=context.default_workspace_id
+        )
+    for workspace in context.member_workspaces:
+        record_resolved_organization(workspace.organization_id, workspace_id=workspace.workspace_id)
     truncated_memberships: list[str] = []
     if context.member_organizations_truncated:
         truncated_memberships.append(
@@ -2795,6 +2805,10 @@ def describe_cloud_workspace(
         bearer_token=workspace.bearer_token,
     )
     organization = workspace.get_organization(raise_on_error=False)
+    if organization is not None:
+        record_resolved_organization(
+            organization.organization_id, workspace_id=workspace.workspace_id
+        )
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
@@ -2848,6 +2862,7 @@ def describe_cloud_organization(
         organization_id=organization_id,
         organization_name=organization_name,
     )
+    record_resolved_organization(org.organization_id)
 
     return CloudOrganizationResult(
         id=org.organization_id,
@@ -2889,6 +2904,7 @@ def get_cloud_organization_billing_status(
         organization_id=organization_id,
         organization_name=organization_name,
     )
+    record_resolved_organization(org.organization_id)
     try:
         info = org.get_billing_status()
     except (AirbyteError, NotImplementedError) as error:

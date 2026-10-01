@@ -10,6 +10,7 @@ came from:
 - `default`: the caller's default workspace, resolved by the tool itself.
 - `user_default`: for calls that name no workspace or organization, by ID or by name, the
   organization of the authenticated user's default workspace. `workspace_id` stays null.
+- `resolved`: the organization selected by the tool when no ID was supplied.
 
 Only UUID-shaped values are recorded. Tracing enriches a known workspace with its
 organization using the shared bounded lookup/cache, before analytics reads the scope.
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ScopeSource = Literal["arg", "header", "default", "user_default"]
+ScopeSource = Literal["arg", "header", "default", "user_default", "resolved"]
 
 _NAME_SELECTOR_ARGS = ("workspace_name", "organization_name")
 """Tool arguments that select a workspace or organization by name rather than ID."""
@@ -144,6 +145,27 @@ def record_default_workspace(workspace_id: str | None) -> None:
     if scope is not None and scope.workspace_source is None and value is not None:
         scope.workspace_id = value
         scope.workspace_source = "default"
+
+
+def record_resolved_organization(
+    organization_id: str | None, *, workspace_id: str | None = None
+) -> None:
+    """Reuse a tool's resolved organization, only for the current call's workspace.
+
+    Organization-only operations can omit the workspace; discovery results must pass
+    it so an unrelated workspace's organization cannot become the call's scope.
+    """
+    scope = current_call_scope()
+    if scope is None or scope.organization_id is not None:
+        return
+    value = _as_uuid(organization_id)
+    if (
+        value is not None
+        and (workspace_id is None or _as_uuid(workspace_id) is not None)
+        and scope.workspace_id == _as_uuid(workspace_id)
+    ):
+        scope.organization_id = value
+        scope.organization_source = scope.workspace_source or "resolved"
 
 
 async def enrich_call_scope(ctx: Context | None) -> None:
