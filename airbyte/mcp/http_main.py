@@ -39,6 +39,12 @@ Environment variables:
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
   to `0.0.0.0`.
+- `KAPA_API_KEY`: optional secret for Kapa's Retrieval API.
+- `KAPA_RETRIEVAL_API_URL`: optional Kapa Retrieval API endpoint, including the project ID.
+
+Both settings are required to enable `search_airbyte_knowledge_sources`, which
+belongs to the `guidance` domain and can be selected with `AIRBYTE_MCP_DOMAINS` or
+`AIRBYTE_MCP_DOMAINS_DISABLED`.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:

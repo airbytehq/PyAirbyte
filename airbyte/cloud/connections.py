@@ -1103,7 +1103,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
-            status=desired_status.value,
+            status=desired_status,
         )
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
 

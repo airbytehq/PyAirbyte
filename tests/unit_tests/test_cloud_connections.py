@@ -112,6 +112,65 @@ def test_connection_status_returns_connection_status_enum(
     assert connection.status is expected_status
 
 
+@pytest.mark.parametrize(
+    ("enabled", "current_status", "expected_status"),
+    [
+        pytest.param(
+            True,
+            ConnectionStatus.INACTIVE,
+            ConnectionStatus.ACTIVE,
+            id="enable",
+        ),
+        pytest.param(
+            False,
+            ConnectionStatus.ACTIVE,
+            ConnectionStatus.INACTIVE,
+            id="disable",
+        ),
+    ],
+)
+def test_set_enabled_passes_connection_status_enum(
+    monkeypatch: pytest.MonkeyPatch,
+    enabled: bool,
+    current_status: ConnectionStatus,
+    expected_status: ConnectionStatus,
+) -> None:
+    """Setting enabled state passes its StrEnum directly to the API utility."""
+    connection = _connection()
+    fetch_connection_info = MagicMock(
+        return_value=SimpleNamespace(status=current_status)
+    )
+    monkeypatch.setattr(connection, "_fetch_connection_info", fetch_connection_info)
+    updated_response = SimpleNamespace(
+        connection_id="connection-id",
+        workspace_id="workspace-id",
+        source_id="source-id",
+        destination_id="destination-id",
+        name="sync",
+        configurations=None,
+        prefix=None,
+        namespace_definition=None,
+        namespace_format=None,
+        schedule=None,
+        status=expected_status,
+    )
+    patch_connection = MagicMock(return_value=updated_response)
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+
+    connection.enabled = enabled
+
+    fetch_connection_info.assert_called_once_with(force_refresh=True)
+    patch_connection.assert_called_once_with(
+        connection_id="connection-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+        status=expected_status,
+    )
+    assert connection.status is expected_status
+
+
 def _patch_cancel_job(
     monkeypatch: pytest.MonkeyPatch,
     captured_job_ids: list[int],

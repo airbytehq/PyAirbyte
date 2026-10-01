@@ -52,7 +52,7 @@ def test_existing_includes_name_generated_mcp_modules() -> None:
         "local",
         "interactive",
         "registry",
-        "prompts",
+        "guidance",
     }
     for source in (repo_root / "airbyte").rglob("*.py"):
         for line in source.read_text(encoding="utf-8").splitlines():

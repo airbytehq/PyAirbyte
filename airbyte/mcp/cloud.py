@@ -89,9 +89,7 @@ from airbyte.mcp._arg_resolvers import (
     resolve_manifest_yaml,
 )
 from airbyte.mcp._docs_results import (
-    AgentSkillDocsResult,
     CloudConnectorDocsResult,
-    render_agent_skill_docs_result,
     render_connector_docs_result,
 )
 from airbyte.mcp._scope import record_default_workspace
@@ -1552,67 +1550,6 @@ def describe_cloud_connector(
         with_replication_details=with_replication_details,
         with_direct_access_guidance=with_direct_access_guidance,
         with_data_replication_docs=with_data_replication_docs,
-    )
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
-)
-def get_agent_skill_docs(
-    ctx: Context,
-    *,
-    docs_skill_id: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Fully-qualified skill ID, e.g. from `describe_cloud_connector` `skill_id`. "
-                "Provide this or `connector_id`."
-            ),
-            default=None,
-        ),
-    ] = None,
-    connector_id: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Deployed source or destination ID; resolves that connector's skill docs. "
-                "Provide this or `docs_skill_id`."
-            ),
-            default=None,
-        ),
-    ] = None,
-    section: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Optional exact section ID from the guidance's outline to read a single "
-                "section. Omit for the overview, metadata, and outline. " + SKILL_DOCS_SECTION_HINT
-            ),
-            default=None,
-        ),
-    ] = None,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> AgentSkillDocsResult:
-    """Returns the requested skill document by ID for an AI agent.
-
-    Pass either a fully-qualified `docs_skill_id` or a `connector_id` (source or
-    destination); exactly one is required.
-
-    `section` is optional; if omitted, the summary overview is returned along with
-    the list of available sections.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return render_agent_skill_docs_result(
-        workspace.get_agent_skill_docs(docs_skill_id, connector_id=connector_id, section=section)
     )
 
 
