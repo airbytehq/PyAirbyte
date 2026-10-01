@@ -81,7 +81,7 @@ _SAFE_HTTP_URL = re.compile(
     rf"(?:/{_UUID_PATTERN})?)?)?)|"
     rf"{re.escape(CLOUD_CONFIG_API_ROOT)}/(?:"
     r"(?:sources|destinations)/check_connection|"
-    r"connector_builder_projects/(?:get_for_definition_id|get_with_manifest|update_testing_values)|"
+    r"connector_builder_projects/(?:list|get_for_definition_id|get_with_manifest|update_testing_values)|"
     r"organizations/(?:list_by_user_id|get_organization_info)|"
     r"workspaces/(?:list_by_organization_id|get_organization_info|get)|"
     r"state/(?:get|create_or_update_safe)|web_backend/connections/(?:get|update)|"
