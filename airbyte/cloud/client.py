@@ -508,6 +508,12 @@ class CloudClient:
         limit: int | None,
     ) -> list[CloudWorkspaceInfo]:
         """List instance-wide workspaces with server-side name filtering and pagination."""
+
+        def matches_name(workspace_name: str) -> bool:
+            return (name is None or workspace_name == name) and (
+                name_filter is None or name_filter(workspace_name)
+            )
+
         workspaces = api_util.list_workspaces_by_user(
             user_id=self._get_authenticated_user_id(),
             api_root=self.public_api_root,
@@ -516,16 +522,10 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self._get_config_api_bearer_token(),
             name_contains=name_contains or name,
-            limit=None if name is not None or name_filter is not None else limit,
+            name_filter=(matches_name if name is not None or name_filter is not None else None),
+            limit=limit,
         )
-        workspace_infos = [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
-        if name is not None:
-            workspace_infos = [workspace for workspace in workspace_infos if workspace.name == name]
-        if name_filter is not None:
-            workspace_infos = [
-                workspace for workspace in workspace_infos if name_filter(workspace.name)
-            ]
-        return workspace_infos[:limit] if limit is not None else workspace_infos
+        return [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
 
     def _list_workspaces_in_organizations(
         self,

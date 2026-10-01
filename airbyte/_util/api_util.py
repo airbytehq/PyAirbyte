@@ -2875,7 +2875,7 @@ def list_workspaces_in_organization(
     return result
 
 
-def list_workspaces_by_user(
+def list_workspaces_by_user(  # noqa: PLR0913  # Mirrors list_workspaces_in_organization.
     user_id: str,
     *,
     api_root: str,
@@ -2884,6 +2884,7 @@ def list_workspaces_by_user(
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
     name_contains: str | None = None,
+    name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """List workspaces visible to a user.
@@ -2898,6 +2899,7 @@ def list_workspaces_by_user(
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
         name_contains: Optional substring filter for workspace names (server-side)
+        name_filter: Optional predicate to filter workspace names (client-side)
         limit: Optional maximum number of workspaces to return
 
     Returns:
@@ -2936,7 +2938,12 @@ def list_workspaces_by_user(
         if not workspaces:
             break
 
-        result.extend(workspaces)
+        matches = [
+            workspace
+            for workspace in workspaces
+            if name_filter is None or name_filter(workspace.get("name", ""))
+        ]
+        result.extend(matches)
 
         if limit is not None and len(result) >= limit:
             return result[:limit]

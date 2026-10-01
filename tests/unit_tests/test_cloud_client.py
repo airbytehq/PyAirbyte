@@ -609,7 +609,7 @@ def test_list_workspaces_instance_admin_scope_requires_instance_admin() -> None:
         pytest.param(
             {"name_filter": lambda name: name.startswith("x"), "limit": 1},
             None,
-            None,
+            1,
             [
                 {
                     "workspaceId": "workspace-1",
@@ -642,6 +642,27 @@ def test_list_workspaces_instance_admin_uses_user_config_api(
     expected_names: list[str],
     expected_organization_ids: list[str],
 ) -> None:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
+        matching_workspaces = api_workspaces
+        name_contains = kwargs["name_contains"]
+        if isinstance(name_contains, str):
+            matching_workspaces = [
+                workspace
+                for workspace in matching_workspaces
+                if name_contains.casefold() in str(workspace.get("name", "")).casefold()
+            ]
+        name_filter = kwargs["name_filter"]
+        if callable(name_filter):
+            matching_workspaces = [
+                workspace
+                for workspace in matching_workspaces
+                if name_filter(str(workspace.get("name", "")))
+            ]
+        limit = kwargs["limit"]
+        if isinstance(limit, int):
+            matching_workspaces = matching_workspaces[:limit]
+        return matching_workspaces
+
     patches = _api_patches(
         user={"userId": "user-id"},
         permissions=[{"permissionType": "instance_admin"}],
@@ -654,7 +675,7 @@ def test_list_workspaces_instance_admin_uses_user_config_api(
         patches[4],
         patch(
             "airbyte._util.api_util.list_workspaces_by_user",
-            return_value=api_workspaces,
+            side_effect=fake_list_workspaces_by_user,
         ) as list_workspaces_by_user,
         patch("airbyte._util.api_util.list_workspaces") as public_list_workspaces,
     ):
