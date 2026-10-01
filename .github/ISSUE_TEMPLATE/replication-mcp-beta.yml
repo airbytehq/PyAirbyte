@@ -1,0 +1,77 @@
+name: Replication MCP beta feedback
+description: Report a bug, request a feature, or share feedback about the Airbyte Replication MCP server.
+title: "[Replication MCP beta]: "
+labels: [replication-mcp-beta]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing the Airbyte Replication MCP server. Your feedback helps us shape it before general availability.
+
+        Don't paste API keys, client secrets, passwords, or connector credentials into this issue. GitHub issues in this repository are public.
+  - type: dropdown
+    id: feedback-type
+    attributes:
+      label: Feedback type
+      options:
+        - Bug
+        - Feature request
+        - Documentation
+        - Other feedback
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running the MCP server?
+      options:
+        - Hosted Airbyte Cloud MCP
+        - Local (`uvx airbyte-mcp`)
+        - Self-hosted over HTTP (`airbyte-mcp-http`)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: mcp-client
+    attributes:
+      label: MCP client
+      description: The app or agent you connected to the server, and its version if you know it.
+      placeholder: Claude Desktop, Claude Code, Cursor, VS Code, Goose
+    validations:
+      required: true
+  - type: input
+    id: pyairbyte-version
+    attributes:
+      label: PyAirbyte version
+      description: For local and self-hosted servers, check the `airbyte@<version>` pin in your MCP config. If you use `airbyte@latest`, enter `latest`. Leave blank for the hosted server.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem or idea. Include the prompt you gave your agent and the MCP tools it called, if you know them.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: For bugs, list the steps that lead to the problem.
+      placeholder: |
+        1. Ask the agent to ...
+        2. The agent calls ...
+        3. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste any error messages or MCP server logs. Remove secrets first. This field is formatted as code automatically.
+      render: shell
+  - type: input
+    id: workspace-id
+    attributes:
+      label: Airbyte Cloud workspace ID (optional)
+      description: If the issue involves Airbyte Cloud, sharing your workspace ID helps us investigate.
