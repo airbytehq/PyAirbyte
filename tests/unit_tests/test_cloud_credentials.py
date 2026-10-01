@@ -617,21 +617,8 @@ def test_cloud_workspace_list_workspaces_forwards_limit(
     assert captured_limit == 3
 
 
-@pytest.mark.parametrize(
-    ("include_organization_shared", "expected_definition_ids"),
-    [
-        pytest.param(False, ["workspace-owned"], id="workspace-owned-only"),
-        pytest.param(
-            True,
-            ["workspace-owned", "organization-shared"],
-            id="include-organization-shared",
-        ),
-    ],
-)
 def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
     monkeypatch: pytest.MonkeyPatch,
-    include_organization_shared: bool,
-    expected_definition_ids: list[str],
 ) -> None:
     workspace = CloudWorkspace(
         workspace_id="workspace-id",
@@ -684,31 +671,25 @@ def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shar
 
     result = workspace.list_custom_source_definitions(
         definition_type="yaml",
-        include_organization_shared=include_organization_shared,
     )
 
-    assert [
-        definition.definition_id for definition in result
-    ] == expected_definition_ids
-    if include_organization_shared:
-        assert project_calls == []
-    else:
-        assert project_calls == [
-            {
-                "workspace_id": workspace.workspace_id,
-                "api_root": workspace.api_root,
-                "client_id": workspace.client_id,
-                "client_secret": workspace.client_secret,
-                "bearer_token": workspace.bearer_token,
-                "config_api_root": workspace.config_api_root,
-            }
-        ]
-        definition = result[0]
-        assert definition.connector_builder_project_id == "builder-project-id"
-        assert definition.connector_builder_project_url == (
-            "https://cloud.airbyte.com/workspaces/workspace-id/"
-            "connector-builder/edit/builder-project-id"
-        )
+    assert [definition.definition_id for definition in result] == ["workspace-owned"]
+    assert project_calls == [
+        {
+            "workspace_id": workspace.workspace_id,
+            "api_root": workspace.api_root,
+            "client_id": workspace.client_id,
+            "client_secret": workspace.client_secret,
+            "bearer_token": workspace.bearer_token,
+            "config_api_root": workspace.config_api_root,
+        }
+    ]
+    definition = result[0]
+    assert definition.connector_builder_project_id == "builder-project-id"
+    assert definition.connector_builder_project_url == (
+        "https://cloud.airbyte.com/workspaces/workspace-id/"
+        "connector-builder/edit/builder-project-id"
+    )
     builder_lookup.assert_not_called()
 
 

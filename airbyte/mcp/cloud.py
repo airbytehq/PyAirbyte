@@ -3044,17 +3044,6 @@ def list_custom_source_definitions(
             default=None,
         ),
     ],
-    include_organization_shared: Annotated[
-        bool,
-        Field(
-            description=(
-                "Also include custom definitions shared with this workspace's organization "
-                "(published from other workspaces). Default false lists only this workspace's "
-                "own definitions."
-            ),
-            default=False,
-        ),
-    ],
 ) -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
@@ -3064,7 +3053,6 @@ def list_custom_source_definitions(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     definitions = workspace.list_custom_source_definitions(
         definition_type="yaml",
-        include_organization_shared=include_organization_shared,
     )
 
     return [
