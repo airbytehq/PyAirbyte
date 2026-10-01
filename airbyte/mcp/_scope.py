@@ -11,9 +11,9 @@ came from:
 - `user_default`: for calls that name no workspace or organization, by ID or by name, the
   organization of the authenticated user's default workspace. `workspace_id` stays null.
 
-Only UUID-shaped values are recorded. Except for `user_default`, `organization_id` is
-never looked up from the workspace; reporting derives it by joining `workspace_id` to
-the workspace dimension.
+Only UUID-shaped values are recorded. Tracing enriches a known workspace with its
+organization using the shared bounded lookup/cache, before analytics reads the scope.
+If lookup fails, the organization remains absent; unrelated defaults are never used.
 """
 
 from __future__ import annotations
@@ -28,10 +28,14 @@ from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import get_mcp_config
 
 from airbyte.constants import MCP_CONFIG_ORGANIZATION_ID, MCP_CONFIG_WORKSPACE_ID
-from airbyte.mcp._user_identity import resolve_user_default_organization_id
+from airbyte.mcp._user_identity import (
+    resolve_call_workspace_organization_id,
+    resolve_user_default_organization_id,
+)
 
 
 if TYPE_CHECKING:
+    from fastmcp.server.context import Context
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp.tools import ToolResult
     from mcp.types import CallToolRequestParams
@@ -140,6 +144,22 @@ def record_default_workspace(workspace_id: str | None) -> None:
     if scope is not None and scope.workspace_source is None and value is not None:
         scope.workspace_id = value
         scope.workspace_source = "default"
+
+
+async def enrich_call_scope(ctx: Context | None) -> None:
+    """Fill in the effective workspace's organization before trace/analytics finalization."""
+    scope = current_call_scope()
+    if scope is None or scope.workspace_id is None or scope.organization_id is not None:
+        return
+    try:
+        organization_id = _as_uuid(
+            await resolve_call_workspace_organization_id(scope.workspace_id, ctx)
+        )
+        if organization_id is not None:
+            scope.organization_id = organization_id
+            scope.organization_source = scope.workspace_source
+    except Exception:
+        logger.debug("MCP workspace organization unavailable", exc_info=True)
 
 
 def call_scope_properties() -> dict[str, str | None]:

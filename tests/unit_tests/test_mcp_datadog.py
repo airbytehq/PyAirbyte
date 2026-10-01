@@ -320,7 +320,9 @@ def _native_http_contract():
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
-    from airbyte.mcp import _otel, _telemetry
+    from airbyte.mcp import _otel, _scope, _telemetry
+    from fastmcp_extensions import ToolCallTelemetryMiddleware
+    from unittest.mock import AsyncMock
 
     # Assert every socket is loopback; writers are captured and never started.
     connect = socket.socket.connect
@@ -364,6 +366,13 @@ def _native_http_contract():
     upstream = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=upstream.serve_forever, daemon=True).start()
     app = FastMCP("native-mcp-contract")
+    records = []
+    app.add_middleware(_scope.CallScopeMiddleware())
+    telemetry = ToolCallTelemetryMiddleware(
+        extra_properties=_scope.call_scope_properties
+    )
+    telemetry._sinks.emit = records.append
+    app.add_middleware(telemetry)
     correlations = []
     entities = []
     calls = []
@@ -396,6 +405,7 @@ def _native_http_contract():
                 "manifest_yaml": manifest_yaml,
                 "nested": nested,
             } == private_arguments
+        _scope.record_default_workspace("11111111-1111-1111-1111-111111111111")
         calls.append(mode)
         entities.append(entity_type)
         active = tracer.current_span()
@@ -437,7 +447,11 @@ def _native_http_contract():
     client_properties = {
         "mcp_client_name": " Custom Agent ",
         "mcp_client_version": "v" * 300,
+        "auth_method": "client_credentials",
+        "mcp_protocol_version": "2025-11-25",
+        "session_id": hashlib.sha256(b"synthetic-session").hexdigest(),
     }
+    original_properties = dict(client_properties)
 
     async def run():
         raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
@@ -540,6 +554,27 @@ def _native_http_contract():
                     handled._get_ctx_item("_llmobs.cached_event")["name"]
                     == "handle_error"
                 )
+                nested_record, outer_record = records[-2:]
+                assert nested_record.name == "execute_external_api_query"
+                assert (
+                    nested_record.extra["workspace_id"]
+                    == "11111111-1111-1111-1111-111111111111"
+                )
+                assert (
+                    nested_record.extra["organization_id"]
+                    == "44444444-4444-4444-4444-444444444444"
+                )
+                assert outer_record.name == "handle_error"
+                assert outer_record.extra["workspace_id"] is None
+                metadata = handled._get_ctx_item("_llmobs.cached_event")["meta"][
+                    "metadata"
+                ]
+                assert "workspace_id" not in metadata
+                assert (
+                    metadata["organization_id"]
+                    == "33333333-3333-3333-3333-333333333333"
+                )
+                assert metadata["outcome"] == "success"
 
         # An exception escaping the protocol boundary must retain its class/status
         # without exporting a payload-containing message or traceback.
@@ -550,7 +585,14 @@ def _native_http_contract():
             await _datadog._DatadogRequestMiddleware()(
                 SimpleNamespace(
                     method="tools/call",
-                    params={"name": "escaped_error", "arguments": private_arguments},
+                    params={
+                        "name": "escaped_error",
+                        "arguments": {
+                            **private_arguments,
+                            "workspace_id": "12345678-1234-1234-1234-123456789abc",
+                            "organization_id": "87654321-4321-4321-4321-abcdef123456",
+                        },
+                    },
                 ),
                 fail,
             )
@@ -558,6 +600,21 @@ def _native_http_contract():
         assert escaped.error and escaped.get_tag("error.type") == "ValueError"
         assert escaped.get_tag("error.message") is None
         assert escaped.get_tag("error.stack") is None
+        escaped_metadata = escaped._get_ctx_item("_llmobs.cached_event")["meta"][
+            "metadata"
+        ]
+        assert escaped_metadata["outcome"] == "exception"
+        assert escaped_metadata["error_type"] == "ValueError"
+        assert escaped_metadata["auth_method"] == "client_credentials"
+        assert escaped_metadata["mcp_protocol_version"] == "2025-11-25"
+        assert escaped_metadata["session_id"] == client_properties["session_id"]
+        assert (
+            escaped_metadata["workspace_id"] == "12345678-1234-1234-1234-123456789abc"
+        )
+        assert (
+            escaped_metadata["organization_id"]
+            == "87654321-4321-4321-4321-abcdef123456"
+        )
         # Cancellation must propagate and restore the previous Datadog context.
         with tracer.trace("cancellation-parent") as parent:
             before = tracer.current_span()
@@ -573,16 +630,79 @@ def _native_http_contract():
                     cancel,
                 )
             assert tracer.current_span() is before is parent
+        cancelled = next(span for span in reversed(spans) if span.span_type == "llm")
+        cancelled_metadata = cancelled._get_ctx_item("_llmobs.cached_event")["meta"][
+            "metadata"
+        ]
+        assert cancelled_metadata["outcome"] == "cancelled"
+        assert cancelled_metadata["error_type"] == "CancelledError"
+
+        # Cancellation arriving after tool completion must still reach the native
+        # outcome and retain already-known metadata while restoring its parent.
+        intent_middleware = next(
+            item
+            for item in app.middleware
+            if isinstance(item, _datadog._DatadogIntentMiddleware)
+        )
+        for tool_fails in (False, True):
+            enriching = asyncio.Event()
+
+            async def enrich(_ctx):
+                enriching.set()
+                await asyncio.Future()
+
+            async def tool(_ctx):
+                if tool_fails:
+                    raise ValueError("private synthetic result")
+                return ToolResult(content="private synthetic result")
+
+            async def dispatch(_ctx):
+                return await intent_middleware._trace_call(
+                    SimpleNamespace(fastmcp_context=None),
+                    tool,
+                    {"airbyte.mcp.intent": "Preserve safe metadata on cancellation"},
+                )
+
+            with patch.object(_scope, "enrich_call_scope", enrich):
+                task = asyncio.create_task(
+                    _datadog._DatadogRequestMiddleware()(
+                        SimpleNamespace(
+                            method="tools/call", params={"name": "enrich_cancel"}
+                        ),
+                        dispatch,
+                    )
+                )
+                await asyncio.wait_for(enriching.wait(), 5)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            span = next(span for span in reversed(spans) if span.span_type == "llm")
+            metadata = span._get_ctx_item("_llmobs.cached_event")["meta"]["metadata"]
+            assert metadata["outcome"] == "cancelled"
+            assert (
+                metadata["error_type"] == span.get_tag("error.type") == "CancelledError"
+            )
+            assert metadata["intent"] == "Preserve safe metadata on cancellation"
+            assert span.get_tag("error.stack") is None
 
     try:
-        with patch.object(
-            _telemetry, "request_properties", return_value=client_properties
+        with (
+            patch.object(
+                _telemetry, "request_properties", return_value=client_properties
+            ),
+            patch.object(
+                _scope,
+                "resolve_user_default_organization_id",
+                new=AsyncMock(return_value="33333333-3333-3333-3333-333333333333"),
+            ),
+            patch.object(
+                _scope,
+                "resolve_call_workspace_organization_id",
+                new=AsyncMock(return_value="44444444-4444-4444-4444-444444444444"),
+            ),
         ):
             asyncio.run(run())
-        assert client_properties == {
-            "mcp_client_name": " Custom Agent ",
-            "mcp_client_version": "v" * 300,
-        }
+        assert client_properties == original_properties
         assert not exporter.get_finished_spans(), (
             "Native backend must not create duplicate OTel spans"
         )
@@ -608,7 +728,11 @@ def _native_http_contract():
             assert lookup[span.parent_id].name == "starlette.request"
         events = [span._get_ctx_item("_llmobs.cached_event") for span in primary]
         for event in events:
-            assert event["meta"]["metadata"]["pyairbyte.version"] == get_version()
+            metadata = event["meta"]["metadata"]
+            assert metadata["pyairbyte.version"] == get_version()
+            assert metadata["auth_method"] == "client_credentials"
+            assert metadata["mcp_protocol_version"] == "2025-11-25"
+            assert metadata["session_id"] == client_properties["session_id"]
         assert [event["meta"]["span"]["kind"] for event in events] == [
             "task",
             "task",
@@ -651,6 +775,15 @@ def _native_http_contract():
             assert (
                 span.get_tag("airbyte.mcp.agent.entity_type") == entity[:256].rstrip()
             )
+            assert (
+                event["meta"]["metadata"]["workspace_id"]
+                == "11111111-1111-1111-1111-111111111111"
+            )
+            assert (
+                event["meta"]["metadata"]["organization_id"]
+                == "44444444-4444-4444-4444-444444444444"
+            )
+            assert event["meta"]["metadata"]["scope_source"] == "default"
             assert event["meta"]["metadata"]["client_name"] == "Custom Agent"
             assert event["meta"]["metadata"]["client_version"] == "v" * 256
             assert span.get_tag("airbyte.mcp.client_name") == "Custom Agent"
@@ -684,10 +817,33 @@ def _native_http_contract():
             == private_arguments
         )
         assert primary[2].error == 0
-        assert all(
-            span.error == 1 and span.get_tag("error.type") == "ToolError"
-            for span in primary[3:5]
+        tool_records = [
+            record for record in records if record.name == "execute_external_api_query"
+        ]
+        for record in tool_records[:3]:
+            assert (
+                record.extra["workspace_id"] == "11111111-1111-1111-1111-111111111111"
+            )
+            assert (
+                record.extra["organization_id"]
+                == "44444444-4444-4444-4444-444444444444"
+            )
+        assert (
+            events[5]["meta"]["metadata"]["organization_id"]
+            == "33333333-3333-3333-3333-333333333333"
         )
+        assert "workspace_id" not in events[5]["meta"]["metadata"]
+        for index, outcome, error_type in (
+            (2, "success", None),
+            (3, "tool_error", "ToolError"),
+            (4, "exception", "ValueError"),
+        ):
+            span, event = primary[index], events[index]
+            assert bool(span.error) is (error_type is not None)
+            assert span.get_tag("error.type") == error_type
+            assert span.get_tag("airbyte.mcp.outcome") == outcome
+            assert event["meta"]["metadata"]["outcome"] == outcome
+            assert event["meta"]["metadata"].get("error_type") == error_type
         assert events[4]["meta"]["metadata"]["error_type"] == "ValueError"
         assert events[5]["meta"]["output"]["value"] == "[REDACTED]"
         assert (

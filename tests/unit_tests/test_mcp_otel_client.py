@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 
 import httpx
 import pytest
 from fastmcp import FastMCP
-from fastmcp_extensions import CapabilityTokenMiddleware, TelemetrySinks
+from fastmcp_extensions import (
+    CapabilityTokenMiddleware,
+    TelemetrySinks,
+    ToolCallTelemetryMiddleware,
+)
 from opentelemetry.trace import SpanKind, StatusCode
 
 from airbyte.mcp import _otel as observability
@@ -132,6 +137,19 @@ def test_http_client_identity_success_validation_and_request_isolation(
         assert attrs.get("airbyte.mcp.client_name") == expected[0]
         assert attrs.get("airbyte.mcp.client_version") == expected[1]
         metadata = json.loads(attrs["_dd.ml_obs.metadata"])
+        assert metadata["auth_method"] == "none"
+        assert attrs["airbyte.mcp.auth_method"] == "none"
+        if modern:
+            assert "session_id" not in metadata
+            assert "airbyte.mcp.session_id" not in attrs
+        else:
+            session = attrs["gen_ai.conversation.id"]
+            assert len(session) == 64
+            assert metadata["session_id"] == attrs["airbyte.mcp.session_id"] == session
+        if modern or index < 4:
+            expected_protocol = "2026-07-28" if modern else "2025-06-18"
+            assert metadata["mcp_protocol_version"] == expected_protocol
+            assert attrs["airbyte.mcp.mcp_protocol_version"] == expected_protocol
         assert metadata.get("client_name") == expected[0]
         assert metadata.get("client_version") == expected[1]
         assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
@@ -167,6 +185,11 @@ def test_client_label_validation_before_dispatch_and_export(
         lambda: {
             "mcp_client_name": value,
             "mcp_client_version": value,
+            "mcp_protocol_version": value,
+            "auth_method": PRIVATE,
+            "session_id": PRIVATE,
+            "workspace_id": PRIVATE,
+            "organization_id": PRIVATE,
             "other": PRIVATE,
         },
     )
@@ -174,6 +197,11 @@ def test_client_label_validation_before_dispatch_and_export(
     attrs = _tool_span(otel_provider).attributes
     assert attrs.get("airbyte.mcp.client_name") == expected
     assert attrs.get("airbyte.mcp.client_version") == expected
+    assert attrs.get("airbyte.mcp.mcp_protocol_version") == expected
+    assert not {
+        f"airbyte.mcp.{field}"
+        for field in ("auth_method", "session_id", "workspace_id", "organization_id")
+    }.intersection(attrs)
     assert PRIVATE not in _export_text(otel_provider)
 
 
@@ -235,3 +263,82 @@ def test_exporter_revalidates_injected_client_fields(
         else:
             assert "_dd.ml_obs.metadata" not in attrs
     assert PRIVATE not in _export_text(otel_provider)
+
+
+async def _http_echo(app, headers, *, digest_session=False):
+    raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
+    http_app = observability.SessionIdHeaderDigest(raw) if digest_session else raw
+    async with raw.router.lifespan_context(raw):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=http_app), base_url="http://testserver"
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                headers={"accept": "application/json, text/event-stream", **headers},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "echo", "arguments": {"value": "ok"}},
+                },
+            )
+            assert response.status_code == 200
+            assert not response.json()["result"].get("isError")
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("raw_session", ["a" * 64, "private-session-SENTINEL"])
+def test_http_session_header_is_hashed_once(
+    client_app, monkeypatch, otel_provider, wrapped, raw_session
+):
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+
+    asyncio.run(
+        _http_echo(client_app, {"mcp-session-id": raw_session}, digest_session=wrapped)
+    )
+    attrs = _tool_span(otel_provider).attributes
+    digest = hashlib.sha256(raw_session.encode()).hexdigest()
+    assert attrs["airbyte.mcp.session_id"] == attrs["gen_ai.conversation.id"] == digest
+    assert json.loads(attrs["_dd.ml_obs.metadata"])["session_id"] == digest
+    assert raw_session not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("process_credentials", [False, True])
+@pytest.mark.parametrize(
+    "headers, expected",
+    [
+        ({}, "none"),
+        ({"authorization": "Bearer private-SENTINEL"}, "bearer"),
+        (
+            {"client-id": "synthetic", "client-secret": "private-SENTINEL"},
+            "client_credentials",
+        ),
+        ({"authorization": "Basic private-SENTINEL"}, "client_credentials"),
+    ],
+)
+def test_manually_hosted_http_auth_matches_request_and_analytics(
+    client_app, monkeypatch, otel_provider, process_credentials, headers, expected
+):
+    from airbyte import constants
+
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+    monkeypatch.delenv("AIRBYTE_CLOUD_CLIENT_ID", raising=False)
+    if process_credentials:
+        monkeypatch.setenv("AIRBYTE_CLOUD_BEARER_TOKEN", "process-private-SENTINEL")
+    else:
+        monkeypatch.delenv("AIRBYTE_CLOUD_BEARER_TOKEN", raising=False)
+    records = []
+    telemetry = ToolCallTelemetryMiddleware(
+        extra_properties=_telemetry.request_properties
+    )
+    monkeypatch.setattr(telemetry._sinks, "emit", records.append)
+    client_app.middleware.insert(0, telemetry)
+
+    asyncio.run(_http_echo(client_app, headers))
+    attrs = _tool_span(otel_provider).attributes
+    assert (
+        attrs["airbyte.mcp.auth_method"] == records[-1].extra["auth_method"] == expected
+    )
+    assert json.loads(attrs["_dd.ml_obs.metadata"])["auth_method"] == expected
+    assert "SENTINEL" not in _export_text(otel_provider)
