@@ -497,6 +497,164 @@ def test_list_organizations_for_user_id_paginates_and_forwards_filters(
     assert len(requests) == request_count
 
 
+@pytest.mark.parametrize(
+    (
+        "page_lengths",
+        "name_contains",
+        "limit",
+        "expected_count",
+        "expected_offsets",
+    ),
+    [
+        pytest.param(
+            [100, 3],
+            "sandbox",
+            None,
+            103,
+            [0, 100],
+            id="short-last-page",
+        ),
+        pytest.param(
+            [100, 100],
+            None,
+            50,
+            50,
+            [0],
+            id="returns-at-limit",
+        ),
+        pytest.param(
+            [0],
+            None,
+            None,
+            0,
+            [0],
+            id="empty-first-page",
+        ),
+    ],
+)
+def test_list_workspaces_by_user_paginates_and_respects_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    page_lengths: list[int],
+    name_contains: str | None,
+    limit: int | None,
+    expected_count: int,
+    expected_offsets: list[int],
+) -> None:
+    captured_requests: list[dict[str, object]] = []
+    pages: list[dict[str, object]] = []
+    next_workspace_id = 0
+    for page_length in page_lengths:
+        pages.append({
+            "workspaces": [
+                {"workspaceId": f"workspace-{workspace_id}"}
+                for workspace_id in range(
+                    next_workspace_id,
+                    next_workspace_id + page_length,
+                )
+            ]
+        })
+        next_workspace_id += page_length
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        json_request = kwargs["json"]
+        assert isinstance(json_request, dict)
+        captured_requests.append({"path": kwargs["path"], "json": json_request})
+        return pages.pop(0)
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_workspaces_by_user(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        config_api_root="https://config.airbyte.com",
+        name_contains=name_contains,
+        limit=limit,
+    )
+
+    assert [workspace["workspaceId"] for workspace in result] == [
+        f"workspace-{workspace_id}" for workspace_id in range(expected_count)
+    ]
+    assert [request["path"] for request in captured_requests] == [
+        "/workspaces/list_by_user_id"
+    ] * len(expected_offsets)
+    assert [request["json"] for request in captured_requests] == [
+        {
+            "userId": "user-id",
+            "pagination": {"pageSize": 100, "rowOffset": offset},
+            **({"nameContains": name_contains} if name_contains is not None else {}),
+        }
+        for offset in expected_offsets
+    ]
+
+
+@pytest.mark.parametrize(
+    ("page_names", "expected_names", "expected_offsets"),
+    [
+        pytest.param(
+            [["target", *(f"miss-{index}" for index in range(99))]],
+            ["target"],
+            [0],
+            id="match-on-first-full-page-stops-at-limit",
+        ),
+        pytest.param(
+            [
+                [f"miss-{index}" for index in range(100)],
+                ["target"],
+            ],
+            ["target"],
+            [0, 100],
+            id="match-after-first-full-page",
+        ),
+    ],
+)
+def test_list_workspaces_by_user_filters_each_page_before_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    page_names: list[list[str]],
+    expected_names: list[str],
+    expected_offsets: list[int],
+) -> None:
+    captured_requests: list[dict[str, object]] = []
+    pages = [
+        {
+            "workspaces": [
+                {"workspaceId": f"workspace-{index}", "name": name}
+                for index, name in enumerate(names)
+            ]
+        }
+        for names in page_names
+    ]
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        json_request = kwargs["json"]
+        assert isinstance(json_request, dict)
+        captured_requests.append({"path": kwargs["path"], "json": json_request})
+        return pages.pop(0)
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_workspaces_by_user(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        config_api_root="https://config.airbyte.com",
+        name_filter=lambda workspace_name: workspace_name == "target",
+        limit=1,
+    )
+
+    assert [workspace["name"] for workspace in result] == expected_names
+    assert [
+        request["json"]["pagination"]["rowOffset"] for request in captured_requests
+    ] == (expected_offsets)
+    assert [request["path"] for request in captured_requests] == [
+        "/workspaces/list_by_user_id"
+    ] * len(expected_offsets)
+
+
 def test_create_workspace_forwards_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

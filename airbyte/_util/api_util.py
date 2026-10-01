@@ -2920,6 +2920,87 @@ def list_workspaces_in_organization(
     return result
 
 
+def list_workspaces_by_user(  # noqa: PLR0913  # Mirrors list_workspaces_in_organization.
+    user_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    name_contains: str | None = None,
+    name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """List workspaces visible to a user.
+
+    Uses the Config API endpoint: POST /v1/workspaces/list_by_user_id
+
+    Args:
+        user_id: The Airbyte user ID to list workspaces for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
+        name_contains: Optional substring filter for workspace names (server-side)
+        name_filter: Optional predicate to filter workspace names (client-side)
+        limit: Optional maximum number of workspaces to return
+
+    Returns:
+        List of workspace dictionaries containing workspaceId, organizationId, name, etc.
+    """
+    _validate_pagination_params(limit=limit)
+    result: list[dict[str, Any]] = []
+    page_size = 100
+
+    payload: dict[str, Any] = {
+        "userId": user_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains is not None:
+        payload["nameContains"] = name_contains
+
+    while True:
+        json_result = _make_config_api_request(
+            path="/workspaces/list_by_user_id",
+            json={
+                **payload,
+                "pagination": payload["pagination"].copy(),
+            },
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+
+        workspaces = json_result.get("workspaces", [])
+
+        if not workspaces:
+            break
+
+        matches = [
+            workspace
+            for workspace in workspaces
+            if name_filter is None or name_filter(workspace.get("name", ""))
+        ]
+        result.extend(matches)
+
+        if limit is not None and len(result) >= limit:
+            return result[:limit]
+
+        if len(workspaces) < page_size:
+            break
+
+        payload["pagination"]["rowOffset"] += page_size
+
+    return result
+
+
 def get_workspace_organization_info(
     workspace_id: str,
     *,
