@@ -166,6 +166,16 @@ def test_canonical_bytes(value, expected):
         "é" * (t.MAX_RAW_STRING // 2 + 1),
         "\ud800",
     ],
+    ids=[
+        "nan",
+        "inf",
+        "int_key",
+        "object",
+        "bytes",
+        "long_ascii",
+        "long_utf8",
+        "surrogate",
+    ],
 )
 def test_canonical_bytes_unsupported(value):
     assert t.canonical_bytes(value, HASH) is None

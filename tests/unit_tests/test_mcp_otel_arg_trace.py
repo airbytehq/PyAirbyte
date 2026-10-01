@@ -39,6 +39,11 @@ from airbyte.registry import ConnectorType
 from tests.unit_tests import test_mcp_otel as otel_tests
 
 
+@pytest.fixture(autouse=True)
+def _propagate_airbyte_logs(monkeypatch):
+    monkeypatch.setattr(logging.getLogger("airbyte"), "propagate", True)
+
+
 agents_app = otel_tests.agents_app
 isolated_otel = otel_tests.isolated_otel
 uninitialized_provider = otel_tests.uninitialized_provider
@@ -424,12 +429,8 @@ def test_hand_made_session_id_with_verified_token_is_approximate(
 def test_key_is_loaded_once_and_never_logged(monkeypatch, caplog):
     raw = base64.urlsafe_b64encode(KEY).decode().rstrip("=")
     monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_HMAC_KEY", raw)
-    observability.logger.addHandler(caplog.handler)
-    try:
-        with caplog.at_level(logging.INFO, logger="airbyte.mcp._otel"):
-            observability._build_tool_maps()
-    finally:
-        observability.logger.removeHandler(caplog.handler)
+    with caplog.at_level(logging.INFO, logger="airbyte.mcp._otel"):
+        observability._build_tool_maps()
     assert observability._ARG_MASTER == KEY
     assert f"key_id={_arg_trace.key_id(KEY)}" in caplog.text
     assert raw not in caplog.text

@@ -23,6 +23,11 @@ from airbyte.mcp._telemetry import (
 from airbyte.mcp._telemetry_key import TELEMETRY_HMAC_KEY_ENV, load_master
 
 
+@pytest.fixture(autouse=True)
+def _propagate_airbyte_logs(monkeypatch):
+    monkeypatch.setattr(logging.getLogger("airbyte"), "propagate", True)
+
+
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
