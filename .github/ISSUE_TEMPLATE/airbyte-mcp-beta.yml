@@ -36,7 +36,7 @@ body:
     attributes:
       label: MCP client
       description: The app or agent you connected to the server, and its version if you know it.
-      placeholder: Claude Desktop, Claude Code, Cursor, VS Code, Goose
+      placeholder: Claude Desktop, Claude Code, Cursor, VS Code, Codex
     validations:
       required: true
   - type: input
@@ -48,7 +48,7 @@ body:
     id: description
     attributes:
       label: What happened?
-      description: Describe the problem or idea. Include the prompt you gave your agent and the MCP tools it called, if you know them.
+      description: Describe the problem or idea. If you're reporting a bug, include the prompt you gave your agent and the MCP tools it called, if you know them.
     validations:
       required: true
   - type: textarea
@@ -70,8 +70,3 @@ body:
       label: Relevant log output
       description: Paste any error messages or MCP server logs. Remove secrets first. This field is formatted as code automatically.
       render: shell
-  - type: input
-    id: workspace-id
-    attributes:
-      label: Airbyte Cloud workspace ID (optional)
-      description: If the issue involves Airbyte Cloud, sharing your workspace ID helps us investigate.
