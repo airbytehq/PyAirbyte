@@ -102,7 +102,6 @@ from airbyte.mcp._tool_utils import (
     WORKSPACE_ID_CONFIG_ARG,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
-    airbyte_tool_availability_filter,
     validate_airbyte_domains,
 )
 from airbyte.mcp._user_identity import (
@@ -111,7 +110,13 @@ from airbyte.mcp._user_identity import (
     current_airbyte_user_id,
 )
 from airbyte.mcp.cloud import register_cloud_tools
-from airbyte.mcp.guidance import register_guidance_tools
+from airbyte.mcp.guidance import (
+    KAPA_API_KEY_CONFIG_ARG,
+    KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
+    KNOWLEDGE_SEARCH_CAPABILITY,
+    is_knowledge_search_available,
+    register_guidance_tools,
+)
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.registry import register_registry_tools
@@ -503,11 +508,15 @@ app = mcp_server(
         API_URL_CONFIG_ARG,
         CONFIG_API_URL_CONFIG_ARG,
         TRUSTED_EXECUTION_CONFIG_ARG,
+        KAPA_API_KEY_CONFIG_ARG,
+        KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
     ],
+    capability_resolvers={
+        KNOWLEDGE_SEARCH_CAPABILITY: is_knowledge_search_available,
+    },
     tool_filters=[
         airbyte_readonly_mode_filter,
         airbyte_module_filter,
-        airbyte_tool_availability_filter,
     ],
     auth=_create_auth(),
     lifespan=_mcp_mode_lifespan,

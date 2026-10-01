@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import cast
 
 import pytest
 import requests
 import responses
-from fastmcp import Client, FastMCP
-from fastmcp_extensions import mcp_server
+from fastmcp import Client, Context, FastMCP
 
 from airbyte.constants import (
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
-from airbyte.mcp import _tool_utils, guidance
+from airbyte.mcp import guidance
 
 
 @pytest.fixture(autouse=True)
@@ -41,23 +41,9 @@ def _list_tool_names(app: FastMCP) -> list[str]:
     return asyncio.run(list_tools())
 
 
-def _new_guidance_app() -> FastMCP:
-    app = mcp_server(
-        name="guidance-test",
-        include_standard_tool_filters=True,
-        server_config_args=[
-            _tool_utils.AIRBYTE_READONLY_MODE_CONFIG_ARG,
-            _tool_utils.AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
-            _tool_utils.AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
-        ],
-        tool_filters=[
-            _tool_utils.airbyte_readonly_mode_filter,
-            _tool_utils.airbyte_module_filter,
-            _tool_utils.airbyte_tool_availability_filter,
-        ],
-        telemetry=False,
-    )
-    guidance.register_guidance_tools(app)
+def _airbyte_mcp_app() -> FastMCP:
+    from airbyte.mcp.server import app
+
     return app
 
 
@@ -114,7 +100,7 @@ def test_search_airbyte_knowledge_sources_visibility(
     if retrieval_api_url is not None:
         monkeypatch.setenv(guidance.KAPA_RETRIEVAL_API_URL_ENV_VAR, retrieval_api_url)
 
-    app = _new_guidance_app()
+    app = _airbyte_mcp_app()
 
     assert (
         "search_airbyte_knowledge_sources" in _list_tool_names(app)
@@ -167,15 +153,25 @@ def test_search_airbyte_knowledge_sources(
 ) -> None:
     url = "https://api.kapa.ai/query/v1/projects/test-project/retrieval/"
     query = "How do I configure an Airbyte source?"
-    monkeypatch.setenv(guidance.KAPA_API_KEY_ENV_VAR, "dummy-api-key")
-    monkeypatch.setenv(guidance.KAPA_RETRIEVAL_API_URL_ENV_VAR, url)
+    config_values = {
+        "kapa_api_key": "dummy-api-key",
+        "kapa_retrieval_api_url": url,
+    }
+    monkeypatch.setattr(
+        guidance,
+        "get_mcp_config",
+        lambda _context, name: config_values[name],
+    )
     responses.add(responses.POST, url, json=response_body, status=status)
 
     if status == 401:
         with pytest.raises(requests.HTTPError):
-            guidance.search_airbyte_knowledge_sources(query)
+            guidance.search_airbyte_knowledge_sources(cast(Context, object()), query)
     else:
-        assert guidance.search_airbyte_knowledge_sources(query) == expected_result
+        assert (
+            guidance.search_airbyte_knowledge_sources(cast(Context, object()), query)
+            == expected_result
+        )
 
     assert len(responses.calls) == 1
     request = responses.calls[0].request
@@ -229,6 +225,6 @@ def test_search_airbyte_knowledge_sources_respects_tool_filters(
     if environment_variable is not None and environment_value is not None:
         monkeypatch.setenv(environment_variable, environment_value)
 
-    app = _new_guidance_app()
+    app = _airbyte_mcp_app()
     tool_names = _list_tool_names(app)
     assert ("search_airbyte_knowledge_sources" in tool_names) is expected_visible

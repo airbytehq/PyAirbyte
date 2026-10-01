@@ -124,16 +124,6 @@ def test_unannotated_tools_are_always_visible(mcp_config: dict[str, str]) -> Non
     assert _tool_utils.airbyte_module_filter(tool, APP)
 
 
-def test_tool_availability_filter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tools without checks are visible; checks can hide a registered tool."""
-    tool = _tool("unavailable")
-
-    assert _tool_utils.airbyte_tool_availability_filter(tool, APP)
-
-    monkeypatch.setitem(_tool_utils._TOOL_AVAILABILITY_CHECKS, tool.name, lambda: False)
-    assert not _tool_utils.airbyte_tool_availability_filter(tool, APP)
-
-
 def test_ui_tool_wire_meta_carries_only_standard_ui_key() -> None:
     """UI tools put `ui` on the wire `_meta`; custom keys stay off the wire."""
     import asyncio

@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import (
+    MCPServerConfigArg,
+    get_mcp_config,
     mcp_prompt,
     mcp_tool,
     register_mcp_prompts,
@@ -27,7 +29,6 @@ from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.constants import is_hosted_mcp_mode
 from airbyte.mcp._docs_results import AgentSkillDocsResult, render_agent_skill_docs_result
-from airbyte.mcp._tool_utils import available_when
 from airbyte.mcp.cloud import (
     CLOUD_AUTH_TIP_TEXT,
     SKILL_DOCS_SECTION_HINT,
@@ -42,7 +43,6 @@ from airbyte.registry import (
     get_connector_api_docs_urls,
     get_connector_metadata,
 )
-from airbyte.secrets.util import try_get_secret
 from airbyte.sources.util import get_source
 
 
@@ -54,28 +54,39 @@ KAPA_API_KEY_ENV_VAR = "KAPA_API_KEY"
 KAPA_RETRIEVAL_API_URL_ENV_VAR = "KAPA_RETRIEVAL_API_URL"
 _KAPA_TIMEOUT_SECONDS = 30.0
 
+KNOWLEDGE_SEARCH_CAPABILITY = "io.airbyte/knowledge-search"
 
-def _get_configured_value(name: str) -> str:
-    secret = try_get_secret(name)
-    return str(secret).strip() if secret is not None else ""
+KAPA_API_KEY_CONFIG_ARG = MCPServerConfigArg(
+    name="kapa_api_key",
+    env_var=KAPA_API_KEY_ENV_VAR,
+    default="",
+    sensitive=True,
+)
+
+KAPA_RETRIEVAL_API_URL_CONFIG_ARG = MCPServerConfigArg(
+    name="kapa_retrieval_api_url",
+    env_var=KAPA_RETRIEVAL_API_URL_ENV_VAR,
+    default="",
+)
 
 
-def is_kapa_configured() -> bool:
-    """Return whether the hosted Kapa Retrieval API tool has both settings."""
+def is_knowledge_search_available(app: FastMCP) -> bool:
+    """Return whether hosted Kapa knowledge search is configured."""
     return (
         is_hosted_mcp_mode()
-        and bool(_get_configured_value(KAPA_API_KEY_ENV_VAR))
-        and bool(_get_configured_value(KAPA_RETRIEVAL_API_URL_ENV_VAR))
+        and bool(get_mcp_config(app, "kapa_api_key").strip())
+        and bool(get_mcp_config(app, "kapa_retrieval_api_url").strip())
     )
 
 
-@available_when(is_kapa_configured)
 @mcp_tool(
     read_only=True,
     idempotent=True,
     open_world=True,
+    required_capabilities=[KNOWLEDGE_SEARCH_CAPABILITY],
 )
 def search_airbyte_knowledge_sources(
+    ctx: Context,
     query: Annotated[
         str,
         Field(
@@ -92,8 +103,8 @@ def search_airbyte_knowledge_sources(
 
     Sources include documentation, the website, OpenAPI specifications, YouTube, and GitHub.
     """
-    api_key = _get_configured_value(KAPA_API_KEY_ENV_VAR)
-    url = _get_configured_value(KAPA_RETRIEVAL_API_URL_ENV_VAR)
+    api_key = get_mcp_config(ctx, "kapa_api_key")
+    url = get_mcp_config(ctx, "kapa_retrieval_api_url")
     response = requests.post(
         url,
         headers={"X-API-KEY": api_key},
