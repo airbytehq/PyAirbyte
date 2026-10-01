@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
+_TOOL_AVAILABILITY_CHECKS: dict[str, Callable[[], bool]] = {}
 
 # =============================================================================
 # Safe Mode Configuration
@@ -484,6 +485,29 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
         return bool(tool_module and tool_module in include_modules)
 
     return True
+
+
+def available_when(
+    check: Callable[[], bool],
+) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
+    """Register an availability check for the decorated tool's name.
+
+    Put `@available_when(...)` above and outside `@mcp_tool(...)`. FastMCP
+    registers a tool under the callable's `__name__`, so this order keys the
+    check by the same name that `airbyte_tool_availability_filter` receives.
+    """
+
+    def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+        _TOOL_AVAILABILITY_CHECKS[func.__name__] = check
+        return func
+
+    return decorator
+
+
+def airbyte_tool_availability_filter(tool: Tool, app: FastMCP) -> bool:  # noqa: ARG001
+    """Hide tools whose registered availability check returns false."""
+    check = _TOOL_AVAILABILITY_CHECKS.get(tool.name)
+    return check is None or check()
 
 
 def _known_mcp_modules() -> set[str]:

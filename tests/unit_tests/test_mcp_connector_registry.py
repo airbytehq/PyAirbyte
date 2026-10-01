@@ -17,7 +17,7 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls, get_connector_info
+from airbyte.mcp.guidance import get_api_docs_urls, get_connector_info
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -212,7 +212,7 @@ class TestGetApiDocsUrls:
 
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
                 connector_name="nonexistent-connector",
                 context={},
@@ -223,7 +223,7 @@ class TestGetApiDocsUrls:
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.return_value = [
                 ApiDocsUrl(
                     title="Airbyte Documentation",
@@ -507,7 +507,7 @@ def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
     assert _mcp_module_for_tool(show_connectors_list) == "interactive"
     assert _mcp_module_for_tool(show_workspace_sync_status) == "interactive"
-    assert _mcp_module_for_tool(get_api_docs_urls) == "registry"
+    assert _mcp_module_for_tool(get_api_docs_urls) == "guidance"
 
 
 def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None:
@@ -525,13 +525,13 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             return_value=cloud_spec,
         ) as mock_get_spec,
     ):
@@ -556,13 +556,13 @@ def test_get_connector_info_falls_back_to_oss_spec() -> None:
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             side_effect=[None, oss_spec],
         ) as mock_get_spec,
     ):
@@ -585,13 +585,13 @@ def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             return_value=None,
         ),
     ):

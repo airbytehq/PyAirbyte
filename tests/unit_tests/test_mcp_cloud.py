@@ -35,6 +35,7 @@ from airbyte.cloud.models import (
     JobStatusEnum,
 )
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
@@ -1254,16 +1255,18 @@ def test_get_agent_skill_docs_tool(
             guidance,
         )[1]
     )
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
 
-    result = cloud_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_agent_skill_docs(
         None,
         docs_skill_id="connector-source:source-1",
         section="setup",
         workspace_id=None,
     )
 
-    assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
+    assert isinstance(result, guidance_mcp.AgentSkillDocsResult)
     assert calls == [
         {
             "skill_id": "connector-source:source-1",
@@ -1297,15 +1300,17 @@ def test_get_agent_skill_docs_tool_connector_id(
             guidance,
         )[1]
     )
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
 
-    result = cloud_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_agent_skill_docs(
         None,
         connector_id="source-1",
         workspace_id=None,
     )
 
-    assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
+    assert isinstance(result, guidance_mcp.AgentSkillDocsResult)
     assert calls == [{"skill_id": None, "connector_id": "source-1", "section": None}]
     assert result.skill_id == "connector-source:source-1"
 

@@ -362,8 +362,8 @@ def test_validate_airbyte_domains_rejects_unknown_domain(
     ("include_domains", "disabled_domains"),
     [
         pytest.param("cloud", None, id="include-cloud"),
-        pytest.param("cloud,kapa", None, id="include-cloud-and-kapa"),
-        pytest.param(None, "kapa", id="disable-kapa"),
+        pytest.param("cloud,guidance", None, id="include-cloud-and-guidance"),
+        pytest.param(None, "guidance", id="disable-guidance"),
     ],
 )
 def test_validate_airbyte_domains_allows_known_single_domain(

@@ -43,7 +43,7 @@ Environment variables:
 - `KAPA_RETRIEVAL_API_URL`: optional Kapa Retrieval API endpoint, including the project ID.
 
 Both settings are required to enable `search_airbyte_knowledge_sources`, which
-belongs to the `kapa` domain and can be selected with `AIRBYTE_MCP_DOMAINS` or
+belongs to the `guidance` domain and can be selected with `AIRBYTE_MCP_DOMAINS` or
 `AIRBYTE_MCP_DOMAINS_DISABLED`.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
@@ -234,7 +234,6 @@ from airbyte.mcp._transport_security import (
     HostOriginGuardMiddleware,
     resolve_allowed_hosts,
 )
-from airbyte.mcp.kapa import register_kapa_tools
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -356,7 +355,6 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
-    register_kapa_tools(app)
     install(app)
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path

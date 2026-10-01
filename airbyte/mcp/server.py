@@ -102,6 +102,7 @@ from airbyte.mcp._tool_utils import (
     WORKSPACE_ID_CONFIG_ARG,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
+    airbyte_tool_availability_filter,
     validate_airbyte_domains,
 )
 from airbyte.mcp._user_identity import (
@@ -110,9 +111,9 @@ from airbyte.mcp._user_identity import (
     current_airbyte_user_id,
 )
 from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.guidance import register_guidance_tools
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
-from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
 from airbyte.secrets import SecretSourceEnum
 from airbyte.secrets.config import disable_secret_source
@@ -506,6 +507,7 @@ app = mcp_server(
     tool_filters=[
         airbyte_readonly_mode_filter,
         airbyte_module_filter,
+        airbyte_tool_availability_filter,
     ],
     auth=_create_auth(),
     lifespan=_mcp_mode_lifespan,
@@ -533,7 +535,7 @@ register_cloud_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
-register_prompts(app)
+register_guidance_tools(app)
 
 validate_airbyte_domains(app)
 
