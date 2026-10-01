@@ -539,6 +539,7 @@ def _source_payload(connector_id: str, name: str = "Gong") -> SimpleNamespace:
         source_id=connector_id,
         name=name,
         definition_id="source-gong",
+        configuration=None,
     )
 
 

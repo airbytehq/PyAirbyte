@@ -129,8 +129,9 @@ CLOUD_AUTH_TIP_TEXT = (
 )
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
-    '"deleteme" (case insensitive). Do not rename the resource yourself to satisfy this '
-    "requirement; ask the user to confirm deletion or rename it themselves first."
+    '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
+    "resource yourself to satisfy this requirement; ask the user to confirm deletion or "
+    "rename it themselves first."
 )
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the "
@@ -3383,8 +3384,6 @@ def permanently_delete_custom_source_definition(
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
-    If the connector does not meet this requirement, the deletion will be rejected.
-
     The provided name must match the actual name of the definition for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
 
@@ -3452,8 +3451,6 @@ def permanently_delete_cloud_connector(
     ],
 ) -> str:
     """Permanently delete a deployed source or destination connector from Airbyte Cloud.
-
-    If the connector does not meet this requirement, the deletion will be rejected.
 
     The provided name must match the actual name of the connector for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3537,8 +3534,6 @@ def permanently_delete_cloud_connection(
     ],
 ) -> str:
     """Permanently delete a connection from Airbyte Cloud.
-
-    If the connection does not meet this requirement, the deletion will be rejected.
 
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
