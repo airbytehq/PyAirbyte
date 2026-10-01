@@ -118,7 +118,7 @@ class _LruCache(Generic[_ValueT]):
 _user_id_cache = _LruCache[AirbyteUser](max_entries=USER_ID_CACHE_MAX_ENTRIES)
 _workspace_organization_id_cache = _LruCache[str](max_entries=USER_ID_CACHE_MAX_ENTRIES)
 _default_organization_lookup_failed_at = _LruCache[float](max_entries=USER_ID_CACHE_MAX_ENTRIES)
-_pending_default_organization_lookups: set[asyncio.Task[str | None]] = set()
+_pending_default_organization_lookups: dict[str, asyncio.Task[str | None]] = {}
 
 
 def forget_cached_airbyte_user() -> None:
@@ -338,16 +338,18 @@ async def resolve_call_workspace_organization_id(
         return None
 
     bearer_token, api_root, config_api_root = credentials
-    lookup = asyncio.create_task(
-        resolve_workspace_organization_id(
-            workspace_id,
-            bearer_token=bearer_token,
-            api_root=api_root,
-            config_api_root=config_api_root,
+    lookup = _pending_default_organization_lookups.get(workspace_id)
+    if lookup is None:
+        lookup = asyncio.create_task(
+            resolve_workspace_organization_id(
+                workspace_id,
+                bearer_token=bearer_token,
+                api_root=api_root,
+                config_api_root=config_api_root,
+            )
         )
-    )
-    _pending_default_organization_lookups.add(lookup)
-    lookup.add_done_callback(_pending_default_organization_lookups.discard)
+        _pending_default_organization_lookups[workspace_id] = lookup
+        lookup.add_done_callback(lambda _: _pending_default_organization_lookups.pop(workspace_id))
     organization_id: str | None = None
     try:
         organization_id = await asyncio.wait_for(

@@ -194,8 +194,9 @@ Tool spans expose `auth_method`, `mcp_protocol_version`, `session_id`, `workspac
 when available. Session IDs are digests, never raw tokens. Workspace/org IDs use the
 same effective-call scope as analytics. When only the workspace is known, tracing
 reuses the organization lookup/cache with at most one second of additional waiting;
-slower lookups can warm the cache for later calls. Failed lookups leave the org absent,
-and cancellation skips enrichment. Calls never inherit an unrelated default org.
+concurrent calls share a pending lookup, and slower lookups can warm the cache for
+later calls. Failed lookups leave the org absent. Cancellation stops waiting and is
+recorded as `cancelled`. Calls never inherit an unrelated default org.
 These fields are metadata, not tool Input.
 
 `airbyte.mcp.outcome` / metadata `outcome` is `success`, `tool_error`, `exception` or

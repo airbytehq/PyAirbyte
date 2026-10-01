@@ -398,9 +398,15 @@ class IntentCaptureMiddleware(Middleware):
                 else:
                     return result
                 finally:
-                    if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
-                        await enrich_call_scope(context.fastmcp_context)
-                    _record_default_workspace()
+                    try:
+                        if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
+                            await enrich_call_scope(context.fastmcp_context)
+                    except asyncio.CancelledError as exc:
+                        span.set_status(Status(StatusCode.ERROR))
+                        _record_late_attributes(_exception_attributes(exc))
+                        raise
+                    finally:
+                        _record_default_workspace()
         finally:
             _INTENT_ATTRIBUTES.reset(token)
 
@@ -478,7 +484,7 @@ def _request_trace_attributes() -> dict[str, str]:
     """Reuse analytics context, exporting only bounded labels and the session digest."""
     from fastmcp.server.dependencies import get_http_headers, get_http_request
 
-    from airbyte.mcp._telemetry import request_properties
+    from airbyte.mcp._telemetry import _SESSION_ID_STATE_KEY, request_properties
 
     attrs: dict[str, str] = {}
     try:
@@ -506,14 +512,18 @@ def _request_trace_attributes() -> dict[str, str]:
             attrs["airbyte.mcp.session_id"] = session
     except Exception:
         logger.debug("Request trace attributes unavailable")
-    # The HTTP wrapper already hashes this header. Never accept a raw token if
-    # the middleware is used outside the hosted stack.
+    # Only request state proves that a wrapper hashed the header. Its shape alone
+    # cannot distinguish a digest from a caller-supplied hexadecimal token.
     try:
         headers = get_http_headers(include={MCP_SESSION_ID_HEADER, "mcp-protocol-version"})
         if "airbyte.mcp.session_id" not in attrs:
-            session = headers.get(MCP_SESSION_ID_HEADER)
-            if session and re.fullmatch(r"[0-9a-f]{64}", session):
+            session = get_http_request().scope.get("state", {}).get(_SESSION_ID_STATE_KEY)
+            if isinstance(session, str) and re.fullmatch(r"[0-9a-f]{64}", session):
                 attrs["airbyte.mcp.session_id"] = session
+            elif raw_session := headers.get(MCP_SESSION_ID_HEADER):
+                attrs["airbyte.mcp.session_id"] = hashlib.sha256(
+                    raw_session.encode("latin-1")
+                ).hexdigest()
         if "airbyte.mcp.mcp_protocol_version" not in attrs and (
             protocol := _client_label(headers.get("mcp-protocol-version"))
         ):
@@ -660,6 +670,11 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        if "mcp.session.id" in attrs:
+            # FastMCP can copy the raw header on apps without our HTTP wrapper.
+            attrs.pop("mcp.session.id")
+            if session := attrs.get("airbyte.mcp.session_id"):
+                attrs["mcp.session.id"] = session
         entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
         action = attrs.pop("airbyte.mcp.agent.action", None)
         tool_name = span.name.removeprefix("tools/call ")
@@ -807,6 +822,11 @@ class SessionIdHeaderDigest:
             headers: list[tuple[bytes, bytes]] = scope.get("headers") or []
             raw = next((value for name, value in headers if name.lower() == key), None)
             if raw is not None:
+                from airbyte.mcp._telemetry import _SESSION_ID_STATE_KEY
+
+                scope.setdefault("state", {})[_SESSION_ID_STATE_KEY] = hashlib.sha256(
+                    raw
+                ).hexdigest()
                 try:
                     extensions = decode_capability_token(raw.decode("latin-1"))
                 except Exception:

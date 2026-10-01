@@ -616,6 +616,54 @@ def _native_http_contract():
         assert cancelled_metadata["outcome"] == "cancelled"
         assert cancelled_metadata["error_type"] == "CancelledError"
 
+        # Cancellation arriving after tool completion must still reach the native
+        # outcome and retain already-known metadata while restoring its parent.
+        intent_middleware = next(
+            item
+            for item in app.middleware
+            if isinstance(item, _datadog._DatadogIntentMiddleware)
+        )
+        for tool_fails in (False, True):
+            enriching = asyncio.Event()
+
+            async def enrich(_ctx):
+                enriching.set()
+                await asyncio.Future()
+
+            async def tool(_ctx):
+                if tool_fails:
+                    raise ValueError("private synthetic result")
+                return ToolResult(content="private synthetic result")
+
+            async def dispatch(_ctx):
+                return await intent_middleware._trace_call(
+                    SimpleNamespace(fastmcp_context=None),
+                    tool,
+                    {"airbyte.mcp.intent": "Preserve safe metadata on cancellation"},
+                )
+
+            with patch.object(_scope, "enrich_call_scope", enrich):
+                task = asyncio.create_task(
+                    _datadog._DatadogRequestMiddleware()(
+                        SimpleNamespace(
+                            method="tools/call", params={"name": "enrich_cancel"}
+                        ),
+                        dispatch,
+                    )
+                )
+                await asyncio.wait_for(enriching.wait(), 5)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            span = next(span for span in reversed(spans) if span.span_type == "llm")
+            metadata = span._get_ctx_item("_llmobs.cached_event")["meta"]["metadata"]
+            assert metadata["outcome"] == "cancelled"
+            assert (
+                metadata["error_type"] == span.get_tag("error.type") == "CancelledError"
+            )
+            assert metadata["intent"] == "Preserve safe metadata on cancellation"
+            assert span.get_tag("error.stack") is None
+
     try:
         with (
             patch.object(

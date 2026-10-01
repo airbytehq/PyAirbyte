@@ -1835,6 +1835,44 @@ def test_cancelled_tool_outcome_is_exported_without_exception_text(
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
+@pytest.mark.parametrize("tool_fails", [False, True])
+def test_cancellation_during_enrichment_replaces_outcome(
+    app, monkeypatch, otel_provider, tool_fails
+):
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+
+    @app.tool()
+    async def example() -> str:
+        if tool_fails:
+            raise ValueError("private-tool-SENTINEL")
+        return "ok"
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "example", "cloud")
+
+    async def run():
+        enriching = asyncio.Event()
+
+        async def enrich(_ctx):
+            enriching.set()
+            await asyncio.Future()
+
+        monkeypatch.setattr(observability, "enrich_call_scope", enrich)
+        task = asyncio.create_task(app.call_tool("example", {}))
+        await asyncio.wait_for(enriching.wait(), 5)
+        task.cancel("private-cancellation-SENTINEL")
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+    span = _tool_span(otel_provider)
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.attributes["airbyte.mcp.outcome"] == "cancelled"
+    assert span.attributes["airbyte.mcp.error_type"] == "CancelledError"
+    assert span.attributes["error.type"] == "CancelledError"
+    assert json.loads(span.attributes["_dd.ml_obs.metadata"])["outcome"] == "cancelled"
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
 @pytest.mark.parametrize("explicit", [True, False])
 def test_workspace_organization_enrichment_matches_analytics_and_actual_scope(
     agents_app, monkeypatch, otel_provider, explicit

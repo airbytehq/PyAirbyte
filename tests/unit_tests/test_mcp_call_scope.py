@@ -397,3 +397,54 @@ def test_explicit_org_does_not_trigger_redundant_lookup(monkeypatch):
         unexpected.assert_not_awaited()
     finally:
         _scope._CALL_SCOPE.reset(token)
+
+
+def test_concurrent_workspace_lookups_share_work_and_survive_waiter_cancellation(
+    monkeypatch, verified_user
+):
+    resolve = _user_identity.resolve_workspace_organization_id
+
+    async def run():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        started_workspaces = []
+
+        async def delayed(workspace, **kwargs):
+            started_workspaces.append(workspace)
+            if len(started_workspaces) == 2:
+                started.set()
+            await release.wait()
+            return await resolve(workspace, **kwargs)
+
+        monkeypatch.setattr(
+            _user_identity, "resolve_workspace_organization_id", delayed
+        )
+        tasks = [
+            asyncio.create_task(
+                _user_identity.resolve_call_workspace_organization_id(workspace, None)
+            )
+            for workspace in [WORKSPACE] * 5 + [OTHER_WORKSPACE] * 5
+        ]
+        try:
+            await asyncio.wait_for(started.wait(), 5)
+            tasks[0].cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await tasks[0]
+            release.set()
+            assert await asyncio.gather(*tasks[1:]) == [ORGANIZATION] * 9
+            assert sorted(started_workspaces) == sorted([WORKSPACE, OTHER_WORKSPACE])
+            assert (
+                await _user_identity.resolve_call_workspace_organization_id(
+                    WORKSPACE, None
+                )
+                == ORGANIZATION
+            )
+            assert not _user_identity._pending_default_organization_lookups
+        finally:
+            release.set()
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    asyncio.run(run())
+    assert sorted(verified_user) == sorted([WORKSPACE, OTHER_WORKSPACE])

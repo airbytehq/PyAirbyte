@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 
 import httpx
@@ -272,3 +273,42 @@ def test_request_metadata_omits_missing_or_raw_identifiers(monkeypatch, session)
         if session == "a" * 64
         else {}
     )
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("raw_session", ["a" * 64, "private-session-SENTINEL"])
+def test_http_session_header_is_hashed_once(
+    client_app, monkeypatch, otel_provider, wrapped, raw_session
+):
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+
+    async def run():
+        raw = client_app.http_app(path="/mcp", stateless_http=True, json_response=True)
+        http_app = observability.SessionIdHeaderDigest(raw) if wrapped else raw
+        async with raw.router.lifespan_context(raw):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=http_app),
+                base_url="http://testserver",
+            ) as client:
+                response = await client.post(
+                    "/mcp",
+                    headers={
+                        "accept": "application/json, text/event-stream",
+                        "mcp-session-id": raw_session,
+                    },
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": "echo", "arguments": {"value": "ok"}},
+                    },
+                )
+                assert response.status_code == 200
+                assert not response.json()["result"].get("isError")
+
+    asyncio.run(run())
+    attrs = _tool_span(otel_provider).attributes
+    digest = hashlib.sha256(raw_session.encode()).hexdigest()
+    assert attrs["airbyte.mcp.session_id"] == attrs["gen_ai.conversation.id"] == digest
+    assert json.loads(attrs["_dd.ml_obs.metadata"])["session_id"] == digest
+    assert raw_session not in _export_text(otel_provider)

@@ -147,18 +147,23 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                         enrich_call_scope,
                     )
 
-                    if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
-                        await enrich_call_scope(context.fastmcp_context)
-                    scope = current_call_scope()
-                    if scope is not None:
-                        attrs.update(
-                            {
-                                f"airbyte.mcp.{key}": value
-                                for key, value in scope.resolved().to_properties().items()
-                                if value is not None
-                            }
-                        )
-                    _annotate_attributes(span, attrs)
+                    try:
+                        if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
+                            await enrich_call_scope(context.fastmcp_context)
+                    except asyncio.CancelledError as exc:
+                        attrs.update(_exception_attributes(exc))
+                        raise
+                    finally:
+                        scope = current_call_scope()
+                        if scope is not None:
+                            attrs.update(
+                                {
+                                    f"airbyte.mcp.{key}": value
+                                    for key, value in scope.resolved().to_properties().items()
+                                    if value is not None
+                                }
+                            )
+                        _annotate_attributes(span, attrs)
                 except Exception:
                     logger.debug("Datadog tool attributes unavailable")
 
