@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import json
@@ -33,7 +34,7 @@ from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
 )
-from airbyte.mcp._scope import current_call_scope, scope_from_request
+from airbyte.mcp._scope import current_call_scope, enrich_call_scope, scope_from_request
 from airbyte.version import get_version
 
 
@@ -372,27 +373,33 @@ class IntentCaptureMiddleware(Middleware):
                         logger.debug("Intent stamping skipped")
                     result = await call_next(context)
                     try:
+                        span.set_attribute("airbyte.mcp.outcome", "success")
                         if result.is_error and context.message.name in _TOOL_MODULES:
                             # Never read error content: only a fixed category leaves here.
                             span.set_status(Status(StatusCode.ERROR))
                             span.set_attributes(
-                                {"airbyte.mcp.error_type": "ToolError", "error.type": "ToolError"}
+                                {
+                                    "airbyte.mcp.error_type": "ToolError",
+                                    "error.type": "ToolError",
+                                    "airbyte.mcp.outcome": "tool_error",
+                                }
                             )
                     except Exception:
                         logger.debug("Tool error status capture skipped")
-                except Exception as exc:
+                except BaseException as exc:
                     # HTTP converts exceptions into protocol errors before its
                     # seam ends, so retain the original class at this boundary.
                     try:
-                        _record_late_attributes(
-                            {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
-                        )
+                        span.set_status(Status(StatusCode.ERROR))
+                        _record_late_attributes(_exception_attributes(exc))
                     except Exception:
                         logger.debug("Exception class capture skipped")
                     raise
                 else:
                     return result
                 finally:
+                    if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
+                        await enrich_call_scope(context.fastmcp_context)
                     _record_default_workspace()
         finally:
             _INTENT_ATTRIBUTES.reset(token)
@@ -402,10 +409,7 @@ class IntentCaptureMiddleware(Middleware):
         context: MiddlewareContext[CallToolRequestParams],
         intent: object,
     ) -> dict[str, str | bool]:
-        from fastmcp.server.dependencies import get_http_headers
-
         from airbyte._util.meta import get_cloud_api_analytic_source
-        from airbyte.mcp._telemetry import request_properties
 
         name = context.message.name
         intent = intent.strip() if isinstance(intent, str) else ""
@@ -418,13 +422,7 @@ class IntentCaptureMiddleware(Middleware):
             "airbyte.mcp.intent_present": bool(intent),
             "airbyte.mcp.analytic_source": get_cloud_api_analytic_source(),
         }
-        try:
-            properties = request_properties()
-            for key in ("client_name", "client_version"):
-                if value := _client_label(properties.get(f"mcp_{key}")):
-                    attrs[f"airbyte.mcp.{key}"] = value
-        except Exception:
-            logger.debug("Client trace attributes unavailable")
+        attrs.update(_request_trace_attributes())
         if intent:
             attrs["airbyte.mcp.intent"] = intent
         arguments = context.message.arguments or {}
@@ -459,9 +457,6 @@ class IntentCaptureMiddleware(Middleware):
                     "airbyte.mcp.tool_destructive": bool(hints.get("destructiveHint", False)),
                 }
             )
-        digest = get_http_headers(include={MCP_SESSION_ID_HEADER}).get(MCP_SESSION_ID_HEADER)
-        if digest:
-            attrs["gen_ai.conversation.id"] = digest
         if context.fastmcp_context is not None:
             attrs["gen_ai.tool.call.id"] = _call_id_digest(context.fastmcp_context.request_id)
         scope = current_call_scope() or scope_from_request(context)
@@ -479,23 +474,79 @@ class IntentCaptureMiddleware(Middleware):
         return attrs
 
 
+def _request_trace_attributes() -> dict[str, str]:
+    """Reuse analytics context, exporting only bounded labels and the session digest."""
+    from fastmcp.server.dependencies import get_http_headers, get_http_request
+
+    from airbyte.mcp._telemetry import request_properties
+
+    attrs: dict[str, str] = {}
+    try:
+        properties = request_properties()
+        for field, key in (
+            ("client_name", "mcp_client_name"),
+            ("client_version", "mcp_client_version"),
+            ("mcp_protocol_version", "mcp_protocol_version"),
+        ):
+            if value := _client_label(properties.get(key)):
+                attrs[f"airbyte.mcp.{field}"] = value
+        if properties.get("auth_method") in {"bearer", "client_credentials", "none"}:
+            attrs["airbyte.mcp.auth_method"] = str(properties["auth_method"])
+        session = properties.get("session_id")
+        if properties.get("transport") == "stdio" and isinstance(session, str):
+            try:
+                get_http_request()
+            except RuntimeError:
+                session = hashlib.sha256(session.encode()).hexdigest()
+            else:
+                # A manually hosted app may not set PyAirbyte's hosted-mode flag.
+                # Its process-wide stdio ID must not group unrelated HTTP clients.
+                session = None
+        if isinstance(session, str) and re.fullmatch(r"[0-9a-f]{64}", session):
+            attrs["airbyte.mcp.session_id"] = session
+    except Exception:
+        logger.debug("Request trace attributes unavailable")
+    # The HTTP wrapper already hashes this header. Never accept a raw token if
+    # the middleware is used outside the hosted stack.
+    try:
+        headers = get_http_headers(include={MCP_SESSION_ID_HEADER, "mcp-protocol-version"})
+        if "airbyte.mcp.session_id" not in attrs:
+            session = headers.get(MCP_SESSION_ID_HEADER)
+            if session and re.fullmatch(r"[0-9a-f]{64}", session):
+                attrs["airbyte.mcp.session_id"] = session
+        if "airbyte.mcp.mcp_protocol_version" not in attrs and (
+            protocol := _client_label(headers.get("mcp-protocol-version"))
+        ):
+            attrs["airbyte.mcp.mcp_protocol_version"] = protocol
+    except Exception:
+        logger.debug("Request header trace attributes unavailable")
+    if session := attrs.get("airbyte.mcp.session_id"):
+        attrs["gen_ai.conversation.id"] = session
+    return attrs
+
+
+def _exception_attributes(error: BaseException) -> dict[str, str]:
+    """Classify a failure without reading its potentially sensitive text."""
+    return {
+        "airbyte.mcp.outcome": "cancelled"
+        if isinstance(error, asyncio.CancelledError)
+        else "exception",
+        "airbyte.mcp.error_type": type(error.__cause__ or error).__name__,
+        "error.type": type(error.__cause__ or error).__name__,
+    }
+
+
 def _record_default_workspace() -> None:
     """Attach the scope only known once the tool has run: its default workspace or org."""
     call_scope = current_call_scope()
     scope = call_scope.resolved() if call_scope is not None else None
     if scope is None:
         return
-    late_attributes: dict[str, str] = {}
-    if scope.workspace_source == "default" and scope.workspace_id:
-        late_attributes = {
-            "airbyte.mcp.workspace_id": scope.workspace_id,
-            "airbyte.mcp.scope_source": "default",
-        }
-    elif scope.organization_source == "user_default" and scope.organization_id:
-        late_attributes = {
-            "airbyte.mcp.organization_id": scope.organization_id,
-            "airbyte.mcp.scope_source": "user_default",
-        }
+    late_attributes = {
+        f"airbyte.mcp.{key}": value
+        for key, value in scope.to_properties().items()
+        if value is not None
+    }
     if late_attributes:
         try:
             _record_late_attributes(late_attributes)
@@ -546,9 +597,9 @@ class IntentStampProcessor(SpanProcessor):
                 # Bound state when the batch processor discards spans from a full queue.
                 if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
                     _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-                _LATE_ATTRIBUTES[span.context.span_id] = {
-                    "airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__
-                }
+                _LATE_ATTRIBUTES.setdefault(span.context.span_id, {}).update(
+                    _exception_attributes(exc)
+                )
         except Exception:
             logger.debug("Exception class capture skipped")
 
@@ -653,6 +704,10 @@ class RedactingExporter(SpanExporter):
                     "organization_id",
                     "scope_source",
                     "error_type",
+                    "outcome",
+                    "auth_method",
+                    "mcp_protocol_version",
+                    "session_id",
                     "agent.action",
                     "agent.entity_type",
                     "client_name",

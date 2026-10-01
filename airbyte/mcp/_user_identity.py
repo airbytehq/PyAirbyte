@@ -317,7 +317,13 @@ async def resolve_user_default_organization_id(ctx: Context | None) -> str | Non
     user = _current_airbyte_user.get()
     if user is None or user.default_workspace_id is None:
         return None
-    workspace_id = user.default_workspace_id
+    return await resolve_call_workspace_organization_id(user.default_workspace_id, ctx)
+
+
+async def resolve_call_workspace_organization_id(
+    workspace_id: str, ctx: Context | None
+) -> str | None:
+    """Resolve a call's workspace organization with the existing bounded wait and cache."""
     cached_organization_id = _workspace_organization_id_cache.get(workspace_id)
     if cached_organization_id is not None:
         return cached_organization_id

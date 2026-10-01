@@ -132,6 +132,19 @@ def test_http_client_identity_success_validation_and_request_isolation(
         assert attrs.get("airbyte.mcp.client_name") == expected[0]
         assert attrs.get("airbyte.mcp.client_version") == expected[1]
         metadata = json.loads(attrs["_dd.ml_obs.metadata"])
+        assert metadata["auth_method"] == "none"
+        assert attrs["airbyte.mcp.auth_method"] == "none"
+        if modern:
+            assert "session_id" not in metadata
+            assert "airbyte.mcp.session_id" not in attrs
+        else:
+            session = attrs["gen_ai.conversation.id"]
+            assert len(session) == 64
+            assert metadata["session_id"] == attrs["airbyte.mcp.session_id"] == session
+        if modern or index < 4:
+            expected_protocol = "2026-07-28" if modern else "2025-06-18"
+            assert metadata["mcp_protocol_version"] == expected_protocol
+            assert attrs["airbyte.mcp.mcp_protocol_version"] == expected_protocol
         assert metadata.get("client_name") == expected[0]
         assert metadata.get("client_version") == expected[1]
         assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
@@ -235,3 +248,27 @@ def test_exporter_revalidates_injected_client_fields(
         else:
             assert "_dd.ml_obs.metadata" not in attrs
     assert PRIVATE not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("session", [None, "raw-private-session-SENTINEL", "a" * 64])
+def test_request_metadata_omits_missing_or_raw_identifiers(monkeypatch, session):
+    monkeypatch.setattr(
+        _telemetry,
+        "request_properties",
+        lambda: {
+            "session_id": session,
+            "auth_method": "invalid-SENTINEL",
+            "mcp_protocol_version": "bad\nprotocol-SENTINEL",
+            "workspace_id": "private-workspace-SENTINEL",
+            "organization_id": "private-org-SENTINEL",
+        },
+    )
+    attributes = observability._request_trace_attributes()
+    assert attributes == (
+        {
+            "airbyte.mcp.session_id": session,
+            "gen_ai.conversation.id": session,
+        }
+        if session == "a" * 64
+        else {}
+    )

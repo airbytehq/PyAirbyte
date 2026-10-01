@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
@@ -24,7 +25,9 @@ from airbyte.mcp._otel import (
     IntentCaptureMiddleware,
     _build_tool_maps,
     _env,
+    _exception_attributes,
     _flag,
+    _request_trace_attributes,
 )
 from airbyte.version import get_version
 
@@ -120,7 +123,6 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
     ) -> ToolResult:
         """Reuse common intent/action extraction without creating an OTel span."""
         from ddtrace import tracer  # noqa: PLC0415
-        from ddtrace.llmobs import LLMObs  # noqa: PLC0415
 
         # Native SDK spans describe protocol calls. An in-process nested tool
         # must not overwrite the request span's identity or handled error class.
@@ -133,43 +135,52 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
             span = None
         try:
             return await call_next(context)
-        except Exception as exc:
-            attrs["airbyte.mcp.error_type"] = type(exc.__cause__ or exc).__name__
+        except BaseException as exc:
+            attrs.update(_exception_attributes(exc))
             raise
         finally:
             _INTENT_ATTRIBUTES.reset(token)
             if span is not None:
                 try:
-                    from airbyte.mcp._scope import current_call_scope  # noqa: PLC0415
-
-                    scope = current_call_scope()
-                    if scope and scope.workspace_source == "default" and scope.workspace_id:
-                        attrs["airbyte.mcp.workspace_id"] = scope.workspace_id
-                        attrs["airbyte.mcp.scope_source"] = "default"
-                    span.set_tags({key: str(value) for key, value in attrs.items()})
-                    LLMObs.annotate(
-                        span,
-                        metadata={
-                            **{
-                                key.removeprefix("airbyte.mcp."): value
-                                for key, value in attrs.items()
-                                if key.startswith("airbyte.mcp.")
-                            },
-                            **(
-                                {"tool_id": attrs["gen_ai.tool.call.id"]}
-                                if "gen_ai.tool.call.id" in attrs
-                                else {}
-                            ),
-                        },
+                    from airbyte.mcp._scope import (  # noqa: PLC0415
+                        current_call_scope,
+                        enrich_call_scope,
                     )
+
+                    if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
+                        await enrich_call_scope(context.fastmcp_context)
+                    scope = current_call_scope()
+                    if scope is not None:
+                        attrs.update(
+                            {
+                                f"airbyte.mcp.{key}": value
+                                for key, value in scope.resolved().to_properties().items()
+                                if value is not None
+                            }
+                        )
+                    _annotate_attributes(span, attrs)
                 except Exception:
                     logger.debug("Datadog tool attributes unavailable")
+
+
+def _annotate_attributes(span: Span, attrs: Mapping[str, str | bool]) -> None:
+    """Keep native APM attributes and LLM metadata consistent."""
+    from ddtrace.llmobs import LLMObs  # noqa: PLC0415
+
+    span.set_tags({key: str(value) for key, value in attrs.items()})
+    metadata = {
+        key.removeprefix("airbyte.mcp."): value
+        for key, value in attrs.items()
+        if key.startswith("airbyte.mcp.")
+    }
+    if "gen_ai.tool.call.id" in attrs:
+        metadata["tool_id"] = attrs["gen_ai.tool.call.id"]
+    LLMObs.annotate(span, metadata=metadata)
 
 
 def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
     """Annotate protocol identity without copying tool arguments into the SDK."""
     from ddtrace.llmobs import LLMObs  # noqa: PLC0415
-    from fastmcp.server.dependencies import get_http_headers  # noqa: PLC0415
 
     request_types = {
         "initialize": InitializeRequest,
@@ -188,7 +199,36 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
                 client_name=str(client["name"]),
                 client_version=f"{client['name']}_{client['version']}",
             )
-    session = get_http_headers(include={"mcp-session-id"}).get("mcp-session-id")
+    attrs = _request_trace_attributes()
+    if tool_call:
+        try:
+            from fastmcp.server.dependencies import get_context  # noqa: PLC0415
+            from fastmcp.server.middleware import MiddlewareContext  # noqa: PLC0415
+            from mcp.types import CallToolRequestParams  # noqa: PLC0415
+
+            from airbyte.mcp._scope import scope_from_request  # noqa: PLC0415
+
+            try:
+                fastmcp_context = get_context()
+            except RuntimeError:
+                fastmcp_context = None
+            scope = scope_from_request(
+                MiddlewareContext(
+                    message=CallToolRequestParams.model_validate(params),
+                    fastmcp_context=fastmcp_context,
+                )
+            )
+            attrs.update(
+                {
+                    f"airbyte.mcp.{key}": value
+                    for key, value in scope.to_properties().items()
+                    if value is not None
+                }
+            )
+        except Exception:
+            logger.debug("Early tool scope unavailable")
+    _annotate_attributes(span, attrs)
+    session = attrs.get("airbyte.mcp.session_id")
     if session:
         tags["mcp_session_id"] = session
     LLMObs.annotate(
@@ -300,8 +340,19 @@ class _DatadogRequestMiddleware:
                     output = REDACTED if tool_call else response.model_dump(mode="json")
                     if tool_call and getattr(response, "is_error", False):
                         span.error = 1
-                        span.set_tag("error.type", "ToolError")
+                        error_type = span.get_tag("airbyte.mcp.error_type") or "ToolError"
+                        _annotate_attributes(
+                            span,
+                            {
+                                "airbyte.mcp.outcome": span.get_tag("airbyte.mcp.outcome")
+                                or "tool_error",
+                                "airbyte.mcp.error_type": error_type,
+                                "error.type": error_type,
+                            },
+                        )
                         span.set_tag("error.message", "tool resulted in an error")
+                    else:
+                        _annotate_attributes(span, {"airbyte.mcp.outcome": "success"})
                     LLMObs.annotate(span, output_data=output)
                 except Exception:
                     logger.debug("Datadog response attributes unavailable")
@@ -313,7 +364,7 @@ class _DatadogRequestMiddleware:
                     # and traceback, which can contain arguments and results.
                     if error := sys.exc_info()[1]:
                         span.error = 1
-                        span.set_tag("error.type", type(error).__name__)
+                        _annotate_attributes(span, _exception_attributes(error))
                     span.__exit__(None, None, None)
             except Exception:
                 logger.debug("Datadog span completion failed")

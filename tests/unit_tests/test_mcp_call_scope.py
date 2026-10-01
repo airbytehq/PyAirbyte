@@ -347,3 +347,53 @@ def test_slow_default_organization_lookup_does_not_block_the_tool(
         (None, ORGANIZATION, "user_default"),
     ]
     assert verified_user == [OTHER_WORKSPACE]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_effective_workspace_organization_lookup_is_cached_and_failure_is_optional(
+    monkeypatch, verified_user, fails
+):
+    lookups = []
+
+    def lookup(workspace_id, **_):
+        lookups.append(workspace_id)
+        if fails:
+            raise PermissionError("private error")
+        return {"organizationId": ORGANIZATION}
+
+    monkeypatch.setattr(api_util, "get_workspace_organization_info", lookup)
+
+    async def run():
+        for _ in range(2):
+            scope = _scope.CallScope(
+                workspace_id=WORKSPACE,
+                workspace_source="arg",
+                user_default_organization_id="99999999-9999-9999-9999-999999999999",
+            )
+            token = _scope._CALL_SCOPE.set(scope)
+            try:
+                await _scope.enrich_call_scope(None)
+                assert scope.resolved().organization_id == (
+                    None if fails else ORGANIZATION
+                )
+                assert scope.workspace_id == WORKSPACE
+            finally:
+                _scope._CALL_SCOPE.reset(token)
+
+    asyncio.run(run())
+    assert lookups == [WORKSPACE]
+
+
+def test_explicit_org_does_not_trigger_redundant_lookup(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    unexpected = AsyncMock()
+    monkeypatch.setattr(_scope, "resolve_call_workspace_organization_id", unexpected)
+    scope = _scope.CallScope(workspace_id=WORKSPACE, organization_id=ORGANIZATION)
+    token = _scope._CALL_SCOPE.set(scope)
+    try:
+        asyncio.run(_scope.enrich_call_scope(None))
+        assert scope.organization_id == ORGANIZATION
+        unexpected.assert_not_awaited()
+    finally:
+        _scope._CALL_SCOPE.reset(token)
