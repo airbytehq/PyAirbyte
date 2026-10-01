@@ -150,7 +150,7 @@ The repo ships a small script (`scripts/generate_mcp_markdown.py`) that
 introspects the MCP server via `fastmcp inspect` and emits a Markdown
 documentation site under `docs/mcp-generated/` (git-ignored). The output is
 plain CommonMark with no MDX-only components, so it is both Docusaurus-hostable
-and consumable by `pdoc` — the four `airbyte.mcp.{cloud,local,registry,prompts}`
+and consumable by `pdoc` — the four `airbyte.mcp.{cloud,local,registry,guidance}`
 modules pull their respective generated file in via pdoc's `.. include::`
 directive, so `poe docs-generate` surfaces the generated tool docs on each
 module's pdoc page alongside the regular `docs/generated/` output.
@@ -167,7 +167,7 @@ PyAirbyte server that is:
 - `cloud.md` — tools registered by `airbyte.mcp.cloud`
 - `local.md` — tools registered by `airbyte.mcp.local`
 - `registry.md` — tools registered by `airbyte.mcp.registry`
-- `prompts.md` — prompts registered by `airbyte.mcp.prompts`
+- `guidance.md` — tools and prompts registered by `airbyte.mcp.guidance`
 - `misc.md` — anything without an `mcp_module` annotation (currently just the
   `server_info` resource)
 

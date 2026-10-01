@@ -110,9 +110,15 @@ from airbyte.mcp._user_identity import (
     current_airbyte_user_id,
 )
 from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.guidance import (
+    KAPA_API_KEY_CONFIG_ARG,
+    KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
+    KNOWLEDGE_SEARCH_CAPABILITY,
+    is_knowledge_search_available,
+    register_guidance_tools,
+)
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
-from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
 from airbyte.secrets import SecretSourceEnum
 from airbyte.secrets.config import disable_secret_source
@@ -502,7 +508,12 @@ app = mcp_server(
         API_URL_CONFIG_ARG,
         CONFIG_API_URL_CONFIG_ARG,
         TRUSTED_EXECUTION_CONFIG_ARG,
+        KAPA_API_KEY_CONFIG_ARG,
+        KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
     ],
+    capability_resolvers={
+        KNOWLEDGE_SEARCH_CAPABILITY: is_knowledge_search_available,
+    },
     tool_filters=[
         airbyte_readonly_mode_filter,
         airbyte_module_filter,
@@ -533,7 +544,7 @@ register_cloud_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
-register_prompts(app)
+register_guidance_tools(app)
 
 validate_airbyte_domains(app)
 

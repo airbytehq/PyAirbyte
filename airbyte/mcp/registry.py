@@ -12,30 +12,22 @@ __all__: list[str] = []
 
 # Note: Deferred type evaluation must be avoided due to FastMCP/Pydantic needing
 # types to be available at import time for tool registration.
-import contextlib
 import logging
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import requests
 from fastmcp import FastMCP
 from fastmcp_extensions import mcp_tool, register_mcp_tools
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from airbyte import exceptions as exc
-from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.registry import (
-    _DEFAULT_MANIFEST_URL,
-    ApiDocsUrl,
-    ConnectorMetadata,
     ConnectorVersionInfo,
     InstallType,
     get_available_connectors,
-    get_connector_api_docs_urls,
-    get_connector_metadata,
 )
 from airbyte.registry import get_connector_version_history as _get_connector_version_history
-from airbyte.sources.util import get_source
 
 
 logger = logging.getLogger("airbyte.mcp")
@@ -126,102 +118,6 @@ def list_connectors(
         ]
 
     return sorted(connectors)
-
-
-class ConnectorInfo(BaseModel):
-    """@private Class to hold connector information."""
-
-    connector_name: str
-    connector_metadata: ConnectorMetadata | None = None
-    documentation_url: str | None = None
-    config_spec_jsonschema: dict | None = None
-    manifest_url: str | None = None
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-)
-def get_connector_info(
-    connector_name: Annotated[
-        str,
-        Field(description="The name of the connector to get information for."),
-    ],
-) -> ConnectorInfo | Literal["Connector not found."]:
-    """Get metadata, documentation URL, config spec, and manifest URL for a connector.
-
-    `config_spec_jsonschema` is fetched from the public connector registry over
-    HTTP (no Docker or local install required), preferring the `cloud` spec and
-    falling back to `oss`. It is `None` when the registry has no spec available
-    for the connector.
-    """
-    if connector_name not in get_available_connectors():
-        return "Connector not found."
-
-    connector = get_source(
-        connector_name,
-        install_if_missing=False,  # Defer to avoid failing entirely if it can't be installed.
-    )
-
-    connector_metadata: ConnectorMetadata | None = None
-    with contextlib.suppress(Exception):
-        connector_metadata = get_connector_metadata(connector_name)
-
-    # Resolve the config spec from the public registry endpoint keyed by version,
-    # which works in any runtime (hosted or local) without installing the
-    # connector. Prefer the `cloud` spec and fall back to `oss`.
-    version = connector_metadata.latest_available_version if connector_metadata else None
-    config_spec_jsonschema: dict[str, Any] | None = get_connector_spec_from_registry(
-        connector_name,
-        version=version,
-        platform="cloud",
-    )
-    if config_spec_jsonschema is None:
-        config_spec_jsonschema = get_connector_spec_from_registry(
-            connector_name,
-            version=version,
-            platform="oss",
-        )
-
-    manifest_url = _DEFAULT_MANIFEST_URL.format(
-        source_name=connector_name,
-        version="latest",
-    )
-
-    return ConnectorInfo(
-        connector_name=connector.name,
-        connector_metadata=connector_metadata,
-        documentation_url=connector.docs_url,
-        config_spec_jsonschema=config_spec_jsonschema,
-        manifest_url=manifest_url,
-    )
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-)
-def get_api_docs_urls(
-    connector_name: Annotated[
-        str,
-        Field(
-            description=(
-                "The canonical connector name "
-                "(e.g., 'source-facebook-marketing', 'destination-snowflake')"
-            )
-        ),
-    ],
-) -> list[ApiDocsUrl] | Literal["Connector not found."]:
-    """Get API documentation URLs for a connector.
-
-    This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
-    - Registry metadata (documentationUrl, externalDocumentationUrls)
-    - Connector manifest.yaml file (data.externalDocumentationUrls)
-    """
-    try:
-        return get_connector_api_docs_urls(connector_name)
-    except exc.AirbyteConnectorNotRegisteredError:
-        return "Connector not found."
 
 
 @mcp_tool(
