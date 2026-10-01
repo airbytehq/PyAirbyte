@@ -7,7 +7,9 @@ import asyncio
 import threading
 from collections.abc import Iterator
 from contextvars import ContextVar
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -179,12 +181,15 @@ def test_default_workspace_recorded_from_a_sync_tool_thread(
     """Sync tools run off the event loop; the recorded scope must still reach telemetry."""
     app = FastMCP("scope-test")
     seen: list[dict[str, str | None]] = []
+    lookup = AsyncMock()
+    monkeypatch.setattr(_scope, "resolve_call_workspace_organization_id", lookup)
 
     class _Capture(Middleware):
         async def on_call_tool(self, context, call_next):  # noqa: ANN001, ANN202
             try:
                 return await call_next(context)
             finally:
+                await _scope.enrich_call_scope(None)
                 seen.append(_scope.call_scope_properties())
 
     app.add_middleware(_scope.CallScopeMiddleware())
@@ -194,6 +199,7 @@ def test_default_workspace_recorded_from_a_sync_tool_thread(
     def sync_tool() -> str:
         _scope.record_default_workspace(WORKSPACE)
         _scope.record_default_workspace(OTHER_WORKSPACE)
+        _scope.record_resolved_organization(ORGANIZATION, workspace_id=WORKSPACE)
         return "ok"
 
     async def run() -> None:
@@ -202,8 +208,91 @@ def test_default_workspace_recorded_from_a_sync_tool_thread(
 
     asyncio.run(run())
     assert seen == [
-        {"workspace_id": WORKSPACE, "organization_id": None, "scope_source": "default"}
+        {
+            "workspace_id": WORKSPACE,
+            "organization_id": ORGANIZATION,
+            "scope_source": "default",
+        }
     ]
+    lookup.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "workspace,organization,existing",
+    [
+        (OTHER_WORKSPACE, ORGANIZATION, None),
+        (None, ORGANIZATION, None),
+        ("invalid", ORGANIZATION, None),
+        (WORKSPACE, "invalid", None),
+        (WORKSPACE, ORGANIZATION, USER),
+    ],
+)
+def test_resolved_organization_cannot_replace_or_mismatch_scope(
+    workspace, organization, existing
+):
+    scope = _scope.CallScope(workspace_id=WORKSPACE, organization_id=existing)
+    token = _scope._CALL_SCOPE.set(scope)
+    try:
+        _scope.record_resolved_organization(organization, workspace_id=workspace)
+        assert scope.organization_id == existing
+    finally:
+        _scope._CALL_SCOPE.reset(token)
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "describe_cloud_workspace",
+        "describe_cloud_organization",
+        "get_cloud_organization_billing_status",
+    ],
+)
+def test_cloud_tool_records_resolved_organization(monkeypatch, events, tool):
+    from airbyte.mcp import cloud
+
+    org = SimpleNamespace(
+        organization_id=ORGANIZATION,
+        organization_name="Example",
+        email=None,
+        enabled_features=[],
+        get_billing_status=lambda: SimpleNamespace(
+            payment_status="okay",
+            subscription_status="subscribed",
+            is_account_locked=False,
+        ),
+    )
+    monkeypatch.setattr(CloudClient, "get_organization", lambda *_, **__: org)
+    monkeypatch.setattr(
+        CloudClient,
+        "get_workspace",
+        lambda *_, **__: SimpleNamespace(
+            workspace_id=WORKSPACE,
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+            workspace_url=None,
+            get_organization=lambda **_: org,
+        ),
+    )
+    monkeypatch.setattr(
+        cloud.api_util,
+        "get_workspace",
+        lambda **_: SimpleNamespace(workspace_id=WORKSPACE, name="Example"),
+    )
+    workspace_tool = tool == "describe_cloud_workspace"
+    _call(
+        tool,
+        {"workspace_id": WORKSPACE}
+        if workspace_tool
+        else {"organization_name": "Example"},
+    )
+    assert events[-1].success
+    assert _scope_of(events[-1]) == (
+        WORKSPACE if workspace_tool else None,
+        ORGANIZATION,
+        "arg" if workspace_tool else "resolved",
+    )
 
 
 @pytest.fixture
