@@ -26,6 +26,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.elicitation import AcceptedElicitation
 from mcp.shared.exceptions import MCPError
 from mcp.types import ElicitRequest, ElicitRequestFormParams, ElicitResult, InputRequiredResult
+from pydantic import BaseModel, Field
 
 
 if TYPE_CHECKING:
@@ -37,16 +38,23 @@ _MRTR_MIN_PROTOCOL_VERSION = "2026-07-28"
 
 _CONSENT_REQUEST_KEY = "confirm_permanent_delete"
 _CONSENT_FIELD = "confirm"
+_CONSENT_FIELD_TITLE = "Confirm permanent deletion"
 _CONSENT_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
         _CONSENT_FIELD: {
             "type": "boolean",
-            "title": "Confirm permanent deletion",
+            "title": _CONSENT_FIELD_TITLE,
         },
     },
     "required": [_CONSENT_FIELD],
 }
+
+
+class _DeleteConsent(BaseModel):
+    """Legacy elicitation form matching `_CONSENT_SCHEMA`."""
+
+    confirm: bool = Field(title=_CONSENT_FIELD_TITLE)
 
 
 def request_destructive_consent(
@@ -110,10 +118,10 @@ def _request_consent_via_elicit(
         return True
 
     try:
-        result = anyio.from_thread.run(ctx.elicit, message, bool)
+        result = anyio.from_thread.run(ctx.elicit, message, _DeleteConsent)
     except (ToolError, MCPError):
         # The transport has no back-channel (e.g. stateless HTTP) or the client
         # could not render the prompt: proceed without consent.
         return True
 
-    return isinstance(result, AcceptedElicitation) and result.data is True
+    return isinstance(result, AcceptedElicitation) and result.data.confirm is True

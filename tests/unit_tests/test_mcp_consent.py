@@ -58,9 +58,7 @@ def test_consent_prompt_respects_user_answer(
     """Capable clients are prompted and the user's answer decides the outcome."""
     prompts: list[str] = []
     if answer == "accept":
-        response: dict[str, Any] | ElicitResult = (
-            {"confirm": True} if mode == "auto" else {"value": True}
-        )
+        response: dict[str, Any] | ElicitResult = {"confirm": True}
     else:
         response = ElicitResult(action=answer)
 
