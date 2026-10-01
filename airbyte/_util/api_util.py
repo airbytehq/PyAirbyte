@@ -52,6 +52,10 @@ JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
 JWT_PART_COUNT = 3
+FORBIDDEN_RESOURCE_GUIDANCE = (
+    "Airbyte Cloud returns 403 both for IDs that don't exist and for resources outside your "
+    "access. Check the ID, and that it belongs to the workspace you passed."
+)
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -108,17 +112,25 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     """Wrap an SDKError with additional context for debugging.
 
     This function converts a Speakeasy SDK error into an AirbyteError with
-    full URL context, making it easier to debug API issues like 404 errors.
+    full URL context, making it easier to debug API issues like 403 and 404 errors.
     """
     sdk_context = _get_sdk_error_context(error)
     merged_context = {**(base_context or {}), **sdk_context}
+    status_code = sdk_context.get("status_code")
+    is_forbidden = status_code == HTTPStatus.FORBIDDEN
     error_type = (
         AirbyteMissingResourceError
-        if sdk_context.get("status_code") == HTTPStatus.NOT_FOUND
+        if is_forbidden or status_code == HTTPStatus.NOT_FOUND
         else AirbyteError
     )
     return error_type(
-        message=f"API error occurred: {error.message}",
+        message=(
+            "The requested resource was not found, or these credentials can't access it "
+            "(HTTP 403)."
+            if is_forbidden
+            else f"API error occurred: {error.message}"
+        ),
+        guidance=FORBIDDEN_RESOURCE_GUIDANCE if is_forbidden else None,
         context=merged_context,
     )
 
@@ -2068,19 +2080,27 @@ def _make_config_api_request(
             response.raise_for_status()
         except requests.HTTPError as ex:
             error_message = f"API request failed with status {response.status_code}"
-            if response.status_code == HTTPStatus.FORBIDDEN:  # 403 error
-                error_message += f" (Forbidden) when accessing: {full_url}"
+            error_context = {
+                "full_url": full_url,
+                "config_api_root": config_api_root,
+                "path": path,
+                "status_code": response.status_code,
+                "url": response.request.url,
+                "body": response.request.body,
+                "response": response.__dict__,
+            }
+            if response.status_code == HTTPStatus.FORBIDDEN:
+                raise AirbyteMissingResourceError(
+                    message=(
+                        "The requested resource was not found, or these credentials can't "
+                        "access it (HTTP 403)."
+                    ),
+                    guidance=FORBIDDEN_RESOURCE_GUIDANCE,
+                    context=error_context,
+                ) from ex
             raise AirbyteError(
                 message=error_message,
-                context={
-                    "full_url": full_url,
-                    "config_api_root": config_api_root,
-                    "path": path,
-                    "status_code": response.status_code,
-                    "url": response.request.url,
-                    "body": response.request.body,
-                    "response": response.__dict__,
-                },
+                context=error_context,
             ) from ex
 
     return response.json()

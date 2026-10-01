@@ -118,15 +118,37 @@ def _list_workspaces_response(
 
 
 @pytest.mark.parametrize(
-    ("status_code", "expected_error_type"),
+    ("status_code", "expected_error_type", "expected_message", "expected_guidance"),
     [
-        pytest.param(404, AirbyteMissingResourceError, id="not_found"),
-        pytest.param(500, AirbyteError, id="server_error"),
+        pytest.param(
+            403,
+            AirbyteMissingResourceError,
+            "The requested resource was not found, or these credentials can't access it "
+            "(HTTP 403).",
+            api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+            id="forbidden",
+        ),
+        pytest.param(
+            404,
+            AirbyteMissingResourceError,
+            "API error occurred: Workspace lookup failed.",
+            None,
+            id="not_found",
+        ),
+        pytest.param(
+            500,
+            AirbyteError,
+            "API error occurred: Workspace lookup failed.",
+            None,
+            id="server_error",
+        ),
     ],
 )
-def test_wrap_sdk_error_classifies_not_found(
+def test_wrap_sdk_error_classifies_missing_or_forbidden(
     status_code: int,
     expected_error_type: type[AirbyteError],
+    expected_message: str,
+    expected_guidance: str | None,
 ) -> None:
     raw_response = requests.Response()
     raw_response.status_code = status_code
@@ -138,7 +160,8 @@ def test_wrap_sdk_error_classifies_not_found(
     wrapped = api_util._wrap_sdk_error(error, {"workspace_id": "workspace-id"})
 
     assert type(wrapped) is expected_error_type
-    assert wrapped.get_message() == "API error occurred: Workspace lookup failed."
+    assert wrapped.get_message() == expected_message
+    assert wrapped.guidance == expected_guidance
     assert wrapped.context["workspace_id"] == "workspace-id"
     assert wrapped.context["status_code"] == status_code
 
@@ -1262,6 +1285,70 @@ def test_config_api_request_sends_analytic_source_header(
     assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_error_type", "expected_message", "expected_guidance"),
+    [
+        pytest.param(
+            403,
+            AirbyteMissingResourceError,
+            "The requested resource was not found, or these credentials can't access it "
+            "(HTTP 403).",
+            api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+            id="forbidden",
+        ),
+        pytest.param(
+            500,
+            AirbyteError,
+            "API request failed with status 500",
+            None,
+            id="server-error",
+        ),
+    ],
+)
+def test_config_api_request_maps_forbidden_as_missing_resource(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    expected_error_type: type[AirbyteError],
+    expected_message: str,
+    expected_guidance: str | None,
+) -> None:
+    response = requests.Response()
+    response.status_code = status_code
+    response.url = "https://config.airbyte.com/v1/workspaces/get"
+    response.request = requests.Request("POST", response.url).prepare()
+    request = Mock(return_value=response)
+    monkeypatch.setattr(api_util.requests, "request", request)
+
+    with pytest.raises(expected_error_type) as exc_info:
+        api_util._make_config_api_request(
+            path="/workspaces/get",
+            json={"workspaceId": "workspace-id"},
+            api_root="https://api.airbyte.com/v1",
+            config_api_root="https://config.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    error = exc_info.value
+    assert type(error) is expected_error_type
+    assert error.get_message() == expected_message
+    assert error.guidance == expected_guidance
+    assert error.context["status_code"] == status_code
+    assert error.context["path"] == "/workspaces/get"
+    assert error.context["full_url"] == "https://config.airbyte.com/v1/workspaces/get"
+    assert error.context["config_api_root"] == "https://config.airbyte.com/v1"
+    assert error.context["url"] == response.request.url
+    assert error.context["body"] == response.request.body
+    assert error.context["response"] is response.__dict__
+    assert isinstance(error.__cause__, requests.HTTPError)
+    assert error.__cause__.response is response
+    assert (
+        request.call_args.kwargs["url"]
+        == "https://config.airbyte.com/v1/workspaces/get"
+    )
+
+
 def test_public_api_client_sends_analytic_source_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1376,10 +1463,12 @@ def test_api_util_calls_wrap_sdk_errors_with_status_context(
     assert exc_info.value.context["status_code"] == status_code
     assert exc_info.value.__cause__ is sdk_error
     if operation == "get-job":
+        assert isinstance(exc_info.value, AirbyteMissingResourceError)
         assert exc_info.value.context["job_id"] == 42
         get_job.assert_called_once_with(api.GetJobRequest(job_id=42))
         patch_connection.assert_not_called()
     else:
+        assert not isinstance(exc_info.value, AirbyteMissingResourceError)
         assert exc_info.value.context["connection_id"] == "connection-1"
         patch_connection.assert_called_once()
         get_job.assert_not_called()
