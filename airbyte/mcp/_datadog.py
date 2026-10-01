@@ -126,11 +126,10 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
 
         # Native SDK spans describe protocol calls. An in-process nested tool
         # must not overwrite the request span's identity or handled error class.
-        if _INTENT_ATTRIBUTES.get() is not None:
-            return await call_next(context)
+        nested = _INTENT_ATTRIBUTES.get() is not None
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
-            span = tracer.current_span()
+            span = None if nested else tracer.current_span()
         except Exception:
             span = None
         try:
@@ -140,20 +139,20 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
             raise
         finally:
             _INTENT_ATTRIBUTES.reset(token)
-            if span is not None:
-                try:
-                    from airbyte.mcp._scope import (  # noqa: PLC0415
-                        current_call_scope,
-                        enrich_call_scope,
-                    )
+            try:
+                from airbyte.mcp._scope import (  # noqa: PLC0415
+                    current_call_scope,
+                    enrich_call_scope,
+                )
 
-                    try:
-                        if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
-                            await enrich_call_scope(context.fastmcp_context)
-                    except asyncio.CancelledError as exc:
-                        attrs.update(_exception_attributes(exc))
-                        raise
-                    finally:
+                try:
+                    if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
+                        await enrich_call_scope(context.fastmcp_context)
+                except asyncio.CancelledError as exc:
+                    attrs.update(_exception_attributes(exc))
+                    raise
+                finally:
+                    if span is not None:
                         scope = current_call_scope()
                         if scope is not None:
                             attrs.update(
@@ -164,8 +163,8 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                                 }
                             )
                         _annotate_attributes(span, attrs)
-                except Exception:
-                    logger.debug("Datadog tool attributes unavailable")
+            except Exception:
+                logger.debug("Datadog tool attributes unavailable")
 
 
 def _annotate_attributes(span: Span, attrs: Mapping[str, str | bool]) -> None:

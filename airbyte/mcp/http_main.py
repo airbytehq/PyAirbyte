@@ -194,8 +194,11 @@ Tool spans expose `auth_method`, `mcp_protocol_version`, `session_id`, `workspac
 when available. Session IDs are digests, never raw tokens. Workspace/org IDs use the
 same effective-call scope as analytics. When only the workspace is known, tracing
 reuses the organization lookup/cache with at most one second of additional waiting;
-concurrent calls share a pending lookup, and slower lookups can warm the cache for
-later calls. Failed lookups leave the org absent. Cancellation stops waiting and is
+concurrent calls with the same credentials and API host share a pending lookup, and
+slower lookups can warm the cache for later calls. Background enrichment is limited
+to four lookups per process; when full, new lookups are skipped without queuing.
+Lookup failure/retry state is isolated by credentials and API host. Failed or skipped
+lookups leave the org absent. Cancellation stops waiting and is
 recorded as `cancelled`. Calls never inherit an unrelated default org.
 These fields are metadata, not tool Input.
 

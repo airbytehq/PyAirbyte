@@ -554,6 +554,27 @@ def _native_http_contract():
                     handled._get_ctx_item("_llmobs.cached_event")["name"]
                     == "handle_error"
                 )
+                nested_record, outer_record = records[-2:]
+                assert nested_record.name == "execute_external_api_query"
+                assert (
+                    nested_record.extra["workspace_id"]
+                    == "11111111-1111-1111-1111-111111111111"
+                )
+                assert (
+                    nested_record.extra["organization_id"]
+                    == "44444444-4444-4444-4444-444444444444"
+                )
+                assert outer_record.name == "handle_error"
+                assert outer_record.extra["workspace_id"] is None
+                metadata = handled._get_ctx_item("_llmobs.cached_event")["meta"][
+                    "metadata"
+                ]
+                assert "workspace_id" not in metadata
+                assert (
+                    metadata["organization_id"]
+                    == "33333333-3333-3333-3333-333333333333"
+                )
+                assert metadata["outcome"] == "success"
 
         # An exception escaping the protocol boundary must retain its class/status
         # without exporting a payload-containing message or traceback.

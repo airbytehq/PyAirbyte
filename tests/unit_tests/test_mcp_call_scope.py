@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Iterator
+from contextvars import ContextVar
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from fastmcp_extensions import TelemetryRecord, ToolCallTelemetryMiddleware
 from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
 from airbyte.mcp import _scope, _user_identity, server
+from airbyte.secrets.base import SecretString
 
 
 WORKSPACE = "11111111-1111-1111-1111-111111111111"
@@ -473,8 +475,9 @@ def test_later_call_joins_pending_lookup_after_first_waiter_times_out(
             await _user_identity.resolve_call_workspace_organization_id(WORKSPACE, None)
             is None
         )
-        assert _user_identity._default_organization_lookup_failed_at.get(WORKSPACE)
-        pending = _user_identity._pending_default_organization_lookups[WORKSPACE]
+        key = next(iter(_user_identity._pending_default_organization_lookups))
+        assert _user_identity._default_organization_lookup_failed_at.get(key)
+        pending = _user_identity._pending_default_organization_lookups[key]
         monkeypatch.setattr(_user_identity, "USER_DEFAULT_ORGANIZATION_WAIT_SECONDS", 1)
         later = asyncio.create_task(
             _user_identity.resolve_call_workspace_organization_id(WORKSPACE, None)
@@ -493,3 +496,121 @@ def test_later_call_joins_pending_lookup_after_first_waiter_times_out(
 
     asyncio.run(run())
     assert verified_user == [WORKSPACE]
+
+
+def test_distinct_workspace_lookups_are_bounded_until_blocking_io_finishes(
+    monkeypatch, verified_user
+):
+    monkeypatch.setattr(_user_identity, "MAX_PENDING_ORGANIZATION_LOOKUPS", 2)
+    monkeypatch.setattr(_user_identity, "USER_DEFAULT_ORGANIZATION_WAIT_SECONDS", 0.01)
+    release = threading.Event()
+    workspaces = [f"{index:08x}-1111-1111-1111-111111111111" for index in range(8)]
+
+    def slow(workspace_id, **_):
+        verified_user.append(workspace_id)
+        assert release.wait(5)
+        return {"organizationId": ORGANIZATION}
+
+    monkeypatch.setattr(api_util, "get_workspace_organization_info", slow)
+
+    async def run():
+        try:
+            results = await asyncio.gather(*[
+                _user_identity.resolve_call_workspace_organization_id(workspace, None)
+                for workspace in workspaces
+            ])
+            assert results == [None] * len(workspaces)
+            # Callers timing out must not free capacity while worker threads remain busy.
+            await asyncio.sleep(0.03)
+            assert len(_user_identity._pending_default_organization_lookups) == 2
+            assert set(verified_user) == set(workspaces[:2])
+            assert (
+                await _user_identity.resolve_call_workspace_organization_id(
+                    workspaces[-1], None
+                )
+                is None
+            )
+        finally:
+            pending = list(
+                _user_identity._pending_default_organization_lookups.values()
+            )
+            release.set()
+            await asyncio.gather(*pending, return_exceptions=True)
+        assert not _user_identity._pending_default_organization_lookups
+        monkeypatch.setattr(_user_identity, "USER_DEFAULT_ORGANIZATION_WAIT_SECONDS", 1)
+        # Admission rejection is not a lookup failure: retry immediately once capacity frees.
+        assert (
+            await _user_identity.resolve_call_workspace_organization_id(
+                workspaces[-1], None
+            )
+            == ORGANIZATION
+        )
+
+    try:
+        asyncio.run(run())
+    finally:
+        release.set()
+    assert set(verified_user) == {workspaces[0], workspaces[1], workspaces[-1]}
+
+
+@pytest.mark.parametrize("changed_part", ["token", "api_root", "config_api_root"])
+def test_pending_failures_and_cache_are_isolated_by_credentials_and_host(
+    monkeypatch, verified_user, changed_part
+):
+    denied = (SecretString("denied-secret"), "https://first.invalid", None)
+    allowed = {
+        "token": (SecretString("allowed-secret"), denied[1], denied[2]),
+        "api_root": (denied[0], "https://second.invalid", denied[2]),
+        "config_api_root": (denied[0], denied[1], "https://config.invalid"),
+    }[changed_part]
+    credentials = ContextVar("test_scope_credentials", default=denied)
+    monkeypatch.setattr(
+        _user_identity, "_request_credentials", lambda _: credentials.get()
+    )
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def lookup(workspace_id, *, bearer_token, api_root, config_api_root, **_):
+        identity = (bearer_token, api_root, config_api_root)
+        calls.append(identity)
+        if identity == denied:
+            started.set()
+            assert release.wait(5)
+            raise PermissionError("synthetic unauthorized caller")
+        assert identity == allowed
+        return {"organizationId": ORGANIZATION}
+
+    monkeypatch.setattr(api_util, "get_workspace_organization_info", lookup)
+
+    async def call(identity):
+        token = credentials.set(identity)
+        try:
+            return await _user_identity.resolve_call_workspace_organization_id(
+                WORKSPACE, None
+            )
+        finally:
+            credentials.reset(token)
+
+    async def run():
+        first = asyncio.create_task(call(denied))
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            # This caller must not join the other caller's unauthorized request.
+            assert await call(allowed) == ORGANIZATION
+        finally:
+            release.set()
+            await first
+        assert await call(denied) is None  # Its own failure remains suppressed.
+        assert calls.count(denied) == 1
+        _user_identity._workspace_organization_id_cache.clear()
+        assert await call(allowed) == ORGANIZATION  # Other callers remain eligible.
+        assert calls.count(allowed) == 2
+        assert "secret" not in repr(
+            _user_identity._default_organization_lookup_failed_at._entries
+        )
+
+    try:
+        asyncio.run(run())
+    finally:
+        release.set()
