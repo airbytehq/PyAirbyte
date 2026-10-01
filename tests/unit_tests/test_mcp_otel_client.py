@@ -185,6 +185,11 @@ def test_client_label_validation_before_dispatch_and_export(
         lambda: {
             "mcp_client_name": value,
             "mcp_client_version": value,
+            "mcp_protocol_version": value,
+            "auth_method": PRIVATE,
+            "session_id": PRIVATE,
+            "workspace_id": PRIVATE,
+            "organization_id": PRIVATE,
             "other": PRIVATE,
         },
     )
@@ -192,6 +197,11 @@ def test_client_label_validation_before_dispatch_and_export(
     attrs = _tool_span(otel_provider).attributes
     assert attrs.get("airbyte.mcp.client_name") == expected
     assert attrs.get("airbyte.mcp.client_version") == expected
+    assert attrs.get("airbyte.mcp.mcp_protocol_version") == expected
+    assert not {
+        f"airbyte.mcp.{field}"
+        for field in ("auth_method", "session_id", "workspace_id", "organization_id")
+    }.intersection(attrs)
     assert PRIVATE not in _export_text(otel_provider)
 
 
@@ -255,28 +265,25 @@ def test_exporter_revalidates_injected_client_fields(
     assert PRIVATE not in _export_text(otel_provider)
 
 
-@pytest.mark.parametrize("session", [None, "raw-private-session-SENTINEL", "a" * 64])
-def test_request_metadata_omits_missing_or_raw_identifiers(monkeypatch, session):
-    monkeypatch.setattr(
-        _telemetry,
-        "request_properties",
-        lambda: {
-            "session_id": session,
-            "auth_method": "invalid-SENTINEL",
-            "mcp_protocol_version": "bad\nprotocol-SENTINEL",
-            "workspace_id": "private-workspace-SENTINEL",
-            "organization_id": "private-org-SENTINEL",
-        },
-    )
-    attributes = observability._request_trace_attributes()
-    assert attributes == (
-        {
-            "airbyte.mcp.session_id": session,
-            "gen_ai.conversation.id": session,
-        }
-        if session == "a" * 64
-        else {}
-    )
+async def _http_echo(app, headers, *, digest_session=False):
+    raw = app.http_app(path="/mcp", stateless_http=True, json_response=True)
+    http_app = observability.SessionIdHeaderDigest(raw) if digest_session else raw
+    async with raw.router.lifespan_context(raw):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=http_app), base_url="http://testserver"
+        ) as client:
+            response = await client.post(
+                "/mcp",
+                headers={"accept": "application/json, text/event-stream", **headers},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "echo", "arguments": {"value": "ok"}},
+                },
+            )
+            assert response.status_code == 200
+            assert not response.json()["result"].get("isError")
 
 
 @pytest.mark.parametrize("wrapped", [False, True])
@@ -286,31 +293,9 @@ def test_http_session_header_is_hashed_once(
 ):
     monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
 
-    async def run():
-        raw = client_app.http_app(path="/mcp", stateless_http=True, json_response=True)
-        http_app = observability.SessionIdHeaderDigest(raw) if wrapped else raw
-        async with raw.router.lifespan_context(raw):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=http_app),
-                base_url="http://testserver",
-            ) as client:
-                response = await client.post(
-                    "/mcp",
-                    headers={
-                        "accept": "application/json, text/event-stream",
-                        "mcp-session-id": raw_session,
-                    },
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "tools/call",
-                        "params": {"name": "echo", "arguments": {"value": "ok"}},
-                    },
-                )
-                assert response.status_code == 200
-                assert not response.json()["result"].get("isError")
-
-    asyncio.run(run())
+    asyncio.run(
+        _http_echo(client_app, {"mcp-session-id": raw_session}, digest_session=wrapped)
+    )
     attrs = _tool_span(otel_provider).attributes
     digest = hashlib.sha256(raw_session.encode()).hexdigest()
     assert attrs["airbyte.mcp.session_id"] == attrs["gen_ai.conversation.id"] == digest
@@ -350,29 +335,7 @@ def test_manually_hosted_http_auth_matches_request_and_analytics(
     monkeypatch.setattr(telemetry._sinks, "emit", records.append)
     client_app.middleware.insert(0, telemetry)
 
-    async def run():
-        raw = client_app.http_app(path="/mcp", stateless_http=True, json_response=True)
-        async with raw.router.lifespan_context(raw):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=raw), base_url="http://testserver"
-            ) as client:
-                response = await client.post(
-                    "/mcp",
-                    headers={
-                        "accept": "application/json, text/event-stream",
-                        **headers,
-                    },
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "tools/call",
-                        "params": {"name": "echo", "arguments": {"value": "ok"}},
-                    },
-                )
-                assert response.status_code == 200
-                assert not response.json()["result"].get("isError")
-
-    asyncio.run(run())
+    asyncio.run(_http_echo(client_app, headers))
     attrs = _tool_span(otel_provider).attributes
     assert (
         attrs["airbyte.mcp.auth_method"] == records[-1].extra["auth_method"] == expected

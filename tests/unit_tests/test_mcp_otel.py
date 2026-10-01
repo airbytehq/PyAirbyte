@@ -1498,7 +1498,7 @@ def test_hosted_startup_refuses_preexisting_exporting_provider(
             textwrap.dedent("""
             import os
             import socket
-            from unittest.mock import AsyncMock, Mock, patch
+            from unittest.mock import Mock, patch
             # Same loopback-only guard as the ``isolated_otel`` fixture; duplicated
             # because importing the test module would import airbyte.mcp first.
             def loopback_only(original, address_index):
@@ -1815,35 +1815,17 @@ def test_users_default_organization_is_exported_for_an_unscoped_call(
     assert "airbyte.mcp.workspace_id" not in attributes
 
 
+@pytest.mark.parametrize("phase", ["tool", "after_success", "after_error"])
 def test_cancelled_tool_outcome_is_exported_without_exception_text(
-    app, monkeypatch, otel_provider
-):
-    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
-
-    @app.tool()
-    async def cancelled() -> str:
-        raise asyncio.CancelledError("private-cancellation-SENTINEL")
-
-    monkeypatch.setitem(observability._TOOL_MODULES, "cancelled", "cloud")
-    with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app.call_tool("cancelled", {}))
-    span = _tool_span(otel_provider)
-    assert span.status.status_code == StatusCode.ERROR
-    assert span.attributes["airbyte.mcp.outcome"] == "cancelled"
-    assert span.attributes["airbyte.mcp.error_type"] == "CancelledError"
-    assert json.loads(span.attributes["_dd.ml_obs.metadata"])["outcome"] == "cancelled"
-    assert "SENTINEL" not in _export_text(otel_provider)
-
-
-@pytest.mark.parametrize("tool_fails", [False, True])
-def test_cancellation_during_enrichment_replaces_outcome(
-    app, monkeypatch, otel_provider, tool_fails
+    app, monkeypatch, otel_provider, phase
 ):
     monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
 
     @app.tool()
     async def example() -> str:
-        if tool_fails:
+        if phase == "tool":
+            raise asyncio.CancelledError("private-cancellation-SENTINEL")
+        if phase == "after_error":
             raise ValueError("private-tool-SENTINEL")
         return "ok"
 
@@ -1858,10 +1840,11 @@ def test_cancellation_during_enrichment_replaces_outcome(
 
         monkeypatch.setattr(observability, "enrich_call_scope", enrich)
         task = asyncio.create_task(app.call_tool("example", {}))
-        await asyncio.wait_for(enriching.wait(), 5)
-        task.cancel("private-cancellation-SENTINEL")
+        if phase != "tool":
+            await asyncio.wait_for(enriching.wait(), 5)
+            task.cancel("private-cancellation-SENTINEL")
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.wait_for(task, 5)
 
     asyncio.run(run())
     span = _tool_span(otel_provider)

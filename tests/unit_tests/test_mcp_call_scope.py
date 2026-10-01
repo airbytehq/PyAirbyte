@@ -351,41 +351,6 @@ def test_slow_default_organization_lookup_does_not_block_the_tool(
     assert verified_user == [OTHER_WORKSPACE]
 
 
-@pytest.mark.parametrize("fails", [False, True])
-def test_effective_workspace_organization_lookup_is_cached_and_failure_is_optional(
-    monkeypatch, verified_user, fails
-):
-    lookups = []
-
-    def lookup(workspace_id, **_):
-        lookups.append(workspace_id)
-        if fails:
-            raise PermissionError("private error")
-        return {"organizationId": ORGANIZATION}
-
-    monkeypatch.setattr(api_util, "get_workspace_organization_info", lookup)
-
-    async def run():
-        for _ in range(2):
-            scope = _scope.CallScope(
-                workspace_id=WORKSPACE,
-                workspace_source="arg",
-                user_default_organization_id="99999999-9999-9999-9999-999999999999",
-            )
-            token = _scope._CALL_SCOPE.set(scope)
-            try:
-                await _scope.enrich_call_scope(None)
-                assert scope.resolved().organization_id == (
-                    None if fails else ORGANIZATION
-                )
-                assert scope.workspace_id == WORKSPACE
-            finally:
-                _scope._CALL_SCOPE.reset(token)
-
-    asyncio.run(run())
-    assert lookups == [WORKSPACE]
-
-
 def test_explicit_org_does_not_trigger_redundant_lookup(monkeypatch):
     from unittest.mock import AsyncMock
 
@@ -585,11 +550,18 @@ def test_pending_failures_and_cache_are_isolated_by_credentials_and_host(
 
     async def call(identity):
         token = credentials.set(identity)
+        scope = _scope.CallScope(
+            workspace_id=WORKSPACE,
+            workspace_source="arg",
+            user_default_organization_id="99999999-9999-9999-9999-999999999999",
+        )
+        scope_token = _scope._CALL_SCOPE.set(scope)
         try:
-            return await _user_identity.resolve_call_workspace_organization_id(
-                WORKSPACE, None
-            )
+            await _scope.enrich_call_scope(None)
+            assert scope.workspace_id == WORKSPACE
+            return scope.resolved().organization_id
         finally:
+            _scope._CALL_SCOPE.reset(scope_token)
             credentials.reset(token)
 
     async def run():
