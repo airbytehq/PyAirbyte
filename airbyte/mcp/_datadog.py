@@ -176,7 +176,7 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                 logger.debug("Datadog tool attributes unavailable")
 
 
-def _annotate_attributes(span: Span, attrs: Mapping[str, str | bool | int]) -> None:
+def _annotate_attributes(span: Span, source: Mapping[str, str | bool | int]) -> None:
     """Keep native APM attributes and LLM metadata consistent.
 
     Argument-tracing keys pass the same validator as the OTLP exporter: ints become
@@ -184,7 +184,7 @@ def _annotate_attributes(span: Span, attrs: Mapping[str, str | bool | int]) -> N
     """
     from ddtrace.llmobs import LLMObs  # noqa: PLC0415
 
-    attrs = dict(attrs)
+    attrs: dict[str, object] = dict(source)
     _arg_trace.merge_tool_flats(attrs)
     arg_attrs = {key: attrs.pop(key) for key in list(attrs) if _arg_trace.is_new_key(key)}
     tool = attrs.get("gen_ai.tool.name")
