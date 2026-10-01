@@ -2499,6 +2499,8 @@ def list_cloud_workspaces(
     )
     if len(organization_ids) == 1:
         resolved_organization_id = next(iter(organization_ids))
+        if organization_name is not None:
+            record_resolved_organization(resolved_organization_id)
         try:
             organization = client.get_organization(organization_id=resolved_organization_id)
         except AirbyteError:

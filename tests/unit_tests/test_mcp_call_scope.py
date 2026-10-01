@@ -295,6 +295,30 @@ def test_cloud_tool_records_resolved_organization(monkeypatch, events, tool):
     )
 
 
+@pytest.mark.parametrize("org_ids", [[], [ORGANIZATION], [ORGANIZATION, USER]])
+def test_name_scoped_workspace_listing_records_only_a_single_organization(
+    monkeypatch, events, org_ids
+):
+    monkeypatch.setattr(
+        CloudClient,
+        "list_workspaces",
+        lambda *_, **__: [
+            SimpleNamespace(workspace_id=workspace, name="Example", organization_id=org)
+            for workspace, org in zip((WORKSPACE, OTHER_WORKSPACE), org_ids)
+        ],
+    )
+    monkeypatch.setattr(
+        CloudClient,
+        "get_organization",
+        lambda *_, **__: SimpleNamespace(organization_name="Example"),
+    )
+    _call("list_cloud_workspaces", {"organization_name": "Example"})
+    assert events[-1].success
+    assert _scope_of(events[-1]) == (
+        (None, ORGANIZATION, "resolved") if len(org_ids) == 1 else (None, None, None)
+    )
+
+
 @pytest.fixture
 def verified_user(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
     """Authenticate calls as a user whose default workspace is in `ORGANIZATION`.
