@@ -1,0 +1,50 @@
+{
+  "key_id": "334e9f7b",
+  "master_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "principal": "https://issuer.example\u0000user-0001",
+  "raw_digest": "abababababababababababababababababababababababababababababababab",
+  "scopes": {
+    "approximate": {
+      "bucket": 999000,
+      "client_major": "1",
+      "client_name": "synthetic-client",
+      "eq": {
+        "\"synthetic-value\"": "89fb34fc2e988559",
+        "7": "6a3dc7c2bdffb302",
+        "{\"a\":1,\"b\":[1,2]}": "c3e43c6718774e11"
+      },
+      "fp_list": "4000004000001000",
+      "fp_text": {
+        "Synthetic Value": "08840240022034a0",
+        "synthetic-value-0001": "0c040363023055a0"
+      },
+      "scope_id": "fa0b7ee514704bc1"
+    },
+    "conversation": {
+      "eq": {
+        "\"synthetic-value\"": "bdb7327da07faa26",
+        "7": "0ccc81598bb8b41c",
+        "{\"a\":1,\"b\":[1,2]}": "540ad3c20c0de88a"
+      },
+      "fp_list": "0000040000000104",
+      "fp_text": {
+        "Synthetic Value": "0015131282000242",
+        "synthetic-value-0001": "0001133691084262"
+      },
+      "scope_id": "6c73a65bc93226b5"
+    },
+    "transport_session": {
+      "eq": {
+        "\"synthetic-value\"": "45397e3f11b5a5f4",
+        "7": "1555eae8f98fe9ab",
+        "{\"a\":1,\"b\":[1,2]}": "58224f6ca780d566"
+      },
+      "fp_list": "0000000000108400",
+      "fp_text": {
+        "Synthetic Value": "210a0008401a0021",
+        "synthetic-value-0001": "250a000c40522541"
+      },
+      "scope_id": "ba5c45977e11f294"
+    }
+  }
+}
