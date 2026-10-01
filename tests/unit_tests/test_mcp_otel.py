@@ -202,9 +202,24 @@ def agents_app(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
 
     monkeypatch.setenv("AIRBYTE_MCP_INSIDERS", "1")
     monkeypatch.setattr(server.app, "middleware", list(server.app.middleware))
+    monkeypatch.setattr(
+        server.app._mcp_server, "middleware", list(server.app._mcp_server.middleware)
+    )
     monkeypatch.setattr(server.app, "instructions", server.app.instructions)
     _capture(server.app)
     return server.app
+
+
+@pytest.mark.parametrize("_repeat", range(2))
+def test_agents_app_does_not_accumulate_trace_context_guards(agents_app, _repeat):
+    """Each fixture use restores SDK middleware as well as FastMCP middleware."""
+    assert (
+        sum(
+            isinstance(middleware, observability._StripMetaTraceContextMiddleware)
+            for middleware in agents_app._mcp_server.middleware
+        )
+        == 1
+    )
 
 
 def test_list_tools_advertises_optional_intent_without_mutating_tool_parameters(
@@ -906,6 +921,30 @@ def test_segment_urls_excluded(otel_provider):
     "configuration,native",
     [
         ({}, False),
+        ({"DD_LLMOBS_ENABLED": "1"}, True),
+        ({"DD_LLMOBS_ENABLED": " TRUE "}, True),
+        ({"DD_LLMOBS_ENABLED": "false"}, False),
+        ({"DD_LLMOBS_ENABLED": "0"}, False),
+        ({"DD_LLMOBS_ENABLED": ""}, False),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_TRACING_BACKEND": "otel"},
+            False,
+        ),
+        (
+            {
+                "DD_LLMOBS_ENABLED": "true",
+                "AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp",
+            },
+            False,
+        ),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_OTEL_VENDOR": "datadog"},
+            False,
+        ),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_OTEL_VENDOR": "other"},
+            False,
+        ),
         ({"AIRBYTE_MCP_OTEL_VENDOR": "datadog"}, False),
         ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"}, False),
         ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog"}, True),
@@ -957,6 +996,7 @@ def test_invalid_backend_does_not_fall_back_to_legacy_vendor(backend):
             environ={
                 "AIRBYTE_MCP_TRACING_BACKEND": backend,
                 "AIRBYTE_MCP_OTEL_VENDOR": "datadog",
+                "DD_LLMOBS_ENABLED": "true",
             },
         )
 
@@ -1631,6 +1671,14 @@ _FUSION_ID = "326245c8-0000-4000-8000-000000000000"
     "path,exported",
     [
         ("/jobs/get", "https://cloud.airbyte.com/api/v1/jobs/get"),
+        (
+            "/workspaces/list_by_user_id",
+            "https://cloud.airbyte.com/api/v1/workspaces/list_by_user_id",
+        ),
+        (
+            "/connector_builder_projects/list",
+            "https://cloud.airbyte.com/api/v1/connector_builder_projects/list",
+        ),
         ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
         *[
             (

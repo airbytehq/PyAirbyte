@@ -85,6 +85,7 @@ from airbyte._direct_connectors.models import (
     _DirectConnectorInspectResult,
 )
 from airbyte._util import api_util, text_util
+from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
@@ -994,6 +995,8 @@ class CloudSource(CloudConnector):
             connector_id=connector_id,
             connector_type=ConnectorType.SOURCE,
         )
+        self._configuration: dict[str, Any] | None = None
+        """The source configuration. (Cached.)"""
 
     @property
     def source_id(self) -> str:
@@ -1002,6 +1005,21 @@ class CloudSource(CloudConnector):
         This is an alias for `connector_id`.
         """
         return self.connector_id
+
+    @property
+    def configuration(self) -> dict[str, Any] | None:
+        """The source configuration as returned by the API.
+
+        Secret values are redacted by the API. `list_sources` responses do not
+        carry a reliably typed configuration, so this is always fetched via
+        `get_source` on first access.
+        """
+        if self._configuration is None:
+            info = self._fetch_connector_info()
+            self._configuration = info.configuration
+            self._connector_info = info
+
+        return self._configuration
 
     def _fetch_connector_info(self) -> CloudSourceInfo:
         """Populate the source with data from the API."""
@@ -1340,7 +1358,11 @@ class CustomCloudSourceDefinition:
         if not project_id:
             return None
 
-        return f"{self.workspace.workspace_url}/connector-builder/edit/{project_id}"
+        return (
+            f"{get_web_url_root(self.workspace.api_root)}/workspaces/"
+            f"{self._builder_project_workspace_id or self.workspace.workspace_id}"
+            f"/connector-builder/edit/{project_id}"
+        )
 
     def get_builder_project_data(
         self,

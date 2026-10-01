@@ -59,6 +59,14 @@ class _JobResponseLike(Protocol):
     start_time: str
 
 
+class ConnectionStatus(StrEnum):
+    """Mirrors the API's connection status."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DEPRECATED = "deprecated"
+
+
 class ConnectorFeature(StrEnum):
     """Optional capabilities a deployed Cloud connector may have enabled."""
 
@@ -109,6 +117,7 @@ class _SourceResponseLike(Protocol):
     source_id: str
     name: str
     definition_id: str
+    configuration: Any
 
 
 class _DestinationResponseLike(Protocol):
@@ -408,7 +417,7 @@ class CloudConnectionInfo(BaseModel):
     schedule: ConnectionSchedule | None = None
     """The connection's sync schedule, or `None` if unknown."""
 
-    status: str
+    status: ConnectionStatus
     """The connection status."""
 
     @classmethod
@@ -433,7 +442,7 @@ class CloudConnectionInfo(BaseModel):
                 if connection.schedule is not None
                 else None
             ),
-            status=_enum_value(connection.status),
+            status=ConnectionStatus(_enum_value(connection.status)),
         )
 
 
@@ -479,6 +488,10 @@ class CloudSourceInfo(BaseModel):
     definition_id: str
     """The connector definition ID (for example, the ID for `source-postgres`)."""
 
+    configuration: dict[str, Any] | None = None
+    """The source configuration as returned by the API; secret values are redacted by
+    the API."""
+
     @classmethod
     def from_api_response(cls, source: _SourceResponseLike) -> CloudSourceInfo:
         """Create a public model from an internal API source response."""
@@ -486,6 +499,7 @@ class CloudSourceInfo(BaseModel):
             source_id=source.source_id,
             name=source.name,
             definition_id=source.definition_id,
+            configuration=_configuration_dict(source.configuration),
         )
 
 
@@ -549,7 +563,7 @@ class CloudCustomSourceDefinitionInfo(BaseModel):
 
 
 def _configuration_dict(configuration: object) -> dict[str, Any] | None:
-    """Convert an API destination configuration object into a dictionary."""
+    """Convert an API connector configuration object into a dictionary."""
     if configuration is None:
         return None
     if is_dataclass(configuration) and not isinstance(configuration, type):
@@ -579,6 +593,7 @@ def _enum_value(value: object) -> str:
 
 __all__ = [
     "CloudConnectionInfo",
+    "ConnectionStatus",
     "ConnectionSchedule",
     "CloudCustomSourceDefinitionInfo",
     "CloudDefaultContextInfo",

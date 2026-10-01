@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
+    AirbyteConnectorInUseError,
     AirbyteMCPError,
+    AirbyteMissingResourceError,
     PyAirbyteError,
     PyAirbyteInputError,
 )
@@ -15,6 +17,8 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
     PyAirbyteInputError,
     AirbyteMCPError,
     AirbyteAgentsUnavailableError,
+    AirbyteConnectorInUseError,
+    AirbyteMissingResourceError,
 )
 """Expected errors returned to MCP clients as concise message and guidance text."""
 

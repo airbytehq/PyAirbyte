@@ -146,10 +146,13 @@ def test_requested_action_survives_real_tool_execution(
     assert attrs[ACTION] == action
     if vendor:
         assert json.loads(attrs["_dd.ml_obs.metadata"])["agent.action"] == action
-        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == {
-            "action": action,
-            **({"intent": intent} if intent is not None else {}),
-        }
+        expected_input = {"action": action}
+        if intent is not None:
+            expected_input["intent"] = intent
+        # API calls specify an entity name; SQL calls specify a query instead.
+        if name != SQL:
+            expected_input["entity_name"] = "contacts"
+        assert json.loads(attrs["gen_ai.tool.call.arguments"]) == expected_input
     else:
         assert "_dd.ml_obs.metadata" not in attrs
         assert "gen_ai.tool.call.arguments" not in attrs

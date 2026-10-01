@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Opt-in native Datadog MCP spans with the hosted platform's payload policy."""
+"""Native Datadog MCP spans without raw tool payloads."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp.telemetry import suppress_fastmcp_telemetry
 from mcp.types import (
-    CallToolRequest,
     CallToolResult,
     InitializeRequest,
     InitializeResult,
@@ -24,8 +23,10 @@ from airbyte.mcp._otel import (
     INTENT_INSTRUCTIONS_SENTENCE,
     IntentCaptureMiddleware,
     _build_tool_maps,
+    _env,
     _flag,
 )
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
@@ -41,22 +42,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 REDACTED = "[REDACTED]"
-SENSITIVE_ARGUMENTS = frozenset({"config", "testing_values", "api_args"})
-SENSITIVE_OUTPUT_TOOLS = frozenset(
-    {
-        "execute_agent_connector",
-        "execute_agent_connector_ro",
-        "get_cloud_sync_logs",
-        "get_connection_artifact",
-        "get_stream_previews",
-        "read_source_stream_records",
-        "run_sql_query",
-    }
-)
 
 
 def redact_tool_span(span: LLMObsSpan) -> LLMObsSpan:
-    """Apply the platform's selected-field policy, including outbound MCP calls."""
+    """Rebuild server tool Input from approved metadata; omit all tool output."""
     from ddtrace.llmobs.types import Message  # noqa: PLC0415
 
     if span.get_tag("mcp_tool_kind") == "client":
@@ -66,24 +55,20 @@ def redact_tool_span(span: LLMObsSpan) -> LLMObsSpan:
     tool_name = span.get_tag("mcp_tool")
     if tool_name is None:
         return span
-    try:
-        messages = []
-        for message in span.input:
-            request = json.loads(message.get("content", ""))
-            params = request.get("params") if isinstance(request, dict) else None
-            arguments = params.get("arguments") if isinstance(params, dict) else None
-            if isinstance(arguments, dict):
-                for name in SENSITIVE_ARGUMENTS & arguments.keys():
-                    arguments[name] = REDACTED
-            clean_message = message.copy()
-            clean_message["content"] = json.dumps(request, sort_keys=True)
-            messages.append(clean_message)
-        span.input = messages
-    except Exception:
-        logger.warning("Could not parse an MCP request; dropping its tracing input.")
-        span.input = [Message(content=REDACTED, role="")]
-    if tool_name in SENSITIVE_OUTPUT_TOOLS:
-        span.output = [Message(content=REDACTED, role="")]
+    arguments = {
+        label: span.metadata[key]
+        for label, key in (
+            ("intent", "intent"),
+            ("action", "agent.action"),
+            ("entity_type", "agent.entity_type"),
+        )
+        if isinstance(span.metadata.get(key), str) and span.metadata[key]
+    }
+    # Keep the MCP envelope understood by existing deployment processors, but
+    # never parse or copy the original request (including unknown future fields).
+    request = {"method": "tools/call", "params": {"name": tool_name, "arguments": arguments}}
+    span.input = [Message(content=json.dumps(request, sort_keys=True), role="")]
+    span.output = [Message(content=REDACTED, role="")]
     return span
 
 
@@ -119,7 +104,7 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
     index = next(
         i for i, item in enumerate(middleware) if isinstance(item, FastMCPServerMiddleware)
     )
-    middleware.insert(index, _DatadogRequestMiddleware())
+    middleware.insert(index, _DatadogRequestMiddleware(environ=environ))
     if _flag(environ, "AIRBYTE_MCP_INTENT_CAPTURE") and (
         INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or "")
     ):
@@ -182,14 +167,13 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
 
 
 def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
-    """Serialize the same typed request envelope as Datadog's MCP integration."""
+    """Annotate protocol identity without copying tool arguments into the SDK."""
     from ddtrace.llmobs import LLMObs  # noqa: PLC0415
     from fastmcp.server.dependencies import get_http_headers  # noqa: PLC0415
 
     request_types = {
         "initialize": InitializeRequest,
         "tools/list": ListToolsRequest,
-        "tools/call": CallToolRequest,
     }
     params = ctx.params if isinstance(ctx.params, dict) else {}
     tool_call = ctx.method == "tools/call"
@@ -207,25 +191,57 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
     session = get_http_headers(include={"mcp-session-id"}).get("mcp-session-id")
     if session:
         tags["mcp_session_id"] = session
-    LLMObs.annotate(span, tags=tags)
-    # Match native SDK serialization, including defaults and model field
-    # names, rather than constructing a different wire-shaped envelope.
-    request = (
-        request_types[ctx.method]
-        .model_validate({"method": ctx.method, "params": params})
-        .model_dump(exclude={"params": {"meta": "_dd_trace_context"}})
+    LLMObs.annotate(
+        span,
+        tags=tags,
+        metadata={"pyairbyte.version": get_version()},
+        # Seed scalar payloads so the processor can replace Input even if the
+        # tool fails before the metadata middleware runs. Never seed raw data.
+        input_data=REDACTED if tool_call else None,
+        output_data=REDACTED if tool_call else None,
     )
-    arguments = (request.get("params") or {}).get("arguments")
-    if isinstance(arguments, dict):
-        if isinstance(arguments.get("telemetry"), dict):
-            arguments.pop("telemetry", None)
-        for key in SENSITIVE_ARGUMENTS & arguments.keys():
-            arguments[key] = REDACTED
-    LLMObs.annotate(span, input_data=request)
+    if not tool_call:
+        request = (
+            request_types[ctx.method]
+            .model_validate({"method": ctx.method, "params": params})
+            .model_dump(exclude={"params": {"meta": "_dd_trace_context"}})
+        )
+        LLMObs.annotate(span, input_data=request)
 
 
 class _DatadogRequestMiddleware:
-    async def __call__(
+    def __init__(self, *, environ: Mapping[str, str] | None = None) -> None:
+        self.distributed_tracing = _env(environ).get(
+            "DD_MCP_DISTRIBUTED_TRACING", "true"
+        ).lower() in {"true", "1"}
+
+    def _activate_distributed_context(self, params: dict[str, Any]) -> None:
+        from ddtrace import tracer  # noqa: PLC0415
+        from ddtrace.llmobs import LLMObs  # noqa: PLC0415
+        from ddtrace.propagation.http import HTTPPropagator  # noqa: PLC0415
+
+        meta = params.get("_meta")
+        headers = meta.get("_dd_trace_context") if isinstance(meta, dict) else None
+        if not self.distributed_tracing or not isinstance(headers, dict):
+            return
+        if not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in headers.items()
+        ):
+            return
+        context = HTTPPropagator.extract(headers)
+        current = tracer.current_trace_context()
+        if context is None or not context.trace_id:
+            return
+        previous = tracer.context_provider.active()
+        try:
+            LLMObs.activate_distributed_headers(headers)
+        finally:
+            # HTTP may already have joined the APM trace without the separate
+            # LLM context. Activate both, then keep the nearer HTTP APM parent.
+            if current and current.trace_id == context.trace_id:
+                tracer.context_provider.activate(previous)
+
+    async def __call__(  # noqa: PLR0912, PLR0915
         self,
         ctx: ServerRequestContext[Any],
         call_next: Callable[[ServerRequestContext[Any]], Awaitable[Any]],
@@ -242,10 +258,25 @@ class _DatadogRequestMiddleware:
             previous = tracer.context_provider.active()
         except Exception:
             previous = None
+        # Datadog maintains a separate LLM context; its public activation API
+        # updates both, but exposes no public restoration API.
+        llm_provider = None
+        previous_llm = None
+        try:
+            if LLMObs._instance is not None:  # noqa: SLF001
+                llm_provider = LLMObs._instance._llmobs_context_provider  # noqa: SLF001
+                previous_llm = llm_provider.active()
+        except Exception:
+            llm_provider = None
+            logger.debug("Datadog LLM context unavailable")
         tool_call = ctx.method == "tools/call"
-        name = "unknown_tool"
         try:
             params = ctx.params if isinstance(ctx.params, dict) else {}
+            if tool_call and llm_provider is not None:
+                try:
+                    self._activate_distributed_context(params)
+                except Exception:
+                    logger.debug("Datadog MCP distributed context unavailable")
             name = str(params.get("name", "unknown_tool")) if tool_call else f"mcp.{ctx.method}"
             start = LLMObs.tool if tool_call else LLMObs.task
             span = start(name=name)
@@ -266,15 +297,11 @@ class _DatadogRequestMiddleware:
                         "tools/list": ListToolsResult,
                         "tools/call": CallToolResult,
                     }[ctx.method].model_validate(result)
-                    output = response.model_dump(mode="json")
+                    output = REDACTED if tool_call else response.model_dump(mode="json")
                     if tool_call and getattr(response, "is_error", False):
                         span.error = 1
                         span.set_tag("error.type", "ToolError")
                         span.set_tag("error.message", "tool resulted in an error")
-                    # Redact before annotation too: a failed tag annotation must
-                    # never bypass the selected output policy in the processor.
-                    if tool_call and name in SENSITIVE_OUTPUT_TOOLS:
-                        output = REDACTED
                     LLMObs.annotate(span, output_data=output)
                 except Exception:
                     logger.debug("Datadog response attributes unavailable")
@@ -282,7 +309,12 @@ class _DatadogRequestMiddleware:
         finally:
             try:
                 if span is not None:
-                    span.__exit__(*sys.exc_info())
+                    # Passing the exception to ddtrace would export its message
+                    # and traceback, which can contain arguments and results.
+                    if error := sys.exc_info()[1]:
+                        span.error = 1
+                        span.set_tag("error.type", type(error).__name__)
+                    span.__exit__(None, None, None)
             except Exception:
                 logger.debug("Datadog span completion failed")
             finally:
@@ -290,3 +322,9 @@ class _DatadogRequestMiddleware:
                     tracer.context_provider.activate(previous)
                 except Exception:
                     logger.debug("Datadog context restoration failed")
+                finally:
+                    if llm_provider is not None:
+                        try:
+                            llm_provider.activate(previous_llm)
+                        except Exception:
+                            logger.debug("Datadog LLM context restoration failed")

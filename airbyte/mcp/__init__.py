@@ -280,9 +280,12 @@ tools' existing `intent` parameter serves the same purpose and passes through
 unchanged to the Agents API; only the trace copy is trimmed and capped.
 Advertisement and model guidance do not require an export endpoint.
 
-`AIRBYTE_MCP_TRACING_BACKEND` selects the export backend and payload policy:
+`AIRBYTE_MCP_TRACING_BACKEND` selects the export backend and payload policy.
+When neither it nor the legacy `AIRBYTE_MCP_OTEL_VENDOR` is set,
+`DD_LLMOBS_ENABLED=1` or `true` defaults to `datadog`; otherwise the default is
+`otel`. Explicit backend and legacy vendor settings take precedence.
 
-- `otel` (default) and `datadog-otlp` require a configured OTLP traces endpoint.
+- `otel` and `datadog-otlp` require a configured OTLP traces endpoint.
   They export supplied intent (capped at 4096 characters), validated action,
   tool name, outcome class, validated workspace/organization UUIDs, tool
   annotations and outbound HTTP methods, recognized public Airbyte API routes
@@ -294,12 +297,25 @@ Advertisement and model guidance do not require an export endpoint.
 - `datadog` uses the optional `airbyte[datadog]` extra and native Datadog LLM
   Observability configuration; it does not require an OTLP endpoint. It records
   initialization, tool listing and tool calls in the deployment's native trace
-  hierarchy, including unknown tools and errors. It uses the platform payload
-  policy: `config`, `testing_values` and `api_args` arguments are redacted, as
-  are complete outputs of the sensitive tools listed in `airbyte.mcp.http_main`.
-  Other arguments, results and error messages may be exported in clear text.
+  hierarchy, including unknown tools and errors. Tool Input contains only
+  captured intent, validated action and the bounded entity name described below.
+  All other tool arguments and all tool results are omitted; tool error messages
+  and stacks are not captured. Error status and type remain available. This
+  policy covers MCP spans; deployment-owned HTTP tracing remains unchanged.
   Disable automatic Datadog MCP instrumentation with
   `DD_TRACE_MCP_ENABLED=false` to avoid duplicate MCP spans.
+
+For `execute_external_api_query`, `airbyte.mcp.agent.entity_type` records the
+requested entity name for `list`, `get`, or `search`, including the default
+`list` action. Names must be nonempty printable strings with no surrounding
+whitespace. Valid names longer than 256 characters are truncated in metadata,
+with trailing spaces at the cut removed; execution receives the full original
+name. This caller-supplied field can include customer-defined names or sensitive
+text: format checks do not anonymize it. It describes the request, including
+failed attempts, rather than verified access to records. Both tracing backends
+share this extraction. `datadog-otlp` also exposes the bounded name as
+`entity_name` in approved Input; native `datadog` exposes the same bounded value
+as `entity_type` in its approved Input envelope.
 
 For OTel session grouping, the unsigned, client-echoed `Mcp-Session-Id` is
 replaced with a SHA-256 digest; it is not a verified identity. Intent itself
@@ -404,14 +420,14 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import cloud, interactive, local, prompts, registry
+from airbyte.mcp import cloud, guidance, interactive, local, registry
 
 
 __all__: list[str] = [
     "cloud",
+    "guidance",
     "interactive",
     "local",
-    "prompts",
     "registry",
 ]
 
