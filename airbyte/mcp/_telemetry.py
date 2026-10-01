@@ -101,6 +101,46 @@ def session_id_digest(raw_session_id: str) -> str:
     return hashlib.sha256(raw_session_id.encode("latin-1")).hexdigest()
 
 
+@dataclass(frozen=True)
+class GroupingId:
+    """Request grouping identity consumed by keyed telemetry.
+
+    **Placeholder owned by the grouping work, to be replaced.** Only the shape is
+    final: `raw_digest` is the SHA-256 hex of the validated raw id, `None` iff
+    `kind == "none"`. This stub never yields `conversation` (no `_meta` extraction).
+    """
+
+    kind: Literal["conversation", "transport_session", "none"]
+    raw_digest: str | None
+
+
+_NO_GROUPING = GroupingId(kind="none", raw_digest=None)
+
+
+def current_grouping_id() -> GroupingId:
+    """Return the grouping id of the request in flight; never raises.
+
+    **Placeholder owned by the grouping work, to be replaced.** `transport_session`
+    only for a server-minted session token that `McpRequestTelemetryMiddleware`
+    decoded; its digest is the `session_id_digest(raw)` already held in scope
+    state. A hand-made `Mcp-Session-Id`, stdio, or no header yields `none`.
+    """
+    try:
+        state = _request_state()
+        token = state.get(_SESSION_TOKEN_STATE_KEY)
+        digest = state.get(_SESSION_ID_STATE_KEY)
+        if (
+            isinstance(token, SessionToken)
+            and isinstance(digest, str)
+            and len(digest) == 64  # noqa: PLR2004  # SHA-256 hex length.
+            and all(char in "0123456789abcdef" for char in digest)
+        ):
+            return GroupingId(kind="transport_session", raw_digest=digest)
+    except Exception:
+        logger.debug("Grouping id unavailable")
+    return _NO_GROUPING
+
+
 def _edition() -> str:
     api_root = os.getenv(CLOUD_API_ROOT_ENV_VAR, "").strip() or CLOUD_API_ROOT
     return "cloud" if api_root.rstrip("/") == CLOUD_API_ROOT.rstrip("/") else "oss"
