@@ -280,28 +280,58 @@ tools' existing `intent` parameter serves the same purpose and passes through
 unchanged to the Agents API; only the trace copy is trimmed and capped.
 Advertisement and model guidance do not require an export endpoint.
 
-Export is enabled only when an OTLP traces endpoint is configured. The server
-exports the supplied intent (capped at 4096 characters), tool name, outcome class,
-validated workspace/organization UUIDs, tool annotations and outbound HTTP
-methods, recognized public Airbyte API routes with validated UUID/numeric IDs,
-and statuses. URL queries, unknown routes and custom origins are redacted.
-Tool arguments and results,
-error messages/stacks, HTTP header values, request/response bodies, JWTs and
-caller identity are not exported. Calls to unregistered tool names are dropped.
-Session grouping uses a SHA-256 digest of the unsigned, client-echoed
-`Mcp-Session-Id`, not the raw token or a verified identity. Intent itself is free
-text and may contain customer information, so keep it free of sensitive data.
+`AIRBYTE_MCP_TRACING_BACKEND` selects the export backend and payload policy.
+When neither it nor the legacy `AIRBYTE_MCP_OTEL_VENDOR` is set,
+`DD_LLMOBS_ENABLED=1` or `true` defaults to `datadog`; otherwise the default is
+`otel`. Explicit backend and legacy vendor settings take precedence.
 
-Any OTLP backend can receive these spans. With `AIRBYTE_MCP_OTEL_VENDOR=datadog`,
-intent is also supplied as Datadog metadata. Export is best effort and does not
-determine whether a tool call succeeds; the backend controls retention and
-access. `DO_NOT_TRACK` continues to govern Segment only; operators control this
-export with the `OTEL_*` variables documented in `airbyte.mcp.http_main`.
-Segment requests are excluded from traces. Local stdio is unchanged. Hosted
-clients with cached `intent` schemas remain compatible after export is
-disabled by unsetting both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
-`OTEL_EXPORTER_OTLP_ENDPOINT`. Legacy synthetic `telemetry.intent` is accepted
-without advertising it, with top-level `intent` taking precedence when supplied.
+- `otel` and `datadog-otlp` require a configured OTLP traces endpoint.
+  They export supplied intent (capped at 4096 characters), validated action,
+  tool name, outcome class, validated workspace/organization UUIDs, tool
+  annotations and outbound HTTP methods, recognized public Airbyte API routes
+  with validated UUID/numeric IDs, and statuses. URL queries, unknown routes
+  and custom origins are redacted. Raw tool arguments/results, error
+  messages/stacks, HTTP header values, request/response bodies, JWTs and caller
+  identity are excluded. Calls to unregistered tool names are dropped.
+  `datadog-otlp` also maps intent/action into Datadog metadata and Input.
+- `datadog` uses the optional `airbyte[datadog]` extra and native Datadog LLM
+  Observability configuration; it does not require an OTLP endpoint. It records
+  initialization, tool listing and tool calls in the deployment's native trace
+  hierarchy, including unknown tools and errors. Tool Input contains only
+  captured intent, validated action and the bounded entity name described below.
+  All other tool arguments and all tool results are omitted; tool error messages
+  and stacks are not captured. Error status and type remain available. This
+  policy covers MCP spans; deployment-owned HTTP tracing remains unchanged.
+  Disable automatic Datadog MCP instrumentation with
+  `DD_TRACE_MCP_ENABLED=false` to avoid duplicate MCP spans.
+
+For `execute_external_api_query`, `airbyte.mcp.agent.entity_type` records the
+requested entity name for `list`, `get`, or `search`, including the default
+`list` action. Names must be nonempty printable strings with no surrounding
+whitespace. Valid names longer than 256 characters are truncated in metadata,
+with trailing spaces at the cut removed; execution receives the full original
+name. This caller-supplied field can include customer-defined names or sensitive
+text: format checks do not anonymize it. It describes the request, including
+failed attempts, rather than verified access to records. Both tracing backends
+share this extraction. `datadog-otlp` also exposes the bounded name as
+`entity_name` in approved Input; native `datadog` exposes the same bounded value
+as `entity_type` in its approved Input envelope.
+
+For OTel session grouping, the unsigned, client-echoed `Mcp-Session-Id` is
+replaced with a SHA-256 digest; it is not a verified identity. Intent itself
+is free text and may contain customer information, so keep it free of sensitive
+data. The legacy `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp` only
+when `AIRBYTE_MCP_TRACING_BACKEND` is unset.
+
+Export is best effort and does not determine whether a tool call succeeds;
+the backend controls retention and access. `DO_NOT_TRACK` continues to govern
+Segment only. Backend configuration, payload policies and rollback instructions
+are documented in `airbyte.mcp.http_main`. For OTel, unsetting both
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT` disables
+export while preserving compatibility with cached intent schemas. Those
+endpoint variables do not control native Datadog export. Legacy synthetic
+`telemetry.intent` is accepted without advertising it, with top-level `intent`
+taking precedence when supplied.
 Real tool parameters named `intent` or `telemetry` retain their normal validation
 and dispatch behavior.
 
@@ -390,14 +420,14 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import cloud, interactive, local, prompts, registry
+from airbyte.mcp import cloud, guidance, interactive, local, registry
 
 
 __all__: list[str] = [
     "cloud",
+    "guidance",
     "interactive",
     "local",
-    "prompts",
     "registry",
 ]
 

@@ -29,12 +29,15 @@ from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
     ConnectionSchedule,
+    ConnectionStatus,
     JobTypeEnum,
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
+    AirbyteError,
+    AirbyteMissingResourceError,
     AirbyteWorkspaceMismatchError,
     PyAirbyteInputError,
 )
@@ -317,8 +320,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.schedule
 
     @property
-    def status(self) -> str:
-        """The connection's status from cached API info, such as `active` or `inactive`."""
+    def status(self) -> ConnectionStatus:
+        """The connection's status."""
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
@@ -525,6 +528,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Get the sync result for the connection.
 
         If `job_id` is not provided, the most recent sync job will be used.
+        A supplied `job_id` must belong to this connection.
 
         Returns `None` if job_id is omitted and no previous jobs are found.
         """
@@ -538,11 +542,49 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
             return None
 
-        # Get the sync job by ID (lazy loaded)
+        try:
+            job_response = api_util.get_job_info(
+                job_id=job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                raise AirbyteMissingResourceError(
+                    resource_type="sync job",
+                    resource_name_or_id=str(job_id),
+                    message=(
+                        f"Job {job_id} was not found on connection {self.connection_id}, "
+                        "or you don't have access to it."
+                    ),
+                    guidance=(
+                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                    ),
+                    context={"connection_id": self.connection_id, "job_id": job_id},
+                ) from ex
+            raise
+
+        if job_response.connection_id != self.connection_id:
+            raise AirbyteMissingResourceError(
+                resource_type="sync job",
+                resource_name_or_id=str(job_id),
+                message=(
+                    f"Job {job_id} belongs to a different connection, not {self.connection_id}."
+                ),
+                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                context={"connection_id": self.connection_id, "job_id": job_id},
+            )
+
         return SyncResult(
             workspace=self.workspace,
             connection=self,
             job_id=job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
         )
 
     # Artifacts
@@ -946,14 +988,55 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """
         configurations = api_util.build_stream_configurations(stream_names)
 
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            configurations=configurations,
-        )
+        try:
+            updated_response = api_util.patch_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                configurations=configurations,
+            )
+        except AirbyteError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code != HTTPStatus.BAD_REQUEST:
+                raise
+
+            try:
+                catalog = self.dump_raw_catalog()
+            except Exception:
+                catalog = None
+
+            if not isinstance(catalog, dict) or not isinstance(catalog.get("streams"), list):
+                raise
+
+            stream_entries = catalog["streams"]
+            available_streams = [
+                stream["stream"]["name"]
+                for stream in stream_entries
+                if isinstance(stream, dict)
+                and isinstance(stream.get("stream"), dict)
+                and isinstance(stream["stream"].get("name"), str)
+                and stream["stream"]["name"]
+            ]
+            if stream_entries and not available_streams:
+                raise
+
+            raise PyAirbyteInputError(
+                message=(
+                    f"Could not set selected streams for connection '{self.connection_id}': "
+                    f"{ex}"
+                ),
+                guidance="Use stream names from `available_streams`.",
+                context={
+                    "connection_id": self.connection_id,
+                    "requested_streams": stream_names,
+                    "available_streams": available_streams,
+                },
+            ) from ex
+
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
@@ -970,7 +1053,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             True if the connection status is 'active', False otherwise.
         """
         connection_info = self._fetch_connection_info(force_refresh=True)
-        return connection_info.status == "active"
+        return connection_info.status == ConnectionStatus.ACTIVE
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
@@ -1004,7 +1087,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         # Always fetch fresh data to check current status
         connection_info = self._fetch_connection_info(force_refresh=True)
         current_status = connection_info.status
-        desired_status = "active" if enabled else "inactive"
+        desired_status = ConnectionStatus.ACTIVE if enabled else ConnectionStatus.INACTIVE
 
         if current_status == desired_status:
             if ignore_noop:

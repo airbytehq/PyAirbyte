@@ -18,7 +18,7 @@ from fastmcp.server.auth import AccessToken
 from fastmcp_extensions import ToolCallTelemetryMiddleware
 
 from airbyte._util import api_util
-from airbyte.mcp import _user_identity, registry, server
+from airbyte.mcp import _user_identity, guidance, server
 
 
 TOOL = "get_api_docs_urls"
@@ -56,7 +56,7 @@ def segment(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
     monkeypatch.setattr(telemetry._sinks, "segment_enabled", True)
     monkeypatch.setattr(telemetry._sinks, "sentry_enabled", False)
     monkeypatch.setattr(_user_identity, "get_access_token", _verified_token)
-    monkeypatch.setattr(registry, "get_connector_api_docs_urls", lambda _: [])
+    monkeypatch.setattr(guidance, "get_connector_api_docs_urls", lambda _: [])
     _user_identity._user_id_cache.clear()
     yield track
     _user_identity._user_id_cache.clear()

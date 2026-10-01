@@ -51,6 +51,10 @@ _ALL_AUTH_ENV = (
     server.JWT_ISSUER_ENV,
     server.JWT_AUDIENCE_ENV,
     server.JWT_ALGORITHM_ENV,
+    server.USER_JWKS_URI_ENV,
+    server.USER_ISSUER_ENV,
+    server.USER_ALGORITHM_ENV,
+    server.USER_TOKEN_CLIENT_IDS_ENV,
     client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV,
     client_credentials.TOKEN_URL_ENV,
 )
@@ -92,6 +96,10 @@ def test_auth_env_names_are_branded() -> None:
     assert server.JWT_ISSUER_ENV == "AIRBYTE_MCP_AUTH_ISSUER"
     assert server.JWT_AUDIENCE_ENV == "AIRBYTE_MCP_AUTH_AUDIENCE"
     assert server.JWT_ALGORITHM_ENV == "AIRBYTE_MCP_AUTH_ALGORITHM"
+    assert server.USER_JWKS_URI_ENV == "AIRBYTE_MCP_AUTH_USER_JWKS_URI"
+    assert server.USER_ISSUER_ENV == "AIRBYTE_MCP_AUTH_USER_ISSUER"
+    assert server.USER_ALGORITHM_ENV == "AIRBYTE_MCP_AUTH_USER_ALGORITHM"
+    assert server.USER_TOKEN_CLIENT_IDS_ENV == "AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS"
     assert (
         client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV
         == "AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS"
@@ -294,7 +302,10 @@ def test_create_auth_maps_jwt_env_when_jwks_set(monkeypatch: MonkeyPatch) -> Non
     captured = _capture_build_mcp_auth(monkeypatch)
     server._create_auth()
 
-    jwt = captured["jwt"]
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 1
+    jwt = jwt_configs[0]
     assert isinstance(jwt, JWTAuthConfig)
     assert jwt.jwks_uri == "https://idp.example/jwks"
     assert jwt.public_key is None
@@ -312,7 +323,10 @@ def test_create_auth_activates_jwt_with_static_public_key(
     captured = _capture_build_mcp_auth(monkeypatch)
     server._create_auth()
 
-    jwt = captured["jwt"]
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 1
+    jwt = jwt_configs[0]
     assert isinstance(jwt, JWTAuthConfig)
     assert jwt.jwks_uri is None
     assert jwt.public_key == "-----BEGIN PUBLIC KEY-----"
@@ -334,6 +348,91 @@ def test_create_auth_blank_jwt_env_yields_no_verifier(monkeypatch: MonkeyPatch) 
     captured = _capture_build_mcp_auth(monkeypatch)
     server._create_auth()
     assert captured["jwt"] is None
+
+
+def test_create_auth_user_jwks_adds_azp_allowlisted_config(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI appends a second config pinned by the `azp` allowlist."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    monkeypatch.setenv(server.USER_ISSUER_ENV, "https://idp.example/user-realm")
+    monkeypatch.setenv(server.USER_ALGORITHM_ENV, "RS256")
+    monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, " web-client , other-client ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 2
+    user_jwt = jwt_configs[1]
+    assert isinstance(user_jwt, JWTAuthConfig)
+    assert user_jwt.jwks_uri == "https://idp.example/user-jwks"
+    assert user_jwt.issuer == "https://idp.example/user-realm"
+    assert user_jwt.algorithm == "RS256"
+    assert user_jwt.audience is None
+    assert user_jwt.allowed_client_ids == frozenset({"web-client", "other-client"})
+    # The app-realm config is unchanged and carries no allowlist.
+    assert jwt_configs[0].jwks_uri == "https://idp.example/jwks"
+    assert jwt_configs[0].allowed_client_ids is None
+
+
+@pytest.mark.parametrize(
+    "client_ids_value",
+    [
+        pytest.param(None, id="unset"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param(" , ,", id="only-commas"),
+    ],
+)
+def test_create_auth_user_jwks_without_client_ids_raises(
+    client_ids_value: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI without an `azp` allowlist fails closed, naming both vars."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    if client_ids_value is not None:
+        monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, client_ids_value)
+    with pytest.raises(ValueError, match=server.USER_TOKEN_CLIENT_IDS_ENV) as excinfo:
+        server._create_auth()
+    assert server.USER_JWKS_URI_ENV in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "issuer_value",
+    [pytest.param(None, id="unset"), pytest.param("  ", id="whitespace")],
+)
+def test_create_auth_user_jwks_without_issuer_raises(
+    issuer_value: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI without a pinned issuer fails closed, naming both vars."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, "web-client")
+    if issuer_value is not None:
+        monkeypatch.setenv(server.USER_ISSUER_ENV, issuer_value)
+    with pytest.raises(ValueError, match=server.USER_ISSUER_ENV) as excinfo:
+        server._create_auth()
+    assert server.USER_JWKS_URI_ENV in str(excinfo.value)
+
+
+def test_create_auth_without_user_jwks_yields_single_config(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """No user JWKS URI means the jwt list holds only the app-realm config."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 1
+    assert jwt_configs[0].jwks_uri == "https://idp.example/jwks"
 
 
 def test_create_auth_activates_oidc_when_credentials_present(

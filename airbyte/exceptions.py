@@ -686,6 +686,20 @@ class AirbyteWorkspaceNotEmptyError(AirbyteError):
 
 
 @dataclass
+class AirbyteConnectorInUseError(AirbyteError):
+    """Connector cannot be deleted because connections still use it."""
+
+    connector_id: str | None = None
+    """The source or destination ID that was requested for deletion."""
+
+    connector_type: str | None = None
+    """Either `source` or `destination`."""
+
+    connection_ids: list[str] | None = None
+    """The IDs of connections that use the connector."""
+
+
+@dataclass
 class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
     """An timeout occurred while waiting for the remote Airbyte job to complete."""
 

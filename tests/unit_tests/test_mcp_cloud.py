@@ -8,7 +8,7 @@ import functools
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Callable, cast
+from typing import Any, Callable, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,10 +33,13 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudOrganizationInfo,
     CloudWorkspaceInfo,
+    ConnectionSchedule,
+    ConnectionStatus,
     JobStatusEnum,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
@@ -46,7 +49,9 @@ from airbyte.mcp.cloud import (
 )
 from airbyte.exceptions import (
     AirbyteCloudApiError,
+    AirbyteConnectorInUseError,
     AirbyteError,
+    AirbyteMissingResourceError,
     PyAirbyteInputError,
 )
 from airbyte_api import models
@@ -986,6 +991,7 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
     workspace = SimpleNamespace(**{
         getter: lambda **_: resource,
         deleter: lambda **_: None,
+        "list_connections": lambda: [],
     })
 
     def fake_get_cloud_workspace(
@@ -1007,6 +1013,216 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 
     assert seen_workspace_ids == ["explicit-workspace-id"]
     assert "resource-id" in result
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "deleter"),
+    [
+        pytest.param(ConnectorType.SOURCE, "permanently_delete_source", id="source"),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            "permanently_delete_destination",
+            id="destination",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "in_use",
+    [pytest.param(True, id="in-use"), pytest.param(False, id="unused")],
+)
+def test_permanently_delete_cloud_connector_surfaces_library_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType,
+    deleter: str,
+    in_use: bool,
+) -> None:
+    """Connector deletion surfaces API errors and returns success otherwise."""
+    connector = SimpleNamespace(
+        name="delete-me connector",
+        connector_type=connector_type,
+    )
+    original_error = AirbyteConnectorInUseError(
+        message="Connector is used by a connection.",
+        connector_id="connector-id",
+        connector_type=connector_type.value,
+        connection_ids=["connection-id"],
+        context={
+            "connections": [
+                {"connection_id": "connection-id", "name": "orders pipeline"}
+            ]
+        },
+    )
+    delete = MagicMock(side_effect=original_error if in_use else None)
+    workspace = SimpleNamespace(
+        get_source=lambda **_: connector,
+        get_destination=lambda **_: connector,
+        **{deleter: delete},
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    if in_use:
+        with pytest.raises(AirbyteConnectorInUseError) as exc_info:
+            cloud_mcp.permanently_delete_cloud_connector(
+                cast(Context, object()),
+                connector_id="connector-id",
+                name="delete-me connector",
+                connector_type=connector_type,
+                workspace_id=None,
+            )
+
+        assert exc_info.value is original_error
+    else:
+        result = cloud_mcp.permanently_delete_cloud_connector(
+            cast(Context, object()),
+            connector_id="connector-id",
+            name="delete-me connector",
+            connector_type=connector_type,
+            workspace_id=None,
+        )
+
+        assert "Successfully deleted" in result
+
+    delete.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        pytest.param(
+            cloud_mcp.permanently_delete_custom_source_definition,
+            id="custom-source-definition",
+        ),
+        pytest.param(
+            cloud_mcp.permanently_delete_cloud_connector, id="cloud-connector"
+        ),
+        pytest.param(
+            cloud_mcp.permanently_delete_cloud_connection, id="cloud-connection"
+        ),
+    ],
+)
+def test_delete_tools_include_shared_name_guard_tip(
+    tool: Callable[..., Any],
+) -> None:
+    """Deletion tool descriptions append auth and name-guard guidance in order."""
+    from airbyte.mcp import server
+
+    registered_tool = asyncio.run(server.app.get_tool(tool.__name__))
+    tool_description = registered_tool.description or ""
+
+    assert tool_description.count(cloud_mcp.CLOUD_AUTH_TIP_TEXT) == 1
+    assert tool_description.count(cloud_mcp.DELETE_NAME_GUARD_TIP_TEXT) == 1
+    assert tool_description.index(
+        cloud_mcp.CLOUD_AUTH_TIP_TEXT
+    ) < tool_description.index(cloud_mcp.DELETE_NAME_GUARD_TIP_TEXT)
+
+
+def _patch_sync_status_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    connection: SimpleNamespace,
+) -> SimpleNamespace:
+    workspace = SimpleNamespace(
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+        get_connection=lambda **_: connection,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    return workspace
+
+
+@pytest.mark.parametrize(
+    "failure_stage",
+    [
+        pytest.param("connection-result", id="connection-result"),
+        pytest.param("attempts", id="attempts"),
+    ],
+)
+def test_get_cloud_sync_status_surfaces_library_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    """Connection lookup and attempt errors propagate through the MCP tool."""
+    include_attempts = failure_stage == "attempts"
+    if include_attempts:
+        original_error: AirbyteError = AirbyteError(
+            message="Could not load attempts",
+            context={"status_code": requests.codes.forbidden},
+        )
+        get_attempts = MagicMock(side_effect=original_error)
+        sync_result = SimpleNamespace(
+            job_id=42,
+            get_job_status=MagicMock(return_value=JobStatusEnum.SUCCEEDED),
+            bytes_synced=0,
+            records_synced=0,
+            start_time=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+            job_url="https://cloud.airbyte.com/jobs",
+            get_attempts=get_attempts,
+        )
+        connection = SimpleNamespace(
+            connection_id="connection-1",
+            get_sync_result=MagicMock(return_value=sync_result),
+        )
+    else:
+        original_error = AirbyteMissingResourceError(
+            resource_type="sync job",
+            resource_name_or_id="42",
+            message="Job is unavailable for this connection.",
+            guidance="Use a job ID belonging to this connection.",
+        )
+        get_attempts = None
+        connection = SimpleNamespace(
+            get_sync_result=MagicMock(side_effect=original_error)
+        )
+    _patch_sync_status_workspace(monkeypatch, connection)
+
+    with pytest.raises(AirbyteError) as exc_info:
+        cloud_mcp.get_cloud_sync_status(
+            cast(Context, object()),
+            connection_id="connection-1",
+            job_id=42,
+            workspace_id=None,
+            include_attempts=include_attempts,
+        )
+
+    assert exc_info.value is original_error
+    connection.get_sync_result.assert_called_once_with(job_id=42)
+    if include_attempts:
+        assert get_attempts is not None
+        get_attempts.assert_called_once_with()
+
+
+def test_set_cloud_connection_selected_streams_surfaces_library_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Errors from CloudConnection stream validation pass through unchanged."""
+    original_error = PyAirbyteInputError(
+        message="Invalid stream selection.",
+        guidance="Use stream names from `available_streams`.",
+        context={"available_streams": ["orders"]},
+    )
+    connection = SimpleNamespace(
+        set_selected_streams=MagicMock(side_effect=original_error),
+        dump_raw_catalog=MagicMock(),
+    )
+    workspace = SimpleNamespace(get_connection=lambda **_: connection)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        cloud_mcp.set_cloud_connection_selected_streams(
+            cast(Context, object()),
+            connection_id="connection-1",
+            stream_names=["missing", "orders"],
+            workspace_id=None,
+        )
+
+    assert exc_info.value is original_error
+    connection.set_selected_streams.assert_called_once_with(
+        stream_names=["missing", "orders"]
+    )
+    connection.dump_raw_catalog.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1103,6 +1319,134 @@ def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
             config_secret_name=None,
             unique=True,
         )
+
+
+class _DeployConnectionWorkspace:
+    """Fake `CloudWorkspace` capturing `deploy_connection` and `get_source` calls."""
+
+    def __init__(self) -> None:
+        self.deploy_calls: list[dict[str, object]] = []
+        self.get_source_calls: list[str] = []
+
+    def get_source(self, source_id: str) -> SimpleNamespace:
+        """Return a source double exposing the connector definition ID."""
+        self.get_source_calls.append(source_id)
+        return SimpleNamespace(definition_id="definition-id")
+
+    def deploy_connection(self, **kwargs: object) -> SimpleNamespace:
+        """Capture the deploy request and return a connection double."""
+        self.deploy_calls.append(kwargs)
+        return SimpleNamespace(
+            connection_id="connection-id",
+            connection_url="https://cloud.airbyte.com/connection-id",
+        )
+
+
+def _patch_deploy_connection_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> _DeployConnectionWorkspace:
+    workspace = _DeployConnectionWorkspace()
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", lambda *args: None
+    )
+    return workspace
+
+
+def test_create_connection_on_cloud_uses_explicit_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit `selected_streams` are forwarded without a registry lookup."""
+    workspace = _patch_deploy_connection_workspace(monkeypatch)
+
+    def fail_lookup(_definition_id: str) -> None:
+        raise AssertionError("registry lookup should not happen")
+
+    monkeypatch.setattr(
+        cloud_mcp, "get_connector_metadata_by_definition_id", fail_lookup
+    )
+
+    result = cloud_mcp.create_connection_on_cloud(
+        cast(Context, object()),
+        connection_name="My Connection",
+        source_id="source-id",
+        destination_id="destination-id",
+        workspace_id=None,
+        selected_streams=["users", "orders"],
+        table_prefix=None,
+    )
+
+    assert workspace.get_source_calls == []
+    assert workspace.deploy_calls == [
+        {
+            "connection_name": "My Connection",
+            "source": "source-id",
+            "destination": "destination-id",
+            "selected_streams": ["users", "orders"],
+            "table_prefix": None,
+        }
+    ]
+    assert "suggested streams" not in result
+
+
+def test_create_connection_on_cloud_defaults_to_suggested_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted `selected_streams` fall back to the connector's suggested streams."""
+    workspace = _patch_deploy_connection_workspace(monkeypatch)
+    metadata = SimpleNamespace(suggested_streams=["users"])
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_metadata_by_definition_id",
+        lambda definition_id: metadata if definition_id == "definition-id" else None,
+    )
+
+    result = cloud_mcp.create_connection_on_cloud(
+        cast(Context, object()),
+        connection_name="My Connection",
+        source_id="source-id",
+        destination_id="destination-id",
+        workspace_id=None,
+        selected_streams=None,
+        table_prefix=None,
+    )
+
+    assert workspace.get_source_calls == ["source-id"]
+    assert workspace.deploy_calls[0]["selected_streams"] == ["users"]
+    assert "suggested streams" in result
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        pytest.param(None, id="unregistered-connector"),
+        pytest.param(
+            SimpleNamespace(suggested_streams=None), id="no-suggested-streams"
+        ),
+    ],
+)
+def test_create_connection_on_cloud_without_suggested_streams_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    metadata: object,
+) -> None:
+    """Missing `selected_streams` and missing suggestions raise `PyAirbyteInputError`."""
+    workspace = _patch_deploy_connection_workspace(monkeypatch)
+    monkeypatch.setattr(
+        cloud_mcp, "get_connector_metadata_by_definition_id", lambda _id: metadata
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="suggested streams"):
+        cloud_mcp.create_connection_on_cloud(
+            cast(Context, object()),
+            connection_name="My Connection",
+            source_id="source-id",
+            destination_id="destination-id",
+            workspace_id=None,
+            selected_streams=None,
+            table_prefix=None,
+        )
+
+    assert workspace.deploy_calls == []
 
 
 class _CombinedListingWorkspace:
@@ -1224,6 +1568,25 @@ def test_list_cloud_connectors_filters(
     ]
 
 
+def test_list_custom_source_definitions_does_not_forward_organization_shared_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = SimpleNamespace(
+        list_custom_source_definitions=MagicMock(return_value=[])
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    results = cloud_mcp.list_custom_source_definitions(
+        None,
+        workspace_id="workspace-id",
+    )
+
+    assert results == []
+    workspace.list_custom_source_definitions.assert_called_once_with(
+        definition_type="yaml",
+    )
+
+
 def test_get_agent_skill_docs_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1249,16 +1612,18 @@ def test_get_agent_skill_docs_tool(
             guidance,
         )[1]
     )
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
 
-    result = cloud_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_agent_skill_docs(
         None,
         docs_skill_id="connector-source:source-1",
         section="setup",
         workspace_id=None,
     )
 
-    assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
+    assert isinstance(result, guidance_mcp.AgentSkillDocsResult)
     assert calls == [
         {
             "skill_id": "connector-source:source-1",
@@ -1292,15 +1657,17 @@ def test_get_agent_skill_docs_tool_connector_id(
             guidance,
         )[1]
     )
-    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
 
-    result = cloud_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_agent_skill_docs(
         None,
         connector_id="source-1",
         workspace_id=None,
     )
 
-    assert isinstance(result, cloud_mcp.AgentSkillDocsResult)
+    assert isinstance(result, guidance_mcp.AgentSkillDocsResult)
     assert calls == [{"skill_id": None, "connector_id": "source-1", "section": None}]
     assert result.skill_id == "connector-source:source-1"
 
@@ -2027,34 +2394,92 @@ def test_describe_helper_extends_context_layer_warnings() -> None:
     assert "Partial runtime metadata." in result.warnings
 
 
-def test_describe_helper_with_config_reads_destination_config() -> None:
-    """`with_config` on a destination returns the redacted configuration."""
-    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
-    connector.config = {"database": "analytics"}
+@pytest.mark.parametrize(
+    ("connector_type", "configuration"),
+    [
+        pytest.param(
+            ConnectorType.SOURCE,
+            {"host": "airbyte.example", "password": "**********"},
+            id="source",
+        ),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            {"database": "analytics"},
+            id="destination",
+        ),
+    ],
+)
+def test_describe_helper_with_config_reads_connector_config(
+    connector_type: ConnectorType,
+    configuration: dict[str, Any],
+) -> None:
+    """`with_config` returns the redacted source or destination configuration."""
+    connector = _DescribedConnector(connector_type=connector_type)
+    connector.config = configuration
 
     result = _describe(connector, with_config=True)
 
-    assert result.config == {"database": "analytics"}
+    assert result.config == configuration
+    assert not any(
+        "configuration lookup failed" in warning for warning in result.warnings
+    )
 
 
-def test_describe_helper_with_config_source_has_no_config() -> None:
-    """Sources never expose configuration."""
-    connector = _DescribedConnector()
-
-    result = _describe(connector, with_config=True)
-
-    assert result.config is None
-
-
-def test_describe_helper_with_config_failure_warns() -> None:
-    """A config fetch failure under `with_config` warns instead of raising."""
-    connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
+@pytest.mark.parametrize(
+    "connector_type",
+    [
+        pytest.param(ConnectorType.SOURCE, id="source"),
+        pytest.param(ConnectorType.DESTINATION, id="destination"),
+    ],
+)
+def test_describe_helper_config_failure_warns(
+    connector_type: ConnectorType,
+) -> None:
+    """A source or destination config fetch failure warns instead of raising."""
+    connector = _DescribedConnector(connector_type=connector_type)
     connector.config = AirbyteError(message="config boom")
 
     result = _describe(connector, with_config=True)
 
     assert result.config is None
     assert any("Connector configuration lookup failed" in w for w in result.warnings)
+
+
+def test_describe_cloud_connection_includes_status_and_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The connection detail response exposes connection status and schedule."""
+    schedule = ConnectionSchedule(
+        schedule_type="cron",
+        schedule_expression="0 0 * * * ? UTC",
+    )
+    connection = SimpleNamespace(
+        connection_id="connection-1",
+        name="Postgres to Snowflake",
+        connection_url="https://cloud.airbyte.com/connections/connection-1",
+        source_id="source-1",
+        source=SimpleNamespace(name="Postgres"),
+        destination_id="destination-1",
+        destination=SimpleNamespace(name="Snowflake"),
+        stream_names=["orders"],
+        table_prefix="raw_",
+        status="active",
+        schedule=schedule,
+    )
+    workspace = SimpleNamespace(get_connection=lambda **_: connection)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+
+    result = cloud_mcp.describe_cloud_connection(
+        cast(Context, object()),
+        connection_id="connection-1",
+        workspace_id=None,
+    )
+
+    assert result.status is ConnectionStatus.ACTIVE
+    assert result.schedule == schedule
+    assert result.schedule is not None
+    assert result.schedule.schedule_type == "cron"
+    assert result.schedule.schedule_expression == "0 0 * * * ? UTC"
 
 
 def test_describe_helper_with_replication_details(

@@ -549,7 +549,120 @@ def test_list_workspaces_instance_admin_scope_requires_instance_admin() -> None:
         )
 
 
-def test_list_workspaces_any_scope_uses_unscoped_listing_for_instance_admin() -> None:
+@pytest.mark.parametrize(
+    "privilege_scope",
+    [
+        pytest.param(WorkspacePrivilegeScope.INSTANCE_ADMIN, id="instance-admin"),
+        pytest.param(WorkspacePrivilegeScope.ANY, id="any"),
+    ],
+)
+@pytest.mark.parametrize(
+    (
+        "kwargs",
+        "expected_name_contains",
+        "expected_api_limit",
+        "api_workspaces",
+        "expected_names",
+        "expected_organization_ids",
+    ),
+    [
+        pytest.param(
+            {"name_contains": "ab", "limit": 2},
+            "ab",
+            2,
+            [
+                {
+                    "workspaceId": "workspace-1",
+                    "name": "About",
+                    "organizationId": "organization-1",
+                },
+                {
+                    "workspaceId": "workspace-2",
+                    "name": "Lab",
+                    "organizationId": "organization-2",
+                },
+            ],
+            ["About", "Lab"],
+            ["organization-1", "organization-2"],
+            id="server-side-substring-and-limit",
+        ),
+        pytest.param(
+            {"name": "Exact"},
+            "Exact",
+            None,
+            [
+                {
+                    "workspaceId": "workspace-1",
+                    "name": "Exact",
+                    "organizationId": "organization-1",
+                },
+                {
+                    "workspaceId": "workspace-2",
+                    "name": "Exact copy",
+                    "organizationId": "organization-2",
+                },
+            ],
+            ["Exact"],
+            ["organization-1"],
+            id="exact-name-filter",
+        ),
+        pytest.param(
+            {"name_filter": lambda name: name.startswith("x"), "limit": 1},
+            None,
+            1,
+            [
+                {
+                    "workspaceId": "workspace-1",
+                    "name": "before",
+                    "organizationId": "organization-1",
+                },
+                {
+                    "workspaceId": "workspace-2",
+                    "name": "xray",
+                    "organizationId": "organization-2",
+                },
+                {
+                    "workspaceId": "workspace-3",
+                    "name": "xylophone",
+                    "organizationId": "organization-3",
+                },
+            ],
+            ["xray"],
+            ["organization-2"],
+            id="callable-name-filter-and-limit",
+        ),
+    ],
+)
+def test_list_workspaces_instance_admin_uses_user_config_api(
+    privilege_scope: WorkspacePrivilegeScope,
+    kwargs: dict[str, object],
+    expected_name_contains: str | None,
+    expected_api_limit: int | None,
+    api_workspaces: list[dict[str, object]],
+    expected_names: list[str],
+    expected_organization_ids: list[str],
+) -> None:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
+        matching_workspaces = api_workspaces
+        name_contains = kwargs["name_contains"]
+        if isinstance(name_contains, str):
+            matching_workspaces = [
+                workspace
+                for workspace in matching_workspaces
+                if name_contains.casefold() in str(workspace.get("name", "")).casefold()
+            ]
+        name_filter = kwargs["name_filter"]
+        if callable(name_filter):
+            matching_workspaces = [
+                workspace
+                for workspace in matching_workspaces
+                if name_filter(str(workspace.get("name", "")))
+            ]
+        limit = kwargs["limit"]
+        if isinstance(limit, int):
+            matching_workspaces = matching_workspaces[:limit]
+        return matching_workspaces
+
     patches = _api_patches(
         user={"userId": "user-id"},
         permissions=[{"permissionType": "instance_admin"}],
@@ -561,15 +674,25 @@ def test_list_workspaces_any_scope_uses_unscoped_listing_for_instance_admin() ->
         patches[3],
         patches[4],
         patch(
-            "airbyte._util.api_util.list_workspaces",
-            return_value=[],
-        ) as list_workspaces,
+            "airbyte._util.api_util.list_workspaces_by_user",
+            side_effect=fake_list_workspaces_by_user,
+        ) as list_workspaces_by_user,
+        patch("airbyte._util.api_util.list_workspaces") as public_list_workspaces,
     ):
-        CloudClient(bearer_token="token").list_workspaces(
-            privilege_scope=WorkspacePrivilegeScope.ANY
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=privilege_scope,
+            **kwargs,
         )
 
-    list_workspaces.assert_called_once()
+    call_kwargs = list_workspaces_by_user.call_args.kwargs
+    assert call_kwargs["user_id"] == "user-id"
+    assert call_kwargs["name_contains"] == expected_name_contains
+    assert call_kwargs["limit"] == expected_api_limit
+    assert [workspace.name for workspace in workspaces] == expected_names
+    assert [workspace.organization_id for workspace in workspaces] == (
+        expected_organization_ids
+    )
+    public_list_workspaces.assert_not_called()
 
 
 def test_list_workspaces_any_scope_fails_closed_when_permissions_cannot_be_loaded() -> (
@@ -582,7 +705,9 @@ def test_list_workspaces_any_scope_fails_closed_when_permissions_cannot_be_loade
         patches[2],
         patches[3],
         patches[4] as list_permissions,
-        patch("airbyte._util.api_util.list_workspaces") as list_workspaces,
+        patch(
+            "airbyte._util.api_util.list_workspaces_by_user"
+        ) as list_workspaces_by_user,
         pytest.raises(exc.AirbyteError, match="Permission lookup failed"),
     ):
         list_permissions.side_effect = exc.AirbyteError(
@@ -592,7 +717,7 @@ def test_list_workspaces_any_scope_fails_closed_when_permissions_cannot_be_loade
             privilege_scope=WorkspacePrivilegeScope.ANY
         )
 
-    list_workspaces.assert_not_called()
+    list_workspaces_by_user.assert_not_called()
 
 
 def test_list_workspaces_any_scope_uses_member_organizations_without_instance_admin() -> (
@@ -651,10 +776,15 @@ def test_list_workspaces_all_organizations_alias_warns_and_maps_to_any() -> None
         patches[2],
         patches[3],
         patches[4],
-        patch("airbyte._util.api_util.list_workspaces", return_value=[]),
+        patch(
+            "airbyte._util.api_util.list_workspaces_by_user",
+            return_value=[],
+        ) as list_workspaces_by_user,
         pytest.warns(DeprecationWarning, match="all_organizations"),
     ):
         CloudClient(bearer_token="token").list_workspaces(all_organizations=True)
+
+    list_workspaces_by_user.assert_called_once()
 
 
 def test_list_workspaces_all_organizations_alias_conflicts_with_scope() -> None:

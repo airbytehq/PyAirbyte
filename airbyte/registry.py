@@ -291,6 +291,23 @@ def _get_connector_name_by_definition_id(definition_id: str) -> str | None:
     return None
 
 
+def get_connector_metadata_by_definition_id(
+    definition_id: str,
+) -> ConnectorMetadata | None:
+    """Look up connector metadata by the connector's definition ID.
+
+    Returns None if the connector registry is disabled, cannot be loaded, or the
+    definition ID does not belong to a registered connector (e.g. custom or
+    deprecated connectors).
+    """
+    connector_name = _get_connector_name_by_definition_id(definition_id)
+    if connector_name is None:
+        return None
+    with contextlib.suppress(Exception):
+        return get_connector_metadata(connector_name)
+    return None
+
+
 def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     """Check the cache for the connector.
 

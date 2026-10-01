@@ -834,6 +834,41 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
 
+    def _raise_if_connector_in_use(
+        self,
+        connector_id: str,
+        connector_type: Literal["source", "destination"],
+    ) -> None:
+        connections = [
+            connection
+            for connection in self.list_connections()
+            if (
+                connection.source_id == connector_id
+                if connector_type == "source"
+                else connection.destination_id == connector_id
+            )
+        ]
+        if connections:
+            raise exc.AirbyteConnectorInUseError(
+                message=(
+                    f"The {connector_type} '{connector_id}' is used by {len(connections)} "
+                    "connection(s) and cannot be deleted."
+                ),
+                guidance="Delete those connections first.",
+                context={
+                    "connections": [
+                        {
+                            "connection_id": connection.connection_id,
+                            "name": connection.name,
+                        }
+                        for connection in connections
+                    ],
+                },
+                connector_id=connector_id,
+                connector_type=connector_type,
+                connection_ids=[connection.connection_id for connection in connections],
+            )
+
     def permanently_delete_source(
         self,
         source: str | cloud_connectors.CloudSource,
@@ -855,10 +890,13 @@ class CloudWorkspace:
                 input_value=type(source).__name__,
             )
 
+        source_id = (
+            source.connector_id if isinstance(source, cloud_connectors.CloudSource) else source
+        )
+        self._raise_if_connector_in_use(source_id, "source")
+
         api_util.delete_source(
-            source_id=(
-                source.connector_id if isinstance(source, cloud_connectors.CloudSource) else source
-            ),
+            source_id=source_id,
             source_name=(source.name if isinstance(source, cloud_connectors.CloudSource) else None),
             api_root=self.api_root,
             client_id=self.client_id,
@@ -890,10 +928,15 @@ class CloudWorkspace:
                 input_value=type(destination).__name__,
             )
 
+        destination_id = (
+            destination.destination_id
+            if isinstance(destination, cloud_connectors.CloudDestination)
+            else destination
+        )
+        self._raise_if_connector_in_use(destination_id, "destination")
+
         api_util.delete_destination(
-            destination_id=(
-                destination if isinstance(destination, str) else destination.destination_id
-            ),
+            destination_id=destination_id,
             destination_name=(
                 destination.name
                 if isinstance(destination, cloud_connectors.CloudDestination)
@@ -1310,13 +1353,13 @@ class CloudWorkspace:
         *,
         definition_type: Literal["yaml", "docker"],
     ) -> list[cloud_connectors.CustomCloudSourceDefinition]:
-        """List custom source connector definitions.
+        """List custom source definitions whose Builder project is owned by this workspace.
 
         Args:
             definition_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
-            List of CustomCloudSourceDefinition objects matching the specified type
+            List of matching definitions. Organization-shared definitions are excluded.
         """
         if definition_type == "yaml":
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
@@ -1326,10 +1369,36 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            return [
+            builder_projects = api_util.list_connector_builder_projects(
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                config_api_root=self.config_api_root,
+            )
+            project_id_by_definition_id = {
+                project["sourceDefinitionId"]: project["builderProjectId"]
+                for project in builder_projects
+                if project.get("sourceDefinitionId") is not None
+                and project.get("builderProjectId") is not None
+            }
+            yaml_definitions = [
+                definition
+                for definition in yaml_definitions
+                if definition.id in project_id_by_definition_id
+            ]
+
+            custom_definitions = [
                 cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
             ]
+            for definition in custom_definitions:
+                project_id = project_id_by_definition_id[definition.definition_id]
+                definition._connector_builder_project_id = project_id  # noqa: SLF001
+                definition._connector_builder_project_id_fetched = True  # noqa: SLF001
+                definition._builder_project_workspace_id = self.workspace_id  # noqa: SLF001
+            return custom_definitions
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

@@ -17,7 +17,7 @@ from airbyte.cloud.models import ConnectorType
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import DeferredDeployResult
-from airbyte.registry import ConnectorMetadata
+from airbyte.registry import ConnectorMetadata, get_connector_metadata_by_definition_id
 from airbyte.secrets.base import SecretString
 from fastmcp import Context
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
@@ -492,6 +492,32 @@ def test_get_connector_name_by_definition_id(
         cloud_workspaces._get_connector_name_by_definition_id(  # noqa: SLF001
             "55555555-5555-4555-8555-555555555555"
         )
+        is None
+    )
+
+
+def test_get_connector_metadata_by_definition_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The definition-ID metadata lookup returns metadata on a hit and None on a miss."""
+    metadata = ConnectorMetadata(
+        name="source-faker",
+        latest_available_version=None,
+        definition_id=DEFINITION_ID,
+        pypi_package_name=None,
+        language=None,
+        install_types=set(),
+        suggested_streams=["users"],
+    )
+    monkeypatch.setattr("airbyte.registry._is_registry_disabled", lambda _url: False)
+    monkeypatch.setattr(
+        "airbyte.registry._get_registry_cache",
+        lambda **kwargs: {"source-faker": metadata},
+    )
+
+    assert get_connector_metadata_by_definition_id(DEFINITION_ID) is metadata
+    assert (
+        get_connector_metadata_by_definition_id("55555555-5555-4555-8555-555555555555")
         is None
     )
 

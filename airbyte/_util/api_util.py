@@ -52,6 +52,10 @@ JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
 JWT_PART_COUNT = 3
+FORBIDDEN_RESOURCE_GUIDANCE = (
+    "Airbyte Cloud returns 403 both for IDs that don't exist and for resources outside your "
+    "access. Check the ID, and that it belongs to the workspace you passed."
+)
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -108,17 +112,25 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     """Wrap an SDKError with additional context for debugging.
 
     This function converts a Speakeasy SDK error into an AirbyteError with
-    full URL context, making it easier to debug API issues like 404 errors.
+    full URL context, making it easier to debug API issues like 403 and 404 errors.
     """
     sdk_context = _get_sdk_error_context(error)
     merged_context = {**(base_context or {}), **sdk_context}
+    status_code = sdk_context.get("status_code")
+    is_forbidden = status_code == HTTPStatus.FORBIDDEN
     error_type = (
         AirbyteMissingResourceError
-        if sdk_context.get("status_code") == HTTPStatus.NOT_FOUND
+        if is_forbidden or status_code == HTTPStatus.NOT_FOUND
         else AirbyteError
     )
     return error_type(
-        message=f"API error occurred: {error.message}",
+        message=(
+            "The requested resource was not found, or these credentials can't access it "
+            "(HTTP 403)."
+            if is_forbidden
+            else f"API error occurred: {error.message}"
+        ),
+        guidance=FORBIDDEN_RESOURCE_GUIDANCE if is_forbidden else None,
         context=merged_context,
     )
 
@@ -1018,11 +1030,15 @@ def get_job_info(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.jobs.get_job(
-        api.GetJobRequest(
-            job_id=job_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.jobs.get_job(
+            api.GetJobRequest(
+                job_id=job_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"job_id": job_id}) from e
+
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 
@@ -1146,7 +1162,10 @@ def get_source(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.SourceResponse:
-    """Get a connection."""
+    """Get a source with its raw configuration.
+
+    Secrets in the returned configuration are redacted by the API.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1164,7 +1183,11 @@ def get_source(
         raise _wrap_sdk_error(e, base_context) from e
 
     if status_ok(response.status_code) and response.source_response:
-        return response.source_response
+        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
+        source = response.source_response
+        config = raw_response.get("configuration") or {}
+        source.configuration = config  # pyrefly: ignore[bad-assignment]  # Raw config.
+        return source
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=source_id,
@@ -1961,18 +1984,22 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     else:
         status_value = status
 
-    response = airbyte_instance.connections.patch_connection(
-        api.PatchConnectionRequest(
-            connection_id=connection_id,
-            connection_patch_request=models.ConnectionPatchRequest(
-                name=name,
-                configurations=configurations,
-                schedule=schedule,
-                prefix=prefix,
-                status=status_value,
+    try:
+        response = airbyte_instance.connections.patch_connection(
+            api.PatchConnectionRequest(
+                connection_id=connection_id,
+                connection_patch_request=models.ConnectionPatchRequest(
+                    name=name,
+                    configurations=configurations,
+                    schedule=schedule,
+                    prefix=prefix,
+                    status=status_value,
+                ),
             ),
-        ),
-    )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"connection_id": connection_id}) from e
+
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
@@ -2053,19 +2080,27 @@ def _make_config_api_request(
             response.raise_for_status()
         except requests.HTTPError as ex:
             error_message = f"API request failed with status {response.status_code}"
-            if response.status_code == HTTPStatus.FORBIDDEN:  # 403 error
-                error_message += f" (Forbidden) when accessing: {full_url}"
+            error_context = {
+                "full_url": full_url,
+                "config_api_root": config_api_root,
+                "path": path,
+                "status_code": response.status_code,
+                "url": response.request.url,
+                "body": response.request.body,
+                "response": response.__dict__,
+            }
+            if response.status_code == HTTPStatus.FORBIDDEN:
+                raise AirbyteMissingResourceError(
+                    message=(
+                        "The requested resource was not found, or these credentials can't "
+                        "access it (HTTP 403)."
+                    ),
+                    guidance=FORBIDDEN_RESOURCE_GUIDANCE,
+                    context=error_context,
+                ) from ex
             raise AirbyteError(
                 message=error_message,
-                context={
-                    "full_url": full_url,
-                    "config_api_root": config_api_root,
-                    "path": path,
-                    "status_code": response.status_code,
-                    "url": response.request.url,
-                    "body": response.request.body,
-                    "response": response.__dict__,
-                },
+                context=error_context,
             ) from ex
 
     return response.json()
@@ -2556,6 +2591,31 @@ def get_connector_builder_project_for_definition_id(
     )
 
 
+def list_connector_builder_projects(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> list[dict[str, Any]]:
+    """List connector builder projects for a workspace.
+
+    Calls `POST /v1/connector_builder_projects/list`.
+    """
+    response = _make_config_api_request(
+        path="/connector_builder_projects/list",
+        json={"workspaceId": workspace_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    return response["projects"]
+
+
 def get_connector_builder_project(
     *,
     workspace_id: str,
@@ -2855,6 +2915,87 @@ def list_workspaces_in_organization(
             break
 
         # Bump offset for next iteration
+        payload["pagination"]["rowOffset"] += page_size
+
+    return result
+
+
+def list_workspaces_by_user(  # noqa: PLR0913  # Mirrors list_workspaces_in_organization.
+    user_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    name_contains: str | None = None,
+    name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """List workspaces visible to a user.
+
+    Uses the Config API endpoint: POST /v1/workspaces/list_by_user_id
+
+    Args:
+        user_id: The Airbyte user ID to list workspaces for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
+        name_contains: Optional substring filter for workspace names (server-side)
+        name_filter: Optional predicate to filter workspace names (client-side)
+        limit: Optional maximum number of workspaces to return
+
+    Returns:
+        List of workspace dictionaries containing workspaceId, organizationId, name, etc.
+    """
+    _validate_pagination_params(limit=limit)
+    result: list[dict[str, Any]] = []
+    page_size = 100
+
+    payload: dict[str, Any] = {
+        "userId": user_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains is not None:
+        payload["nameContains"] = name_contains
+
+    while True:
+        json_result = _make_config_api_request(
+            path="/workspaces/list_by_user_id",
+            json={
+                **payload,
+                "pagination": payload["pagination"].copy(),
+            },
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+
+        workspaces = json_result.get("workspaces", [])
+
+        if not workspaces:
+            break
+
+        matches = [
+            workspace
+            for workspace in workspaces
+            if name_filter is None or name_filter(workspace.get("name", ""))
+        ]
+        result.extend(matches)
+
+        if limit is not None and len(result) >= limit:
+            return result[:limit]
+
+        if len(workspaces) < page_size:
+            break
+
         payload["pagination"]["rowOffset"] += page_size
 
     return result

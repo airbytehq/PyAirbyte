@@ -21,7 +21,9 @@ import pytest
 import requests
 from fastmcp import Client, FastMCP
 from fastmcp import telemetry as fastmcp_telemetry
-from fastmcp.exceptions import NotFoundError
+from fastmcp.exceptions import NotFoundError, ToolError
+from fastmcp.tools import ToolResult
+from mcp.types import TextContent
 from fastmcp_extensions import CapabilityTokenMiddleware
 from jsonschema import ValidationError
 from opentelemetry import trace
@@ -200,9 +202,24 @@ def agents_app(monkeypatch: pytest.MonkeyPatch) -> FastMCP:
 
     monkeypatch.setenv("AIRBYTE_MCP_INSIDERS", "1")
     monkeypatch.setattr(server.app, "middleware", list(server.app.middleware))
+    monkeypatch.setattr(
+        server.app._mcp_server, "middleware", list(server.app._mcp_server.middleware)
+    )
     monkeypatch.setattr(server.app, "instructions", server.app.instructions)
     _capture(server.app)
     return server.app
+
+
+@pytest.mark.parametrize("_repeat", range(2))
+def test_agents_app_does_not_accumulate_trace_context_guards(agents_app, _repeat):
+    """Each fixture use restores SDK middleware as well as FastMCP middleware."""
+    assert (
+        sum(
+            isinstance(middleware, observability._StripMetaTraceContextMiddleware)
+            for middleware in agents_app._mcp_server.middleware
+        )
+        == 1
+    )
 
 
 def test_list_tools_advertises_optional_intent_without_mutating_tool_parameters(
@@ -603,23 +620,134 @@ def test_tool_span_carries_intent_when_client_sends_meta_traceparent_and_is_root
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
+@pytest.mark.parametrize("transport", ["client", "http"])
 @pytest.mark.parametrize("error", [ValueError, NotFoundError])
 def test_error_span_has_error_type_and_no_exception_text(
-    app, monkeypatch, otel_provider, error
+    app, monkeypatch, otel_provider, error, transport
 ):
     @app.tool()
     def fail() -> str:
         raise error("error-SENTINEL")
 
     monkeypatch.setitem(observability._TOOL_MODULES, "fail", "cloud")
-    result = asyncio.run(_call(app, {}, name="fail", raise_on_error=False))
-    assert result.is_error
+    if transport == "http":
+        response = asyncio.run(
+            _http_rpc(app, "tools/call", {"name": "fail", "arguments": {}})
+        )
+        assert response.json()["result"]["isError"]
+    else:
+        result = asyncio.run(_call(app, {}, name="fail", raise_on_error=False))
+        assert result.is_error
     span = _tool_span(otel_provider)
     assert span.status.status_code == StatusCode.ERROR
     assert not span.status.description
     assert span.attributes["airbyte.mcp.error_type"] == error.__name__
     assert span.events
     assert all(set(event.attributes) == {"exception.type"} for event in span.events)
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("transport", ["direct", "client", "http"])
+@pytest.mark.parametrize("is_error", [False, True])
+def test_returned_tool_error_status_matches_response_without_exporting_content(
+    app, monkeypatch, otel_provider, transport, is_error
+):
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+    expected = ToolResult(
+        content=[TextContent(type="text", text="result-SENTINEL")],
+        meta={"private": "metadata-SENTINEL"},
+        is_error=is_error,
+    )
+
+    @app.tool()
+    def outcome(value: str) -> ToolResult:
+        assert value == "argument-SENTINEL"
+        # Exercise the final privacy boundary even if a dependency captures payloads.
+        span = trace.get_current_span()
+        span.set_attribute("gen_ai.tool.call.arguments", "input-SENTINEL")
+        span.set_attribute("gen_ai.tool.call.result", "output-SENTINEL")
+        span.set_attribute("_dd.ml_obs.metadata", "metadata-SENTINEL")
+        return expected
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "outcome", "cloud")
+    arguments = {"value": "argument-SENTINEL", "intent": "Check error reporting"}
+    if transport == "http":
+        response = asyncio.run(
+            _http_rpc(app, "tools/call", {"name": "outcome", "arguments": arguments})
+        ).json()["result"]
+        assert response["isError"] is is_error
+        assert response["content"][0]["text"] == "result-SENTINEL"
+        assert response["_meta"] == expected.meta
+    else:
+        response = asyncio.run(
+            app.call_tool("outcome", arguments)
+            if transport == "direct"
+            else _call(app, arguments, name="outcome", raise_on_error=False)
+        )
+        assert response.is_error is is_error
+        assert response.content == expected.content
+        if transport == "direct":
+            assert response is expected
+    span = _tool_span(otel_provider)
+    assert span.status.status_code == (
+        StatusCode.ERROR if is_error else StatusCode.UNSET
+    )
+    assert not span.status.description
+    assert span.attributes.get("airbyte.mcp.error_type") == (
+        "ToolError" if is_error else None
+    )
+    assert span.attributes.get("error.type") == ("ToolError" if is_error else None)
+    metadata = json.loads(span.attributes.get("_dd.ml_obs.metadata", "{}"))
+    assert metadata.get("error_type") == ("ToolError" if is_error else None)
+    if transport == "direct":
+        assert "gen_ai.tool.call.arguments" not in span.attributes
+    else:
+        assert json.loads(span.attributes["gen_ai.tool.call.arguments"]) == {
+            "intent": "Check error reporting"
+        }
+    assert not span.events  # A returned error is not an invented exception.
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_handled_nested_tool_error_does_not_mark_outer_call_failed(
+    app, monkeypatch, otel_provider, raises
+):
+    @app.tool()
+    def inner() -> ToolResult:
+        if raises:
+            raise ValueError("nested-error-SENTINEL")
+        return ToolResult(
+            content=[TextContent(type="text", text="nested-SENTINEL")], is_error=True
+        )
+
+    @app.tool()
+    async def outer() -> str:
+        try:
+            result = await app.call_tool("inner", {})
+            assert result.is_error
+        except ToolError:
+            assert raises
+        return "handled-SENTINEL"
+
+    for name in ("inner", "outer"):
+        monkeypatch.setitem(observability._TOOL_MODULES, name, "cloud")
+    response = asyncio.run(
+        _http_rpc(app, "tools/call", {"name": "outer", "arguments": {}})
+    )
+    assert not response.json()["result"]["isError"]
+    spans = _spans(otel_provider)
+    assert len(spans) == 2
+    parent = next(span for span in spans if span.name == "tools/call outer")
+    child = next(span for span in spans if span.name == "tools/call inner")
+    assert parent.status.status_code == StatusCode.UNSET
+    assert "airbyte.mcp.error_type" not in parent.attributes
+    assert child.parent.span_id == parent.context.span_id
+    assert child.context.trace_id == parent.context.trace_id
+    assert child.status.status_code == StatusCode.ERROR
+    assert child.attributes["airbyte.mcp.error_type"] == (
+        "ValueError" if raises else "ToolError"
+    )
     assert "SENTINEL" not in _export_text(otel_provider)
 
 
@@ -789,9 +917,53 @@ def test_segment_urls_excluded(otel_provider):
     assert spans[0].attributes["http.url"] == "https://api.airbyte.com/v1/connections"
 
 
-def test_install_is_noop_without_endpoint_and_idempotent(
-    monkeypatch, uninitialized_provider
+@pytest.mark.parametrize(
+    "configuration,native",
+    [
+        ({}, False),
+        ({"DD_LLMOBS_ENABLED": "1"}, True),
+        ({"DD_LLMOBS_ENABLED": " TRUE "}, True),
+        ({"DD_LLMOBS_ENABLED": "false"}, False),
+        ({"DD_LLMOBS_ENABLED": "0"}, False),
+        ({"DD_LLMOBS_ENABLED": ""}, False),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_TRACING_BACKEND": "otel"},
+            False,
+        ),
+        (
+            {
+                "DD_LLMOBS_ENABLED": "true",
+                "AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp",
+            },
+            False,
+        ),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_OTEL_VENDOR": "datadog"},
+            False,
+        ),
+        (
+            {"DD_LLMOBS_ENABLED": "true", "AIRBYTE_MCP_OTEL_VENDOR": "other"},
+            False,
+        ),
+        ({"AIRBYTE_MCP_OTEL_VENDOR": "datadog"}, False),
+        ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"}, False),
+        ({"AIRBYTE_MCP_TRACING_BACKEND": "datadog"}, True),
+        (
+            {
+                "AIRBYTE_MCP_TRACING_BACKEND": " DATADOG ",
+                "AIRBYTE_MCP_OTEL_VENDOR": "datadog",
+            },
+            True,
+        ),
+    ],
+)
+def test_install_selects_transport_without_endpoint_and_is_idempotent(
+    monkeypatch, uninitialized_provider, configuration, native
 ):
+    from airbyte.mcp import _datadog
+
+    native_install = Mock()
+    monkeypatch.setattr(_datadog, "install", native_install)
     exporter = Mock()
     monkeypatch.setattr(
         "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter",
@@ -799,7 +971,7 @@ def test_install_is_noop_without_endpoint_and_idempotent(
     )
     server = FastMCP("disabled")
     before = list(server.middleware)
-    observability.install(server, environ={})
+    observability.install(server, environ=configuration)
     observability.install(
         server,
         environ={
@@ -807,8 +979,26 @@ def test_install_is_noop_without_endpoint_and_idempotent(
         },
     )
     exporter.assert_not_called()
+    if native:
+        native_install.assert_called_once_with(server, environ=configuration)
+        assert server.middleware == before
+        return
+    native_install.assert_not_called()
     assert server.middleware[:-1] == before
     assert isinstance(server.middleware[-1], observability.IntentCaptureMiddleware)
+
+
+@pytest.mark.parametrize("backend", ["", "unknown"])
+def test_invalid_backend_does_not_fall_back_to_legacy_vendor(backend):
+    with pytest.raises(ValueError, match="AIRBYTE_MCP_TRACING_BACKEND"):
+        observability.install(
+            FastMCP("invalid"),
+            environ={
+                "AIRBYTE_MCP_TRACING_BACKEND": backend,
+                "AIRBYTE_MCP_OTEL_VENDOR": "datadog",
+                "DD_LLMOBS_ENABLED": "true",
+            },
+        )
 
 
 def test_install_leaves_provider_unset_when_build_fails(
@@ -913,10 +1103,20 @@ def test_install_respects_explicit_environ(
         provider.shutdown()
 
 
-@pytest.mark.parametrize("vendor", ["", "other", "datadog"])
+@pytest.mark.parametrize(
+    "vendor,backend,datadog_mapping",
+    [
+        ("", None, False),
+        ("other", None, False),
+        ("datadog", None, True),
+        ("", "datadog-otlp", True),
+        ("other", " DATADOG-OTLP ", True),
+        ("datadog", "otel", False),
+    ],
+)
 @pytest.mark.parametrize("valid_ids", [False, True])
-def test_datadog_metadata_attribute_only_with_vendor_opt_in(
-    agents_app, monkeypatch, otel_provider, vendor, valid_ids
+def test_datadog_metadata_uses_backend_with_legacy_vendor_fallback(
+    agents_app, monkeypatch, otel_provider, vendor, backend, datadog_mapping, valid_ids
 ):
     """UUID config headers are validated before ordinary or vendor export."""
     from airbyte.mcp.interactive import _registry_ui
@@ -925,6 +1125,8 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
         _registry_ui, "_list_public_registry_connectors", lambda **kwargs: []
     )
     monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", vendor)
+    if backend is not None:
+        monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", backend)
     workspace = (
         "12345678-1234-1234-1234-123456789ABC" if valid_ids else "workspace-SENTINEL"
     )
@@ -948,27 +1150,25 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
     )
     assert not result.json()["result"].get("isError")
     attributes = _tool_span(otel_provider).attributes
-    metadata = (
-        json.loads(attributes["_dd.ml_obs.metadata"]) if vendor == "datadog" else {}
-    )
+    metadata = json.loads(attributes["_dd.ml_obs.metadata"]) if datadog_mapping else {}
     for field, value in (
         ("workspace_id", workspace),
         ("organization_id", organization),
     ):
         if valid_ids:
             assert attributes[f"airbyte.mcp.{field}"] == value.lower()
-            if vendor == "datadog":
+            if datadog_mapping:
                 assert metadata[field] == value.lower()
         else:
             assert f"airbyte.mcp.{field}" not in attributes
             assert field not in metadata
     if valid_ids:
         assert attributes["airbyte.mcp.scope_source"] == "header"
-        if vendor == "datadog":
+        if datadog_mapping:
             assert metadata["scope_source"] == "header"
     else:
         assert "airbyte.mcp.scope_source" not in attributes
-    if vendor == "datadog":
+    if datadog_mapping:
         assert metadata["intent"] == "Inspect state"
         assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
             "intent": "Inspect state"
@@ -985,11 +1185,18 @@ def test_datadog_metadata_attribute_only_with_vendor_opt_in(
 
 
 @pytest.mark.parametrize("intent", [None, "  ", "  Inspect state  ", "x" * 5000])
+@pytest.mark.parametrize(
+    "setting,value",
+    [
+        ("AIRBYTE_MCP_OTEL_VENDOR", "datadog"),
+        ("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp"),
+    ],
+)
 def test_datadog_input_contains_only_bounded_intent(
-    app, monkeypatch, otel_provider, intent
+    app, monkeypatch, otel_provider, intent, setting, value
 ):
     """Render the safe intent copy, even when instrumentation captures raw data."""
-    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+    monkeypatch.setenv(setting, value)
 
     @app.tool()
     def input_probe(secret: str) -> str:
@@ -1464,6 +1671,14 @@ _FUSION_ID = "326245c8-0000-4000-8000-000000000000"
     "path,exported",
     [
         ("/jobs/get", "https://cloud.airbyte.com/api/v1/jobs/get"),
+        (
+            "/workspaces/list_by_user_id",
+            "https://cloud.airbyte.com/api/v1/workspaces/list_by_user_id",
+        ),
+        (
+            "/connector_builder_projects/list",
+            "https://cloud.airbyte.com/api/v1/connector_builder_projects/list",
+        ),
         ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
         *[
             (
@@ -1537,3 +1752,54 @@ def test_default_workspace_resolved_by_the_tool_is_exported(
     attributes = _tool_span(otel_provider).attributes
     assert attributes["airbyte.mcp.workspace_id"] == workspace_id
     assert attributes["airbyte.mcp.scope_source"] == "default"
+
+
+def test_users_default_organization_is_exported_for_an_unscoped_call(
+    agents_app, monkeypatch, otel_provider
+):
+    """A call that names no workspace or org exports the user's default organization."""
+    from fastmcp.server.auth import AccessToken
+
+    from airbyte._util import api_util
+    from airbyte.mcp import _user_identity
+
+    organization_id = "87654321-4321-4321-4321-cba987654321"
+    monkeypatch.setattr(
+        _user_identity,
+        "get_access_token",
+        lambda: AccessToken(token="verified-token", client_id="client", scopes=[]),
+    )
+    monkeypatch.setattr(api_util, "get_user_id_from_bearer_token", lambda _: "kc-user")
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": "user", "defaultWorkspaceId": "workspace"},
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_workspace_organization_info",
+        lambda *_, **__: {"organizationId": organization_id},
+    )
+    _user_identity._user_id_cache.clear()
+    _user_identity._workspace_organization_id_cache.clear()
+    _user_identity._default_organization_lookup_failed_at.clear()
+    try:
+        result = asyncio.run(
+            _http_rpc(
+                agents_app,
+                "tools/call",
+                {
+                    "name": "get_connector_info",
+                    "arguments": {"connector_name": "source-faker"},
+                },
+            )
+        )
+    finally:
+        _user_identity._user_id_cache.clear()
+        _user_identity._workspace_organization_id_cache.clear()
+        _user_identity._default_organization_lookup_failed_at.clear()
+    assert "result" in result.json()
+    attributes = _tool_span(otel_provider).attributes
+    assert attributes["airbyte.mcp.organization_id"] == organization_id
+    assert attributes["airbyte.mcp.scope_source"] == "user_default"
+    assert "airbyte.mcp.workspace_id" not in attributes

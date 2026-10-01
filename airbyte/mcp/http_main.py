@@ -39,6 +39,12 @@ Environment variables:
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
   to `0.0.0.0`.
+- `KAPA_API_KEY`: optional secret for Kapa's Retrieval API.
+- `KAPA_RETRIEVAL_API_URL`: optional Kapa Retrieval API endpoint, including the project ID.
+
+Both settings are required to enable `search_airbyte_knowledge_sources`, which
+belongs to the `guidance` domain and can be selected with `AIRBYTE_MCP_DOMAINS` or
+`AIRBYTE_MCP_DOMAINS_DISABLED`.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:
@@ -78,6 +84,49 @@ Opt-in static client credentials:
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
 
+Tracing backend selection:
+
+- `AIRBYTE_MCP_TRACING_BACKEND=otel`: the OpenTelemetry behavior below,
+  including its argument/result redaction, remains unchanged.
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: use OpenTelemetry with Datadog's
+  metadata and Input mapping, including intent/action, and the same strict
+  argument/result redaction as the generic OTel backend.
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog`: use native Datadog MCP spans. Install
+  `airbyte[datadog]` and run under the deployment's `ddtrace-run`/Datadog Agent
+  configuration. This backend reuses LLM Observability and its HTTP, outgoing
+  requests/urllib3, and log correlation; it does not install an OTel provider or
+  duplicate HTTP instrumentation. It captures initialize and tools/call, plus
+  tools/list discovery, as native task/tool spans. Unknown tool calls are retained.
+  Intent, action and bounded entity name are included as span tags, metadata and
+  approved tool Input; all other tool arguments and all tool outputs are redacted.
+
+Only `AIRBYTE_MCP_TRACING_BACKEND` is needed to select tracing behavior. For
+backward compatibility, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`
+when the backend setting is absent. An explicit backend takes precedence;
+the legacy vendor setting is ignored. Existing vendor-only deployments retain
+their transport, credentials, and payload policy. When neither setting is present,
+`DD_LLMOBS_ENABLED=1` or `true` selects native Datadog; otherwise the default is
+`otel`. Automatic selection has the same SDK requirements and duplicate MCP
+instrumentation checks as explicitly selecting `datadog`.
+
+The native Datadog backend excludes raw tool payloads. Server tool Input is
+rebuilt from approved telemetry only: captured intent, validated action and the
+bounded requested entity name. These explicit free-text telemetry fields may
+contain sensitive information; do not place customer data in intent or entity
+names. All other tool arguments and every tool result are omitted. Tool error
+status and type are retained, but messages and stacks are not captured because
+they can echo arguments or results. Captured outbound MCP client Input/Output
+is fully redacted. Initialization and tool listing keep their protocol payloads.
+This MCP span policy intentionally differs from the platform's selective payload
+redaction; it does not change deployment-owned HTTP spans, logs or other tracing.
+
+For a public deployment, verify native task/tool Input/Output, error status, and
+HTTP → MCP → requests/urllib3 ancestry against the existing Datadog example before
+removing the platform MCP wrapper. Other platform tracing stays enabled. Disable
+Datadog's automatic MCP integration with `DD_TRACE_MCP_ENABLED=false` when enabling
+this backend on an SDK version where that integration is active; startup refuses
+two active MCP span producers. No platform deployment change is made by this code.
+
 Optional OpenTelemetry observability. Nothing is exported unless a traces endpoint
 is configured. The hosted entrypoint installs tracing after hosted mode is set;
 no launcher or agent is needed. The exporter uses OTLP/HTTP protobuf.
@@ -98,10 +147,10 @@ hosted redaction boundary and continue exporting after rollback.
   `deployment.environment.name=preview`. An explicit `service.version` takes
   precedence over the installed PyAirbyte version.
 - `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
-- `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
+- `AIRBYTE_MCP_TRACING_BACKEND=datadog-otlp`: opt in to `_dd.ml_obs.metadata`, which makes
   intent available as Datadog metadata. Tool spans also show captured intent and
   validated action in Datadog Input, without raw tool arguments or results.
-  Leave unset for other OTLP backends.
+  Use `otel` for other OTLP backends.
 - `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
   guidance to omit credentials, identifiers and data values, even without an
   export endpoint. Removing this flag stops synthetic advertisement; declared
@@ -112,11 +161,42 @@ Each tool call is a fresh trace, with outbound `requests` calls nested beneath
 it. Client-supplied MCP trace context is stripped. Export removes exception
 messages and stacks, status descriptions, URL queries, user agents and caller
 identity. Outbound URLs retain recognized public Airbyte API routes with valid
-UUID/numeric IDs; unknown routes and custom origins are redacted. Tool arguments,
+UUID/numeric IDs; unknown routes and custom origins are redacted.
+`execute_external_api_query` traces its requested `entity_type` for supported
+read actions, including default `list`. Nonempty printable names with no
+surrounding whitespace are retained, truncating those longer than 256 characters
+for telemetry and removing trailing spaces at the cut. Other values are omitted;
+the original tool arguments are unchanged. These are caller-supplied names, which
+can include customer-defined or sensitive text; format checks are not
+anonymization or verification that an entity was accessed. With Datadog enabled,
+the validated name also appears as `entity_name` in Input alongside captured
+intent and action. Other tool arguments,
 results and HTTP headers are not recorded. Unregistered
 tool names are dropped. Segment requests are excluded from instrumentation.
 Session tokens are hashed before FastMCP sees them, while their extension
 declarations are preserved. Intent is free text capped at 4096 characters.
+
+Tool spans include `airbyte.mcp.client_name` and `airbyte.mcp.client_version` when
+available from the existing request context, even with intent advertisement off.
+They are also exported as `client_name` and `client_version` in Datadog metadata, not
+Input. In APM, filter with `@airbyte.mcp.client_name:"Claude Code"` and group by
+`@airbyte.mcp.client_version`, `@gen_ai.tool.name`, and error status to compare
+client-specific failures. Legacy session tokens and modern per-request client
+info use the same resolution as analytics. Missing identity is omitted.
+These are self-reported application labels, not verified identities or model
+names. Labels retain case, are trimmed and capped at 256 characters, and are
+omitted if they contain control characters. These bounds do not sanitize
+arbitrary text or secrets; clients must not put customer data in these labels
+(or in free-text intent).
+
+Tool spans include tool/server/protocol identity, timing, session correlation and
+error status. Returned `isError` results are marked as errors with the fixed
+category `ToolError`; raised exceptions retain their cause class. Neither path
+exports error messages or result content. Nested tool errors stay on the child
+span when the caller handles them successfully. Hosting-level HTTP, Cloud Run,
+and log instrumentation remains the deployment's responsibility. Verify an
+example public-endpoint span in Datadog before retiring platform MCP tracing;
+local exporter tests do not establish public deployment parity.
 
 Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
 to disable export. The hosted entrypoint still strips
@@ -174,7 +254,7 @@ logger = logging.getLogger(__name__)
 
 # Human-facing landing page shown when a browser GETs the MCP endpoint.
 MCP_LANDING_TITLE = "Airbyte MCP Server"
-MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
+MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/community/mcp-servers/replication-mcp"
 RELEASE_TAG_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/releases/tag/v{}"
 COMMIT_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/commit/{}"
 RELEASES_URL = "https://github.com/airbytehq/PyAirbyte/releases"

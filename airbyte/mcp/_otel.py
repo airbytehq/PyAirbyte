@@ -13,18 +13,20 @@ import logging
 import os
 import re
 import sys
+import unicodedata
+from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastmcp.server.middleware import Middleware
-from fastmcp.server.telemetry import _active_seam_span  # noqa: PLC2701
+from fastmcp.server.telemetry import _active_seam_span, seam_span  # noqa: PLC2701
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import SpanKind, Status
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from airbyte._direct_connectors.models import ExternalApiReadOnlyAction, ExternalSearchType
 from airbyte.constants import (
@@ -79,9 +81,9 @@ _SAFE_HTTP_URL = re.compile(
     rf"(?:/{_UUID_PATTERN})?)?)?)|"
     rf"{re.escape(CLOUD_CONFIG_API_ROOT)}/(?:"
     r"(?:sources|destinations)/check_connection|"
-    r"connector_builder_projects/(?:get_for_definition_id|get_with_manifest|update_testing_values)|"
+    r"connector_builder_projects/(?:list|get_for_definition_id|get_with_manifest|update_testing_values)|"
     r"organizations/(?:list_by_user_id|get_organization_info)|"
-    r"workspaces/(?:list_by_organization_id|get_organization_info|get)|"
+    r"workspaces/(?:list_by_organization_id|list_by_user_id|get_organization_info|get)|"
     r"state/(?:get|create_or_update_safe)|web_backend/connections/(?:get|update)|"
     r"users/(?:get_by_auth_id|update)|permissions/list_by_user|jobs/get|"
     rf"(?:sources|destinations)/{_UUID_PATTERN}/(?:execute|search|search-status|enablement)|"
@@ -90,6 +92,10 @@ _SAFE_HTTP_URL = re.compile(
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
 _MAX_INTENT_LENGTH = 4096
 _MAX_LATE_ATTRIBUTES = 4096
+_MAX_ENTITY_TYPE_LENGTH = 256
+_ENTITY_TYPE_ACTIONS = {
+    "execute_external_api_query": tuple(member.value for member in ExternalApiReadOnlyAction),
+}
 _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
@@ -118,17 +124,39 @@ def _flag(environ: Mapping[str, str] | None, name: str) -> bool:
     return _env(environ).get(name, "").strip().lower() in {"1", "true"}
 
 
+def _tracing_backend(environ: Mapping[str, str] | None) -> str:
+    environment = _env(environ)
+    backend = environment.get("AIRBYTE_MCP_TRACING_BACKEND")
+    if backend is None:
+        # Explicit legacy settings retain their OTLP transport.
+        vendor = environment.get("AIRBYTE_MCP_OTEL_VENDOR")
+        if vendor is not None:
+            return "datadog-otlp" if vendor.strip().lower() == "datadog" else "otel"
+        return "datadog" if _flag(environ, "DD_LLMOBS_ENABLED") else "otel"
+    backend = backend.strip().lower()
+    if backend not in {"otel", "datadog-otlp", "datadog"}:
+        raise ValueError("AIRBYTE_MCP_TRACING_BACKEND must be 'otel', 'datadog-otlp', or 'datadog'")
+    return backend
+
+
 def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-    """Install once in hosted mode; export only with an explicitly configured endpoint.
+    """Install one hosted backend; OTel exports only with a configured endpoint.
 
     `environ` is a test seam for enablement and the `AIRBYTE_MCP_*` controls only.
     The OTel SDK always reads exporter and resource configuration from process
-    environment; production callers should omit `environ`. An existing global
+    environment; production callers should omit `environ`. For OTel, an existing global
     provider or requests instrumentation prevents safe redaction and therefore
     refuses hosted startup, including when this integration's endpoint is unset.
     """
     global _INSTALLED, _ENVIRON
     if _INSTALLED:
+        return
+    backend = _tracing_backend(environ)
+    if backend == "datadog":
+        from airbyte.mcp._datadog import install as install_datadog
+
+        install_datadog(app, environ=environ)
+        _INSTALLED, _ENVIRON = True, environ
         return
     if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004  # Conflicting process state, not an invalid argument type.
@@ -247,6 +275,15 @@ def _install_meta_trace_context_middleware(app: FastMCP) -> None:
     low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
 
 
+def _client_label(value: object) -> str | None:
+    """Bound reported application labels; this is not arbitrary-text sanitization."""
+    if not isinstance(value, str) or any(
+        unicodedata.category(char).startswith("C") for char in value
+    ):
+        return None
+    return value.strip()[:256] or None
+
+
 class IntentCaptureMiddleware(Middleware):
     """Advertise optional intent and carry it into FastMCP's existing tool span."""
 
@@ -285,7 +322,6 @@ class IntentCaptureMiddleware(Middleware):
     ) -> ToolResult:
         """Strip synthetic arguments and untrusted tracing context before dispatch."""
         attrs: dict[str, str | bool] = {}
-        intent = None
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
@@ -309,37 +345,57 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
-        # FastMCP 4 opens a single seam SERVER span *above* the middleware
-        # chain (later renamed to `tools/call <name>`), so `on_start` stamping
-        # runs before this middleware exists; stamp the in-flight span here.
+        return await self._trace_call(context, call_next, attrs)
+
+    async def _trace_call(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, ToolResult],
+        attrs: dict[str, str | bool],
+    ) -> ToolResult:
+        """Record an OTel call after common argument preparation."""
+        # HTTP already owns a seam span above middleware. Nested/in-process calls
+        # need their own seam, kept alive until we inspect the result. FastMCP
+        # enriches that same span, avoiding a second span or an ended-span race.
         nested = _INTENT_ATTRIBUTES.get() is not None
-        try:
-            current_span = trace.get_current_span()
-            if current_span.is_recording() and not nested:
-                current_span.set_attributes(attrs)
-        except Exception:
-            logger.debug("Intent stamping skipped")
-        # FastMCP enriches the active seam span for in-process calls; give nested
-        # calls their own child span so they cannot rename or relabel the outer one.
-        seam_token = _active_seam_span.set(None) if nested else None
         token = _INTENT_ATTRIBUTES.set(attrs)
         try:
-            return await call_next(context)
-        except Exception as exc:
-            # FastMCP 4 wraps tool failures in `ToolError` below the span's
-            # `on_end`, so the cause class is captured here, at the middleware.
-            try:
-                _record_late_attributes(
-                    {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
-                )
-            except Exception:
-                logger.debug("Exception class capture skipped")
-            raise
+            with (
+                seam_span("tools/call", self._app.name)
+                if nested or _active_seam_span.get() is None
+                else nullcontext(trace.get_current_span())
+            ) as span:
+                try:
+                    try:
+                        span.set_attributes(attrs)
+                    except Exception:
+                        logger.debug("Intent stamping skipped")
+                    result = await call_next(context)
+                    try:
+                        if result.is_error and context.message.name in _TOOL_MODULES:
+                            # Never read error content: only a fixed category leaves here.
+                            span.set_status(Status(StatusCode.ERROR))
+                            span.set_attributes(
+                                {"airbyte.mcp.error_type": "ToolError", "error.type": "ToolError"}
+                            )
+                    except Exception:
+                        logger.debug("Tool error status capture skipped")
+                except Exception as exc:
+                    # HTTP converts exceptions into protocol errors before its
+                    # seam ends, so retain the original class at this boundary.
+                    try:
+                        _record_late_attributes(
+                            {"airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__}
+                        )
+                    except Exception:
+                        logger.debug("Exception class capture skipped")
+                    raise
+                else:
+                    return result
+                finally:
+                    _record_default_workspace()
         finally:
-            _record_default_workspace()
             _INTENT_ATTRIBUTES.reset(token)
-            if seam_token is not None:
-                _active_seam_span.reset(seam_token)
 
     @staticmethod
     def _attributes(
@@ -349,6 +405,7 @@ class IntentCaptureMiddleware(Middleware):
         from fastmcp.server.dependencies import get_http_headers
 
         from airbyte._util.meta import get_cloud_api_analytic_source
+        from airbyte.mcp._telemetry import request_properties
 
         name = context.message.name
         intent = intent.strip() if isinstance(intent, str) else ""
@@ -361,6 +418,13 @@ class IntentCaptureMiddleware(Middleware):
             "airbyte.mcp.intent_present": bool(intent),
             "airbyte.mcp.analytic_source": get_cloud_api_analytic_source(),
         }
+        try:
+            properties = request_properties()
+            for key in ("client_name", "client_version"):
+                if value := _client_label(properties.get(f"mcp_{key}")):
+                    attrs[f"airbyte.mcp.{key}"] = value
+        except Exception:
+            logger.debug("Client trace attributes unavailable")
         if intent:
             attrs["airbyte.mcp.intent"] = intent
         arguments = context.message.arguments or {}
@@ -375,6 +439,17 @@ class IntentCaptureMiddleware(Middleware):
             canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
             if canonical_action is not None:
                 attrs["airbyte.mcp.agent.action"] = canonical_action
+        if isinstance(action, str) and action in _ENTITY_TYPE_ACTIONS.get(name, ()):
+            entity_type = arguments.get("entity_type")
+            if (
+                isinstance(entity_type, str)
+                and entity_type
+                and entity_type.isprintable()
+                and entity_type == entity_type.strip()
+            ):
+                attrs["airbyte.mcp.agent.entity_type"] = entity_type[
+                    :_MAX_ENTITY_TYPE_LENGTH
+                ].rstrip()
         if name in _TOOL_MODULES:
             hints = _TOOL_ANNOTATIONS.get(name, {})
             attrs.update(
@@ -405,16 +480,25 @@ class IntentCaptureMiddleware(Middleware):
 
 
 def _record_default_workspace() -> None:
-    """Attach the default workspace, which is only known once the tool has resolved it."""
-    scope = current_call_scope()
-    if scope is not None and scope.workspace_source == "default" and scope.workspace_id:
+    """Attach the scope only known once the tool has run: its default workspace or org."""
+    call_scope = current_call_scope()
+    scope = call_scope.resolved() if call_scope is not None else None
+    if scope is None:
+        return
+    late_attributes: dict[str, str] = {}
+    if scope.workspace_source == "default" and scope.workspace_id:
+        late_attributes = {
+            "airbyte.mcp.workspace_id": scope.workspace_id,
+            "airbyte.mcp.scope_source": "default",
+        }
+    elif scope.organization_source == "user_default" and scope.organization_id:
+        late_attributes = {
+            "airbyte.mcp.organization_id": scope.organization_id,
+            "airbyte.mcp.scope_source": "user_default",
+        }
+    if late_attributes:
         try:
-            _record_late_attributes(
-                {
-                    "airbyte.mcp.workspace_id": scope.workspace_id,
-                    "airbyte.mcp.scope_source": "default",
-                }
-            )
+            _record_late_attributes(late_attributes)
         except Exception:
             logger.debug("Default workspace capture skipped")
 
@@ -474,7 +558,7 @@ class IntentStampProcessor(SpanProcessor):
 
 
 class RedactingExporter(SpanExporter):
-    """The sole exporter boundary: only public, rebuilt spans can leave the process."""
+    """The sole exporter boundary: only validated, rebuilt spans can leave the process."""
 
     def __init__(self, exporter: SpanExporter, *, environ: Mapping[str, str] | None = None) -> None:
         """Wrap the destination exporter without exposing it to a span processor."""
@@ -525,21 +609,40 @@ class RedactingExporter(SpanExporter):
                     clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
                 )
         attrs.update(late)
+        entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
         action = attrs.pop("airbyte.mcp.agent.action", None)
         tool_name = span.name.removeprefix("tools/call ")
-        if (
+        root_tool_span = (
             span.kind == SpanKind.SERVER
             and span.parent is None
             and span.name.startswith("tools/call ")
             and tool_name in _TOOL_MODULES
-            and isinstance(action, str)
-        ):
+        )
+        if root_tool_span and isinstance(action, str):
             canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
             if canonical_action is not None:
                 attrs["airbyte.mcp.agent.action"] = canonical_action
+        if not root_tool_span or tool_name not in _ENTITY_TYPE_ACTIONS:
+            entity_type = None
+        if (
+            isinstance(entity_type, str)
+            and entity_type
+            and entity_type.isprintable()
+            and entity_type == entity_type.strip()
+        ):
+            attrs["airbyte.mcp.agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
+        for key in ("client_name", "client_version"):
+            value = _client_label(attrs.pop(f"airbyte.mcp.{key}", None))
+            if (
+                value is not None
+                and span.kind == SpanKind.SERVER
+                and span.name.startswith("tools/call ")
+                and tool_name in _TOOL_MODULES
+            ):
+                attrs[f"airbyte.mcp.{key}"] = value
         attrs.pop("_dd.ml_obs.metadata", None)
         environment = _env(self._environ if self._environ is not None else _ENVIRON)
-        if environment.get("AIRBYTE_MCP_OTEL_VENDOR", "").strip().lower() == "datadog":
+        if _tracing_backend(environment) == "datadog-otlp":
             metadata = {
                 key: attrs[f"airbyte.mcp.{key}"]
                 for key in (
@@ -551,6 +654,9 @@ class RedactingExporter(SpanExporter):
                     "scope_source",
                     "error_type",
                     "agent.action",
+                    "agent.entity_type",
+                    "client_name",
+                    "client_version",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }
@@ -558,7 +664,11 @@ class RedactingExporter(SpanExporter):
                 attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
             tool_input = {
                 label: metadata[key]
-                for label, key in (("intent", "intent"), ("action", "agent.action"))
+                for label, key in (
+                    ("intent", "intent"),
+                    ("action", "agent.action"),
+                    ("entity_name", "agent.entity_type"),
+                )
                 if isinstance(metadata.get(key), str) and metadata[key]
             }
             if (
