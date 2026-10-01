@@ -2571,6 +2571,31 @@ def get_connector_builder_project_for_definition_id(
     )
 
 
+def list_connector_builder_projects(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> list[dict[str, Any]]:
+    """List connector builder projects for a workspace.
+
+    Calls `POST /v1/connector_builder_projects/list`.
+    """
+    response = _make_config_api_request(
+        path="/connector_builder_projects/list",
+        json={"workspaceId": workspace_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    return response["projects"]
+
+
 def get_connector_builder_project(
     *,
     workspace_id: str,

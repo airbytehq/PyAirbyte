@@ -1445,6 +1445,35 @@ def test_list_cloud_connectors_filters(
     ]
 
 
+@pytest.mark.parametrize(
+    "include_organization_shared",
+    [
+        pytest.param(False, id="workspace-owned-only"),
+        pytest.param(True, id="include-organization-shared"),
+    ],
+)
+def test_list_custom_source_definitions_forwards_organization_shared_option(
+    monkeypatch: pytest.MonkeyPatch,
+    include_organization_shared: bool,
+) -> None:
+    workspace = SimpleNamespace(
+        list_custom_source_definitions=MagicMock(return_value=[])
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    results = cloud_mcp.list_custom_source_definitions(
+        None,
+        workspace_id="workspace-id",
+        include_organization_shared=include_organization_shared,
+    )
+
+    assert results == []
+    workspace.list_custom_source_definitions.assert_called_once_with(
+        definition_type="yaml",
+        include_organization_shared=include_organization_shared,
+    )
+
+
 def test_get_agent_skill_docs_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

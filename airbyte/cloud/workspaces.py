@@ -1352,11 +1352,18 @@ class CloudWorkspace:
         self,
         *,
         definition_type: Literal["yaml", "docker"],
+        include_organization_shared: bool = True,
     ) -> list[cloud_connectors.CustomCloudSourceDefinition]:
         """List custom source connector definitions.
 
+        By default, this includes definitions shared with this workspace's organization. Set
+        `include_organization_shared` to `False` to list only definitions with a builder project
+        owned by this workspace.
+
         Args:
             definition_type: Connector type to list ("yaml" or "docker"). Required.
+            include_organization_shared: Whether to include definitions shared with this workspace's
+                organization.
 
         Returns:
             List of CustomCloudSourceDefinition objects matching the specified type
@@ -1369,10 +1376,40 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            return [
+            project_id_by_definition_id: dict[str, str] = {}
+            if not include_organization_shared:
+                builder_projects = api_util.list_connector_builder_projects(
+                    workspace_id=self.workspace_id,
+                    api_root=self.api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    bearer_token=self.bearer_token,
+                    config_api_root=self.config_api_root,
+                )
+                project_id_by_definition_id = {
+                    project["sourceDefinitionId"]: project["builderProjectId"]
+                    for project in builder_projects
+                    if project.get("sourceDefinitionId") is not None
+                    and project.get("builderProjectId") is not None
+                }
+                yaml_definitions = [
+                    definition
+                    for definition in yaml_definitions
+                    if definition.id in project_id_by_definition_id
+                ]
+
+            custom_definitions = [
                 cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
             ]
+            if not include_organization_shared:
+                # Prime the cache so URL access avoids a per-definition lookup.
+                for definition in custom_definitions:
+                    project_id = project_id_by_definition_id[definition.definition_id]
+                    definition._connector_builder_project_id = project_id  # noqa: SLF001
+                    definition._connector_builder_project_id_fetched = True  # noqa: SLF001
+                    definition._builder_project_workspace_id = self.workspace_id  # noqa: SLF001
+            return custom_definitions
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
