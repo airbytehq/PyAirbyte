@@ -81,6 +81,10 @@ def list_connectors(
 ) -> list[str]:
     """List available Airbyte connectors with optional filtering.
 
+    This lists connector types in the public registry, not sources, destinations, or connections
+    deployed in a workspace; use `list_cloud_connectors`, `list_cloud_connections`, or
+    `describe_cloud_connection` for workspace resources.
+
     Returns:
         List of connector names.
     """

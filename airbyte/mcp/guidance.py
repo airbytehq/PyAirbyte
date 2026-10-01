@@ -39,6 +39,7 @@ from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
     ApiDocsUrl,
     ConnectorMetadata,
+    InstallType,
     get_available_connectors,
     get_connector_api_docs_urls,
     get_connector_metadata,
@@ -252,12 +253,17 @@ def get_connector_info(
 ) -> ConnectorInfo | Literal["Connector not found."]:
     """Get metadata, documentation URL, config spec, and manifest URL for a connector.
 
+    This searches public registry connector types, not workspace-deployed sources, destinations,
+    or connections; use `list_cloud_connectors`, `list_cloud_connections`, or
+    `describe_cloud_connection` for workspace resources. For custom Builder/YAML connectors, use
+    `list_custom_source_definitions` or `get_custom_source_definition`.
+
     `config_spec_jsonschema` is fetched from the public connector registry over
     HTTP (no Docker or local install required), preferring the `cloud` spec and
     falling back to `oss`. It is `None` when the registry has no spec available
     for the connector.
     """
-    if connector_name not in get_available_connectors():
+    if connector_name not in get_available_connectors(install_type=InstallType.ANY):
         return "Connector not found."
 
     connector = get_source(

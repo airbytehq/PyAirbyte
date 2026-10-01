@@ -95,6 +95,7 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudWorkspaceInfo,
+    ConnectionStatus,
     JobStatusEnum,
     JobTypeEnum,
     WorkspacePrivilegeScope,
@@ -140,6 +141,7 @@ __all__ = [
     "ExternalApiReadOnlyAction",
     "ExternalApiWriteAction",
     "ExternalSearchType",
+    "ConnectionStatus",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

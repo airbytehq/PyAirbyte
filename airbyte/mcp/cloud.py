@@ -46,6 +46,8 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    ConnectionSchedule,
+    ConnectionStatus,
     ConnectorFeature,
     ConnectorType,
     JobTypeEnum,
@@ -122,6 +124,12 @@ CLOUD_AUTH_TIP_TEXT = (
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
     f"ask the user to choose one; do not select automatically."
+)
+DELETE_NAME_GUARD_TIP_TEXT = (
+    'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
+    '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
+    "resource yourself to satisfy this requirement; ask the user to confirm deletion or "
+    "rename it themselves first."
 )
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the "
@@ -317,6 +325,10 @@ class CloudConnectionDetails(BaseModel):
     """List of stream names selected for syncing."""
     table_prefix: str | None
     """Table prefix applied when syncing to the destination."""
+    status: ConnectionStatus | None = None
+    """The connection status, such as `active` or `inactive`."""
+    schedule: ConnectionSchedule | None = None
+    """The connection's sync schedule."""
 
 
 class CloudOrganizationResult(BaseModel):
@@ -963,13 +975,16 @@ def get_cloud_sync_status(
     connection_id: Annotated[
         str,
         Field(
-            description="The ID of the Airbyte Cloud connection.",
+            description="Required ID of the Airbyte Cloud connection that owns the job.",
         ),
     ],
     job_id: Annotated[
         int | None,
         Field(
-            description="Optional job ID. If not provided, the latest job will be used.",
+            description=(
+                "Optional job ID; it must belong to `connection_id`. Use "
+                "`list_cloud_sync_jobs` to find job IDs for this connection."
+            ),
             default=None,
         ),
     ],
@@ -989,13 +1004,15 @@ def get_cloud_sync_status(
         ),
     ],
 ) -> dict[str, Any]:
-    """Get the status of a sync job from the Airbyte Cloud."""
+    """Get the status of a sync job from Airbyte Cloud.
+
+    `connection_id` is required, and any supplied `job_id` must belong to that connection. Use
+    `list_cloud_sync_jobs` to find job IDs for the connection.
+    """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    # If a job ID is provided, get the job by ID.
     sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
-
     if not sync_result:
         return {"status": None, "job_id": None, "attempts": []}
 
@@ -1234,6 +1251,8 @@ def list_cloud_connectors(
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
+    Use `list_cloud_connections` to find the pipelines between these connectors.
+
     Pass `feature_filter` (for example `direct_api_query` for sources,
     `direct_sql_query` for destinations, or `direct_access` or `search_indexing` for
     either) to return only matching connectors with their `enabled_features`
@@ -1357,8 +1376,7 @@ class CloudConnectorDetailsResult(BaseModel):
     config: dict[str, Any] | None = None
     """The connector configuration, populated only by `with_config`.
 
-    Secret values are redacted by the Cloud API. Always `None` for sources, which the
-    API does not expose configuration for."""
+    Secret values are redacted by the Cloud API."""
 
     replication_details: list[CloudConnectorConnectionInfo] | None = None
     """Connections touching this connector, populated only by `with_replication_details`."""
@@ -1376,7 +1394,7 @@ class CloudConnectorDetailsResult(BaseModel):
     """Fatal issues encountered while describing optional connector details."""
 
 
-def _describe_cloud_connector(
+def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     connector: CloudConnector,
     *,
     with_config: bool,
@@ -1423,9 +1441,12 @@ def _describe_cloud_connector(
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
 
-    if with_config and connector_type == ConnectorType.DESTINATION:
+    if with_config:
         try:
-            result.config = connector.as_cloud_destination().configuration
+            if connector_type == ConnectorType.SOURCE:
+                result.config = connector.as_cloud_source().configuration
+            elif connector_type == ConnectorType.DESTINATION:
+                result.config = connector.as_cloud_destination().configuration
         except AirbyteError as error:
             warnings.append(f"Connector configuration lookup failed: {error}")
 
@@ -2104,6 +2125,8 @@ def describe_cloud_connection(
         destination_name=cast(str, connection.destination.name),
         selected_streams=connection.stream_names,
         table_prefix=connection.table_prefix,
+        status=connection.status,
+        schedule=connection.schedule,
     )
 
 
@@ -2301,6 +2324,9 @@ def list_cloud_connections(
     ],
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
+
+    Each connection links a source to a destination; use `list_cloud_connectors` to list those
+    deployed resources.
 
     When with_connection_status is True, each connection result will include
     information about the most recent sync job status, skipping over any
@@ -3272,6 +3298,7 @@ def update_custom_source_definition(
 @mcp_tool(
     destructive=True,
     open_world=True,
+    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
 )
 def permanently_delete_custom_source_definition(
     ctx: Context,
@@ -3293,13 +3320,6 @@ def permanently_delete_custom_source_definition(
     ],
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
-
-    IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
-    (case insensitive).
-
-    If the connector does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the connector appropriately to authorize
-    the deletion.
 
     The provided name must match the actual name of the definition for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3339,7 +3359,7 @@ def permanently_delete_custom_source_definition(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
 )
 def permanently_delete_cloud_connector(
     ctx: Context,
@@ -3368,13 +3388,6 @@ def permanently_delete_cloud_connector(
     ],
 ) -> str:
     """Permanently delete a deployed source or destination connector from Airbyte Cloud.
-
-    IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
-    (case insensitive).
-
-    If the connector does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the connector appropriately to authorize
-    the deletion.
 
     The provided name must match the actual name of the connector for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
@@ -3418,7 +3431,7 @@ def permanently_delete_cloud_connector(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
 )
 def permanently_delete_cloud_connection(
     ctx: Context,
@@ -3458,13 +3471,6 @@ def permanently_delete_cloud_connection(
     ],
 ) -> str:
     """Permanently delete a connection from Airbyte Cloud.
-
-    IMPORTANT: This operation requires the connection name to contain "delete-me" or "deleteme"
-    (case insensitive).
-
-    If the connection does not meet this requirement, the deletion will be rejected with a
-    helpful error message. Instruct the user to rename the connection appropriately to authorize
-    the deletion.
 
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
