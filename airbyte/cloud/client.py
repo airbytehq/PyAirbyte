@@ -57,15 +57,12 @@ The deprecated `all_organizations=True` alias maps to `privilege_scope=ANY`.
 
 ### Why the path matters
 
-The two listing paths differ in completeness, not just speed:
-
 - **Organization-scoped** (an organization or membership scope was resolved) uses the
-  Config API, which filters by name server-side and paginates, so results are complete
-  and each workspace carries its organization attribution.
-- **Cross-organization** (`privilege_scope=INSTANCE_ADMIN`, or `ANY` for an instance admin) uses
-  the public API, which has neither an organization filter nor a name filter. Name
-  matching happens client-side over every visible workspace, and the responses carry no
-  organization attribution.
+  Config API `list_by_organization_id` endpoint, which filters by name server-side and
+  paginates.
+- **Cross-organization** (`privilege_scope=INSTANCE_ADMIN`, or `ANY` for an instance admin)
+  uses the Config API `list_by_user_id` endpoint, which filters by name server-side,
+  paginates, and includes each workspace's organization attribution.
 
 ### Searching organizations
 
@@ -510,26 +507,25 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None,
         limit: int | None,
     ) -> list[CloudWorkspaceInfo]:
-        """List workspaces across the instance."""
-        if name_contains is not None:
-            name_substring = name_contains.casefold()
-
-            def matches_name(workspace_name: str) -> bool:
-                return name_substring in workspace_name.casefold()
-
-            name_filter = matches_name
-            name = None
-        workspaces = api_util.list_workspaces(
-            workspace_id="",
+        """List instance-wide workspaces with server-side name filtering and pagination."""
+        workspaces = api_util.list_workspaces_by_user(
+            user_id=self._get_authenticated_user_id(),
             api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-            name_filter=name_filter,
-            name=name,
-            limit=limit,
+            bearer_token=self._get_config_api_bearer_token(),
+            name_contains=name_contains or name,
+            limit=None if name is not None or name_filter is not None else limit,
         )
-        return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
+        workspace_infos = [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
+        if name is not None:
+            workspace_infos = [workspace for workspace in workspace_infos if workspace.name == name]
+        if name_filter is not None:
+            workspace_infos = [
+                workspace for workspace in workspace_infos if name_filter(workspace.name)
+            ]
+        return workspace_infos[:limit] if limit is not None else workspace_infos
 
     def _list_workspaces_in_organizations(
         self,
