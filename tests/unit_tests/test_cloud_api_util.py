@@ -1285,6 +1285,37 @@ def test_config_api_request_sends_analytic_source_header(
     assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
+def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> None:
+    projects = [
+        {
+            "builderProjectId": "builder-project-id",
+            "sourceDefinitionId": "definition-id",
+        }
+    ]
+    config_api_request = Mock(return_value={"projects": projects})
+    monkeypatch.setattr(api_util, "_make_config_api_request", config_api_request)
+
+    result = api_util.list_connector_builder_projects(
+        "workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+    )
+
+    assert result == projects
+    config_api_request.assert_called_once_with(
+        path="/connector_builder_projects/list",
+        json={"workspaceId": "workspace-id"},
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+    )
+
+
 @pytest.mark.parametrize(
     ("status_code", "expected_error_type", "expected_message", "expected_guidance"),
     [

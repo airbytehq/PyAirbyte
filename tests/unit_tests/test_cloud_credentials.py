@@ -20,6 +20,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
     ConnectorFeature,
     ConnectorType,
+    CustomCloudSourceDefinition,
 )
 from airbyte._direct_connectors.models import (
     ConnectorEnablement,
@@ -614,6 +615,140 @@ def test_cloud_workspace_list_workspaces_forwards_limit(
     )
 
     assert captured_limit == 3
+
+
+def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    definitions = [
+        SimpleNamespace(
+            id="workspace-owned",
+            name="Workspace-owned",
+            manifest={},
+            version="1.0.0",
+        ),
+        SimpleNamespace(
+            id="organization-shared",
+            name="Organization-shared",
+            manifest={},
+            version="1.0.0",
+        ),
+    ]
+    monkeypatch.setattr(
+        api_util,
+        "list_custom_yaml_source_definitions",
+        lambda **_: definitions,
+    )
+    project_calls: list[dict[str, object]] = []
+
+    def fake_list_connector_builder_projects(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        project_calls.append(kwargs)
+        return [
+            {
+                "sourceDefinitionId": "workspace-owned",
+                "builderProjectId": "builder-project-id",
+            }
+        ]
+
+    monkeypatch.setattr(
+        api_util,
+        "list_connector_builder_projects",
+        fake_list_connector_builder_projects,
+    )
+    builder_lookup = MagicMock(side_effect=AssertionError("unexpected Builder lookup"))
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
+    )
+
+    result = workspace.list_custom_source_definitions(
+        definition_type="yaml",
+    )
+
+    assert [definition.definition_id for definition in result] == ["workspace-owned"]
+    assert project_calls == [
+        {
+            "workspace_id": workspace.workspace_id,
+            "api_root": workspace.api_root,
+            "client_id": workspace.client_id,
+            "client_secret": workspace.client_secret,
+            "bearer_token": workspace.bearer_token,
+            "config_api_root": workspace.config_api_root,
+        }
+    ]
+    definition = result[0]
+    assert definition.connector_builder_project_id == "builder-project-id"
+    assert definition.connector_builder_project_url == (
+        "https://cloud.airbyte.com/workspaces/workspace-id/"
+        "connector-builder/edit/builder-project-id"
+    )
+    builder_lookup.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("project_response", "expected_url"),
+    [
+        pytest.param(
+            {
+                "builderProjectId": "builder-project-id",
+                "workspaceId": "caller-workspace",
+            },
+            "https://cloud.airbyte.com/workspaces/caller-workspace/"
+            "connector-builder/edit/builder-project-id",
+            id="owned-by-caller-workspace",
+        ),
+        pytest.param(
+            {
+                "builderProjectId": "builder-project-id",
+                "workspaceId": "owner-workspace",
+            },
+            "https://cloud.airbyte.com/workspaces/owner-workspace/"
+            "connector-builder/edit/builder-project-id",
+            id="owned-by-another-workspace",
+        ),
+        pytest.param({}, None, id="no-project"),
+    ],
+)
+def test_custom_cloud_source_definition_builder_url_uses_owner_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    project_response: dict[str, object],
+    expected_url: str | None,
+) -> None:
+    workspace = CloudWorkspace(
+        workspace_id="caller-workspace",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    builder_lookup = MagicMock(return_value=project_response)
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
+    )
+    definition = CustomCloudSourceDefinition(
+        workspace=workspace,
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+
+    assert definition.connector_builder_project_url == expected_url
+    builder_lookup.assert_called_once_with(
+        workspace_id="caller-workspace",
+        definition_id="definition-id",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
 
 
 def test_cloud_workspace_rename_forwards_inputs(

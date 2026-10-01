@@ -85,6 +85,7 @@ from airbyte._direct_connectors.models import (
     _DirectConnectorInspectResult,
 )
 from airbyte._util import api_util, text_util
+from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
@@ -1357,7 +1358,11 @@ class CustomCloudSourceDefinition:
         if not project_id:
             return None
 
-        return f"{self.workspace.workspace_url}/connector-builder/edit/{project_id}"
+        return (
+            f"{get_web_url_root(self.workspace.api_root)}/workspaces/"
+            f"{self._builder_project_workspace_id or self.workspace.workspace_id}"
+            f"/connector-builder/edit/{project_id}"
+        )
 
     def get_builder_project_data(
         self,
