@@ -298,27 +298,26 @@ def test_cloud_client_init_validates_auth_inputs(
 def test_cloud_client_list_workspaces_forwards_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_limit = None
+    captured: dict[str, object] = {}
 
-    def fake_list_workspaces(
-        *,
-        limit: int | None = None,
-        **_: object,
-    ) -> list[object]:
-        nonlocal captured_limit
-        captured_limit = limit
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
+        captured.update(kwargs)
         return []
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+    monkeypatch.setattr(
+        api_util, "list_workspaces_by_user", fake_list_workspaces_by_user
+    )
 
     client = CloudClient(bearer_token="token")
     monkeypatch.setattr(client, "_is_instance_admin", lambda: True)
+    monkeypatch.setattr(client, "_get_authenticated_user_id", lambda: "user-1")
     client.list_workspaces(
         limit=3,
         privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
     )
 
-    assert captured_limit == 3
+    assert captured["user_id"] == "user-1"
+    assert captured["limit"] == 3
 
 
 @pytest.mark.parametrize(
@@ -344,56 +343,44 @@ def test_cloud_client_list_workspaces_rejects_invalid_argument_combinations(
         CloudClient(bearer_token="token").list_workspaces(**request_kwargs)
 
 
-def test_cloud_client_list_workspaces_applies_name_contains_to_all_org_results(
+def test_cloud_client_list_workspaces_applies_name_contains_to_instance_admin_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_list_workspaces(
-        **kwargs: object,
-    ) -> list[models.WorkspaceResponse]:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
         captured.update(kwargs)
         workspaces = [
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="target-one",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-target-one",
-            ),
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="other",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-other",
-            ),
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="target-two",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-target-two",
-            ),
+            {"workspaceId": "workspace-target-one", "name": "target-one"},
+            {"workspaceId": "workspace-other", "name": "other"},
+            {"workspaceId": "workspace-target-two", "name": "target-two"},
         ]
-        workspace_filter = kwargs["name_filter"]
-        assert callable(workspace_filter)
+        name_contains = kwargs["name_contains"]
+        assert isinstance(name_contains, str)
         matching_workspaces = [
-            workspace for workspace in workspaces if workspace_filter(workspace.name)
+            workspace
+            for workspace in workspaces
+            if name_contains.casefold() in str(workspace["name"]).casefold()
         ]
         return matching_workspaces[
             : kwargs["limit"] if isinstance(kwargs["limit"], int) else None
         ]
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+    monkeypatch.setattr(
+        api_util, "list_workspaces_by_user", fake_list_workspaces_by_user
+    )
 
     client = CloudClient(bearer_token="token")
     monkeypatch.setattr(client, "_is_instance_admin", lambda: True)
+    monkeypatch.setattr(client, "_get_authenticated_user_id", lambda: "user-1")
     result = client.list_workspaces(
         name_contains="TARGET",
         limit=1,
         privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
     )
 
-    assert captured.get("name") is None
-    assert callable(captured["name_filter"])
+    assert captured["user_id"] == "user-1"
+    assert captured["name_contains"] == "TARGET"
     assert captured["limit"] == 1
     assert [workspace.name for workspace in result] == ["target-one"]
 
@@ -1434,24 +1421,21 @@ def test_cloud_client_list_workspaces_uses_cross_organization_listing(
         permissions=permissions,
     )
 
-    def fake_list_workspaces(**kwargs: object) -> list[models.WorkspaceResponse]:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
         captured.update(kwargs)
-        return [
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="Workspace",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-id",
-            )
-        ]
+        return [{"workspaceId": "workspace-id", "name": "Workspace"}]
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+    monkeypatch.setattr(
+        api_util, "list_workspaces_by_user", fake_list_workspaces_by_user
+    )
 
-    result = CloudClient(bearer_token="token").list_workspaces(
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "_get_authenticated_user_id", lambda: "user-1")
+    result = client.list_workspaces(
         privilege_scope=privilege_scope,
     )
 
-    assert captured["workspace_id"] == ""
+    assert captured["user_id"] == "user-1"
     assert captured["limit"] is None
     assert [workspace.workspace_id for workspace in result] == ["workspace-id"]
 
