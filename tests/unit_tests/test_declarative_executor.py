@@ -17,6 +17,50 @@ MINIMAL_MANIFEST: dict[str, Any] = {
     "streams": [],
 }
 
+MANIFEST: dict[str, Any] = {
+    "version": "4.6.2",
+    "type": "DeclarativeSource",
+    "check": {"type": "CheckStream", "stream_names": ["items"]},
+    "streams": [
+        {
+            "type": "DeclarativeStream",
+            "name": "items",
+            "primary_key": ["id"],
+            "retriever": {
+                "type": "SimpleRetriever",
+                "requester": {
+                    "type": "HttpRequester",
+                    "url_base": "https://example.com",
+                    "path": "/items",
+                    "authenticator": {
+                        "type": "BearerAuthenticator",
+                        "api_token": "{{ config['api_key'] }}",
+                    },
+                },
+                "record_selector": {
+                    "type": "RecordSelector",
+                    "extractor": {"type": "DpathExtractor", "field_path": ["data"]},
+                },
+            },
+            "schema_loader": {
+                "type": "InlineSchemaLoader",
+                "schema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                },
+            },
+        }
+    ],
+    "spec": {
+        "type": "Spec",
+        "connection_specification": {
+            "type": "object",
+            "required": ["api_key"],
+            "properties": {"api_key": {"type": "string"}},
+        },
+    },
+}
+
 
 @pytest.fixture
 def executor() -> DeclarativeExecutor:
@@ -112,3 +156,175 @@ def test_injected_components_are_preserved(mocker: Any) -> None:
 
     assert captured["config"]["client_id"] == "abc"
     assert captured["config"]["__injected_components_py"] == "# components"
+
+
+def _config_file(tmp_path: Path, api_key: str = "secret-value") -> Path:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"api_key": api_key}), encoding="utf-8")
+    return path
+
+
+def _state_file(tmp_path: Path, cursor: str) -> Path:
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps([
+            {
+                "type": "STREAM",
+                "stream": {
+                    "stream_descriptor": {"name": "items"},
+                    "stream_state": {"updated_at": cursor},
+                },
+            }
+        ]),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _catalog_file(tmp_path: Path) -> Path:
+    path = tmp_path / "catalog.json"
+    path.write_text(
+        json.dumps({
+            "streams": [
+                {
+                    "stream": {
+                        "name": "items",
+                        "json_schema": {},
+                        "supported_sync_modes": ["full_refresh"],
+                    },
+                    "sync_mode": "full_refresh",
+                    "destination_sync_mode": "overwrite",
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_state_reaches_the_state_manager(tmp_path: Path) -> None:
+    """The cursor supplied via `--state` must reach the source's state manager."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    args = [
+        "read",
+        "--config",
+        str(_config_file(tmp_path)),
+        "--state",
+        str(_state_file(tmp_path, "2026-05-05T00:00:00Z")),
+    ]
+
+    source = executor._build_declarative_source(
+        executor._config_from_args(args),
+        state=executor._state_from_args(args),
+        catalog=executor._catalog_from_args(args),
+    )
+
+    stored = source._connector_state_manager.get_stream_state("items", None)
+    assert stored == {"updated_at": "2026-05-05T00:00:00Z"}
+
+
+def test_no_state_arg_leaves_the_manager_empty(tmp_path: Path) -> None:
+    """A first sync passes no `--state`; that must not error."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    args = ["read", "--config", str(_config_file(tmp_path))]
+
+    source = executor._build_declarative_source(
+        executor._config_from_args(args),
+        state=executor._state_from_args(args),
+    )
+
+    assert source._connector_state_manager.get_stream_state("items", None) == {}
+
+
+def test_state_is_not_reused_between_executions(tmp_path: Path) -> None:
+    """A later command without `--state` must not inherit an earlier cursor."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    with_state = [
+        "read",
+        "--state",
+        str(_state_file(tmp_path, "2026-05-05T00:00:00Z")),
+    ]
+    assert executor._state_from_args(with_state) is not None
+
+    assert executor._state_from_args(["discover", "--config", "x.json"]) is None
+    assert executor._catalog_from_args(["check", "--config", "x.json"]) is None
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["read", "--state"],  # flag with no value
+        ["read", "--state", "does-not-exist.json"],  # missing file
+    ],
+)
+def test_malformed_state_arg_is_not_fatal(args: list[str]) -> None:
+    """Argument validation belongs to the CDK entrypoint, not here."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    assert executor._state_from_args(args) is None
+
+
+def test_catalog_reaches_the_source(tmp_path: Path) -> None:
+    """The catalog is a constructor argument too, for the same reason."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    args = ["read", "--catalog", str(_catalog_file(tmp_path))]
+
+    catalog = executor._catalog_from_args(args)
+    assert catalog is not None
+    assert [s.stream.name for s in catalog.streams] == ["items"]
+
+
+def test_interpolated_token_resolves_from_config(tmp_path: Path) -> None:
+    """`{{ config['api_key'] }}` must produce the real config value."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    args = ["check", "--config", str(_config_file(tmp_path, "secret-value"))]
+
+    source = executor._build_declarative_source(executor._config_from_args(args))
+    stream = source.streams(executor._config_from_args(args))[0]
+
+    authenticator = stream._stream_partition_generator._partition_factory._retriever.requester.authenticator
+    assert authenticator.token_provider.get_token() == "secret-value"
+
+
+def test_missing_config_does_not_resolve_to_a_stale_value(tmp_path: Path) -> None:
+    """Config is read per call, so a second command cannot inherit the first."""
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    first = ["check", "--config", str(_config_file(tmp_path, "secret-value"))]
+    assert executor._config_from_args(first) == {"api_key": "secret-value"}
+    assert executor._config_from_args(["spec"]) == {}
+
+
+def test_execute_passes_state_and_catalog_to_the_source(
+    tmp_path: Path,
+    mocker: Any,
+) -> None:
+    """`execute()` must wire the `--state` and `--catalog` files into the source."""
+    captured: dict[str, Any] = {}
+
+    def _capture(*_args: Any, **kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    mocker.patch(
+        "airbyte._executors.declarative.ConcurrentDeclarativeSource",
+        side_effect=_capture,
+    )
+    entrypoint = mocker.patch("airbyte._executors.declarative.AirbyteEntrypoint")
+    entrypoint.return_value.run.return_value = iter([])
+
+    executor = DeclarativeExecutor(name="source-test", manifest=MANIFEST)
+    list(
+        executor.execute([
+            "read",
+            "--config",
+            str(_config_file(tmp_path)),
+            "--catalog",
+            str(_catalog_file(tmp_path)),
+            "--state",
+            str(_state_file(tmp_path, "2026-05-05T00:00:00Z")),
+        ])
+    )
+
+    state = captured["state"]
+    assert len(state) == 1
+    assert vars(state[0].stream.stream_state) == {"updated_at": "2026-05-05T00:00:00Z"}
+    assert captured["catalog"].streams[0].stream.name == "items"
