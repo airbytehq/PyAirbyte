@@ -256,6 +256,7 @@ from airbyte.mcp.server import (
     MCP_SERVER_URL_ENV,
     _env_or_default,
     app,
+    build_mcp_server_instructions,
     lifecycle_telemetry_sinks,
 )
 from airbyte.version import get_version
@@ -370,6 +371,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
+    app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path

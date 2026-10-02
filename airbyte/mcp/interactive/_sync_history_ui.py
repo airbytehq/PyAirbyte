@@ -28,7 +28,7 @@ from prefab_ui.components.charts import BarChart, ChartSeries, LineChart
 from pydantic import Field
 
 from airbyte.mcp._tool_utils import mcp_tool
-from airbyte.mcp.cloud import CLOUD_AUTH_TIP_TEXT, WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
+from airbyte.mcp.cloud import WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
 
 
 if TYPE_CHECKING:
@@ -77,7 +77,6 @@ def _time_label(dt: datetime, *, include_date: bool = False) -> str:
     idempotent=True,
     open_world=True,
     app=PrefabAppConfig(),
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def show_connection_sync_history(  # noqa: PLR0914
     ctx: Context,

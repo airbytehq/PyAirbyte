@@ -189,3 +189,41 @@ def test_event_stream_get_content_negotiation(
 
     assert messages[0]["status"] == expected_status
     assert messages[1]["body"] == expected_body
+
+
+def test_main_sets_hosted_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`main()` swaps in hosted instructions even though `app` was built in stdio mode."""
+    from airbyte.mcp import server
+
+    monkeypatch.setattr(http_main.app, "instructions", http_main.app.instructions)
+    monkeypatch.setattr(http_main.app, "middleware", list(http_main.app.middleware))
+    monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
+    monkeypatch.setattr("airbyte.mcp._otel.install", lambda app: None)
+    monkeypatch.setattr(http_main, "run_mcp_http_server", lambda app, **kwargs: None)
+
+    http_main.main()
+
+    instructions = http_main.app.instructions or ""
+    assert instructions == server.build_mcp_server_instructions(hosted=True)
+    for local_only in (
+        "AIRBYTE_CLOUD_",
+        "AIRBYTE_PROJECT_DIR",
+        "Local connector execution",
+        "environment variables",
+        "request headers",
+    ):
+        assert local_only not in instructions
+    assert "get_default_cloud_context" in instructions
+    assert "Safe mode (default)" in instructions
+    assert "Read-only mode" in instructions
+    assert "list_cloud_organizations" in instructions
+
+
+def test_stdio_instructions_keep_local_guidance() -> None:
+    from airbyte.mcp import server
+
+    instructions = server.build_mcp_server_instructions(hosted=False)
+    assert "AIRBYTE_CLOUD_BEARER_TOKEN" in instructions
+    assert "AIRBYTE_PROJECT_DIR" in instructions
+    assert "Local connector execution" in instructions
+    assert "list_cloud_organizations" in instructions

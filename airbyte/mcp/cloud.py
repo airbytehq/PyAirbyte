@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
 from fastmcp import Context, FastMCP
-from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
+from fastmcp_extensions import get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import Destination, Source, get_destination, get_source
@@ -56,11 +56,6 @@ from airbyte.cloud.models import (
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
-    CLOUD_BEARER_TOKEN_ENV_VAR,
-    CLOUD_CLIENT_ID_ENV_VAR,
-    CLOUD_CLIENT_SECRET_ENV_VAR,
-    CLOUD_WORKSPACE_ID_ENV_VAR,
-    MCP_BEARER_TOKEN_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -68,7 +63,6 @@ from airbyte.constants import (
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
-    MCP_WORKSPACE_ID_HEADER,
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
@@ -96,6 +90,7 @@ from airbyte.mcp._scope import record_default_workspace, record_resolved_organiz
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
+    mcp_tool,
     register_guid_created_in_session,
 )
 from airbyte.mcp._user_identity import forget_cached_airbyte_user
@@ -110,32 +105,13 @@ if TYPE_CHECKING:
     from airbyte.cloud.sync_results import SyncResult
 
 
-CLOUD_AUTH_TIP_TEXT = (
-    f"When connecting to a hosted MCP server, provide a bearer token via the "
-    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
-    f"`Client-Id` and `Client-Secret` headers. When no workspace ID is provided, "
-    f"the authenticated user's default workspace (and its organization) is used "
-    f"automatically. Call `get_default_cloud_context` to inspect the resolved "
-    f"context. To discover other workspaces, call `list_cloud_workspaces` "
-    f"with an organization ID or broader privilege scope. Only call "
-    f"`list_cloud_organizations` when you need to search organizations by name, "
-    f"passing `name_contains`. For local or "
-    f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
-    f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
-    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
-    f"ask the user to choose one; do not select automatically."
-)
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
     "resource yourself to satisfy this requirement; ask the user to confirm deletion or "
     "rename it themselves first."
 )
-WORKSPACE_ID_TIP_TEXT = (
-    f"Workspace ID. Hosted MCP connections pass it via the "
-    f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
-    f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
-)
+WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
@@ -607,7 +583,6 @@ def _get_cloud_client(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
     ctx: Context,
@@ -800,7 +775,6 @@ def _get_suggested_streams_for_source(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def create_connection_on_cloud(
     ctx: Context,
@@ -881,7 +855,6 @@ def create_connection_on_cloud(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def run_cloud_sync(
     ctx: Context,
@@ -933,7 +906,6 @@ def run_cloud_sync(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_noop_destination_to_cloud(
     ctx: Context,
@@ -968,7 +940,6 @@ def deploy_noop_destination_to_cloud(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_sync_status(
     ctx: Context,
@@ -1047,7 +1018,6 @@ def get_cloud_sync_status(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_sync_jobs(
     ctx: Context,
@@ -1140,7 +1110,6 @@ def list_cloud_sync_jobs(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def cancel_cloud_sync(
     ctx: Context,
@@ -1208,7 +1177,6 @@ class CloudConnectorResult(BaseModel):
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_connectors(
     ctx: Context,
@@ -1478,7 +1446,6 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_connector(
     ctx: Context,
@@ -1557,7 +1524,7 @@ def describe_cloud_connector(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT,
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1759,7 +1726,6 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_sql_query(
     ctx: Context,
@@ -1840,7 +1806,6 @@ def execute_external_sql_query(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1965,7 +1930,6 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_search_status(
     ctx: Context,
@@ -2054,7 +2018,6 @@ def get_cloud_search_status(
     read_only=False,
     idempotent=False,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def check_cloud_connector(
     ctx: Context,
@@ -2094,7 +2057,6 @@ def check_cloud_connector(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_connection(
     ctx: Context,
@@ -2134,7 +2096,6 @@ def describe_cloud_connection(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_sync_logs(
     ctx: Context,
@@ -2282,7 +2243,6 @@ def get_cloud_sync_logs(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_connections(
     ctx: Context,
@@ -2408,7 +2368,6 @@ def list_cloud_connections(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_workspaces(
     ctx: Context,
@@ -2526,7 +2485,6 @@ def list_cloud_workspaces(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     """Return the authenticated user's default Cloud context.
@@ -2623,7 +2581,6 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     idempotent=True,
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_default_cloud_workspace(
     ctx: Context,
@@ -2682,7 +2639,6 @@ def set_default_cloud_workspace(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_organizations(
     ctx: Context,
@@ -2776,7 +2732,6 @@ def list_cloud_organizations(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_workspace(
     ctx: Context,
@@ -2822,7 +2777,6 @@ def describe_cloud_workspace(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_organization(
     ctx: Context,
@@ -2876,7 +2830,6 @@ def describe_cloud_organization(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_organization_billing_status(
     ctx: Context,
@@ -2941,7 +2894,6 @@ def _get_custom_source_definition_description(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def publish_custom_source_definition(
     ctx: Context,
@@ -3314,7 +3266,7 @@ def update_custom_source_definition(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
+    extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
 def permanently_delete_custom_source_definition(
     ctx: Context,
@@ -3375,7 +3327,7 @@ def permanently_delete_custom_source_definition(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
+    extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
 def permanently_delete_cloud_connector(
     ctx: Context,
@@ -3447,7 +3399,7 @@ def permanently_delete_cloud_connector(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=f"{CLOUD_AUTH_TIP_TEXT}\n\n{DELETE_NAME_GUARD_TIP_TEXT}",
+    extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
 def permanently_delete_cloud_connection(
     ctx: Context,
@@ -3523,7 +3475,6 @@ def permanently_delete_cloud_connection(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_connector(
     ctx: Context,
@@ -3564,7 +3515,6 @@ def rename_cloud_connector(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_connector_config(
     ctx: Context,
@@ -3625,7 +3575,6 @@ def update_cloud_connector_config(
 
 @mcp_tool(
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_connection(
     ctx: Context,
@@ -3659,7 +3608,6 @@ def rename_cloud_connection(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_cloud_connection_table_prefix(
     ctx: Context,
@@ -3698,7 +3646,6 @@ def set_cloud_connection_table_prefix(
 @mcp_tool(
     destructive=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_cloud_connection_selected_streams(
     ctx: Context,
@@ -3745,7 +3692,6 @@ def set_cloud_connection_selected_streams(
 @mcp_tool(
     open_world=True,
     destructive=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_connection(
     ctx: Context,
@@ -3862,7 +3808,6 @@ def update_cloud_connection(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_connection_artifact(
     ctx: Context,
