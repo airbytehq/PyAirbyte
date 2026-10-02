@@ -20,7 +20,6 @@ from fastmcp import FastMCP
 from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
-from airbyte import get_source
 from airbyte._util.destination_smoke_tests import (
     DestinationSmokeTestResult,
     run_destination_smoke_test,
@@ -35,6 +34,7 @@ from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
+from airbyte.sources.util import get_source
 
 
 if TYPE_CHECKING:
