@@ -237,7 +237,7 @@ class SecretHandle:
 
         This method is a convenience method to parse the secret as JSON without
         needing to call `get_value()` first. If the secret is not a valid JSON
-        string, a `AirbyteLibInputError` will be raised.
+        string, an `AirbyteLibInputError` will be raised.
         """
         return self.get_value().parse_json()
 

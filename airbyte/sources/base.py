@@ -892,8 +892,8 @@ class Source(ConnectorBase):
                     "Using `REPLACE` strategy without also setting `force_full_refresh=True` "
                     "could result in data loss. "
                     "To silence this warning, use the following: "
-                    'warnings.filterwarnings("ignore", '
-                    'category="airbyte.warnings.AirbyteLibDataLossWarning")`'
+                    "`from airbyte.exceptions import AirbyteLibDataLossWarning; "
+                    'warnings.filterwarnings("ignore", category=AirbyteLibDataLossWarning)`'
                 ),
                 category=exc.AirbyteLibDataLossWarning,
                 stacklevel=1,

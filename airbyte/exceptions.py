@@ -737,5 +737,6 @@ class AirbyteLibDataLossWarning(AirbyteLibWarning):
     """Warning for potential data loss.
 
     Users can ignore this warning by running:
-    > warnings.filterwarnings("ignore", category="airbyte.exceptions.AirbyteLibDataLossWarning")
+    > from airbyte.exceptions import AirbyteLibDataLossWarning
+    > warnings.filterwarnings("ignore", category=AirbyteLibDataLossWarning)
     """

@@ -106,7 +106,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
         """Instantiate a new Google GSM secret manager instance.
 
         You can provide either the path to the credentials file or the JSON contents of the
-        credentials file. If both are provided, a `AirbyteLibInputError` will be raised.
+        credentials file. If both are provided, an `AirbyteLibInputError` will be raised.
         """
         if credentials_path and credentials_json:
             raise exc.AirbyteLibInputError(
