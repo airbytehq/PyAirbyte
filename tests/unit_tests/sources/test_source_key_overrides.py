@@ -107,21 +107,21 @@ def test_set_cursor_keys():
         }
 
 
-def test_set_cursor_key():
-    """Test that set_cursor_key properly updates a single cursor key override."""
+def test_set_cursor_keys_for_single_stream():
+    """Test that set_cursor_keys properly updates a single cursor key override."""
     with patch.object(Source, "_discover", return_value=Mock()):
         source = Source(executor=Mock(), name="test-source")
 
-        source.set_cursor_key("stream1", "cursor1")
+        source.set_cursor_keys(stream1="cursor1")
         assert source._cursor_key_overrides == {"stream1": "cursor1"}
 
-        source.set_cursor_key("stream2", "cursor2")
+        source.set_cursor_keys(stream2="cursor2")
         assert source._cursor_key_overrides == {
             "stream1": "cursor1",
             "stream2": "cursor2",
         }
 
-        source.set_cursor_key("stream1", "new_cursor1")
+        source.set_cursor_keys(stream1="new_cursor1")
         assert source._cursor_key_overrides == {
             "stream1": "new_cursor1",
             "stream2": "cursor2",
@@ -165,12 +165,12 @@ def test_set_primary_keys(input_keys, expected_output):
         (["pk1", "pk2"], ["pk1", "pk2"]),
     ],
 )
-def test_set_primary_key(input_key, expected_output):
-    """Test that set_primary_key properly converts and updates a single primary key override."""
+def test_set_primary_keys_for_single_stream(input_key, expected_output):
+    """Test that set_primary_keys properly converts and updates a single primary key override."""
     with patch.object(Source, "_discover", return_value=Mock()):
         source = Source(executor=Mock(), name="test-source")
 
-        source.set_primary_key("stream1", input_key)
+        source.set_primary_keys(stream1=input_key)
 
         assert source._primary_key_overrides == {"stream1": expected_output}
 

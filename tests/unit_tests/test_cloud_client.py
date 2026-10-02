@@ -819,36 +819,6 @@ def test_list_workspaces_explicit_organization_ignores_privilege_scope() -> None
     list_workspaces_in_organization.assert_called_once()
 
 
-def test_list_workspaces_all_organizations_alias_warns_and_maps_to_any() -> None:
-    patches = _api_patches(
-        user={"userId": "user-id"},
-        permissions=[{"permissionType": "instance_admin"}],
-    )
-    with (
-        patches[0],
-        patches[1],
-        patches[2],
-        patches[3],
-        patches[4],
-        patch(
-            "airbyte._util.api_util.list_workspaces_by_user",
-            return_value=[],
-        ) as list_workspaces_by_user,
-        pytest.warns(DeprecationWarning, match="all_organizations"),
-    ):
-        CloudClient(bearer_token="token").list_workspaces(all_organizations=True)
-
-    list_workspaces_by_user.assert_called_once()
-
-
-def test_list_workspaces_all_organizations_alias_conflicts_with_scope() -> None:
-    with pytest.raises(exc.PyAirbyteInputError, match="privilege_scope"):
-        CloudClient(bearer_token="token").list_workspaces(
-            all_organizations=True,
-            privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
-        )
-
-
 def test_list_workspaces_explicit_workspace_resolution_does_not_use_member_fallback() -> (
     None
 ):

@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-import warnings
 from contextlib import suppress
-from typing import Any, cast
+from typing import cast
 
 from airbyte import exceptions as exc
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
@@ -35,7 +34,6 @@ def try_get_secret(
     /,
     default: str | SecretString | None = None,
     sources: list[SecretManager | SecretSourceEnum] | None = None,
-    **kwargs: dict[str, Any],
 ) -> SecretString | None:
     """Try to get a secret from the environment, failing gracefully.
 
@@ -54,7 +52,6 @@ def try_get_secret(
             sources=sources,
             allow_prompt=False,
             default=default,
-            **kwargs,
         )
 
     return None
@@ -67,7 +64,6 @@ def get_secret(
     sources: list[SecretManager | SecretSourceEnum] | None = None,
     default: str | SecretString | None = None,
     allow_prompt: bool = True,
-    **kwargs: dict[str, Any],
 ) -> SecretString:
     """Get a secret from the environment.
 
@@ -75,8 +71,9 @@ def get_secret(
     options. If left blank, all available sources will be checked. If a list of `SecretSourceEnum`
     entries is passed, then the sources will be checked using the provided ordering.
 
-    If `allow_prompt` is `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then
-    the user will be prompted to enter the secret if it is not found in any of the other sources.
+    If `allow_prompt` is `True` or if SecretSourceEnum.PROMPT is declared in the `sources` arg,
+    then the user will be prompted to enter the secret if it is not found in any of the other
+    sources.
 
     Raises:
         PyAirbyteSecretNotFoundError: If the secret is not found in any of the configured sources,
@@ -87,14 +84,6 @@ def get_secret(
         # If the secret name starts with the hydration prefix, we assume it's a secret reference.
         # We strip the prefix and get the actual secret name.
         secret_name = secret_name.removeprefix(SECRETS_HYDRATION_PREFIX).lstrip()
-
-    if "source" in kwargs:
-        warnings.warn(
-            message="The `source` argument is deprecated. Use the `sources` argument instead.",
-            category=DeprecationWarning,
-            stacklevel=2,
-        )
-        sources = kwargs.pop("source")  # type: ignore [assignment]
 
     available_sources: dict[str, SecretManager] = {}
     for available_source in _get_secret_sources():

@@ -65,7 +65,7 @@ from airbyte.constants import (
 )
 
 
-class Source(ConnectorBase):  # noqa: PLR0904
+class Source(ConnectorBase):
     """A class representing a source that can be called."""
 
     connector_type = ConnectorType.SOURCE
@@ -116,34 +116,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
         if primary_key_overrides is not None:
             self.set_primary_keys(**primary_key_overrides)
 
-    def set_streams(self, streams: list[str]) -> None:
-        """Deprecated. See select_streams()."""
-        warnings.warn(
-            "The 'set_streams' method is deprecated and will be removed in a future version. "
-            "Please use the 'select_streams' method instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.select_streams(streams)
-
-    def set_cursor_key(
-        self,
-        stream_name: str,
-        cursor_key: str,
-    ) -> None:
-        """Set the cursor for a single stream.
-
-        Note:
-        - This does not unset previously set cursors.
-        - The cursor key must be a single field name.
-        - Not all streams support custom cursors. If a stream does not support custom cursors,
-          the override may be ignored.
-        - Stream names are case insensitive, while field names are case sensitive.
-        - Stream names are not validated by PyAirbyte. If the stream name
-          does not exist in the catalog, the override may be ignored.
-        """
-        self._cursor_key_overrides[stream_name.lower()] = cursor_key
-
     def set_cursor_keys(
         self,
         **kwargs: str,
@@ -168,26 +140,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
           does not exist in the catalog, the override may be ignored.
         """
         self._cursor_key_overrides.update({k.lower(): v for k, v in kwargs.items()})
-
-    def set_primary_key(
-        self,
-        stream_name: str,
-        primary_key: str | list[str],
-    ) -> None:
-        """Set the primary key for a single stream.
-
-        Note:
-        - This does not unset previously set primary keys.
-        - The primary key must be a single field name or a list of field names.
-        - Not all streams support overriding primary keys. If a stream does not support overriding
-          primary keys, the override may be ignored.
-        - Stream names are case insensitive, while field names are case sensitive.
-        - Stream names are not validated by PyAirbyte. If the stream name
-          does not exist in the catalog, the override may be ignored.
-        """
-        self._primary_key_overrides[stream_name.lower()] = (
-            primary_key if isinstance(primary_key, list) else [primary_key]
-        )
 
     def set_primary_keys(
         self,

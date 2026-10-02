@@ -7,8 +7,6 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-from typing_extensions import deprecated
-
 from airbyte._util import api_util
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
@@ -589,21 +587,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     # Artifacts
 
-    @deprecated("Use 'dump_raw_state()' instead.")
-    def get_state_artifacts(self) -> list[dict[str, Any]] | None:
-        """Deprecated. Use `dump_raw_state()` instead."""
-        state_response = api_util.get_connection_state(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
-        if state_response.get("stateType") == "not_set":
-            return None
-        return state_response.get("streamState", [])
-
     @overload
     def dump_raw_state(self, *, normalize: Literal[True] = True) -> list[dict[str, Any]]: ...
 
@@ -850,20 +833,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             }
 
         self.import_raw_state(full_state)
-
-    @deprecated("Use 'dump_raw_catalog()' instead.")
-    def get_catalog_artifact(self) -> dict[str, Any] | None:
-        """Get the configured catalog for this connection.
-
-        Returns the full configured catalog (syncCatalog) for this connection,
-        including stream schemas, sync modes, cursor fields, and primary keys.
-
-        Uses the Config API endpoint: POST /v1/web_backend/connections/get
-
-        Returns:
-            Dictionary containing the configured catalog, or `None` if not found.
-        """
-        return self.dump_raw_catalog()
 
     def dump_raw_catalog(
         self,
