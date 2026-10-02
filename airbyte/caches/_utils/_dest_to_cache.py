@@ -21,7 +21,7 @@ from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.exceptions import PyAirbyteInputError, PyAirbyteSecretNotFoundError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLibSecretNotFoundError
 from airbyte.secrets import get_secret
 from airbyte.secrets.base import SecretString
 
@@ -76,7 +76,7 @@ def destination_to_cache(
             else:
                 destination_type = str(destination_type)
         except KeyError as ex:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     "Missing 'destinationType' in keys "
                     f"{list(destination_configuration.keys())}."
@@ -86,7 +86,7 @@ def destination_to_cache(
         destination_type = destination_configuration.DESTINATION_TYPE.value
 
     if destination_type not in conversion_fn_map:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "Cannot convert destination to a cache configuration. "
                 f"Destination type {destination_type} not supported. "
@@ -196,7 +196,7 @@ def motherduck_destination_to_cache(
         destination_configuration = DestinationDuckdb(**filtered)
 
     if not destination_configuration.motherduck_api_key:
-        raise PyAirbyteInputError(message="MotherDuck API key is required for MotherDuck cache.")
+        raise AirbyteLibInputError(message="MotherDuck API key is required for MotherDuck cache.")
 
     return MotherDuckCache(
         database=destination_configuration.destination_path,
@@ -220,7 +220,7 @@ def postgres_destination_to_cache(
 
     port: int = int(destination_configuration.port) if destination_configuration.port else 5432
     if not destination_configuration.password:
-        raise PyAirbyteInputError(message="Password is required for Postgres cache.")
+        raise AirbyteLibInputError(message="Password is required for Postgres cache.")
 
     return PostgresCache(
         database=destination_configuration.database,
@@ -260,7 +260,7 @@ def snowflake_destination_to_cache(
             try:
                 snowflake_password = get_secret(password_secret_name)
             except ValueError as ex:
-                raise PyAirbyteSecretNotFoundError(
+                raise AirbyteLibSecretNotFoundError(
                     "Password is required for Snowflake cache, but it was not available."
                 ) from ex
         else:

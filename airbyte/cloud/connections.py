@@ -35,9 +35,9 @@ from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteConnectionSyncError,
+    AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceMismatchError,
-    PyAirbyteInputError,
 )
 
 
@@ -48,14 +48,14 @@ _QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
 
 
 def _validate_quartz_cron_expression(cron_expression: str) -> None:
-    """Raise `PyAirbyteInputError` if the expression is not a plausible Quartz cron.
+    """Raise `AirbyteLibInputError` if the expression is not a plausible Quartz cron.
 
     This is a light client-side check so that 5-field Unix cron expressions fail
     fast with actionable guidance instead of an opaque HTTP 400 from the API.
     """
     fields = cron_expression.split()
     if not _QUARTZ_CRON_MIN_FIELDS <= len(fields) <= _QUARTZ_CRON_MAX_FIELDS:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "Cron schedules must use a Quartz expression with 6 or 7 space-separated "
                 "fields (seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
@@ -359,7 +359,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 and ex.context.get("status_code") == HTTPStatus.CONFLICT
                 and not self.enabled
             ):
-                raise PyAirbyteInputError(
+                raise AirbyteLibInputError(
                     message=(
                         f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
                         "so a sync cannot be started."
@@ -395,11 +395,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         )
         sync_result = sync_results[0] if sync_results else None
         if sync_result is None:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="No sync jobs found for this connection.",
             )
         if sync_result.is_job_complete():
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"The latest sync job is already finished with status "
                     f"'{sync_result.get_job_status().value}'. "
@@ -418,7 +418,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
         if job_info.connection_id != self.connection_id:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Job {job_id} belongs to connection '{job_info.connection_id}', "
                     f"not '{self.connection_id}'."
@@ -426,7 +426,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
         job_status = CloudJobInfo.from_api_response(job_info).status
         if job_status in FINAL_STATUSES:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"Job {job_id} is already finished with status " f"'{job_status.value}'.",
             )
         return job_id
@@ -667,7 +667,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     "message dicts (each with a top-level `type` of STREAM, GLOBAL, "
                     "or LEGACY). Got a list that does not match protocol format."
                 )
-                raise PyAirbyteInputError(message=msg)
+                raise AirbyteLibInputError(message=msg)
             api_state = _denormalize_protocol_state_to_api(
                 protocol_messages=connection_state,
                 connection_id=self.connection_id,
@@ -682,7 +682,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 api_state = connection_state
         else:
             msg = f"Expected a dict or list, got {type(connection_state)}"
-            raise PyAirbyteInputError(message=msg)
+            raise AirbyteLibInputError(message=msg)
 
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
@@ -764,7 +764,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 namespace override set in connection advanced settings.
 
         Raises:
-            PyAirbyteInputError: If the connection state type is not supported for
+            AirbyteLibInputError: If the connection state type is not supported for
                 stream-level operations (not_set, legacy).
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
@@ -773,13 +773,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot set stream state: connection has no existing state.",
                 context={"connection_id": self.connection_id},
             )
 
         if current.state_type == "legacy":
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot set stream state on a legacy-type connection state.",
                 context={"connection_id": self.connection_id},
             )
@@ -993,7 +993,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             if stream_entries and not available_streams:
                 raise
 
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Could not set selected streams for connection '{self.connection_id}': "
                     f"{ex}"
@@ -1046,11 +1046,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             enabled: True to enable (set status to 'active'), False to disable
                 (set status to 'inactive').
             ignore_noop: If True (default), silently return if the connection is already
-                in the requested state. If False, raise `PyAirbyteInputError` when the requested
+                in the requested state. If False, raise `AirbyteLibInputError` when the requested
                 state matches the current state.
 
         Raises:
-            PyAirbyteInputError: If ignore_noop is False and the connection is already in the
+            AirbyteLibInputError: If ignore_noop is False and the connection is already in the
                 requested state.
         """
         # Always fetch fresh data to check current status
@@ -1061,7 +1061,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         if current_status == desired_status:
             if ignore_noop:
                 return
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Connection is already {'enabled' if enabled else 'disabled'}. "
                     f"Current status: {current_status}"

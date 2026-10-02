@@ -12,7 +12,7 @@ import pytest
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
     AirbyteTrustedExecutionRequiredError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.mcp import local
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
@@ -337,7 +337,7 @@ def test_validate_airbyte_domains_rejects_include_and_exclude(
 
     monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, "cloud")
     monkeypatch.setenv(TRUSTED_DOMAINS_EXCLUDE_ENV, "local")
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         validate_airbyte_domains(app)
     rendered = str(exc_info.value)
     assert "mutually exclusive" in rendered
@@ -353,7 +353,7 @@ def test_validate_airbyte_domains_rejects_unknown_domain(
 
     monkeypatch.delenv(TRUSTED_DOMAINS_EXCLUDE_ENV, raising=False)
     monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, "not_a_real_domain")
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         validate_airbyte_domains(app)
     assert "not_a_real_domain" in exc_info.value.context["unknown_domains"]
 

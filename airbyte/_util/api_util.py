@@ -30,10 +30,10 @@ from airbyte.exceptions import (
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteDeferredSetupError,
+    AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
     AirbyteWorkspaceNotEmptyError,
-    PyAirbyteInputError,
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
@@ -76,7 +76,7 @@ def _validate_pagination_params(
 ) -> None:
     """Validate common pagination parameters."""
     if limit is not None and limit <= 0:
-        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
+        raise AirbyteLibInputError(message="`limit` must be greater than 0.")
 
 
 def _get_page_limit(remaining: int | None) -> int:
@@ -235,18 +235,18 @@ def get_airbyte_server_instance(
         An authenticated AirbyteAPI instance.
 
     Raises:
-        PyAirbyteInputError: If authentication parameters are invalid.
+        AirbyteLibInputError: If authentication parameters are invalid.
     """
     # Guard: must provide either bearer token OR both client credentials
     if bearer_token is None and (client_id is None or client_secret is None):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="No authentication credentials provided.",
             guidance="Provide either client_id and client_secret, or bearer_token.",
         )
 
     # Guard: cannot provide both auth methods
     if bearer_token is not None and (client_id is not None or client_secret is not None):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Cannot use both client credentials and bearer token authentication.",
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
@@ -438,7 +438,7 @@ def permanently_delete_workspace(
             (case insensitive). Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe mode is True and the workspace name does not meet
+        AirbyteLibInputError: If safe mode is True and the workspace name does not meet
             the safety requirements.
         AirbyteWorkspaceNotEmptyError: If the workspace contains connections.
     """
@@ -454,7 +454,7 @@ def permanently_delete_workspace(
             workspace_name = workspace_info.name
 
         if not _is_safe_name_to_delete(workspace_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     "Cannot delete workspace with safe_mode enabled because the workspace "
                     "name does not contain 'delete-me' or 'deleteme'."
@@ -524,7 +524,7 @@ def list_connections(
 ) -> list[models.ConnectionResponse]:
     """List connections."""
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -604,7 +604,7 @@ def list_workspaces(
         limit: Optional maximum number of matching workspaces to return.
     """
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     has_name_filter = name is not None or name_filter is not None
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
@@ -672,7 +672,7 @@ def list_sources(
 ) -> list[models.SourceResponse]:
     """List sources."""
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -739,7 +739,7 @@ def list_destinations(
 ) -> list[models.DestinationResponse]:
     """List destinations."""
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -952,7 +952,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             job_type_value = models.JobTypeEnum(job_type)
         except ValueError:
             valid_job_types = ", ".join(job_type_enum.value for job_type_enum in models.JobTypeEnum)
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"`job_type` must be one of: {valid_job_types}.",
                 input_value=job_type,
             ) from None
@@ -1232,7 +1232,7 @@ def delete_source(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the source name does not meet
+        AirbyteLibInputError: If safe_mode is True and the source name does not meet
             the safety requirements.
     """
     _ = workspace_id  # Not used (yet)
@@ -1249,7 +1249,7 @@ def delete_source(
             source_name = source_info.name
 
         if not _is_safe_name_to_delete(source_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete source '{source_name}' with safe_mode enabled. "
                     "To authorize deletion, the source name must contain 'delete-me' or 'deleteme' "
@@ -1352,7 +1352,7 @@ def _get_destination_type_str(
         destination_type = getattr(destination, "DESTINATION_TYPE", None)
 
     if not destination_type or not isinstance(destination_type, str):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Could not determine destination type from configuration.",
             context={
                 "destination": destination,
@@ -1620,7 +1620,7 @@ def delete_destination(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the destination name does not meet
+        AirbyteLibInputError: If safe_mode is True and the destination name does not meet
             the safety requirements.
     """
     _ = workspace_id  # Not used (yet)
@@ -1637,7 +1637,7 @@ def delete_destination(
             destination_name = destination_info.name
 
         if not _is_safe_name_to_delete(destination_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete destination '{destination_name}' with safe_mode enabled. "
                     "To authorize deletion, the destination name must contain 'delete-me' or "
@@ -1884,7 +1884,7 @@ def delete_connection(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the connection name does not meet
+        AirbyteLibInputError: If safe_mode is True and the connection name does not meet
             the safety requirements.
     """
     if safe_mode:
@@ -1900,7 +1900,7 @@ def delete_connection(
             connection_name = connection_info.name
 
         if not _is_safe_name_to_delete(connection_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete connection '{connection_name}' with safe_mode enabled. "
                     "To authorize deletion, the connection name must contain 'delete-me' or "
@@ -1983,7 +1983,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
             valid_statuses = ", ".join(
                 connection_status.value for connection_status in models.ConnectionStatusEnum
             )
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"`status` must be one of: {valid_statuses}.",
                 input_value=status,
             ) from None
@@ -2123,7 +2123,7 @@ def _config_api_headers(
     """Build Config API headers, minting a bearer token from client credentials if needed."""
     if bearer_token is None:
         if client_id is None or client_secret is None:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="No authentication credentials provided.",
                 guidance="Provide either client_id and client_secret, or bearer_token.",
             )
@@ -2296,7 +2296,7 @@ def validate_yaml_manifest(
     if not isinstance(manifest, dict):
         error = "Manifest must be a dictionary"
         if raise_on_error:
-            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+            raise AirbyteLibInputError(message=error, context={"manifest": manifest})
         return False, error
 
     required_fields = ["version", "type"]
@@ -2304,13 +2304,13 @@ def validate_yaml_manifest(
     if missing:
         error = f"Manifest missing required fields: {', '.join(missing)}"
         if raise_on_error:
-            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+            raise AirbyteLibInputError(message=error, context={"manifest": manifest})
         return False, error
 
     if manifest.get("type") != "DeclarativeSource":
         error = f"Manifest type must be 'DeclarativeSource', got '{manifest.get('type')}'"
         if raise_on_error:
-            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+            raise AirbyteLibInputError(message=error, context={"manifest": manifest})
         return False, error
 
     return True, None
@@ -2498,7 +2498,7 @@ def delete_custom_yaml_source_definition(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the connector name does not meet
+        AirbyteLibInputError: If safe_mode is True and the connector name does not meet
             the safety requirements.
     """
     if safe_mode:
@@ -2513,7 +2513,7 @@ def delete_custom_yaml_source_definition(
         connector_name = definition_info.name
 
         if not _is_safe_name_to_delete(definition_info.name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete custom connector definition '{connector_name}' "
                     "with safe_mode enabled. "
@@ -3296,7 +3296,7 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
     """Extract the authentication user ID from a bearer token."""
     token_parts = str(bearer_token).split(".")
     if len(token_parts) != JWT_PART_COUNT:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The bearer token is not a valid JWT.",
             guidance="Provide a valid bearer token.",
         )
@@ -3308,7 +3308,7 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
             ).decode("utf-8")
         )
     except (UnicodeDecodeError, ValueError) as error:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The bearer token payload could not be decoded.",
             guidance="Provide a valid bearer token.",
         ) from error
@@ -3317,7 +3317,7 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
     if not isinstance(user_id, str) or not user_id:
         user_id = payload.get("sub") if isinstance(payload, dict) else None
     if not isinstance(user_id, str) or not user_id:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The bearer token does not contain a user_id or sub claim.",
             guidance="Provide a bearer token issued for an Airbyte user.",
         )

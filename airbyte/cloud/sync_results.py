@@ -115,7 +115,7 @@ from airbyte.datasets import CachedDataset
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 
 
@@ -175,7 +175,7 @@ class SyncAttempt:
     def _get_attempt_data(self) -> dict[str, Any]:
         """Get attempt data from the provided attempt data."""
         if self._attempt_data is None:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     "Attempt data not provided. SyncAttempt should be created via "
                     "SyncResult.get_attempts()."

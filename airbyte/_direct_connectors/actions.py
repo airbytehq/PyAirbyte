@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 
 
 UNSUPPORTED_ACTIONS: set[str] = {"download"}
@@ -77,7 +77,7 @@ def _build_params(
         if pagination[name] is not None and param_key in params
     )
     if conflicts:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Pagination arguments were provided twice.",
             guidance=(
                 "Pass each of `page_size` and `cursor` either as a keyword argument or "

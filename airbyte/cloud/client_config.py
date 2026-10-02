@@ -51,7 +51,7 @@ from airbyte.cloud._auth import (
     resolve_cloud_client_secret,
     resolve_cloud_config_api_url,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.secrets.base import SecretString
 
 
@@ -107,7 +107,7 @@ class CloudClientConfig:
         has_bearer_token = self.bearer_token is not None
 
         if has_client_credentials and has_bearer_token:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot use both client credentials and bearer token authentication.",
                 guidance=(
                     "Provide either client_id and client_secret together, "
@@ -117,7 +117,7 @@ class CloudClientConfig:
 
         if has_client_credentials and (self.client_id is None or self.client_secret is None):
             # If using client credentials, both must be provided
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Incomplete client credentials.",
                 guidance=(
                     "When using client credentials authentication, "
@@ -126,7 +126,7 @@ class CloudClientConfig:
             )
 
         if not has_client_credentials and not has_bearer_token:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="No authentication credentials provided.",
                 guidance=(
                     "Provide either client_id and client_secret together for OAuth2 "
@@ -178,7 +178,7 @@ class CloudClientConfig:
             A CloudClientConfig instance configured with credentials from the environment.
 
         Raises:
-            PyAirbyteSecretNotFoundError: If required credentials are not found in
+            AirbyteLibSecretNotFoundError: If required credentials are not found in
                 the environment.
         """
         resolved_api_root = resolve_cloud_api_url(api_root)

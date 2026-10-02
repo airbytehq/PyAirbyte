@@ -70,7 +70,7 @@ VERTICAL_SEPARATOR = "\n" + "-" * 60
 
 
 @dataclass
-class PyAirbyteError(Exception):
+class AirbyteLibError(Exception):
     """Base class for exceptions in Airbyte."""
 
     guidance: str | None = None
@@ -194,7 +194,7 @@ class PyAirbyteError(Exception):
 
 
 @dataclass
-class PyAirbyteInternalError(PyAirbyteError):
+class AirbyteLibInternalError(AirbyteLibError):
     """An internal error occurred in PyAirbyte."""
 
     guidance = "Please consider reporting this error to the Airbyte team."
@@ -205,7 +205,7 @@ class PyAirbyteInternalError(PyAirbyteError):
 
 
 @dataclass
-class PyAirbyteInputError(PyAirbyteError, ValueError):
+class AirbyteLibInputError(AirbyteLibError, ValueError):
     """The input provided to PyAirbyte did not match expected validation rules.
 
     This inherits from ValueError so that it can be used as a drop-in replacement for
@@ -218,7 +218,7 @@ class PyAirbyteInputError(PyAirbyteError, ValueError):
 
 
 @dataclass
-class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
+class AirbyteLibNoStreamsSelectedError(AirbyteLibInputError):
     """No streams were selected for the source."""
 
     guidance = (
@@ -230,7 +230,7 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
 
 
 @dataclass
-class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
+class AirbyteNoCloudCredentialsError(AirbyteLibInputError):
     """No Airbyte credentials found."""
 
     guidance: str | None = None
@@ -273,7 +273,7 @@ class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
 
 
 @dataclass
-class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
+class AirbyteMissingWorkspaceContextError(AirbyteLibInputError):
     """Workspace ID is required but not provided."""
 
     guidance: str | None = None
@@ -308,7 +308,7 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
 
 
 @dataclass
-class AirbyteMCPError(PyAirbyteError):
+class AirbyteMCPError(AirbyteLibError):
     """An error occurred in the Airbyte MCP server."""
 
 
@@ -343,7 +343,7 @@ class AirbyteSafeModeError(AirbyteMCPError):
 
 
 @dataclass
-class PyAirbyteNameNormalizationError(PyAirbyteError, ValueError):
+class AirbyteLibNameNormalizationError(AirbyteLibError, ValueError):
     """Error occurred while normalizing a table or column name."""
 
     guidance = (
@@ -360,7 +360,7 @@ class PyAirbyteNameNormalizationError(PyAirbyteError, ValueError):
 
 
 @dataclass
-class AirbyteSubprocessError(PyAirbyteError):
+class AirbyteSubprocessError(AirbyteLibError):
     """Error when running subprocess."""
 
     run_args: list[str] | None = None
@@ -376,7 +376,7 @@ class AirbyteSubprocessFailedError(AirbyteSubprocessError):
 # Connector Registry Errors
 
 
-class AirbyteConnectorRegistryError(PyAirbyteError):
+class AirbyteConnectorRegistryError(AirbyteLibError):
     """Error when accessing the connector registry."""
 
 
@@ -405,7 +405,7 @@ class AirbyteConnectorNotPyPiPublishedError(AirbyteConnectorRegistryError):
 
 
 @dataclass
-class AirbyteConnectorError(PyAirbyteError):
+class AirbyteConnectorError(AirbyteLibError):
     """Error when running the connector."""
 
     connector_name: str | None = None
@@ -505,7 +505,7 @@ class AirbyteStateNotFoundError(AirbyteConnectorError):
 
 
 @dataclass
-class PyAirbyteSecretNotFoundError(PyAirbyteError):
+class AirbyteLibSecretNotFoundError(AirbyteLibError):
     """Secret not found."""
 
     guidance = "Please ensure that the secret is set."
@@ -534,7 +534,7 @@ class _WorkspaceWithUrl(Protocol):
 
 
 @dataclass
-class AirbyteCloudError(PyAirbyteError):
+class AirbyteCloudError(AirbyteLibError):
     """An error occurred while communicating with the hosted Airbyte instance."""
 
     response: AirbyteApiResponseDuckType | None = None
@@ -729,13 +729,13 @@ class AirbyteMultipleResourcesError(AirbyteCloudError):
 # PyAirbyte Warnings
 
 
-class PyAirbyteWarning(Warning):
+class AirbyteLibWarning(Warning):
     """General warnings from PyAirbyte."""
 
 
-class PyAirbyteDataLossWarning(PyAirbyteWarning):
+class AirbyteLibDataLossWarning(AirbyteLibWarning):
     """Warning for potential data loss.
 
     Users can ignore this warning by running:
-    > warnings.filterwarnings("ignore", category="airbyte.exceptions.PyAirbyteDataLossWarning")
+    > warnings.filterwarnings("ignore", category="airbyte.exceptions.AirbyteLibDataLossWarning")
     """

@@ -105,12 +105,12 @@ def _deferred_credentials_config(
     connector spec when available, otherwise via the global secrets mask.
     """
     if not isinstance(config, dict):
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Deferred deployment requires a configuration dictionary.",
             guidance="Pass the non-secret configuration values, not a connector object.",
         )
     if not definition_id:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="`definition_id` is required when `defer_credentials=True`.",
         )
 
@@ -118,7 +118,7 @@ def _deferred_credentials_config(
         if isinstance(value, SecretString) or (
             isinstance(value, str) and value.startswith(SECRETS_HYDRATION_PREFIX)
         ):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Deferred deployment does not accept secret values or references.",
                 guidance="Omit credentials; the user supplies them in Airbyte Cloud.",
             )
@@ -132,7 +132,7 @@ def _deferred_credentials_config(
     _reject_secrets(config)
     found = detect_hardcoded_secrets(config=config, spec_json_schema=spec_json_schema)
     if found:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Deferred deployment does not accept credential values.",
             guidance="Omit credentials; the user supplies them in Airbyte Cloud.",
             context={"fields": [".".join(p) for p in found]},
@@ -210,7 +210,7 @@ class CloudWorkspace:
             env_vars=env_vars,
         )
         if not credentials.workspace_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Workspace ID is required.",
                 guidance=(
                     "Provide a workspace ID, or call `get_default_cloud_context` to discover "
@@ -274,7 +274,7 @@ class CloudWorkspace:
             A CloudWorkspace instance configured with credentials from the environment.
 
         Raises:
-            PyAirbyteInputError: If required credentials are not found in
+            AirbyteLibInputError: If required credentials are not found in
                 the environment or are incomplete.
 
         Example:
@@ -615,13 +615,13 @@ class CloudWorkspace:
         the list of available sections.
         """
         if connector_id is not None and docs_skill_id is not None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Provide exactly one of `docs_skill_id` or `connector_id`.",
             )
         if connector_id is not None:
             return self.get_connector(connector_id).read_agent_skill_docs(section=section)
         if docs_skill_id is None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Provide exactly one of `docs_skill_id` or `connector_id`.",
             )
         if docs_skill_id.startswith(connector_docs.DESTINATION_SKILL_PREFIX):
@@ -680,7 +680,7 @@ class CloudWorkspace:
                 ),
             )
         if isinstance(source, dict):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="`source` must be a `Source` object unless `defer_credentials=True`.",
             )
 
@@ -759,7 +759,7 @@ class CloudWorkspace:
         else:
             destination_conf_dict = destination.copy()
             if "destinationType" not in destination_conf_dict:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message="Missing `destinationType` in configuration dictionary.",
                 )
 
@@ -884,7 +884,7 @@ class CloudWorkspace:
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(source, (str, cloud_connectors.CloudSource)):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid source type.",
                 input_value=type(source).__name__,
             )
@@ -922,7 +922,7 @@ class CloudWorkspace:
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(destination, (str, cloud_connectors.CloudDestination)):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid destination type.",
                 input_value=type(destination).__name__,
             )
@@ -972,7 +972,7 @@ class CloudWorkspace:
             selected_streams: The selected stream names to sync within the connection.
         """
         if not selected_streams:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 guidance="You must provide `selected_streams` when creating a connection."
             )
 
@@ -1021,7 +1021,7 @@ class CloudWorkspace:
                 to cascade deletes.
         """
         if connection is None:
-            raise exc.PyAirbyteInputError(message="No connection ID provided.")
+            raise exc.AirbyteLibInputError(message="No connection ID provided.")
 
         if isinstance(connection, str):
             connection = CloudConnection(
@@ -1189,7 +1189,7 @@ class CloudWorkspace:
             limit: Maximum number of connectors to return.
         """
         if limit is not None and limit <= 0:
-            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+            raise exc.AirbyteLibInputError(message="`limit` must be greater than 0.")
 
         connectors: list[cloud_connectors.CloudConnector] = []
         if connector_type in {None, ConnectorType.SOURCE}:
@@ -1250,14 +1250,14 @@ class CloudWorkspace:
             CustomCloudSourceDefinition object representing the created definition
 
         Raises:
-            PyAirbyteInputError: If both or neither of manifest_yaml and docker_image provided
+            AirbyteLibInputError: If both or neither of manifest_yaml and docker_image provided
             AirbyteDuplicateResourcesError: If unique=True and name already exists
         """
         is_yaml = manifest_yaml is not None
         is_docker = docker_image is not None
 
         if is_yaml == is_docker:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     "Must specify EITHER manifest_yaml (for YAML connectors) OR "
                     "docker_image + docker_tag (for Docker connectors), but not both"
@@ -1269,7 +1269,7 @@ class CloudWorkspace:
             )
 
         if is_docker and docker_tag is None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="docker_tag is required when docker_image is specified",
                 context={"docker_image": docker_image},
             )
@@ -1293,7 +1293,7 @@ class CloudWorkspace:
             elif manifest_yaml is not None:
                 manifest_dict = manifest_yaml
             else:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message="manifest_yaml is required for YAML connectors",
                     context={"name": name},
                 )

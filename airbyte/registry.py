@@ -88,7 +88,7 @@ class ConnectorType(StrEnum):
             return cls(value)
         except ValueError:
             valid = ", ".join(f"`{member.value}`" for member in cls)
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
             ) from None
 
@@ -321,7 +321,7 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     cache = copy(_get_registry_cache())
 
     if not cache:
-        raise exc.PyAirbyteInternalError(
+        raise exc.AirbyteLibInternalError(
             message="Connector registry could not be loaded.",
             context={
                 "registry_url": _get_registry_url(),
@@ -396,7 +396,7 @@ def get_available_connectors(
         )
 
     # pragma: no cover  # Should never be reached.
-    raise exc.PyAirbyteInputError(
+    raise exc.AirbyteLibInputError(
         message="Invalid install type.",
         context={
             "install_type": install_type,

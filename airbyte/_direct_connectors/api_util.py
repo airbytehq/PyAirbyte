@@ -35,7 +35,7 @@ from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteCloudApiError,
     AirbyteCloudError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.registry import ConnectorType
 
@@ -58,7 +58,7 @@ def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
         return str(credentials.bearer_token)
 
     if credentials.client_id is None or credentials.client_secret is None:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="No authentication credentials provided.",
             guidance="Provide either `client_id` and `client_secret`, or `bearer_token`.",
         )
@@ -403,7 +403,7 @@ def _resolve_connector_lookup(
         key for key, value in all_args.items() if value is not None and not value.strip()
     )
     if blank_args:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Connector lookup arguments cannot be blank.",
             guidance="Omit the argument entirely, or pass a non-blank value.",
             context={"blank_args": blank_args},
@@ -414,7 +414,7 @@ def _resolve_connector_lookup(
             key for key, value in all_args.items() if value and key != "id_or_name"
         )
         if keyword_args:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="A positional connector lookup cannot be combined with keyword arguments.",
                 guidance="Pass the value positionally, or pass `id`, `connector_id`, or `name`.",
                 context={"keyword_args": keyword_args},
@@ -425,14 +425,14 @@ def _resolve_connector_lookup(
         key: value for key, value in {"id": id, "connector_id": connector_id}.items() if value
     }
     if len(set(provided.values())) > 1:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="`id` and `connector_id` were given conflicting values.",
             guidance="These arguments are synonyms, so pass only one of them.",
             context={"provided": sorted(provided)},
         )
 
     if bool(provided) == bool(name):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Exactly one connector lookup argument is required.",
             guidance=(
                 "Pass a connector ID or name positionally, or as `id`, `connector_id`, "

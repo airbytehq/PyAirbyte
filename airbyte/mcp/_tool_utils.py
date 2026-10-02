@@ -67,7 +67,7 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import AirbyteSafeModeError, PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteSafeModeError
 
 
 if TYPE_CHECKING:
@@ -517,13 +517,13 @@ def validate_airbyte_domains(app: FastMCP) -> None:
         app: The FastMCP app instance.
 
     Raises:
-        PyAirbyteInputError: If the domain configuration is incompatible.
+        AirbyteLibInputError: If the domain configuration is incompatible.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
 
     if include_modules and exclude_modules:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED are mutually exclusive."
             ),
@@ -542,7 +542,7 @@ def validate_airbyte_domains(app: FastMCP) -> None:
         {module for module in (*include_modules, *exclude_modules) if module not in known_modules}
     )
     if unknown_modules:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="One or more requested MCP domains are not recognized.",
             guidance=(
                 "Correct the unknown domain name(s) in `AIRBYTE_MCP_DOMAINS` / "

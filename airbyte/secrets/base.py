@@ -90,7 +90,7 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
         try:
             return json.loads(self)
         except json.JSONDecodeError as ex:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Failed to parse secret as JSON.",
                 context={
                     "Message": ex.msg,
@@ -110,7 +110,7 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
         """Validate the input value is valid as a secret string."""
         _ = info  # Unused
         if not isinstance(v, str):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="A valid `str` or `SecretString` object is required.",
             )
         return cls(v)
@@ -237,7 +237,7 @@ class SecretHandle:
 
         This method is a convenience method to parse the secret as JSON without
         needing to call `get_value()` first. If the secret is not a valid JSON
-        string, a `PyAirbyteInputError` will be raised.
+        string, a `AirbyteLibInputError` will be raised.
         """
         return self.get_value().parse_json()
 

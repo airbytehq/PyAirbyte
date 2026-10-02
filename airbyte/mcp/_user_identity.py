@@ -140,7 +140,7 @@ def forget_cached_airbyte_user() -> None:
         return
     try:
         auth_user_id = api_util.get_user_id_from_bearer_token(SecretString(access_token.token))
-    except exc.PyAirbyteInputError:
+    except exc.AirbyteLibInputError:
         return
     _user_id_cache.pop(auth_user_id)
 
@@ -194,7 +194,7 @@ async def resolve_airbyte_user_for_token(
     """Resolve the canonical Airbyte user and default workspace for a bearer token."""
     try:
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
-    except exc.PyAirbyteInputError:
+    except exc.AirbyteLibInputError:
         return None
 
     cached_user = _user_id_cache.get(auth_user_id)

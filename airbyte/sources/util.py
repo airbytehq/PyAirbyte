@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.sources.base import Source
 
 
@@ -139,7 +139,7 @@ def get_benchmark_source(
         try:
             num_records = int(Decimal(num_records.replace("_", "")))
         except InvalidOperation as ex:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Invalid number format.",
                 original_exception=ex,
                 input_value=str(num_records),

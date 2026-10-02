@@ -402,7 +402,7 @@ def test_list_public_registry_connectors_applies_filters(
 def test_show_connectors_list_rejects_negative_limit() -> None:
     """Test that negative connector limits fail clearly."""
     with pytest.raises(
-        exc.PyAirbyteInputError, match="Limit parameter must be non-negative."
+        exc.AirbyteLibInputError, match="Limit parameter must be non-negative."
     ):
         show_connectors_list(limit=-1)
 

@@ -106,10 +106,10 @@ class GoogleGSMSecretManager(CustomSecretManager):
         """Instantiate a new Google GSM secret manager instance.
 
         You can provide either the path to the credentials file or the JSON contents of the
-        credentials file. If both are provided, a `PyAirbyteInputError` will be raised.
+        credentials file. If both are provided, a `AirbyteLibInputError` will be raised.
         """
         if credentials_path and credentials_json:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 guidance=("You can provide `credentials_path` or `credentials_json` but not both."),
             )
 
@@ -129,7 +129,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
             credentials_json = SecretString(Path(credentials_path).read_text(encoding="utf-8"))
 
         if not credentials_json:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 guidance=(
                     "No Google Cloud credentials found. You can provide the path to the "
                     "credentials file using the `credentials_path` argument, or provide the JSON "
@@ -288,7 +288,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
         try:
             result = next(iter(results))
         except StopIteration:
-            raise exc.PyAirbyteError(
+            raise exc.AirbyteLibError(
                 message="No secrets found for connector.",
                 guidance=(
                     "Please check that the connector name is correct "
