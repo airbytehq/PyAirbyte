@@ -1390,7 +1390,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
 
     try:
         result.enabled_features = sorted(connector.enabled_features)
-    except (AirbyteError, requests.RequestException) as error:
+    except (AirbyteError, requests.RequestException, ValueError) as error:
         result.enabled_features = FEATURES_UNKNOWN
         warnings.append(_feature_lookup_warning(error))
 
@@ -1403,8 +1403,8 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
             context_layer = connector._context_layer_inspect(  # noqa: SLF001
                 warnings=warnings,
             )
-        except (AirbyteError, requests.RequestException) as error:
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+        except (AirbyteError, requests.RequestException, ValueError):
+            warnings.append("Connector direct-access docs lookup failed.")
         else:
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
@@ -1427,8 +1427,8 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     if with_direct_access_guidance:
         try:
             docs = connector.get_direct_access_guidance()
-        except (PyAirbyteError, requests.RequestException) as error:
-            warnings.append(f"Direct access docs are unavailable: {error}")
+        except (PyAirbyteError, requests.RequestException, ValueError):
+            warnings.append("Direct access docs are unavailable.")
         else:
             result.direct_access_guidance = render_connector_docs_result(docs)
 

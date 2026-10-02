@@ -743,7 +743,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
         The connector's docs skill is probed: a skill doc exists only for connectors the
         Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
-        connector is not enabled for agent access, so a warning is appended to
+        docs are unavailable, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
         response, transport) is raised to the caller.
         """
@@ -765,7 +765,9 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         except exc.AirbyteError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+            warnings.append(
+                "Connector direct-access docs are unavailable (access denied or not found)."
+            )
             return None
         parsed = _DirectConnectorInspectResult(
             connector_id=self.connector_id,
@@ -938,6 +940,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             except exc.AirbyteError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
+                # Keep the not-enabled notice for this docs fallback. A rare missing-docs
+                # 404 can reach it even when access is enabled.
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
                     sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,

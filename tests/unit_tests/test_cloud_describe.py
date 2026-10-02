@@ -14,6 +14,11 @@ import requests
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte.cloud import workspaces as cloud_workspaces
+from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp._docs_results import (
+    render_connector_docs_result,
+    render_agent_skill_docs_result,
+)
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudConnector,
@@ -409,7 +414,9 @@ def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
     guidance = destination.get_direct_access_guidance()
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
-    assert guidance.warnings == [notice]
+    assert guidance.metadata.warnings == [notice]
+    assert render_connector_docs_result(guidance).warnings == [notice]
+    assert render_agent_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert any(block.get("type") == "table" for block in guidance.content)
     assert "execute_external_sql_query" not in _content_text(guidance)
@@ -546,7 +553,9 @@ def test_get_direct_access_guidance_destination_no_context_layer_notices(
     guidance = destination.get_direct_access_guidance()
     read_docs.assert_not_called()
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
-    assert guidance.warnings == [notice]
+    assert guidance.metadata.warnings == [notice]
+    assert render_connector_docs_result(guidance).warnings == [notice]
+    assert render_agent_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)
@@ -808,3 +817,97 @@ def test_is_feature_enabled_wrong_connector_kind_short_circuits(
 
     assert connector.is_feature_enabled(feature) is False
     get_features.assert_not_called()
+
+
+@pytest.mark.parametrize("cache_path", ["fresh", "inspect"])
+def test_describe_stringifies_structured_probe_warnings(
+    monkeypatch: pytest.MonkeyPatch, cache_path: str
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_enablement(monkeypatch)
+    warning = {"code": "partial", "message": "Partial metadata"}
+    response = {
+        **SKILL_DOCS_RESPONSE,
+        "metadata": {**SKILL_DOCS_RESPONSE["metadata"], "warnings": [warning]},
+    }
+    read_docs = MagicMock(return_value=response)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+    if cache_path == "inspect":
+        source._context_layer_inspect(warnings=[])  # noqa: SLF001
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.warnings == [str(warning)]
+    assert result.model_dump()["warnings"] == [str(warning)]
+    assert read_docs.call_count == 1
+
+
+@pytest.mark.parametrize("with_guidance", [False, True])
+def test_describe_malformed_docs_preserves_enabled_features(
+    monkeypatch: pytest.MonkeyPatch, with_guidance: bool
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_enablement(monkeypatch)
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", lambda **_: {})
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=with_guidance,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == sorted([
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ])
+    assert result.warnings == [
+        "Connector direct-access docs lookup failed.",
+        *(["Direct access docs are unavailable."] if with_guidance else []),
+    ]
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_unavailable_docs_do_not_hide_enabled_features_or_leak_errors(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_enablement(monkeypatch)
+    read_docs = MagicMock(
+        side_effect=AirbyteCloudApiError(
+            status_code=status, context={"response_text": "secret"}
+        )
+    )
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+    source = _seed_source(workspace, "source-1", "GitHub")
+    source._connector_definition = SimpleNamespace(name="GitHub")  # noqa: SLF001
+
+    result = cloud_mcp._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == sorted([
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ])
+    assert result.warnings == [
+        "Connector direct-access docs are unavailable (access denied or not found)."
+    ]
