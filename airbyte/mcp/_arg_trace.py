@@ -482,7 +482,7 @@ def k_fp(keys: ArgKeys, tool: str, arg: str) -> bytes:
 
 def eq_hex(k_eq: bytes, canonical: bytes) -> str:
     """Return the keyed equality digest of canonical bytes."""
-    return _hmac(k_eq, canonical)[:8].hex()
+    return _hmac(k_eq, canonical)[:16].hex()
 
 
 def _bitset(features: Iterable[str], key: bytes) -> str | None:
@@ -666,7 +666,7 @@ def _count_ok(value: object) -> bool:
 
 def _record_ok(record: dict[str, object], cls: ArgClass) -> bool:  # noqa: PLR0911
     keys = set(record)
-    if "eq" in keys and not (isinstance(record["eq"], str) and _HEX16.fullmatch(record["eq"])):
+    if "eq" in keys and not (isinstance(record["eq"], str) and _HEX32.fullmatch(record["eq"])):
         return False
     if "fp" in keys and not (
         "eq" in keys and isinstance(record["fp"], str) and _HEX32.fullmatch(record["fp"])

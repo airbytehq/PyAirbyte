@@ -511,7 +511,7 @@ def test_golden_vectors_and_reference_formulas():
         assert t.scope_id(keys.k_eq) == expected["scope_id"]
         for canonical, digest in expected["eq"].items():
             assert t.eq_hex(keys.k_eq, canonical.encode()) == digest
-            assert digest == ref_mac(keys.k_eq, canonical.encode())[:8].hex()
+            assert digest == ref_mac(keys.k_eq, canonical.encode())[:16].hex()
         for text, fingerprint in expected["fp_text"].items():
             assert (
                 t.fp_text(text, t.k_fp(keys, "synthetic_tool", "name")) == fingerprint
@@ -609,15 +609,21 @@ def test_validate_accepts_builder_output():
         {t.ARG_PREFIX + SENTINEL: '{"present":true}'},
         {t.ARG_PREFIX + "intent": '{"value":"x"}'},
         {t.ARG_PREFIX + "h": json.dumps({"value": SENTINEL})},
-        {t.ARG_PREFIX + "h": '{"eq":"' + "0" * 15 + '"}'},
-        {t.ARG_PREFIX + "h": '{"eq": "0000000000000000"}'},
-        {t.ARG_PREFIX + "h": '{"fp":"0000000000000000"}'},
-        {t.ARG_PREFIX + "h": '{"eq":"0000000000000000","invalid_count":1}'},
+        {t.ARG_PREFIX + "h": '{"eq":"' + "0" * 31 + '"}'},
+        {t.ARG_PREFIX + "h": '{"eq": "00000000000000000000000000000000"}'},
+        {t.ARG_PREFIX + "h": '{"fp":"00000000000000000000000000000000"}'},
+        {
+            t.ARG_PREFIX
+            + "h": '{"eq":"00000000000000000000000000000000","invalid_count":1}'
+        },
         {t.ARG_PREFIX + "mode": '{"value":"c"}'},
         {t.ARG_PREFIX + "l": '{"count":-1,"present":true}'},
         {t.ARG_PREFIX + "l": '{"count":true,"present":true}'},
         {t.ARG_PREFIX + "entity_type": json.dumps({"value": "x" * 300})},
-        {t.ARG_PREFIX + "h": '{"present":true,"eq":"0000000000000000"}'},
+        {
+            t.ARG_PREFIX
+            + "h": '{"present":true,"eq":"00000000000000000000000000000000"}'
+        },
         {t.VALID_PREFIX + "h": True},
         {t.ENTITY_VALID_KEY: True},
         {t.TRACING_KEY: SENTINEL},
