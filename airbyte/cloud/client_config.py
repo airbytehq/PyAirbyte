@@ -44,7 +44,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from airbyte._util import api_util
-from airbyte.cloud.auth import (
+from airbyte.cloud._auth import (
     resolve_cloud_api_url,
     resolve_cloud_bearer_token,
     resolve_cloud_client_id,

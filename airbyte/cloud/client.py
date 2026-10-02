@@ -101,8 +101,8 @@ if TYPE_CHECKING:
     from airbyte.secrets.base import SecretString
 
 
-MAX_ORGANIZATION_CANDIDATES = 10
-MAX_WORKSPACES_TO_VALIDATE = 25
+_MAX_ORGANIZATION_CANDIDATES = 10
+_MAX_WORKSPACES_TO_VALIDATE = 25
 
 
 def _organization_has_feature(
@@ -472,7 +472,7 @@ class CloudClient:
             if limit is not None and len(filtered_workspaces) == limit:
                 break
         if unvalidated_count > 0 and (limit is None or len(filtered_workspaces) < limit):
-            for workspace_id in self._get_direct_workspace_ids()[MAX_WORKSPACES_TO_VALIDATE:]:
+            for workspace_id in self._get_direct_workspace_ids()[_MAX_WORKSPACES_TO_VALIDATE:]:
                 workspace = self._get_direct_workspace_info(workspace_id)
                 if workspace is None or not accepts(workspace):
                     continue
@@ -823,7 +823,7 @@ class CloudClient:
             return self._validated_direct_workspace_result
         workspace_ids = self._get_direct_workspace_ids()
         live_workspaces: list[CloudWorkspaceInfo] = []
-        for workspace_id in workspace_ids[:MAX_WORKSPACES_TO_VALIDATE]:
+        for workspace_id in workspace_ids[:_MAX_WORKSPACES_TO_VALIDATE]:
             workspace = self._get_direct_workspace_info(workspace_id)
             if workspace is None:
                 continue
@@ -838,7 +838,7 @@ class CloudClient:
             live_workspaces.append(workspace)
         result = (
             live_workspaces,
-            max(0, len(workspace_ids) - MAX_WORKSPACES_TO_VALIDATE),
+            max(0, len(workspace_ids) - _MAX_WORKSPACES_TO_VALIDATE),
         )
         self._validated_direct_workspace_result = result
         return result
@@ -877,7 +877,7 @@ class CloudClient:
         else:
             membership_organization_ids = self._get_membership_organization_ids()
             member_organizations_truncated = (
-                len(membership_organization_ids) > MAX_ORGANIZATION_CANDIDATES
+                len(membership_organization_ids) > _MAX_ORGANIZATION_CANDIDATES
             )
             try:
                 member_workspaces, unvalidated_workspace_count = self._validate_direct_workspaces()
@@ -889,7 +889,7 @@ class CloudClient:
         member_organizations = [
             CloudOrganizationInfo.model_validate(candidate)
             for candidate in self._get_organization_candidates(
-                membership_organization_ids[:MAX_ORGANIZATION_CANDIDATES]
+                membership_organization_ids[:_MAX_ORGANIZATION_CANDIDATES]
             )
         ]
         default_workspace_info: CloudWorkspaceInfo | None = None
@@ -1145,7 +1145,7 @@ class CloudClient:
     ) -> NoReturn:
         """Raise an error enumerating the caller's candidate organizations."""
         candidates = self._get_organization_candidates(
-            organization_ids[:MAX_ORGANIZATION_CANDIDATES]
+            organization_ids[:_MAX_ORGANIZATION_CANDIDATES]
         )
         candidate_details = ", ".join(
             f"{candidate['organization_id']} "

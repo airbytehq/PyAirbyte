@@ -21,8 +21,8 @@ from airbyte.cloud._connection_state import (
     _match_stream,
     _normalize_state_to_protocol,
 )
+from airbyte.cloud._constants import FINAL_STATUSES
 from airbyte.cloud.connectors import CloudDestination, CloudSource
-from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -43,8 +43,8 @@ from airbyte.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-QUARTZ_CRON_MIN_FIELDS = 6
-QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
+_QUARTZ_CRON_MIN_FIELDS = 6
+_QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
 
 
 def _validate_quartz_cron_expression(cron_expression: str) -> None:
@@ -54,7 +54,7 @@ def _validate_quartz_cron_expression(cron_expression: str) -> None:
     fast with actionable guidance instead of an opaque HTTP 400 from the API.
     """
     fields = cron_expression.split()
-    if not QUARTZ_CRON_MIN_FIELDS <= len(fields) <= QUARTZ_CRON_MAX_FIELDS:
+    if not _QUARTZ_CRON_MIN_FIELDS <= len(fields) <= _QUARTZ_CRON_MAX_FIELDS:
         raise PyAirbyteInputError(
             message=(
                 "Cron schedules must use a Quartz expression with 6 or 7 space-separated "

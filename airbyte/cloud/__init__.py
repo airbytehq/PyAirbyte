@@ -112,7 +112,6 @@ if TYPE_CHECKING:
         client,
         client_config,
         connections,
-        constants,
         organizations,
         sync_results,
         workspaces,
@@ -125,7 +124,6 @@ __all__ = [
     "client",
     "organizations",
     "connections",
-    "constants",
     "client_config",
     "sync_results",
     # Classes
