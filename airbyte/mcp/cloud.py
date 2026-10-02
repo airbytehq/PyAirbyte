@@ -20,7 +20,6 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
-from airbyte import Destination, Source, get_destination, get_source
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
     CloudConnectorConnectionInfo,
@@ -64,7 +63,7 @@ from airbyte.constants import (
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
 )
-from airbyte.destinations.util import get_noop_destination
+from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectorNotRegisteredError,
@@ -99,10 +98,13 @@ from airbyte.registry import (
     get_connector_metadata,
     get_connector_metadata_by_definition_id,
 )
+from airbyte.sources.base import Source
+from airbyte.sources.util import get_source
 
 
 if TYPE_CHECKING:
     from airbyte.cloud.sync_results import SyncResult
+    from airbyte.destinations.base import Destination
 
 
 DELETE_NAME_GUARD_TIP_TEXT = (

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Validate generated MCP documentation includes and public module exports."""
+"""Validate generated MCP documentation includes and MCP module discovery."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 import airbyte.mcp
-from docs.generate import _validate_includes
-
-
-# These process entry points have connectivity docs in `airbyte.mcp`'s docstring.
-DOCS_EXCLUDED_MODULES = frozenset({"http_main", "server"})
+from docs.generate import (
+    DOCS_EXCLUDED_MODULES,
+    _validate_includes,
+    discover_public_modules,
+)
 
 
 def test_validate_includes_raises_for_missing_target(tmp_path: Path) -> None:
@@ -64,12 +64,12 @@ def test_existing_includes_name_generated_mcp_modules() -> None:
             assert target_path.stem in generated_modules
 
 
-def test_mcp_all_covers_public_submodules() -> None:
+def test_docs_discover_public_mcp_submodules() -> None:
     public_modules = {
-        module.name
+        f"airbyte.mcp.{module.name}"
         for module in pkgutil.iter_modules(airbyte.mcp.__path__)
         if not module.name.startswith("_")
     }
-    exported_modules = set(airbyte.mcp.__all__)
-    assert public_modules - DOCS_EXCLUDED_MODULES <= exported_modules
-    assert DOCS_EXCLUDED_MODULES.isdisjoint(exported_modules)
+    documented_modules = set(discover_public_modules())
+    assert public_modules - DOCS_EXCLUDED_MODULES <= documented_modules
+    assert DOCS_EXCLUDED_MODULES.isdisjoint(documented_modules)

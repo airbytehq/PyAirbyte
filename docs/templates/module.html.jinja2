@@ -1,0 +1,22 @@
+{% extends "default/module.html.jinja2" %}
+{#
+    pdoc builds submodule navigation from `__all__`, which in PyAirbyte lists only runtime API
+    names. List the direct children among the rendered modules instead.
+#}
+{% block nav_submodules %}
+    {% set prefix = module.modulename ~ "." %}
+    {% set ns = namespace(submodules=[]) %}
+    {% for name, submodule in all_modules.items() %}
+        {% if name.startswith(prefix) and "." not in name[prefix | length:] %}
+            {% set ns.submodules = ns.submodules + [submodule] %}
+        {% endif %}
+    {% endfor %}
+    {% if ns.submodules %}
+        <h2>Submodules</h2>
+        <ul>
+            {% for submodule in ns.submodules %}
+                <li>{{ submodule.taken_from | link(text=submodule.name) }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

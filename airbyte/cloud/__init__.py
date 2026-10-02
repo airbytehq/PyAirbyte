@@ -82,8 +82,6 @@ for record in dataset:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from airbyte._direct_connectors.models import (
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
@@ -105,29 +103,7 @@ from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
 
 
-# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
-if TYPE_CHECKING:
-    # ruff: noqa: TC004
-    from airbyte.cloud import (
-        client,
-        client_config,
-        connections,
-        constants,
-        organizations,
-        sync_results,
-        workspaces,
-    )
-
-
 __all__ = [
-    # Submodules
-    "workspaces",
-    "client",
-    "organizations",
-    "connections",
-    "constants",
-    "client_config",
-    "sync_results",
     # Classes
     "CloudClient",
     "CloudOrganization",
