@@ -1,18 +1,19 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """PyAirbyte Logging features and related configuration.
 
-By default, PyAirbyte main logs are written to a file in the `AIRBYTE_LOGGING_ROOT` directory, which
-defaults to a system-created temporary directory. PyAirbyte also maintains connector-specific log
-files within the same directory, under a subfolder with the name of the connector.
+By default, PyAirbyte main logs are written to a file in the directory configured by
+`airbyte.settings.AirbyteSettings.logging_root` (`AIRBYTE_LOGGING_ROOT`), which defaults to a
+system-created temporary directory. PyAirbyte also maintains connector-specific log files within
+the same directory, under a subfolder with the name of the connector.
 
 PyAirbyte supports structured JSON logging, which is disabled by default. To enable structured
-logging in JSON, set `AIRBYTE_STRUCTURED_LOGGING` to `True`.
+logging in JSON, set `airbyte.settings.AirbyteSettings.structured_logging`
+(`AIRBYTE_STRUCTURED_LOGGING`) to `True`.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import sys
 import tempfile
@@ -25,18 +26,8 @@ import ulid
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
-from airbyte.constants import _str_to_bool
+from airbyte.settings import AirbyteSettings
 
-
-AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
-    os.getenv(key="AIRBYTE_STRUCTURED_LOGGING"),
-    default=False,
-)
-"""Whether to enable structured logging.
-
-This value is read from the `AIRBYTE_STRUCTURED_LOGGING` environment variable. If the variable is
-not set, the default value is `False`.
-"""
 
 _warned_messages: set[str] = set()
 
@@ -75,15 +66,16 @@ def _warn_once(
         logger.warning(message)
 
 
-def _get_logging_root() -> Path | None:
+def _get_logging_root(settings: AirbyteSettings | None = None) -> Path | None:
     """Return the root directory for logs.
 
     Returns `None` if no valid path can be found.
 
     This is the directory where logs are stored.
     """
-    if "AIRBYTE_LOGGING_ROOT" in os.environ:
-        log_root = Path(os.environ["AIRBYTE_LOGGING_ROOT"])
+    settings = settings or AirbyteSettings()
+    if settings.logging_root is not None:
+        log_root = settings.logging_root
     elif platform.system() == "Darwin" or platform.system() == "Linux":
         # Use /tmp on macOS and Linux
         log_root = Path("/tmp") / "airbyte" / "logs"
@@ -99,8 +91,9 @@ def _get_logging_root() -> Path | None:
         _warn_once(
             (
                 f"Failed to create PyAirbyte logging directory at `{log_root}`. "
-                "You can override the default path by setting the `AIRBYTE_LOGGING_ROOT` "
-                "environment variable."
+                "You can override the default path with "
+                "`airbyte.settings.AirbyteSettings.logging_root` "
+                "(`AIRBYTE_LOGGING_ROOT`)."
             ),
             with_stack=False,
         )
@@ -109,28 +102,19 @@ def _get_logging_root() -> Path | None:
         return log_root
 
 
-AIRBYTE_LOGGING_ROOT: Path | None = _get_logging_root()
-"""The root directory for Airbyte logs.
-
-This value can be overridden by setting the `AIRBYTE_LOGGING_ROOT` environment variable.
-
-If not provided, PyAirbyte will use `/tmp/airbyte/logs/` where `/tmp/` is the OS's default
-temporary directory. If the directory cannot be created, PyAirbyte will log a warning and
-set this value to `None`.
-"""
-
-
 @lru_cache
 def get_global_file_logger() -> logging.Logger | None:
     """Return the global logger for PyAirbyte.
 
     This logger is configured to write logs to the console and to a file in the log directory.
     """
+    settings = AirbyteSettings()
+    logging_root = _get_logging_root(settings)
     logger = logging.getLogger("airbyte")
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    if AIRBYTE_LOGGING_ROOT is None:
+    if logging_root is None:
         # No temp directory available, so return None
         return None
 
@@ -141,7 +125,7 @@ def get_global_file_logger() -> logging.Logger | None:
         logger.removeHandler(handler)
 
     yyyy_mm_dd: str = ab_datetime_now().strftime("%Y-%m-%d")
-    folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
+    folder = logging_root / yyyy_mm_dd
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -159,7 +143,7 @@ def get_global_file_logger() -> logging.Logger | None:
         encoding="utf-8",
     )
 
-    if AIRBYTE_STRUCTURED_LOGGING:
+    if settings.structured_logging:
         # Create a formatter and set it for the handler
         formatter = logging.Formatter("%(message)s")
         file_handler.setFormatter(formatter)
@@ -200,10 +184,11 @@ def get_global_file_logger() -> logging.Logger | None:
 
 def get_global_stats_log_path() -> Path | None:
     """Return the path to the performance log file."""
-    if AIRBYTE_LOGGING_ROOT is None:
+    logging_root = _get_logging_root()
+    if logging_root is None:
         return None
 
-    folder = AIRBYTE_LOGGING_ROOT
+    folder = logging_root
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -219,6 +204,8 @@ def get_global_stats_log_path() -> Path | None:
 @lru_cache
 def get_global_stats_logger() -> structlog.BoundLogger:
     """Create a stats logger for performance metrics."""
+    settings = AirbyteSettings()
+    logging_root = _get_logging_root(settings)
     logger = logging.getLogger("airbyte.stats")
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -237,7 +224,7 @@ def get_global_stats_logger() -> structlog.BoundLogger:
     )
 
     logfile_path: Path | None = get_global_stats_log_path()
-    if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
+    if logging_root is None or logfile_path is None:
         # No temp directory available, so return no-op logger without handlers
         return structlog.get_logger("airbyte.stats")
 
@@ -247,7 +234,7 @@ def get_global_stats_logger() -> structlog.BoundLogger:
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    folder = AIRBYTE_LOGGING_ROOT
+    folder = logging_root
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -275,13 +262,15 @@ def get_global_stats_logger() -> structlog.BoundLogger:
 
 def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     """Create a logger from logging module."""
+    settings = AirbyteSettings()
+    logging_root = _get_logging_root(settings)
     logger = logging.getLogger(f"airbyte.{connector_name}")
     logger.setLevel(logging.INFO)
 
     # Prevent logging to stderr by stopping propagation to the root logger
     logger.propagate = False
 
-    if AIRBYTE_LOGGING_ROOT is None:
+    if logging_root is None:
         # No temp directory available, so return a basic logger
         return logger
 
@@ -291,7 +280,7 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    folder = AIRBYTE_LOGGING_ROOT / connector_name
+    folder = logging_root / connector_name
     folder.mkdir(parents=True, exist_ok=True)
 
     # Create a file handler
@@ -305,7 +294,7 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     file_handler = logging.FileHandler(logfile_path)
     file_handler.setLevel(logging.INFO)
 
-    if AIRBYTE_STRUCTURED_LOGGING:
+    if settings.structured_logging:
         # Create a formatter and set it for the handler
         formatter = logging.Formatter("%(message)s")
         file_handler.setFormatter(formatter)

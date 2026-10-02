@@ -10,14 +10,14 @@ import pytest
 from fastmcp_extensions import ToolTraits
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
-from airbyte.constants import (
+from airbyte._util.text_util import _str_to_bool
+from airbyte.mcp._constants import (
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_INSIDERS,
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
-    _str_to_bool,
 )
 from airbyte.mcp import _tool_utils
 from fastmcp import FastMCP

@@ -36,6 +36,7 @@ from fastmcp_extensions.tool_filters import (
     get_annotation,
 )
 
+from airbyte._util.text_util import _str_to_bool
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -44,6 +45,9 @@ from airbyte.constants import (
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+)
+from airbyte.exceptions import PyAirbyteInputError
+from airbyte.mcp._constants import (
     MCP_BEARER_TOKEN_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
@@ -65,9 +69,7 @@ from airbyte.constants import (
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
-    _str_to_bool,
 )
-from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -81,12 +83,15 @@ _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 # Safe Mode Configuration
 # =============================================================================
 
-AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
-"""Whether safe mode is enabled for cloud operations.
 
-When enabled (default), destructive operations are only allowed on resources
-created during the current session.
-"""
+def is_safe_mode_enabled() -> bool:
+    """Return whether safe mode is enabled for cloud operations.
+
+    When enabled (default), destructive operations are only allowed on resources
+    created during the current session.
+    """
+    return _str_to_bool(os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE"), default=True)
+
 
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 """Whether the AIRBYTE_CLOUD_WORKSPACE_ID environment variable is set.
@@ -123,7 +128,7 @@ def check_guid_created_in_session(guid: str) -> None:
     Args:
         guid: The GUID to check
     """
-    if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
+    if is_safe_mode_enabled() and guid not in _GUIDS_CREATED_IN_SESSION:
         raise SafeModeError(
             f"Cannot perform destructive operation on '{guid}': "
             f"Object was not created in this session. "

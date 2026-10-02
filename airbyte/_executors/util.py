@@ -20,9 +20,10 @@ from airbyte._executors.local import PathExecutor
 from airbyte._executors.noop import NoOpExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
+from airbyte._util.paths import _try_create_dir_if_missing
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, DEFAULT_PROJECT_DIR, TEMP_DIR_OVERRIDE
 from airbyte.registry import ConnectorMetadata, InstallType, get_connector_metadata
+from airbyte.settings import AirbyteSettings
 from airbyte.version import get_version
 
 
@@ -242,7 +243,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             log_install_state(name, state=EventState.FAILED, exception=ex)
             raise
     except requests.exceptions.ConnectionError as ex:
-        if not AIRBYTE_OFFLINE_MODE:
+        if not AirbyteSettings().offline_mode:
             # If the user has not enabled offline mode, raise an error.
             raise exc.AirbyteConnectorRegistryError(
                 message="Failed to connect to the connector registry.",
@@ -250,10 +251,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 guidance=(
                     "\nThere was a problem connecting to the Airbyte connector registry. "
                     "Please check your internet connection and try again.\nTo operate "
-                    "offline, set the `AIRBYTE_OFFLINE_MODE` environment variable to `1`."
+                    "offline, set `airbyte.settings.AirbyteSettings.offline_mode` "
+                    "(`AIRBYTE_OFFLINE_MODE`) to `1`."
                     "This will prevent errors related to registry connectivity and disable "
-                    "telemetry. \nIf you have a custom registry, set `_REGISTRY_ENV_VAR` "
-                    "environment variable to the URL of your custom registry."
+                    "telemetry. \nIf you have a custom registry, set `AIRBYTE_LOCAL_REGISTRY` "
+                    "to the URL of your custom registry."
                 ),
             ) from ex
 
@@ -298,10 +300,12 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         if ":" not in docker_image:
             docker_image = f"{docker_image}:{version or 'latest'}"
 
-        host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        settings = AirbyteSettings()
+        host_temp_dir = settings.temp_dir or Path(tempfile.gettempdir())
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
-        local_mount_dir = DEFAULT_PROJECT_DIR / name
+        project_dir = _try_create_dir_if_missing(settings.project_dir, desc="project")
+        local_mount_dir = project_dir / name
         local_mount_dir.mkdir(exist_ok=True)
 
         volumes = {

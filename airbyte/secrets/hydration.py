@@ -9,9 +9,10 @@ from typing import Any, cast
 import requests
 import yaml
 
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, SECRETS_HYDRATION_PREFIX
+from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.exceptions import PyAirbyteInternalError
 from airbyte.secrets.util import get_secret
+from airbyte.settings import AirbyteSettings
 
 
 GLOBAL_MASK_KEYS_URL = "https://connectors.airbyte.com/files/registries/v0/specs_secrets_mask.yaml"
@@ -99,7 +100,7 @@ def _walk_dict(
 @lru_cache
 def _get_global_secrets_mask() -> list[str]:
     """Get the list of properties to mask from the spec mask file."""
-    if AIRBYTE_OFFLINE_MODE:
+    if AirbyteSettings().offline_mode:
         # In offline mode, we cannot fetch the global mask keys.
         # We return an empty list to avoid masking any keys.
         return []

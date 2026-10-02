@@ -20,7 +20,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.middleware import Middleware
 
-from airbyte.constants import MCP_EXTENSIONS_HEADER
+from airbyte.mcp._constants import MCP_EXTENSIONS_HEADER
 from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER

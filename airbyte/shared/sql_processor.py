@@ -46,7 +46,6 @@ from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
     AB_META_COLUMN,
     AB_RAW_ID_COLUMN,
-    DEBUG_MODE,
 )
 from airbyte.records import StreamRecordHandler
 from airbyte.secrets.base import SecretString
@@ -179,7 +178,7 @@ class SqlConfig(BaseModel, abc.ABC):
         if self._engine is None:
             self._engine = create_engine(
                 url=self.get_sql_alchemy_url(),
-                echo=DEBUG_MODE,
+                echo=False,
                 execution_options={
                     "schema_translate_map": {None: self.schema_name},
                 },
@@ -578,12 +577,6 @@ class SqlProcessorBase(abc.ABC):
             # Ignore schema exists errors.
             if "already exists" not in str(ex):
                 raise
-
-        if DEBUG_MODE:
-            found_schemas = schemas_list
-            assert (
-                schema_name in found_schemas
-            ), f"Schema {schema_name} was not created. Found: {found_schemas}"
 
     def _quote_identifier(self, identifier: str) -> str:
         """Return the given identifier, quoted."""
@@ -1198,10 +1191,6 @@ class SqlProcessorBase(abc.ABC):
         insert_new_records_stmt = insert(final_table).from_select(
             names=[column.name for column in temp_table.columns], select=select_new_records_stmt
         )
-
-        if DEBUG_MODE:
-            print(str(update_stmt))
-            print(str(insert_new_records_stmt))
 
         with self.get_sql_connection() as conn:
             conn.execute(update_stmt)

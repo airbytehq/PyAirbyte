@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import contextlib
-from pathlib import Path
+from pathlib import Path  # noqa: TC003  # Required by Pydantic when resolving the model field.
 from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, Self, final
 
 import pandas as pd
@@ -16,12 +16,12 @@ from sqlalchemy import text
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
-from airbyte import constants
 from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
-from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._sql import CachedDataset
+from airbyte.settings import AirbyteSettings
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.sql_processor import SqlConfig, TableStatistics
 from airbyte.shared.state_writers import StdOutStateWriter
@@ -52,10 +52,10 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     to the SQL backend specified in the `SqlConfig` class.
     """
 
-    cache_dir: Path = Field(default=Path(constants.DEFAULT_CACHE_ROOT))
+    cache_dir: Path = Field(default_factory=lambda: AirbyteSettings().cache_root)
     """The directory to store the cache in."""
 
-    cleanup: bool = TEMP_FILE_CLEANUP
+    cleanup: bool = Field(default_factory=lambda: AirbyteSettings().temp_file_cleanup)
     """Whether to clean up the cache after use."""
 
     _name: str = PrivateAttr()

@@ -6,7 +6,6 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import os
 import warnings
 from copy import copy
 from enum import Enum
@@ -21,8 +20,8 @@ from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
 from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
-from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.logs import _warn_once
+from airbyte.settings import AirbyteSettings
 from airbyte.version import get_version
 
 
@@ -32,7 +31,6 @@ logger = logging.getLogger("airbyte")
 __cache: dict[str, ConnectorMetadata] | None = None
 
 
-_REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
 _PYTHON_LANGUAGE = "python"
@@ -158,14 +156,15 @@ class ConnectorMetadata(BaseModel):
 
 
 def _get_registry_url() -> str:
-    if _REGISTRY_ENV_VAR in os.environ:
-        return str(os.environ.get(_REGISTRY_ENV_VAR))
+    local_registry = AirbyteSettings().local_registry
+    if local_registry is not None:
+        return local_registry
 
     return _REGISTRY_URL
 
 
 def _is_registry_disabled(url: str) -> bool:
-    return url.upper() in {"0", "F", "FALSE"} or AIRBYTE_OFFLINE_MODE
+    return url.upper() in {"0", "F", "FALSE"} or AirbyteSettings().offline_mode
 
 
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:

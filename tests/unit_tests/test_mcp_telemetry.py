@@ -13,9 +13,7 @@ import pytest
 from fastmcp_extensions import ToolCallTelemetryMiddleware
 from segment import analytics
 
-from airbyte import constants
 from airbyte._util import meta, telemetry
-from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp import server
 from airbyte.secrets import config as secrets_config
 from airbyte.secrets.prompt import SecretsPrompt
@@ -24,7 +22,7 @@ from airbyte.secrets.prompt import SecretsPrompt
 @pytest.fixture(autouse=True)
 def force_online_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep in-process telemetry tests independent of the runner environment."""
-    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", False)
+    monkeypatch.delenv("AIRBYTE_OFFLINE_MODE", raising=False)
 
 
 def test_segment_write_key_uses_mcp_tracking_key(
@@ -50,13 +48,13 @@ def test_segment_write_key_respects_offline_mode(
 ) -> None:
     """Offline mode disables the external Segment sink."""
     monkeypatch.delenv(server.DO_NOT_TRACK, raising=False)
-    monkeypatch.setattr(server, "AIRBYTE_OFFLINE_MODE", True)
+    monkeypatch.setenv("AIRBYTE_OFFLINE_MODE", "true")
 
     assert server._segment_write_key() is None
 
 
 def test_segment_write_key_rechecks_runtime_offline_mode() -> None:
-    """Offline mode loaded after constants import still disables Segment."""
+    """Offline mode read after server import still disables Segment."""
     child_env = os.environ.copy()
     child_env.pop("AIRBYTE_OFFLINE_MODE", None)
     child_env.pop("AIRBYTE_MCP_ENV_FILE", None)
@@ -64,13 +62,12 @@ def test_segment_write_key_rechecks_runtime_offline_mode() -> None:
     child_script = f"""
 import os
 
-from airbyte import constants
 from airbyte.mcp import server
 
-if constants.AIRBYTE_OFFLINE_MODE is not False:
-    raise SystemExit(
-        f"expected imported offline mode=False, got {{constants.AIRBYTE_OFFLINE_MODE!r}}"
-    )
+from airbyte.settings import AirbyteSettings
+
+if AirbyteSettings().offline_mode is not False:
+    raise SystemExit("expected offline mode=False")
 
 os.environ["AIRBYTE_OFFLINE_MODE"] = "true"
 if server._segment_write_key() is not None:
@@ -136,7 +133,7 @@ def test_send_telemetry_uses_mcp_tracking_key(
         post_calls.append(kwargs)
 
     monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
-    monkeypatch.setattr(telemetry, "AIRBYTE_OFFLINE_MODE", False)
+    monkeypatch.setenv("AIRBYTE_OFFLINE_MODE", "false")
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     monkeypatch.setattr(telemetry.requests, "post", fake_post)
 
@@ -221,7 +218,7 @@ def test_hosted_attribution_is_resolved_per_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Hosted attribution reflects mode changes after module import."""
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", False)
     telemetry = next(
         middleware
         for middleware in server.app.middleware
@@ -232,7 +229,7 @@ def test_hosted_attribution_is_resolved_per_call(
     assert extra_properties()["is_hosted_mcp"] is False
     assert extra_properties()["transport"] == "stdio"
 
-    set_hosted_mcp_mode()
+    meta.set_hosted_mcp_mode()
 
     assert extra_properties()["is_hosted_mcp"] is True
     assert extra_properties()["transport"] == "streamable-http"
@@ -246,11 +243,11 @@ def test_hosted_attribution_is_resolved_per_call(
         pytest.param("AIRBYTE_OFFLINE_MODE", False, id="offline-mode"),
     ],
 )
-def test_module_level_registration_configures_telemetry(
+def test_server_startup_configures_telemetry(
     disabled_env: str | None,
     expected_segment: bool,
 ) -> None:
-    """A clean import registers telemetry and respects external-sink opt-outs."""
+    """Server startup registers telemetry and respects external-sink opt-outs."""
     child_env = os.environ.copy()
     child_env.pop(server.DO_NOT_TRACK, None)
     child_env.pop("AIRBYTE_OFFLINE_MODE", None)
@@ -258,8 +255,16 @@ def test_module_level_registration_configures_telemetry(
         child_env[disabled_env] = "1"
 
     child_script = f"""
+import asyncio
+
 from fastmcp_extensions import ToolCallTelemetryMiddleware
 from airbyte.mcp import server
+
+async def start_server():
+    async with server._mcp_mode_lifespan(server.app):
+        pass
+
+asyncio.run(start_server())
 
 has_telemetry = any(
     isinstance(middleware, ToolCallTelemetryMiddleware)

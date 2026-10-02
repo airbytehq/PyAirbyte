@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Literal
 from fastmcp.server.middleware import Middleware
 from fastmcp_extensions import get_mcp_config
 
-from airbyte.constants import MCP_CONFIG_ORGANIZATION_ID, MCP_CONFIG_WORKSPACE_ID
+from airbyte.mcp._constants import MCP_CONFIG_ORGANIZATION_ID, MCP_CONFIG_WORKSPACE_ID
 from airbyte.mcp._user_identity import (
     resolve_call_workspace_organization_id,
     resolve_user_default_organization_id,

@@ -11,7 +11,7 @@ import requests
 import responses
 from fastmcp import Client, Context, FastMCP
 
-from airbyte.constants import (
+from airbyte.mcp._constants import (
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,

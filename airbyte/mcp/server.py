@@ -62,6 +62,7 @@ from fastmcp_extensions import (
     OIDCAuthConfig,
     TelemetryConfig,
     TelemetrySinks,
+    ToolCallTelemetryMiddleware,
     build_mcp_auth,
     mcp_server,
 )
@@ -76,9 +77,8 @@ if TYPE_CHECKING:
     from key_value.aio.protocols.key_value import AsyncKeyValue
     from starlette.requests import Request
 
-from airbyte._util.meta import set_mcp_mode
+from airbyte._util.meta import is_hosted_mcp_mode, set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_MCP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -122,6 +122,7 @@ from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.registry import register_registry_tools
 from airbyte.secrets import SecretSourceEnum
 from airbyte.secrets.config import disable_secret_source
+from airbyte.settings import AirbyteSettings
 
 
 # =============================================================================
@@ -484,10 +485,7 @@ SEGMENT_USER_ID = "airbyte-mcp"
 
 def _segment_write_key() -> str | None:
     """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
-    offline_mode_from_env = os.environ.get("AIRBYTE_OFFLINE_MODE")
-    # Dotenv secrets load after constants are imported, so check the environment at call time.
-    offline_mode = AIRBYTE_OFFLINE_MODE or _str_to_bool(offline_mode_from_env, default=False)
-    if os.environ.get(DO_NOT_TRACK) or offline_mode:
+    if os.environ.get(DO_NOT_TRACK) or AirbyteSettings().offline_mode:
         return None
 
     return PYAIRBYTE_MCP_TRACKING_KEY
@@ -495,27 +493,41 @@ def _segment_write_key() -> str | None:
 
 load_secrets_to_env_vars()
 
-segment_write_key = _segment_write_key()
-if segment_write_key is None:
-    logger.info("Segment telemetry is disabled; MCP tool-call telemetry remains log-only.")
-
 lifecycle_telemetry_sinks = TelemetrySinks(
     package_name="airbyte",
-    segment_write_key=segment_write_key,
+    segment_write_key=None,
     segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
 )
 """Sinks for MCP session lifecycle events, configured like tool-call telemetry."""
 
 
+def _configure_telemetry(server: FastMCP) -> None:
+    """Configure external telemetry when the server starts."""
+    segment_write_key = _segment_write_key()
+    if segment_write_key is None:
+        logger.info("Segment telemetry is disabled; MCP tool-call telemetry remains log-only.")
+
+    sinks = TelemetrySinks(
+        package_name="airbyte",
+        segment_write_key=segment_write_key,
+        segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
+    )
+    lifecycle_telemetry_sinks.__dict__.update(sinks.__dict__)
+    for middleware in server.middleware:
+        if isinstance(middleware, ToolCallTelemetryMiddleware):
+            middleware._sinks = sinks  # noqa: SLF001
+
+
 @asynccontextmanager
 async def _mcp_mode_lifespan(  # noqa: RUF029
-    server: FastMCP,  # noqa: ARG001
+    server: FastMCP,
 ) -> AsyncIterator[dict[str, object]]:
     """Mark the process as running in MCP mode for the lifetime of the server."""
     set_mcp_mode()
     # Secrets were loaded at import, before MCP mode was known; prompts would read
     # from stdin, which belongs to the transport now.
     disable_secret_source(SecretSourceEnum.PROMPT)
+    _configure_telemetry(server)
     yield {}
 
 
@@ -551,7 +563,7 @@ app = mcp_server(
     lifespan=_mcp_mode_lifespan,
     telemetry=TelemetryConfig(
         package_name="airbyte",
-        segment_write_key=segment_write_key,
+        segment_write_key=None,
         segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
         extra_properties=lambda: {
             **request_properties(),

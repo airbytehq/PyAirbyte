@@ -16,12 +16,14 @@ from platform import python_implementation, python_version, system
 
 import requests
 
-from airbyte.constants import is_hosted_mcp_mode
 from airbyte.version import get_version
 
 
 _MCP_MODE_ENABLED: bool = False
 """Whether we are running in MCP (Model Context Protocol) mode."""
+
+_HOSTED_MCP_MODE_ENABLED: bool = False
+"""Whether the process is serving MCP over hosted HTTP transport."""
 
 COLAB_SESSION_URL = "http://172.28.0.12:9000/api/sessions"
 """URL to get the current Google Colab session information."""
@@ -56,6 +58,17 @@ def set_mcp_mode() -> None:
 def is_mcp_mode() -> bool:
     """Return True if running in MCP (Model Context Protocol) mode."""
     return _MCP_MODE_ENABLED
+
+
+def set_hosted_mcp_mode() -> None:
+    """Set the flag indicating the process serves MCP over hosted HTTP transport."""
+    global _HOSTED_MCP_MODE_ENABLED
+    _HOSTED_MCP_MODE_ENABLED = True
+
+
+def is_hosted_mcp_mode() -> bool:
+    """Return True if the process serves MCP over hosted HTTP transport."""
+    return _HOSTED_MCP_MODE_ENABLED
 
 
 AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"

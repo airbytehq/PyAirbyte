@@ -337,8 +337,9 @@ and dispatch behavior.
 
 ## Usage Telemetry
 
-Unless `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set, the server sends anonymous
-usage events to Segment: one per tool call, `Airbyte.MCP.ServerConnected` on each
+Unless `DO_NOT_TRACK` or `airbyte.settings.AirbyteSettings.offline_mode` (`AIRBYTE_OFFLINE_MODE`)
+is set, the server sends anonymous usage events to Segment: one per tool call,
+`Airbyte.MCP.ServerConnected` on each
 `initialize` or `server/discover` handshake, and, on hosted HTTP,
 `Airbyte.MCP.AuthFailed` when supplied credentials are rejected (`401`/`403` on
 the MCP endpoint or an OAuth callback error). Requests that carry no credentials,

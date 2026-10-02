@@ -9,9 +9,10 @@ based on your execution environment.
 If you experience issues, you can force plain text status reporting by setting the environment
 variable `NO_LIVE_PROGRESS=1`.
 
-Logging is controlled by the `AIRBYTE_LOGGING_ROOT` and `AIRBYTE_STRUCTURED_LOGGING` environment
-variables, as described in `airbyte.logs`. If `AIRBYTE_STRUCTURED_LOGGING` is set, logs will be
-written in JSONL format. Otherwise, log files will be written as text.
+Logging is controlled by `airbyte.settings.AirbyteSettings.logging_root` (`AIRBYTE_LOGGING_ROOT`)
+and `airbyte.settings.AirbyteSettings.structured_logging` (`AIRBYTE_STRUCTURED_LOGGING`), as
+described in `airbyte.logs`. If `AIRBYTE_STRUCTURED_LOGGING` is set, logs will be written in JSONL
+format. Otherwise, log files will be written as text.
 """
 
 from __future__ import annotations
