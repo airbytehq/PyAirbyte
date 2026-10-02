@@ -681,7 +681,7 @@ class _Harness:
         assert portal is not None, "use the harness inside the TestClient context"
         return portal.call(functools.partial(fn, *args, **kwargs))
 
-    def start_login(self) -> str:
+    def start_login(self, redirect_uri: str = MCP_REDIRECT_URI) -> str:
         """Register an MCP client and start a transaction; return its `txn_id`."""
 
         async def go() -> str:
@@ -689,7 +689,7 @@ class _Harness:
                 OAuthClientInformationFull(
                     client_id=MCP_CLIENT_ID,
                     client_name="Test Client",
-                    redirect_uris=[AnyUrl(MCP_REDIRECT_URI)],
+                    redirect_uris=[AnyUrl(redirect_uri)],
                 )
             )
             client = await self.proxy.get_client(MCP_CLIENT_ID)
@@ -700,7 +700,7 @@ class _Harness:
                     state="client-state",
                     scopes=SCOPES,
                     code_challenge="client-challenge",
-                    redirect_uri=AnyUrl(MCP_REDIRECT_URI),
+                    redirect_uri=AnyUrl(redirect_uri),
                     redirect_uri_provided_explicitly=True,
                     resource=None,
                 ),
@@ -746,8 +746,10 @@ def _login_default(h: _Harness) -> tuple[str, httpx.Response]:
     })
 
 
-def _login_sso(h: _Harness, identifier: str = "acme") -> tuple[str, httpx.Response]:
-    txn_id = h.start_login()
+def _login_sso(
+    h: _Harness, identifier: str = "acme", *, redirect_uri: str = MCP_REDIRECT_URI
+) -> tuple[str, httpx.Response]:
+    txn_id = h.start_login(redirect_uri=redirect_uri)
     _, csrf = h.get_login_page(txn_id)
     form = {
         "txn_id": txn_id,
@@ -1078,15 +1080,21 @@ def _capture_code_store_put(harness: _Harness, monkeypatch: MonkeyPatch) -> list
     return code_keys
 
 
-def _assert_unlinked_error_redirect(response: httpx.Response) -> None:
+def _assert_unlinked_error_redirect(
+    response: httpx.Response, harness: _Harness, *, registered_code: str | None = None
+) -> None:
     assert response.status_code == 302
     location = urlsplit(response.headers["location"])
     assert f"{location.scheme}://{location.netloc}{location.path}" == MCP_REDIRECT_URI
-    query = parse_qs(location.query)
+    query = parse_qs(location.query, keep_blank_values=True)
     assert query["error"] == ["access_denied"]
     assert query["error_description"] == [sso.UNLINKED_LOGIN_ERROR_DESCRIPTION]
     assert query["state"] == ["client-state"]
-    assert "code" not in query
+    assert query["iss"] == [str(harness.proxy.issuer_url)]
+    if registered_code is None:
+        assert "code" not in query
+    else:
+        assert query.get("code") == [registered_code]
     set_cookie_headers = response.headers.get_list("set-cookie")
     assert any(
         "__Host-MCP_CONSENT_BINDING" in header and "max-age=0" in header.lower()
@@ -1212,9 +1220,78 @@ def test_sso_callback_rejects_unlinked_airbyte_user(
         f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
     )
 
-    _assert_unlinked_error_redirect(response)
+    _assert_unlinked_error_redirect(response, harness)
     assert len(code_keys) == 1
     assert harness.run(harness.proxy._code_store.get, key=code_keys[0]) is None
+
+
+def test_sso_callback_rejects_lookup_result_without_user_id(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    monkeypatch.setattr(
+        sso.api_util, "get_user_by_auth_id", lambda *_args, **_kwargs: {}
+    )
+
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    _assert_unlinked_error_redirect(response, harness)
+
+
+def test_callback_checks_generated_code_after_registered_code_query(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(
+        harness, "acme", redirect_uri=f"{MCP_REDIRECT_URI}?code=existing"
+    )
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    code_keys = _capture_code_store_put(harness, monkeypatch)
+    lookup_calls: list[str] = []
+
+    def reject_lookup(auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
+        lookup_calls.append(auth_user_id)
+        raise AirbyteError(context={"status_code": 404})
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    _assert_unlinked_error_redirect(response, harness, registered_code="existing")
+    assert lookup_calls == ["user"]
+    assert len(code_keys) == 1
+    assert harness.run(harness.proxy._code_store.get, key=code_keys[0]) is None
+
+
+def test_callback_fails_closed_when_client_code_is_missing_from_store(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+
+    async def missing_code(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(harness.proxy._code_store, "get", missing_code)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    location = urlsplit(response.headers["location"])
+    query = parse_qs(location.query, keep_blank_values=True)
+    assert f"{location.scheme}://{location.netloc}{location.path}" == MCP_REDIRECT_URI
+    assert query["error"] == ["server_error"]
+    assert query["error_description"] == [
+        "Login could not be completed. Please try again."
+    ]
+    assert query["state"] == ["client-state"]
+    assert query["iss"] == [str(harness.proxy.issuer_url)]
+    assert "code" not in query
+    assert harness.user_lookup_calls == []
 
 
 def test_default_callback_rejects_unlinked_airbyte_user(
@@ -1231,7 +1308,7 @@ def test_default_callback_rejects_unlinked_airbyte_user(
         f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
     )
 
-    _assert_unlinked_error_redirect(response)
+    _assert_unlinked_error_redirect(response, harness)
 
 
 @pytest.mark.parametrize(

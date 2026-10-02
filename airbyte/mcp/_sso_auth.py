@@ -67,6 +67,7 @@ from fastmcp.server.auth.oauth_proxy.models import OAuthTransaction
 from fastmcp.server.auth.oauth_proxy.ui import create_error_html
 from fastmcp.server.auth.oidc_proxy import OIDCConfiguration, OIDCProxy
 from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp.server.auth.redirect_validation import build_client_redirect
 from fastmcp.utilities.ui import create_secure_html_response
 from mcp.server.auth.provider import TokenError
 from pydantic import BaseModel
@@ -135,10 +136,9 @@ LINKED_USER_CHECK_TIMEOUT_SECONDS = 10.0
 
 UNLINKED_LOGIN_ERROR_DESCRIPTION = (
     "Login was successful but could not be verified with Airbyte Cloud. Please try again "
-    "using SSO or another authentication provider if you believe this was a mistake. "
-    "You can also try activating your account by first logging into Airbyte Cloud in a "
-    "web browser."
+    "using SSO or another authentication provider if you believe this was a mistake."
 )
+LOGIN_COMPLETION_ERROR_DESCRIPTION = "Login could not be completed. Please try again."
 
 
 def _token_has_airbyte_user(access_token: str) -> bool:
@@ -153,7 +153,7 @@ def _token_has_airbyte_user(access_token: str) -> bool:
         return False
 
     try:
-        api_util.get_user_by_auth_id(
+        user = api_util.get_user_by_auth_id(
             auth_user_id,
             api_root=api_root,
             config_api_root=config_api_root,
@@ -173,7 +173,8 @@ def _token_has_airbyte_user(access_token: str) -> bool:
         logger.warning("Unable to verify linked Airbyte user; allowing interactive login")
         return True
 
-    return True
+    user_id = user.get("userId")
+    return isinstance(user_id, str) and bool(user_id)
 
 
 class InvalidRealmIdentifierError(ValueError):
@@ -693,6 +694,7 @@ _REQUIRED_TRANSACTION_FIELDS = (
     "txn_id",
     "client_id",
     "client_redirect_uri",
+    "client_state",
     "csrf_token",
     "csrf_expires_at",
     "consent_token",
@@ -1125,45 +1127,58 @@ class AirbyteSsoOidcProxy(OIDCProxy):
             response = await super()._handle_idp_callback(request)
         if choice is not None:
             await self._sso_choice_store.delete(key=txn_id)
-        return await self._require_linked_airbyte_user(response)
+        return await self._require_linked_airbyte_user(response, txn)
 
     async def _require_linked_airbyte_user(
-        self, response: HTMLResponse | RedirectResponse
+        self, response: HTMLResponse | RedirectResponse, txn: OAuthTransaction
     ) -> HTMLResponse | RedirectResponse:
         if not isinstance(response, RedirectResponse) or not response.headers.get("location"):
             return response
 
         response_location = response.headers["location"]
-        location = urlsplit(response_location)
-        query = parse_qs(location.query, keep_blank_values=True)
-        code = query.get("code", [None])[0]
-        if not code:
+        query = parse_qs(urlsplit(response_location).query, keep_blank_values=True)
+        codes = query.get("code", [])
+        if not codes:
             return response
 
+        code = codes[-1]
         code_model = await self._code_store.get(key=code)
-        if code_model is None:
-            return response
+        if code_model is None or code_model.redirect_uri != txn.client_redirect_uri:
+            if code_model is not None:
+                await self._code_store.delete(key=code)
+            return self._reject_login(
+                response, txn, "server_error", LOGIN_COMPLETION_ERROR_DESCRIPTION
+            )
 
         access_token = code_model.idp_tokens.get("access_token")
         if not isinstance(access_token, str) or not access_token:
-            return response
+            await self._code_store.delete(key=code)
+            return self._reject_login(
+                response, txn, "server_error", LOGIN_COMPLETION_ERROR_DESCRIPTION
+            )
 
         if await asyncio.to_thread(_token_has_airbyte_user, access_token):
             return response
 
         await self._code_store.delete(key=code)
-        state = query.get("state", [None])[0]
-        error_params = {
-            "error": "access_denied",
-            "error_description": UNLINKED_LOGIN_ERROR_DESCRIPTION,
-        }
-        if state is not None:
-            error_params["state"] = state
-        separator = "&" if "?" in code_model.redirect_uri else "?"
-        response.headers["location"] = (
-            f"{code_model.redirect_uri}{separator}{urlencode(error_params)}"
-        )
         logger.info("Rejected interactive login: upstream token has no linked Airbyte user")
+        return self._reject_login(response, txn, "access_denied", UNLINKED_LOGIN_ERROR_DESCRIPTION)
+
+    def _reject_login(
+        self,
+        response: RedirectResponse,
+        txn: OAuthTransaction,
+        error: str,
+        description: str,
+    ) -> RedirectResponse:
+        error_params = {"error": error, "error_description": description}
+        if txn.client_state is not None:
+            error_params["state"] = txn.client_state
+        response.headers["location"] = build_client_redirect(
+            txn.client_redirect_uri,
+            error_params,
+            iss=str(self.issuer_url),
+        )
         return response
 
     async def _endpoints_for_issuer(self, issuer: str | None) -> RealmEndpoints | None:
