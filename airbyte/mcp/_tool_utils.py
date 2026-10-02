@@ -358,7 +358,7 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     annotations: Mapping[str, object] | None = None,
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
-    required_capabilities: Iterable[Capability] | None = None,
+    required_capabilities: Iterable[Capability | str] | None = None,
     extra_help_text: str | None = None,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata."""
@@ -377,6 +377,9 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+        # Dedent first so the appended help text doesn't defeat FastMCP's dedent.
+        if func.__doc__:
+            func.__doc__ = inspect.cleandoc(func.__doc__)
         decorated = base_decorator(func)
         registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
         if registered_func is not decorated:

@@ -19,7 +19,6 @@ from fastmcp_extensions import (
     MCPServerConfigArg,
     get_mcp_config,
     mcp_prompt,
-    mcp_tool,
     register_mcp_prompts,
     register_mcp_tools,
 )
@@ -29,8 +28,8 @@ from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.constants import is_hosted_mcp_mode
 from airbyte.mcp._docs_results import AgentSkillDocsResult, render_agent_skill_docs_result
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.cloud import (
-    CLOUD_AUTH_TIP_TEXT,
     SKILL_DOCS_SECTION_HINT,
     WORKSPACE_ID_TIP_TEXT,
     _get_cloud_workspace,
@@ -174,7 +173,7 @@ def test_my_tools_prompt(
     read_only=True,
     idempotent=True,
     open_world=True,
-    extra_help_text=SKILL_DOCS_SECTION_HINT + "\n\n" + CLOUD_AUTH_TIP_TEXT,
+    extra_help_text=SKILL_DOCS_SECTION_HINT,
 )
 def get_agent_skill_docs(
     ctx: Context,

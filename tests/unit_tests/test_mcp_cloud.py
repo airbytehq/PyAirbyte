@@ -981,17 +981,13 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
 def test_delete_tools_include_shared_name_guard_tip(
     tool: Callable[..., Any],
 ) -> None:
-    """Deletion tool descriptions append auth and name-guard guidance in order."""
+    """Deletion tool descriptions append the name-guard guidance once."""
     from airbyte.mcp import server
 
     registered_tool = asyncio.run(server.app.get_tool(tool.__name__))
     tool_description = registered_tool.description or ""
 
-    assert tool_description.count(cloud_mcp.CLOUD_AUTH_TIP_TEXT) == 1
     assert tool_description.count(cloud_mcp.DELETE_NAME_GUARD_TIP_TEXT) == 1
-    assert tool_description.index(
-        cloud_mcp.CLOUD_AUTH_TIP_TEXT
-    ) < tool_description.index(cloud_mcp.DELETE_NAME_GUARD_TIP_TEXT)
 
 
 def _patch_sync_status_workspace(
