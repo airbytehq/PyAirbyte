@@ -53,8 +53,6 @@ first, then the parent organization of `CloudClient.default_workspace_id`, then 
 parent organization of the authenticated user's default workspace, then the memberships
 below.
 
-The deprecated `all_organizations=True` alias maps to `privilege_scope=ANY`.
-
 ### Why the path matters
 
 - **Organization-scoped** (an organization or membership scope was resolved) uses the
@@ -77,7 +75,6 @@ unavailable, so self-managed deployments keep working.
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, overload
@@ -336,7 +333,6 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
         privilege_scope: WorkspacePrivilegeScope = WorkspacePrivilegeScope.MEMBER_OF,
-        all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
@@ -352,11 +348,10 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
         privilege_scope: WorkspacePrivilegeScope = WorkspacePrivilegeScope.MEMBER_OF,
-        all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
-    def list_workspaces(  # noqa: PLR0911, PLR0913
+    def list_workspaces(  # noqa: PLR0911
         self,
         name: str | None = None,
         *,
@@ -367,13 +362,11 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
         privilege_scope: WorkspacePrivilegeScope = WorkspacePrivilegeScope.MEMBER_OF,
-        all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces available to this client.
 
         `privilege_scope` controls whether this lists direct member workspaces,
-        organization workspaces, or instance-wide workspaces. The deprecated
-        `all_organizations` alias maps to `WorkspacePrivilegeScope.ANY`.
+        organization workspaces, or instance-wide workspaces.
         """
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
@@ -384,17 +377,6 @@ class CloudClient:
         has_explicit_organization = organization_id is not None or organization_name is not None
         has_explicit_workspace = workspace_id is not None
 
-        if all_organizations:
-            if privilege_scope is not WorkspacePrivilegeScope.MEMBER_OF:
-                raise exc.PyAirbyteInputError(
-                    message="all_organizations cannot be combined with privilege_scope."
-                )
-            warnings.warn(
-                "`all_organizations` is deprecated; use `privilege_scope` instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            privilege_scope = WorkspacePrivilegeScope.ANY
         if name_contains is not None and name_filter is not None:
             raise exc.PyAirbyteInputError(
                 message="You can provide name_contains or name_filter, but not both."

@@ -60,7 +60,6 @@ from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import (
-    CloudWorkspaceInfo,
     ConnectorFeature,
     ConnectorType,
     OrganizationFeature,
@@ -1053,28 +1052,6 @@ class CloudWorkspace:
             )
 
     # List workspaces, sources, destinations, and connections
-
-    def list_workspaces(
-        self,
-        name: str | None = None,
-        *,
-        name_filter: Callable | None = None,
-        limit: int | None = None,
-    ) -> list[CloudWorkspaceInfo]:
-        """List workspaces available to the current credentials, with an optional limit."""
-        return [
-            CloudWorkspaceInfo.from_api_response(workspace)
-            for workspace in api_util.list_workspaces(
-                workspace_id="",
-                api_root=self.api_root,
-                name=name,
-                name_filter=name_filter,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-                limit=limit,
-            )
-        ]
 
     def rename(
         self,

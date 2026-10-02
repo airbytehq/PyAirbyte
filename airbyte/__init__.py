@@ -105,8 +105,6 @@ has its own documentation and code samples related to effectively using the rela
 - **`airbyte.documents`** - Working with LLM documents, including how to convert records into
     document formats, for instance, when working with AI libraries like LangChain.
 - **`airbyte.exceptions`** - Definitions of all exception and warning classes used in PyAirbyte.
-- **`airbyte.experimental`** - Experimental features and utilities that do not yet have a stable
-    API.
 - **`airbyte.logs`** - Logging functionality and configuration.
 - **`airbyte.records`** - Internal record handling classes.
 - **`airbyte.results`** - Documents the classes returned when working with results from
@@ -153,7 +151,6 @@ if TYPE_CHECKING:
         destinations,
         documents,
         exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
-        experimental,
         logs,
         mcp,
         records,
@@ -174,7 +171,6 @@ __all__ = [
     "destinations",
     "documents",
     "exceptions",
-    "experimental",
     "logs",
     "mcp",
     "records",

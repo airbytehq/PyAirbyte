@@ -581,29 +581,6 @@ def test_cloud_client_permanently_delete_workspace_forwards_inputs(
     assert captured_kwargs["safe_mode"] is True
 
 
-def test_cloud_workspace_list_workspaces_forwards_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_limit = None
-
-    def fake_list_workspaces(
-        *,
-        limit: int | None = None,
-        **_: object,
-    ) -> list[object]:
-        nonlocal captured_limit
-        captured_limit = limit
-        return []
-
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
-
-    CloudWorkspace(workspace_id="workspace-id", bearer_token="token").list_workspaces(
-        limit=3
-    )
-
-    assert captured_limit == 3
-
-
 def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
