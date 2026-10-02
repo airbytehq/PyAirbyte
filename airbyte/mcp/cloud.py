@@ -218,6 +218,14 @@ def _feature_lookup_warning(error: Exception) -> str:
 
 
 FEATURES_NOT_CHECKED: Final = "not_checked"
+McpConnectorFeatureFilter = Literal[
+    "direct_access",
+    "direct_api_query",
+    "direct_sql_query",
+    "search_indexing",
+]
+"""`ConnectorFeature` values a connector can currently report, accepted as an MCP filter."""
+
 FeaturesNotChecked = Literal["not_checked"]
 FEATURES_UNKNOWN: Final = "unknown"
 FeaturesUnknown = Literal["unknown"]
@@ -1242,7 +1250,7 @@ def list_cloud_connectors(
         ),
     ],
     feature_filter: Annotated[
-        ConnectorFeature | None,
+        McpConnectorFeatureFilter | None,
         Field(
             description=FEATURE_FILTER_TIP_TEXT,
             default=None,
@@ -1323,7 +1331,7 @@ def list_cloud_connectors(
         if probe_failure is not None:
             enabled_features: list[ConnectorFeature] | FeaturesUnknown = FEATURES_UNKNOWN
             connector_warnings = [probe_failure]
-        elif features is not None and feature_filter in features:
+        elif features is not None and ConnectorFeature(feature_filter) in features:
             enabled_features = sorted(features)
             connector_warnings = []
         else:
@@ -2700,29 +2708,15 @@ def list_cloud_organizations(
             default=None,
         ),
     ] = None,
-    feature_filter: Annotated[
-        OrganizationFeature | None,
-        Field(
-            description=(
-                "Optional feature filter: `direct_access` returns only organizations enabled "
-                "for AI agents through the Airbyte Context layer; `search_indexing` returns "
-                "only organizations where search indexing is available. Omit to list every "
-                "organization along with its enabled features."
-            ),
-            default=None,
-        ),
-    ] = None,
 ) -> CloudOrganizationListResult:
     """List organizations visible to the authenticated Airbyte Cloud credentials.
 
-    Each organization reports `enabled_features`; pass `feature_filter` to return only
-    organizations with a given feature.
+    Each organization reports its `enabled_features`.
     """
     effective_limit = 100 if limit is None else limit
     try:
         organizations = _get_cloud_client(ctx).list_organizations(
             name_contains=name_contains,
-            feature_filter=feature_filter,
             limit=effective_limit,
         )
     except AirbyteError as error:
@@ -2731,15 +2725,6 @@ def list_cloud_organizations(
             make_result=lambda message: CloudOrganizationListResult(
                 organizations=[],
                 message=message,
-            ),
-        )
-
-    if not organizations and feature_filter is not None:
-        return CloudOrganizationListResult(
-            organizations=[],
-            message=(
-                f"No organizations visible to these credentials have `{feature_filter.value}` "
-                "enabled. Omit `feature_filter` to list every organization with its feature flags."
             ),
         )
 
@@ -3105,9 +3090,10 @@ def get_custom_source_definition(
         bool,
         Field(
             description=(
-                "Whether to include the Connector Builder draft manifest in the response. "
-                "If True and a draft exists, the response will include 'has_draft' and "
-                "'draft_manifest' fields. Defaults to False."
+                "Whether to include the Connector Builder draft manifest, to inspect "
+                "unpublished Connector Builder changes. If True, the response includes "
+                "'has_draft' and 'draft_manifest' (None when no draft exists). "
+                "Defaults to False."
             ),
             default=False,
         ),
@@ -3142,52 +3128,6 @@ def get_custom_source_definition(
         result["draft_manifest"] = definition.draft_manifest
 
     return result
-
-
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
-)
-def get_connector_builder_draft_manifest(
-    ctx: Context,
-    definition_id: Annotated[
-        str,
-        Field(description="The ID of the custom source definition to retrieve the draft for."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> dict[str, Any]:
-    """Get the Connector Builder draft manifest for a custom source definition.
-
-    Returns the working draft manifest that has been saved in the Connector Builder UI
-    but not yet published. This is useful for inspecting what a user is currently working
-    on before they publish their changes.
-
-    If no draft exists, 'has_draft' will be False and 'draft_manifest' will be None.
-    The published manifest is always included for comparison.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    definition = workspace.get_custom_source_definition(
-        definition_id=definition_id,
-        definition_type="yaml",
-    )
-
-    return {
-        "definition_id": definition.definition_id,
-        "name": definition.name,
-        "connector_builder_project_id": definition.connector_builder_project_id,
-        "connector_builder_project_url": definition.connector_builder_project_url,
-        "has_draft": definition.has_draft,
-        "draft_manifest": definition.draft_manifest,
-        "published_manifest": definition.manifest,
-    }
 
 
 @mcp_tool(

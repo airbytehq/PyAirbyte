@@ -2873,7 +2873,7 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
         limit=1,
     )
 
-    assert captured == {"name_contains": "develop", "feature_filter": None, "limit": 1}
+    assert captured == {"name_contains": "develop", "limit": 1}
     assert len(result.organizations) == 1
     assert (
         result.message == "Showing the first 1 organizations; more may exist. "
@@ -2881,21 +2881,8 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
     )
 
 
-@pytest.mark.parametrize(
-    ("feature_filter", "expected_fragment"),
-    [
-        pytest.param(None, "Verify the credentials", id="no_filter"),
-        pytest.param(
-            OrganizationFeature.DIRECT_ACCESS,
-            "have `direct_access` enabled",
-            id="feature_filter",
-        ),
-    ],
-)
 def test_mcp_list_cloud_organizations_empty_message(
     monkeypatch: pytest.MonkeyPatch,
-    feature_filter: ConnectorFeature | None,
-    expected_fragment: str,
 ) -> None:
     class DiscoveryClient:
         def list_organizations(self, **_: object) -> list[CloudOrganization]:
@@ -2903,10 +2890,10 @@ def test_mcp_list_cloud_organizations_empty_message(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(None, feature_filter=feature_filter)
+    result = mcp_cloud.list_cloud_organizations(None)
 
     assert result.organizations == []
-    assert expected_fragment in (result.message or "")
+    assert "Verify the credentials" in (result.message or "")
 
 
 @pytest.mark.parametrize(
@@ -2992,11 +2979,9 @@ def test_mcp_list_cloud_organizations_reports_feature_flags(
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
-    result = mcp_cloud.list_cloud_organizations(
-        None, feature_filter=OrganizationFeature.DIRECT_ACCESS
-    )
+    result = mcp_cloud.list_cloud_organizations(None)
 
-    assert captured["feature_filter"] is OrganizationFeature.DIRECT_ACCESS
+    assert "feature_filter" not in captured
     assert result.organizations[0].enabled_features == [
         OrganizationFeature.DIRECT_ACCESS
     ]

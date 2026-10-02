@@ -1464,6 +1464,68 @@ def test_list_custom_source_definitions_does_not_forward_organization_shared_opt
     )
 
 
+@pytest.mark.parametrize("include_draft", [True, False])
+def test_get_custom_source_definition_include_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    include_draft: bool,
+) -> None:
+    """`include_draft=True` adds `has_draft` and `draft_manifest` to the result."""
+    definition = SimpleNamespace(
+        definition_id="definition-id",
+        name="My Source",
+        version="0.1.0",
+        connector_builder_project_id="project-id",
+        connector_builder_project_url="https://example.com/project",
+        manifest={"version": "published"},
+        has_draft=True,
+        draft_manifest={"version": "draft"},
+    )
+    workspace = SimpleNamespace(
+        get_custom_source_definition=MagicMock(return_value=definition)
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    result = cloud_mcp.get_custom_source_definition(
+        None,
+        "definition-id",
+        workspace_id="workspace-id",
+        include_draft=include_draft,
+    )
+
+    workspace.get_custom_source_definition.assert_called_once_with(
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+    assert result["manifest"] == {"version": "published"}
+    if include_draft:
+        assert result["has_draft"] is True
+        assert result["draft_manifest"] == {"version": "draft"}
+    else:
+        assert "has_draft" not in result
+        assert "draft_manifest" not in result
+
+
+def test_cloud_mcp_hides_unreported_feature_filters() -> None:
+    """Only reported feature values are advertised, and the draft tool is gone."""
+    from airbyte.mcp import server
+
+    tools = {tool.name: tool for tool in asyncio.run(server.app.list_tools())}
+    assert "get_connector_builder_draft_manifest" not in tools
+    assert "get_custom_source_definition" in tools
+    assert (
+        "feature_filter"
+        not in tools["list_cloud_organizations"].parameters["properties"]
+    )
+    connector_filter = tools["list_cloud_connectors"].parameters["properties"][
+        "feature_filter"
+    ]
+    enums = [option["enum"] for option in connector_filter["anyOf"] if "enum" in option]
+    assert enums == [
+        ["direct_access", "direct_api_query", "direct_sql_query", "search_indexing"]
+    ]
+    assert ConnectorFeature.DIRECT_API_ACTION.value == "direct_api_action"
+
+
 def test_get_agent_skill_docs_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
