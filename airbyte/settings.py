@@ -74,11 +74,11 @@ class AirbyteSettings(BaseSettings):
     )
     no_uv: bool = Field(
         default=False,
-        description=("Whether to use pip instead of uv for connector installs (`AIRBYTE_NO_UV`)."),
+        description="Whether to use pip instead of uv for connector installs (`AIRBYTE_NO_UV`).",
     )
     structured_logging: bool = Field(
         default=False,
-        description=("Whether to enable structured JSON logging (`AIRBYTE_STRUCTURED_LOGGING`)."),
+        description="Whether to enable structured JSON logging (`AIRBYTE_STRUCTURED_LOGGING`).",
     )
     logging_root: Path | None = Field(
         default=None,

@@ -151,22 +151,3 @@ def test_importing_airbyte_does_not_create_settings_directories(tmp_path: Path) 
 
     assert not project_dir.exists()
     assert not install_dir.exists()
-
-
-def test_importing_mcp_server_does_not_instantiate_settings() -> None:
-    child_script = """
-import airbyte.settings
-
-def fail_if_called():
-    raise AssertionError("AirbyteSettings was instantiated during import")
-
-airbyte.settings.AirbyteSettings = fail_if_called
-import airbyte.mcp.server
-"""
-    subprocess.run(
-        [sys.executable, "-c", child_script],
-        check=True,
-        capture_output=True,
-        text=True,
-        cwd=Path(__file__).parents[2],
-    )

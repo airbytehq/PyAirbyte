@@ -243,11 +243,11 @@ def test_hosted_attribution_is_resolved_per_call(
         pytest.param("AIRBYTE_OFFLINE_MODE", False, id="offline-mode"),
     ],
 )
-def test_server_startup_configures_telemetry(
+def test_module_level_registration_configures_telemetry(
     disabled_env: str | None,
     expected_segment: bool,
 ) -> None:
-    """Server startup registers telemetry and respects external-sink opt-outs."""
+    """A clean import registers telemetry and respects external-sink opt-outs."""
     child_env = os.environ.copy()
     child_env.pop(server.DO_NOT_TRACK, None)
     child_env.pop("AIRBYTE_OFFLINE_MODE", None)
@@ -255,16 +255,8 @@ def test_server_startup_configures_telemetry(
         child_env[disabled_env] = "1"
 
     child_script = f"""
-import asyncio
-
 from fastmcp_extensions import ToolCallTelemetryMiddleware
 from airbyte.mcp import server
-
-async def start_server():
-    async with server._mcp_mode_lifespan(server.app):
-        pass
-
-asyncio.run(start_server())
 
 has_telemetry = any(
     isinstance(middleware, ToolCallTelemetryMiddleware)
