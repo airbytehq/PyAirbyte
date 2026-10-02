@@ -16,6 +16,7 @@ from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
     ConcurrentDeclarativeSource,
 )
+from airbyte_cdk.sources.source import Source
 
 from airbyte._executors.base import Executor
 
@@ -23,6 +24,8 @@ from airbyte._executors.base import Executor
 if TYPE_CHECKING:
     from argparse import Namespace
     from collections.abc import Iterator
+
+    from airbyte_cdk.models import AirbyteStateMessage, ConfiguredAirbyteCatalog
 
     from airbyte._message_iterators import AirbyteMessageIterator
 
@@ -110,9 +113,47 @@ class DeclarativeExecutor(Executor):
             return {}
         return loaded
 
+    def _state_from_args(self, args: list[str]) -> list[AirbyteStateMessage] | None:
+        """Read incremental state from the `--state <path>` CLI arg.
+
+        Returns None when the arg is absent or unreadable, matching
+        `_config_from_args`: argument validation belongs to the CDK entrypoint.
+        """
+        path = self._path_from_args(args, "--state")
+        if path is None:
+            return None
+        try:
+            return Source.read_state(str(path))
+        except (OSError, ValueError):
+            return None
+
+    def _catalog_from_args(self, args: list[str]) -> ConfiguredAirbyteCatalog | None:
+        """Read the configured catalog from the `--catalog <path>` CLI arg."""
+        path = self._path_from_args(args, "--catalog")
+        if path is None:
+            return None
+        try:
+            return Source.read_catalog(str(path))
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _path_from_args(args: list[str], flag: str) -> Path | None:
+        """The readable file named by `flag`, or None."""
+        if flag not in args:
+            return None
+        index = args.index(flag) + 1
+        if index >= len(args):
+            return None
+        path = Path(args[index])
+        return path if path.is_file() else None
+
     def _build_declarative_source(
         self,
         config: dict[str, Any] | None = None,
+        *,
+        state: list[AirbyteStateMessage] | None = None,
+        catalog: ConfiguredAirbyteCatalog | None = None,
     ) -> ConcurrentDeclarativeSource:
         """Build the declarative source, merging `config` over any injected components.
 
@@ -126,6 +167,8 @@ class DeclarativeExecutor(Executor):
         return ConcurrentDeclarativeSource(
             config={**self._config_dict, **(config or {})},
             source_config=self._manifest_dict,
+            catalog=catalog,
+            state=state,
         )
 
     @property
@@ -160,8 +203,18 @@ class DeclarativeExecutor(Executor):
         # The declarative source resolves `{{ config[...] }}` interpolations when it is
         # constructed, so the connector config has to be supplied here rather than left
         # for the entrypoint to read later.
+        # State and catalog are constructor arguments for the same reason config is:
+        # `ConcurrentDeclarativeSource` creates its `ConnectorStateManager` in
+        # `__init__` and its cursors in `streams()`, and its `read()` accepts a
+        # `state` argument that it never uses. A source built without state
+        # therefore re-reads every stream from the beginning, so incremental sync
+        # silently degrades to a full refresh for every manifest-based connector.
         source_entrypoint = AirbyteEntrypoint(
-            self._build_declarative_source(self._config_from_args(args))
+            self._build_declarative_source(
+                self._config_from_args(args),
+                state=self._state_from_args(args),
+                catalog=self._catalog_from_args(args),
+            )
         )
 
         mapped_args: list[str] = self.map_cli_args(args)
