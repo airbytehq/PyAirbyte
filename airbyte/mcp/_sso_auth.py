@@ -23,7 +23,10 @@ startup. This module makes those per-login instead, mirroring the Cloud webapp's
    resolve the realm again (from the stored choice or from the token's `iss`) and
    run the stock `OIDCProxy` logic with that realm's endpoints made active through
    a `ContextVar`.
-5. Upstream tokens are verified by `MultiRealmTokenVerifier`, which routes on the
+5. Before returning a successful interactive login to the MCP client, the upstream
+   access token is checked against Airbyte's linked-user endpoint; unlinked tokens
+   receive an OAuth error redirect instead of a client authorization code.
+6. Upstream tokens are verified by `MultiRealmTokenVerifier`, which routes on the
    token's `iss` to a per-realm `JWTVerifier` whose JWKS URI comes only from the
    template-fetched discovery document, never from the token itself.
 
@@ -45,6 +48,7 @@ import binascii
 import functools
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -57,6 +61,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
+import requests
 from fastmcp.server.auth import TokenVerifier
 from fastmcp.server.auth.oauth_proxy.models import OAuthTransaction
 from fastmcp.server.auth.oauth_proxy.ui import create_error_html
@@ -68,7 +73,15 @@ from pydantic import BaseModel
 from starlette.responses import RedirectResponse
 from starlette.routing import Route
 
+from airbyte import exceptions as exc
+from airbyte._util import api_util
+from airbyte.constants import (
+    CLOUD_API_ROOT,
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
+)
 from airbyte.mcp._sso_login_page import CHOICE_DEFAULT, CHOICE_SSO, render_login_page
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
@@ -117,6 +130,50 @@ LAST_REALM_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 3600
 _EMPTY_LIST_COOKIE_MAX_AGE_SECONDS = 60
 _JWT_SEGMENT_COUNT = 3
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+LINKED_USER_CHECK_TIMEOUT_SECONDS = 10.0
+"""Timeout for each side of the linked-user API request."""
+
+UNLINKED_LOGIN_ERROR_DESCRIPTION = (
+    "Login was successful but could not be verified with Airbyte Cloud. Please try again "
+    "using SSO or another authentication provider if you believe this was a mistake. "
+    "You can also try activating your account by first logging into Airbyte Cloud in a "
+    "web browser."
+)
+
+
+def _token_has_airbyte_user(access_token: str) -> bool:
+    """Return whether `access_token` belongs to a linked Airbyte user."""
+    api_root = os.getenv(CLOUD_API_ROOT_ENV_VAR, "").strip() or CLOUD_API_ROOT
+    config_api_root = os.getenv(CLOUD_CONFIG_API_ROOT_ENV_VAR, "").strip() or None
+    bearer = SecretString(access_token)
+
+    try:
+        auth_user_id = api_util.get_user_id_from_bearer_token(bearer)
+    except exc.PyAirbyteInputError:
+        return False
+
+    try:
+        api_util.get_user_by_auth_id(
+            auth_user_id,
+            api_root=api_root,
+            config_api_root=config_api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=bearer,
+            timeout=(LINKED_USER_CHECK_TIMEOUT_SECONDS, LINKED_USER_CHECK_TIMEOUT_SECONDS),
+        )
+    except exc.AirbyteMissingResourceError:
+        return False
+    except exc.AirbyteError as error:
+        if error.context is not None and error.context.get("status_code") in {401, 404}:
+            return False
+        logger.warning("Unable to verify linked Airbyte user; allowing interactive login")
+        return True
+    except requests.RequestException:
+        logger.warning("Unable to verify linked Airbyte user; allowing interactive login")
+        return True
+
+    return True
 
 
 class InvalidRealmIdentifierError(ValueError):
@@ -700,11 +757,12 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         if (
             not self._default_upstream_authorization_endpoint
             or not self._default_upstream_token_endpoint
+            or not hasattr(self, "_code_store")
         ):
             msg = (
                 "OIDCProxy no longer assigns _upstream_authorization_endpoint / "
-                "_upstream_token_endpoint during construction; airbyte.mcp._sso_auth "
-                "must be updated for this fastmcp version."
+                "_upstream_token_endpoint / _code_store during construction; "
+                "airbyte.mcp._sso_auth must be updated for this fastmcp version."
             )
             raise RuntimeError(msg)
         self._sso_choice_store = _SsoChoiceStore(self._client_storage)
@@ -1067,6 +1125,45 @@ class AirbyteSsoOidcProxy(OIDCProxy):
             response = await super()._handle_idp_callback(request)
         if choice is not None:
             await self._sso_choice_store.delete(key=txn_id)
+        return await self._require_linked_airbyte_user(response)
+
+    async def _require_linked_airbyte_user(
+        self, response: HTMLResponse | RedirectResponse
+    ) -> HTMLResponse | RedirectResponse:
+        if not isinstance(response, RedirectResponse) or not response.headers.get("location"):
+            return response
+
+        response_location = response.headers["location"]
+        location = urlsplit(response_location)
+        query = parse_qs(location.query, keep_blank_values=True)
+        code = query.get("code", [None])[0]
+        if not code:
+            return response
+
+        code_model = await self._code_store.get(key=code)
+        if code_model is None:
+            return response
+
+        access_token = code_model.idp_tokens.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            return response
+
+        if await asyncio.to_thread(_token_has_airbyte_user, access_token):
+            return response
+
+        await self._code_store.delete(key=code)
+        state = query.get("state", [None])[0]
+        error_params = {
+            "error": "access_denied",
+            "error_description": UNLINKED_LOGIN_ERROR_DESCRIPTION,
+        }
+        if state is not None:
+            error_params["state"] = state
+        separator = "&" if "?" in code_model.redirect_uri else "?"
+        response.headers["location"] = (
+            f"{code_model.redirect_uri}{separator}{urlencode(error_params)}"
+        )
+        logger.info("Rejected interactive login: upstream token has no linked Airbyte user")
         return response
 
     async def _endpoints_for_issuer(self, issuer: str | None) -> RealmEndpoints | None:
