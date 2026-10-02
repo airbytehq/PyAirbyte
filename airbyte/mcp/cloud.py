@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
+from mcp.types import InputRequiredResult
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import Destination, Source, get_destination, get_source
@@ -88,6 +89,7 @@ from airbyte.mcp._arg_resolvers import (
     resolve_list_of_strings,
     resolve_manifest_yaml,
 )
+from airbyte.mcp._consent import request_destructive_consent
 from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,
     render_connector_docs_result,
@@ -3311,6 +3313,14 @@ def update_custom_source_definition(
     )
 
 
+def _deletion_not_confirmed_message(resource_description: str) -> str:
+    """Return the tool result for a deletion the user declined in the consent prompt."""
+    return (
+        f"Deletion of {resource_description} was not confirmed by the user. "
+        "Nothing was deleted. Do not retry unless the user asks you to."
+    )
+
+
 @mcp_tool(
     destructive=True,
     open_world=True,
@@ -3334,7 +3344,7 @@ def permanently_delete_custom_source_definition(
             default=None,
         ),
     ],
-) -> str:
+) -> str | InputRequiredResult:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
     The provided name must match the actual name of the definition for the operation to proceed.
@@ -3364,6 +3374,17 @@ def permanently_delete_custom_source_definition(
                 "expected_name": name,
                 "actual_name": actual_name,
             },
+        )
+
+    consent = request_destructive_consent(
+        ctx,
+        f"Permanently delete custom source definition '{actual_name}' (ID: {definition_id})?",
+    )
+    if isinstance(consent, InputRequiredResult):
+        return consent
+    if not consent:
+        return _deletion_not_confirmed_message(
+            f"custom source definition '{actual_name}' (ID: {definition_id})"
         )
 
     definition.permanently_delete(
@@ -3402,7 +3423,7 @@ def permanently_delete_cloud_connector(
             default=None,
         ),
     ],
-) -> str:
+) -> str | InputRequiredResult:
     """Permanently delete a deployed source or destination connector from Airbyte Cloud.
 
     The provided name must match the actual name of the connector for the operation to proceed.
@@ -3428,6 +3449,17 @@ def permanently_delete_cloud_connector(
                 "expected_name": name,
                 "actual_name": actual_name,
             },
+        )
+
+    consent = request_destructive_consent(
+        ctx,
+        f"Permanently delete {resolved_type.value} '{actual_name}' (ID: {connector_id})?",
+    )
+    if isinstance(consent, InputRequiredResult):
+        return consent
+    if not consent:
+        return _deletion_not_confirmed_message(
+            f"{resolved_type.value} '{actual_name}' (ID: {connector_id})"
         )
 
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
@@ -3485,7 +3517,7 @@ def permanently_delete_cloud_connection(
             default=None,
         ),
     ],
-) -> str:
+) -> str | InputRequiredResult:
     """Permanently delete a connection from Airbyte Cloud.
 
     The provided name must match the actual name of the connection for the operation to proceed.
@@ -3510,6 +3542,21 @@ def permanently_delete_cloud_connection(
                 "actual_name": actual_name,
             },
         )
+
+    cascade_note = "".join(
+        [
+            " and its source" if cascade_delete_source else "",
+            " and its destination" if cascade_delete_destination else "",
+        ]
+    )
+    consent = request_destructive_consent(
+        ctx,
+        f"Permanently delete connection '{actual_name}' (ID: {connection_id}){cascade_note}?",
+    )
+    if isinstance(consent, InputRequiredResult):
+        return consent
+    if not consent:
+        return _deletion_not_confirmed_message(f"connection '{actual_name}' (ID: {connection_id})")
 
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_connection(
