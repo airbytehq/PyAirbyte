@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import Any, cast
+from typing import cast
 
 from airbyte import exceptions as exc
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
@@ -34,7 +34,6 @@ def try_get_secret(
     /,
     default: str | SecretString | None = None,
     sources: list[SecretManager | SecretSourceEnum] | None = None,
-    **kwargs: dict[str, Any],
 ) -> SecretString | None:
     """Try to get a secret from the environment, failing gracefully.
 
@@ -53,7 +52,6 @@ def try_get_secret(
             sources=sources,
             allow_prompt=False,
             default=default,
-            **kwargs,
         )
 
     return None
