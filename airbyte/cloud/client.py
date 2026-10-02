@@ -506,6 +506,7 @@ class CloudClient:
         name_contains: str | None,
         name_filter: Callable[[str], bool] | None,
         limit: int | None,
+        page_size: int = 100,
     ) -> list[CloudWorkspaceInfo]:
         """List instance-wide workspaces with server-side name filtering and pagination."""
 
@@ -524,6 +525,7 @@ class CloudClient:
             name_contains=name_contains or name,
             name_filter=(matches_name if name is not None or name_filter is not None else None),
             limit=limit,
+            page_size=page_size,
         )
         return [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
 
@@ -713,11 +715,27 @@ class CloudClient:
             live_workspaces, unvalidated_count = self._validate_direct_workspaces()
         except (AirbyteError, exc.PyAirbyteInputError):
             return None
-        return (
-            live_workspaces[0].workspace_id
-            if unvalidated_count == 0 and len(live_workspaces) == 1
-            else None
-        )
+        if unvalidated_count == 0 and len(live_workspaces) == 1:
+            return live_workspaces[0].workspace_id
+        if live_workspaces or unvalidated_count:
+            return None
+        return self._get_sole_instance_workspace_id()
+
+    def _get_sole_instance_workspace_id(self) -> str | None:
+        """Return the instance's only workspace when the caller is an instance admin."""
+        try:
+            if not self._is_instance_admin():
+                return None
+            workspaces = self._list_unscoped_workspaces(
+                name=None,
+                name_contains=None,
+                name_filter=None,
+                limit=2,
+                page_size=2,
+            )
+        except (AirbyteError, exc.PyAirbyteInputError):
+            return None
+        return workspaces[0].workspace_id if len(workspaces) == 1 else None
 
     def _get_user_permissions(self) -> tuple[dict[str, Any], ...]:
         """Get and cache permissions for the authenticated user."""

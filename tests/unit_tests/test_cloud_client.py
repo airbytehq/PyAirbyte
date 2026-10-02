@@ -363,6 +363,60 @@ def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> Non
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
 
 
+@pytest.mark.parametrize(
+    ("permissions", "instance_workspace_ids", "expected_workspace_id"),
+    [
+        pytest.param(
+            [{"permissionType": "instance_admin"}],
+            ["only-workspace"],
+            "only-workspace",
+            id="instance-admin-single-workspace",
+        ),
+        pytest.param(
+            [{"permissionType": "instance_admin"}],
+            ["workspace-1", "workspace-2"],
+            None,
+            id="instance-admin-multiple-workspaces",
+        ),
+        pytest.param(
+            [{"permissionType": "organization_admin", "organizationId": "org-1"}],
+            ["only-workspace"],
+            None,
+            id="not-instance-admin",
+        ),
+    ],
+)
+def test_resolve_default_workspace_id_falls_back_to_sole_instance_workspace(
+    permissions: list[dict[str, object]],
+    instance_workspace_ids: list[str],
+    expected_workspace_id: str | None,
+) -> None:
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.list_workspaces_by_user",
+            return_value=[
+                {"workspaceId": workspace_id, "name": workspace_id}
+                for workspace_id in instance_workspace_ids
+            ],
+        ) as list_workspaces_by_user,
+    ):
+        assert CloudClient(bearer_token="token").resolve_default_workspace_id() == (
+            expected_workspace_id
+        )
+
+    if permissions[0]["permissionType"] == "instance_admin":
+        assert list_workspaces_by_user.call_args.kwargs["limit"] == 2
+        assert list_workspaces_by_user.call_args.kwargs["page_size"] == 2
+    else:
+        list_workspaces_by_user.assert_not_called()
+
+
 def test_stale_direct_workspace_grant_is_ignored_consistently() -> None:
     patches = _api_patches(
         user={"userId": "user-id"},

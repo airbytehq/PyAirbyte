@@ -2931,6 +2931,7 @@ def list_workspaces_by_user(  # noqa: PLR0913  # Mirrors list_workspaces_in_orga
     name_contains: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
+    page_size: int = 100,
 ) -> list[dict[str, Any]]:
     """List workspaces visible to a user.
 
@@ -2946,13 +2947,13 @@ def list_workspaces_by_user(  # noqa: PLR0913  # Mirrors list_workspaces_in_orga
         name_contains: Optional substring filter for workspace names (server-side)
         name_filter: Optional predicate to filter workspace names (client-side)
         limit: Optional maximum number of workspaces to return
+        page_size: Number of workspaces to request per page
 
     Returns:
         List of workspace dictionaries containing workspaceId, organizationId, name, etc.
     """
     _validate_pagination_params(limit=limit)
     result: list[dict[str, Any]] = []
-    page_size = 100
 
     payload: dict[str, Any] = {
         "userId": user_id,
