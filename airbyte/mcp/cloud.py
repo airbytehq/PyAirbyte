@@ -170,15 +170,13 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
 
 
 FEATURE_FILTER_TIP_TEXT = (
-    "Optional feature filter: `direct_access` returns only connectors AI agents can use "
-    "through the Airbyte Context layer; `direct_api_query` narrows to sources agents can "
-    "query; `search_indexing` narrows to sources and destinations with search-indexed "
-    "data. `enabled_features` is only resolved and returned when this filter is set; "
-    "use `direct_access` to find every connector with any external-access feature "
-    "enabled and see its full feature list. Omit to list every connector with "
-    "`enabled_features='not_checked'` (no feature check performed). Connectors whose "
-    "feature lookup fails are returned with `enabled_features='unknown'` and a "
-    "`warnings` entry, so they can still be inspected or tried."
+    "Optional feature filter; returns only matching connectors with `enabled_features` "
+    "resolved. `direct_access` matches connectors AI agents can use through the Airbyte "
+    "Context layer (any external-access feature) and shows each one's full feature list; "
+    "`direct_api_query` narrows to sources agents can query; `direct_sql_query` narrows "
+    "to destinations agents can query with SQL; `search_indexing` narrows to sources and "
+    "destinations with search-indexed data. Omit to list every connector without a "
+    "feature check."
 )
 
 
@@ -1162,12 +1160,15 @@ class CloudConnectorResult(BaseModel):
     """The connector's display name."""
     url: str
     """The connector's page in the Airbyte Cloud UI."""
-    enabled_features: list[ConnectorFeature] | FeaturesNotChecked | FeaturesUnknown = (
-        FEATURES_NOT_CHECKED
+    enabled_features: list[ConnectorFeature] | FeaturesNotChecked | FeaturesUnknown = Field(
+        default=FEATURES_NOT_CHECKED,
+        description=(
+            "Features enabled for this connector. `not_checked`: no feature check was "
+            "performed (no `feature_filter`). `unknown`: the feature lookup failed (see "
+            "`warnings`); the connector can still be inspected or tried. `[]`: checked "
+            "with nothing enabled."
+        ),
     )
-    """Features enabled for this connector. `"not_checked"` means no feature check was
-    performed (no `feature_filter`); `"unknown"` means the feature lookup failed (see
-    `warnings`); an empty list means checked with nothing enabled."""
 
     warnings: list[str] = Field(default_factory=list)
     """Non-fatal issues encountered while resolving this connector's features."""
@@ -1219,21 +1220,8 @@ def list_cloud_connectors(
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
-    Use `list_cloud_connections` to find the pipelines between these connectors.
-
-    Pass `feature_filter` (for example `direct_api_query` for sources,
-    `direct_sql_query` for destinations, or `direct_access` or `search_indexing` for
-    either) to return only matching connectors with their `enabled_features`
-    resolved; without it, `enabled_features` is `"not_checked"`. A returned `"not_checked"` means no
-    feature check was performed; `[]` means checked and no features enabled.
-
-    When a connector's feature lookup fails for a reason other than "not enabled",
-    it is returned with `enabled_features="unknown"` plus a `warnings` entry. A
-    502/503/504 or transport failure means the endpoint is down for the whole
-    workspace, so remaining connectors are returned as `"unknown"` without further
-    probes; other failures mark only that connector `"unknown"`. `"unknown"`
-    results can still be inspected or tried via `describe_cloud_connector` or the
-    execute tools.
+    Use `list_cloud_connections` to find the pipelines between these connectors, and
+    `feature_filter` to find connectors with external-access features.
     """
     if limit is not None and limit <= 0:
         raise PyAirbyteInputError(message="`limit` must be greater than 0.")
@@ -1553,9 +1541,8 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
         dict[str, Any] | str | None,
         Field(
             description=(
-                "Connector-specific arguments for the action, as an object or a JSON "
-                "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_HINT
+                "Connector-specific arguments, as an object or a JSON object string; "
+                "see the `actions.<entity_type>.<action>` skill-doc section."
             ),
             default=None,
         ),
@@ -1612,10 +1599,8 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 ) -> ExternalApiExecuteResult:
     """Read data from an external system through a deployed Cloud connector's direct API.
 
-    Before calling, read the connector's action docs with `get_agent_skill_docs`
-    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
-    learn the entity types, actions, and required `api_args`; argument names
-    differ per connector and are not guessable.
+    `describe_cloud_connector` with `with_direct_access_guidance=True` also returns the
+    connector's action docs.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
     return connector.execute_api_query(
@@ -1658,9 +1643,8 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
         dict[str, Any] | str | None,
         Field(
             description=(
-                "Connector-specific arguments for the action, as an object or a JSON "
-                "object string. Argument names differ per connector and action; read "
-                "them from `get_agent_skill_docs` before calling. " + SKILL_DOCS_SECTION_HINT
+                "Connector-specific arguments, as an object or a JSON object string; "
+                "see the `actions.<entity_type>.<action>` skill-doc section."
             ),
             default=None,
         ),
@@ -2784,21 +2768,14 @@ def describe_cloud_organization(
     organization_id: Annotated[
         str | None,
         Field(
-            description=(
-                "Organization ID. With no arguments, resolves from the configured "
-                "default or the authenticated user's sole membership."
-            ),
+            description="Organization ID.",
             default=None,
         ),
     ],
     organization_name: Annotated[
         str | None,
         Field(
-            description=(
-                "Organization name (exact match). With no arguments, resolves from the "
-                "configured default or the authenticated user's sole membership. With "
-                "multiple memberships, the error lists candidate organization IDs."
-            ),
+            description="Organization name (exact match).",
             default=None,
         ),
     ],
@@ -2809,8 +2786,7 @@ def describe_cloud_organization(
 
     With no arguments, resolves the organization from the configured default or the
     authenticated user's sole membership. With multiple memberships, the error lists
-    candidate organization IDs. Use organization_id or organization_name (exact match)
-    to look up a specific organization.
+    candidate organization IDs.
     """
     org = _get_cloud_client(ctx).get_organization(
         organization_id=organization_id,
