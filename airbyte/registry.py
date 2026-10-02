@@ -22,7 +22,7 @@ from airbyte._registry_utils import fetch_registry_version_date, parse_changelog
 from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
-from airbyte.logs import warn_once
+from airbyte.logs import _warn_once
 from airbyte.version import get_version
 
 
@@ -271,7 +271,7 @@ def _get_registry_cache(
     if len(new_cache) == 0:
         # This isn't necessarily fatal, since users can bring their own
         # connector definitions.
-        warn_once(
+        _warn_once(
             message=f"Connector registry is empty: {registry_url}",
             with_stack=False,
         )

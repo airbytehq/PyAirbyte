@@ -10,7 +10,7 @@ features are hidden.
 from __future__ import annotations
 
 from airbyte._util.api_util import get_config_api_root
-from airbyte.cloud.auth import resolve_cloud_api_url, resolve_cloud_config_api_url
+from airbyte.cloud._auth import resolve_cloud_api_url, resolve_cloud_config_api_url
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 
 

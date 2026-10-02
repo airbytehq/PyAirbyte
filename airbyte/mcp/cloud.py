@@ -33,7 +33,7 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
 )
 from airbyte._util import api_util
-from airbyte.cloud.client import MAX_WORKSPACES_TO_VALIDATE, CloudClient
+from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import (
     CheckResult,
     CloudConnector,
@@ -2528,7 +2528,7 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     if context.unvalidated_workspace_count > 0:
         message += (
             f" {context.unvalidated_workspace_count} additional direct workspace grant(s) were "
-            f"not validated because this call checks at most {MAX_WORKSPACES_TO_VALIDATE}; use "
+            f"not validated because this call checks at most {_MAX_WORKSPACES_TO_VALIDATE}; use "
             "list_cloud_workspaces to see them."
         )
     if resolved_default_workspace is not None:
