@@ -142,7 +142,7 @@ LOGIN_COMPLETION_ERROR_DESCRIPTION = "Login could not be completed. Please try a
 
 
 def _token_has_airbyte_user(access_token: str) -> bool:
-    """Return whether `access_token` belongs to a linked Airbyte user."""
+    """Return whether `access_token` belongs to a linked user; raise if unverifiable."""
     api_root = os.getenv(CLOUD_API_ROOT_ENV_VAR, "").strip() or CLOUD_API_ROOT
     config_api_root = os.getenv(CLOUD_CONFIG_API_ROOT_ENV_VAR, "").strip() or None
     bearer = SecretString(access_token)
@@ -167,11 +167,7 @@ def _token_has_airbyte_user(access_token: str) -> bool:
     except exc.AirbyteError as error:
         if error.context is not None and error.context.get("status_code") in {401, 404}:
             return False
-        logger.warning("Unable to verify linked Airbyte user; allowing interactive login")
-        return True
-    except requests.RequestException:
-        logger.warning("Unable to verify linked Airbyte user; allowing interactive login")
-        return True
+        raise
 
     user_id = user.get("userId")
     return isinstance(user_id, str) and bool(user_id)
@@ -1143,21 +1139,29 @@ class AirbyteSsoOidcProxy(OIDCProxy):
 
         code = codes[-1]
         code_model = await self._code_store.get(key=code)
-        if code_model is None or code_model.redirect_uri != txn.client_redirect_uri:
+        access_token = code_model.idp_tokens.get("access_token") if code_model is not None else None
+        if (
+            code_model is None
+            or code_model.redirect_uri != txn.client_redirect_uri
+            or not isinstance(access_token, str)
+            or not access_token
+        ):
             if code_model is not None:
                 await self._code_store.delete(key=code)
             return self._reject_login(
                 response, txn, "server_error", LOGIN_COMPLETION_ERROR_DESCRIPTION
             )
 
-        access_token = code_model.idp_tokens.get("access_token")
-        if not isinstance(access_token, str) or not access_token:
+        try:
+            linked = await asyncio.to_thread(_token_has_airbyte_user, access_token)
+        except (exc.AirbyteError, requests.RequestException):
             await self._code_store.delete(key=code)
+            logger.warning("Unable to verify linked Airbyte user; rejecting interactive login")
             return self._reject_login(
                 response, txn, "server_error", LOGIN_COMPLETION_ERROR_DESCRIPTION
             )
 
-        if await asyncio.to_thread(_token_has_airbyte_user, access_token):
+        if linked:
             return response
 
         await self._code_store.delete(key=code)

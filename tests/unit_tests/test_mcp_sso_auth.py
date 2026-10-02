@@ -1319,11 +1319,12 @@ def test_default_callback_rejects_unlinked_airbyte_user(
     ],
     ids=["server-error", "connection-error"],
 )
-def test_callback_allows_login_when_linked_user_lookup_is_unavailable(
+def test_callback_fails_closed_when_linked_user_lookup_is_unavailable(
     harness: _Harness, monkeypatch: MonkeyPatch, lookup_error: Exception
 ) -> None:
     txn_id, _ = _login_sso(harness, "acme")
     _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    code_keys = _capture_code_store_put(harness, monkeypatch)
 
     def fail_lookup(_auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
         raise lookup_error
@@ -1334,10 +1335,21 @@ def test_callback_allows_login_when_linked_user_lookup_is_unavailable(
     )
 
     assert response.status_code == 302
-    query = parse_qs(urlsplit(response.headers["location"]).query)
-    assert query["code"]
+    location = urlsplit(response.headers["location"])
+    query = parse_qs(location.query, keep_blank_values=True)
+    assert f"{location.scheme}://{location.netloc}{location.path}" == MCP_REDIRECT_URI
+    assert query["error"] == ["server_error"]
+    assert query["error_description"] == [sso.LOGIN_COMPLETION_ERROR_DESCRIPTION]
     assert query["state"] == ["client-state"]
-    assert "error" not in query
+    assert query["iss"] == [str(harness.proxy.issuer_url)]
+    assert "code" not in query
+    assert len(code_keys) == 1
+    assert harness.run(harness.proxy._code_store.get, key=code_keys[0]) is None
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any(
+        "__Host-MCP_CONSENT_BINDING" in header and "max-age=0" in header.lower()
+        for header in set_cookie_headers
+    )
 
 
 def test_linked_user_lookup_uses_environment_api_roots(
