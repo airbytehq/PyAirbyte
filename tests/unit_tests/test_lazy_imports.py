@@ -84,8 +84,20 @@ def test_all_names_resolve_and_are_listed_by_dir(module: ModuleType) -> None:
     assert set(exported) <= set(dir(module))
 
 
-@pytest.mark.parametrize("name", ["caches", "cloud", "mcp", "secrets"])
-def test_top_level_submodules_resolve_lazily(name: str) -> None:
-    assert name in dir(airbyte)
-    assert name not in airbyte.__all__
-    assert getattr(airbyte, name).__name__ == f"airbyte.{name}"
+@pytest.mark.parametrize(
+    ("package", "name"),
+    [
+        (airbyte, "caches"),
+        (airbyte, "cloud"),
+        (airbyte, "mcp"),
+        (airbyte, "secrets"),
+        (airbyte.caches, "base"),
+        (airbyte.caches, "duckdb"),
+        (airbyte.caches, "util"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else value.__name__,
+)
+def test_submodules_resolve_lazily(package: ModuleType, name: str) -> None:
+    assert name in dir(package)
+    assert name not in package.__all__
+    assert getattr(package, name).__name__ == f"{package.__name__}.{name}"

@@ -204,7 +204,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "jinja2" },
     { name = "jsonschema", specifier = ">=3.2.0,<5.0" },
-    { name = "lazy-loader", specifier = ">=0.4,<1.0" },
+    { name = "lazy-loader", specifier = ">=0.5,<1.0" },
     { name = "mcp" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.39.1" },
     { name = "opentelemetry-instrumentation-requests", specifier = "==0.60b1" },
