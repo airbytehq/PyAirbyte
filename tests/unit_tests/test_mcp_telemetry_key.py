@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import uuid
+from pathlib import Path
 
 import httpx
 import pytest
@@ -33,6 +35,11 @@ def _b64(raw: bytes) -> str:
 
 
 VALID_KEY = bytes(range(32))
+GOLDEN_KEY = bytes.fromhex(
+    json.loads(
+        (Path(__file__).parent / "fixtures" / "arg_trace_golden.json").read_text()
+    )["master_hex"]
+)
 
 
 def test_load_master_accepts_unpadded_base64url_32_bytes(caplog):
@@ -58,6 +65,7 @@ def test_load_master_unset_is_silent(environ, caplog):
         _b64(VALID_KEY)[:-1] + "!",
         _b64(VALID_KEY) + " extra",
         _b64(b"\x01" * 32),
+        _b64(GOLDEN_KEY),
     ],
 )
 def test_load_master_rejects_invalid_and_test_key_without_logging_value(raw, caplog):

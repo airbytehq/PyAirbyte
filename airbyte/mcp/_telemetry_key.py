@@ -6,8 +6,9 @@ Phase P stub that argument tracing consumes. The grouping work owns this module
 and its final shape; keep changes here to the loader contract below.
 
 `AIRBYTE_MCP_TELEMETRY_HMAC_KEY` is a hosted-only secret: unpadded base64url that
-decodes to exactly 32 bytes. Anything else, including the published test key
-(32 x `0x01`), yields `None` and one fixed warning that never contains the value.
+decodes to exactly 32 bytes. Anything else, including the published test keys
+(32 x `0x01` and the golden-fixture key), yields `None` and one fixed warning
+that never contains the value.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 TELEMETRY_HMAC_KEY_ENV = "AIRBYTE_MCP_TELEMETRY_HMAC_KEY"
 _KEY_LENGTH = 32
-_TEST_KEY = b"\x01" * _KEY_LENGTH
+_TEST_KEYS = (b"\x01" * _KEY_LENGTH, bytes(range(32, 64)))  # Published golden-fixture key.
 _BASE64URL_UNPADDED = re.compile(r"[A-Za-z0-9_-]+")
 _INVALID_KEY_WARNING = (
     "AIRBYTE_MCP_TELEMETRY_HMAC_KEY is set but invalid; keyed telemetry is disabled"
@@ -40,7 +41,7 @@ def load_master(environ: Mapping[str, str]) -> bytes | None:
     if not raw:
         return None
     key = _decode(raw)
-    if key is None or key == _TEST_KEY:
+    if key is None or key in _TEST_KEYS:
         logger.warning(_INVALID_KEY_WARNING)
         return None
     return key

@@ -669,7 +669,10 @@ def _record_ok(record: dict[str, object], cls: ArgClass) -> bool:  # noqa: PLR09
     if "eq" in keys and not (isinstance(record["eq"], str) and _HEX32.fullmatch(record["eq"])):
         return False
     if "fp" in keys and not (
-        "eq" in keys and isinstance(record["fp"], str) and _HEX32.fullmatch(record["fp"])
+        not cls.no_fp
+        and "eq" in keys
+        and isinstance(record["fp"], str)
+        and _HEX32.fullmatch(record["fp"])
     ):
         return False
     if "present" in keys and (record["present"] is not True or "eq" in keys):

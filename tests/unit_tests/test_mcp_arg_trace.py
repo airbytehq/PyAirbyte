@@ -543,6 +543,21 @@ def test_validate_accepts_builder_output():
     }
 
 
+def test_validate_rejects_fingerprint_for_streams():
+    tool = "execute_external_search_query"
+    classes = {tool: {"streams": t.MANUAL_MAP[(tool, "streams")]}}
+    key = t.ARG_PREFIX + "streams"
+    record = {"count": 1, "eq": "a" * 32, "fp": "b" * 32}
+    attrs = {t.TRACING_KEY: "ok", key: json.dumps(record, separators=(",", ":"))}
+    accepted, dropped = t.validate(tool, attrs, classes)
+    assert accepted == {t.TRACING_KEY: "ok"}
+    assert dropped == 1
+
+    del record["fp"]
+    attrs[key] = json.dumps(record, separators=(",", ":"))
+    assert t.validate(tool, attrs, classes) == (attrs, 0)
+
+
 @pytest.mark.parametrize(
     "extra",
     [
