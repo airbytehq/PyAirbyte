@@ -203,7 +203,7 @@ def get_agent_skill_docs(
         Field(
             description=(
                 "Optional exact section ID from the guidance's outline to read a single "
-                "section. Omit for the overview, metadata, and outline. " + SKILL_DOCS_SECTION_HINT
+                "section. Omit for the overview, metadata, and outline."
             ),
             default=None,
         ),
@@ -220,9 +220,6 @@ def get_agent_skill_docs(
 
     Pass either a fully-qualified `docs_skill_id` or a `connector_id` (source or
     destination); exactly one is required.
-
-    `section` is optional; if omitted, the summary overview is returned along with
-    the list of available sections.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     return render_agent_skill_docs_result(
