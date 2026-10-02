@@ -506,6 +506,7 @@ class CloudClient:
         name_contains: str | None,
         name_filter: Callable[[str], bool] | None,
         limit: int | None,
+        page_size: int = 100,
     ) -> list[CloudWorkspaceInfo]:
         """List instance-wide workspaces with server-side name filtering and pagination."""
 
@@ -524,6 +525,7 @@ class CloudClient:
             name_contains=name_contains or name,
             name_filter=(matches_name if name is not None or name_filter is not None else None),
             limit=limit,
+            page_size=page_size,
         )
         return [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
 
@@ -729,6 +731,7 @@ class CloudClient:
                 name_contains=None,
                 name_filter=None,
                 limit=2,
+                page_size=2,
             )
         except (AirbyteError, exc.PyAirbyteInputError):
             return None

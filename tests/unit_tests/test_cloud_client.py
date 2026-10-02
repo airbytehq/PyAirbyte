@@ -412,6 +412,7 @@ def test_resolve_default_workspace_id_falls_back_to_sole_instance_workspace(
 
     if permissions[0]["permissionType"] == "instance_admin":
         assert list_workspaces_by_user.call_args.kwargs["limit"] == 2
+        assert list_workspaces_by_user.call_args.kwargs["page_size"] == 2
     else:
         list_workspaces_by_user.assert_not_called()
 

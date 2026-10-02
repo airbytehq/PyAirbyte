@@ -655,6 +655,41 @@ def test_list_workspaces_by_user_filters_each_page_before_limit(
     ] * len(expected_offsets)
 
 
+def test_list_workspaces_by_user_honors_page_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_payloads: list[dict[str, object]] = []
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        json_request = kwargs["json"]
+        assert isinstance(json_request, dict)
+        captured_payloads.append(json_request)
+        return {
+            "workspaces": [
+                {"workspaceId": "workspace-0"},
+                {"workspaceId": "workspace-1"},
+            ]
+        }
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_workspaces_by_user(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        config_api_root="https://config.airbyte.com",
+        limit=2,
+        page_size=2,
+    )
+
+    assert len(result) == 2
+    assert captured_payloads == [
+        {"userId": "user-id", "pagination": {"pageSize": 2, "rowOffset": 0}}
+    ]
+
+
 def test_create_workspace_forwards_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
