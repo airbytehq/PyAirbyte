@@ -135,25 +135,12 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     )
 
 
-def _infer_self_managed_root(api_root: str) -> str | None:
-    """Infer a self-managed deployment's base URL from its public API root.
-
-    Self-managed and OSS deployments serve the public API at `<airbyteUrl>/api/public/v1`,
-    the Config API at `<airbyteUrl>/api/v1`, and the web UI at `<airbyteUrl>`.
-    """
+def _infer_config_api_root(api_root: str) -> str | None:
+    """Infer the configuration API root from a public API root."""
     normalized_api_root = api_root.rstrip("/")
     public_api_suffix = "/api/public/v1"
     if normalized_api_root.endswith(public_api_suffix):
-        return normalized_api_root[: -len(public_api_suffix)]
-
-    return None
-
-
-def _infer_config_api_root(api_root: str) -> str | None:
-    """Infer the configuration API root from a public API root."""
-    self_managed_root = _infer_self_managed_root(api_root)
-    if self_managed_root is not None:
-        return self_managed_root + "/api/v1"
+        return normalized_api_root[: -len(public_api_suffix)] + "/api/v1"
 
     return None
 
@@ -212,12 +199,13 @@ def get_web_url_root(api_root: str) -> str:
     Self-managed public API roots (`<airbyteUrl>/api/public/v1`) resolve to `<airbyteUrl>`.
     Other custom API roots are returned unchanged.
     """
-    if api_root.rstrip("/") == CLOUD_API_ROOT.rstrip("/"):
+    normalized_api_root = api_root.rstrip("/")
+    if normalized_api_root == CLOUD_API_ROOT.rstrip("/"):
         return "https://cloud.airbyte.com"
 
-    self_managed_root = _infer_self_managed_root(api_root)
-    if self_managed_root is not None:
-        return self_managed_root
+    public_api_suffix = "/api/public/v1"
+    if normalized_api_root.endswith(public_api_suffix):
+        return normalized_api_root[: -len(public_api_suffix)]
 
     return api_root
 
