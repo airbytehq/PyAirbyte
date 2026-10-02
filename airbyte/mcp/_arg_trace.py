@@ -411,7 +411,7 @@ def canonical_bytes(value: object, cls: ArgClass) -> bytes | None:
             if items is not None:
                 return _canonical_items(items)
         return _canonical(_parsed_object(value, cls))
-    except (_Unsupported, RecursionError):
+    except Exception:
         return None
 
 

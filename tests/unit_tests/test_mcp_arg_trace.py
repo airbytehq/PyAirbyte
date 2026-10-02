@@ -181,6 +181,33 @@ def test_canonical_bytes_unsupported(value):
     assert t.canonical_bytes(value, HASH) is None
 
 
+class _HostileStr(str):
+    def encode(self, *_args, **_kwargs):
+        raise RuntimeError("boom")
+
+
+class _HostileList(list):
+    def __iter__(self):
+        raise RuntimeError("boom")
+
+
+class _HostileDict(dict):
+    def __iter__(self):
+        raise RuntimeError("boom")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [_HostileStr("x"), _HostileList(["x"]), _HostileDict({"a": "x"})],
+    ids=["str", "list", "dict"],
+)
+@pytest.mark.parametrize(
+    "cls", [HASH, t.ArgClass(cat=t.Cat.ENTITY)], ids=["hash", "entity"]
+)
+def test_canonical_bytes_hostile_subclasses_never_raise(value, cls):
+    assert t.canonical_bytes(value, cls) is None
+
+
 def _nested(depth: int) -> object:
     value: object = "leaf"
     for _ in range(depth):
