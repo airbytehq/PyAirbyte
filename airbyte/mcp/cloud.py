@@ -170,8 +170,9 @@ def _get_connector_check_message(check_result: CheckResult) -> str | None:
 
 
 FEATURE_FILTER_TIP_TEXT = (
-    "Optional feature filter; returns only matching connectors with `enabled_features` "
-    "resolved. `direct_access` matches connectors AI agents can use through the Airbyte "
+    "Optional feature filter; returns matching connectors with `enabled_features` "
+    "resolved, plus any whose lookup failed (`enabled_features: unknown`, not a "
+    "confirmed match). `direct_access` matches connectors AI agents can use through the Airbyte "
     "Context layer (any external-access feature) and shows each one's full feature list; "
     "`direct_api_query` narrows to sources agents can query; `direct_sql_query` narrows "
     "to destinations agents can query with SQL; `search_indexing` narrows to sources and "
