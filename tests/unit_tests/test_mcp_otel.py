@@ -1313,6 +1313,7 @@ def test_wrap_http_app_places_session_digest_innermost(
     monkeypatch.setattr(
         http_main, "run_mcp_http_server", lambda app, **kwargs: captured.update(kwargs)
     )
+    monkeypatch.setattr(http_main.app, "instructions", http_main.app.instructions)
     monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
     http_main.main()
     sentinel = object()

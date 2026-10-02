@@ -134,7 +134,7 @@ from airbyte.secrets.config import disable_secret_source
 # - Claude tool search: https://www.anthropic.com/news/tool-use-improvements
 # =============================================================================
 
-_MCP_SERVER_INSTRUCTIONS_TEMPLATE = """
+_INSTRUCTIONS_INTRO = """\
 PyAirbyte connector management and data integration server for discovering,
 deploying, and running Airbyte connectors.
 
@@ -142,35 +142,52 @@ Use this server for:
 - Discovering connectors from the Airbyte registry (sources and destinations)
 - Deploying sources, destinations, and connections to Airbyte Cloud
 - Running cloud syncs and monitoring sync status
-- Managing custom connector definitions in Airbyte Cloud
+- Managing custom connector definitions in Airbyte Cloud"""
+
+_INSTRUCTIONS_LOCAL_USES = """
 - Local connector execution for data extraction without cloud deployment
-- Listing and describing environment variables for connector configuration
+- Listing and describing environment variables for connector configuration"""
+
+_INSTRUCTIONS_CLOUD_MODE = """
 
 Operational modes:
-- Cloud operations: Deploy and manage connectors on Airbyte Cloud.{cloud_auth_hint}
+- Cloud operations: Deploy and manage connectors on Airbyte Cloud."""
+
+_INSTRUCTIONS_STDIO_CLOUD_AUTH = """
+  Authenticate with AIRBYTE_CLOUD_CLIENT_ID + AIRBYTE_CLOUD_CLIENT_SECRET (or
+  AIRBYTE_CLOUD_BEARER_TOKEN), and optionally set AIRBYTE_CLOUD_WORKSPACE_ID."""
+
+_INSTRUCTIONS_WORKSPACE_GUIDANCE = """
   When a tool's workspace_id is omitted, the authenticated user's default
   workspace (and its organization) is used. Use get_default_cloud_context or
   list_cloud_workspaces to discover workspaces. If multiple organizations or
-  workspaces are candidates, ask the user to choose; never select automatically.
+  workspaces are candidates, ask the user to choose; never select automatically."""
+
+_INSTRUCTIONS_LOCAL_MODE = """
 - Local operations: Run connectors locally for data extraction (requires
-  AIRBYTE_PROJECT_DIR for artifact storage)
+  AIRBYTE_PROJECT_DIR for artifact storage)"""
+
+_INSTRUCTIONS_SAFETY = """
 
 Safety features:
 - Safe mode (default): Restricts destructive operations to objects created in
   the current session
-- Read-only mode: Disables all write operations for cloud resources
-"""
-
-_STDIO_CLOUD_AUTH_HINT = """
-  Authenticate with AIRBYTE_CLOUD_CLIENT_ID + AIRBYTE_CLOUD_CLIENT_SECRET (or
-  AIRBYTE_CLOUD_BEARER_TOKEN), and optionally set AIRBYTE_CLOUD_WORKSPACE_ID."""
+- Read-only mode: Disables all write operations for cloud resources"""
 
 
 def build_mcp_server_instructions(*, hosted: bool) -> str:
-    """Return the server instructions, with env-var auth hints only for stdio mode."""
-    return _MCP_SERVER_INSTRUCTIONS_TEMPLATE.format(
-        cloud_auth_hint="" if hosted else _STDIO_CLOUD_AUTH_HINT,
-    ).strip()
+    """Return the server instructions; local and env-var guidance is stdio-only."""
+    parts = [_INSTRUCTIONS_INTRO]
+    if not hosted:
+        parts.append(_INSTRUCTIONS_LOCAL_USES)
+    parts.append(_INSTRUCTIONS_CLOUD_MODE)
+    if not hosted:
+        parts.append(_INSTRUCTIONS_STDIO_CLOUD_AUTH)
+    parts.append(_INSTRUCTIONS_WORKSPACE_GUIDANCE)
+    if not hosted:
+        parts.append(_INSTRUCTIONS_LOCAL_MODE)
+    parts.append(_INSTRUCTIONS_SAFETY)
+    return "".join(parts)
 
 
 MCP_SERVER_INSTRUCTIONS = build_mcp_server_instructions(hosted=is_hosted_mcp_mode())
