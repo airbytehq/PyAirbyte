@@ -158,7 +158,7 @@ class CatalogProvider:
 
         for pk_nodes in normalized_pks:
             if len(pk_nodes) != 1:
-                raise exc.AirbyteCloudError(
+                raise exc.AirbyteConnectorError(
                     message=(
                         "Nested primary keys are not supported. "
                         "Each PK column should have exactly one node. "
