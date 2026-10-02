@@ -3148,6 +3148,16 @@ def update_custom_source_definition(
             default=None,
         ),
     ],
+    name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional new display name for the definition (also renames its "
+                "Connector Builder project)."
+            ),
+            default=None,
+        ),
+    ] = None,
     pre_validate: Annotated[
         bool,
         Field(
@@ -3185,18 +3195,25 @@ def update_custom_source_definition(
 ) -> str:
     """Update a custom YAML source definition in Airbyte Cloud.
 
-    Updates the manifest and/or testing values for an existing custom source definition.
-    At least one of manifest_yaml, testing_values, or testing_values_secret_name must be provided.
+    Updates the definition name, manifest, and/or testing values for an existing custom source
+    definition. Renaming also updates the Connector Builder project name.
+    At least one of name, manifest_yaml, testing_values, or testing_values_secret_name must be
+    provided.
     """
     check_guid_created_in_session(definition_id)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
-    if manifest_yaml is None and testing_values is None and testing_values_secret_name is None:
+    if (
+        name is None
+        and manifest_yaml is None
+        and testing_values is None
+        and testing_values_secret_name is None
+    ):
         raise PyAirbyteInputError(
             message=(
-                "At least one of manifest_yaml, testing_values, or testing_values_secret_name "
-                "must be provided to update a custom source definition."
+                "At least one of name, manifest_yaml, testing_values, or "
+                "testing_values_secret_name must be provided to update a custom source definition."
             ),
             context={
                 "definition_id": definition_id,
@@ -3228,6 +3245,9 @@ def update_custom_source_definition(
             manifest_yaml=processed_manifest,
             pre_validate=pre_validate,
         )
+
+    if name is not None:
+        custom_source = custom_source.rename(name=name)
 
     if testing_values_dict is not None:
         custom_source.set_testing_values(testing_values_dict)

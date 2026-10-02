@@ -1478,6 +1478,28 @@ def test_config_api_request_sends_analytic_source_header(
     assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
+def test_config_api_request_handles_no_content_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = requests.Response()
+    response.status_code = 204
+    response.url = "https://config.airbyte.com/v1/connector_builder_projects/update"
+    response.request = requests.Request("POST", response.url).prepare()
+    monkeypatch.setattr(api_util.requests, "request", Mock(return_value=response))
+
+    result = api_util._make_config_api_request(
+        path="/connector_builder_projects/update",
+        json={},
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result == {}
+
+
 def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> None:
     projects = [
         {
@@ -1506,6 +1528,65 @@ def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> Non
         client_id=None,
         client_secret=None,
         bearer_token=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("draft_manifest", "components_file_content", "expected_builder_project"),
+    [
+        pytest.param(
+            {"version": "0.1.0"},
+            "components: []",
+            {
+                "name": "Renamed source",
+                "draftManifest": {"version": "0.1.0"},
+                "componentsFileContent": "components: []",
+            },
+            id="preserve-draft-and-components",
+        ),
+        pytest.param(
+            None,
+            None,
+            {"name": "Renamed source"},
+            id="omit-empty-draft-and-components",
+        ),
+    ],
+)
+def test_update_connector_builder_project_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    draft_manifest: dict[str, object] | None,
+    components_file_content: str | None,
+    expected_builder_project: dict[str, object],
+) -> None:
+    config_api_request = Mock(return_value={})
+    monkeypatch.setattr(api_util, "_make_config_api_request", config_api_request)
+
+    result = api_util.update_connector_builder_project(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        name="Renamed source",
+        draft_manifest=draft_manifest,
+        components_file_content=components_file_content,
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result is None
+    config_api_request.assert_called_once_with(
+        path="/connector_builder_projects/update",
+        json={
+            "workspaceId": "owner-workspace",
+            "builderProjectId": "builder-project-id",
+            "builderProject": expected_builder_project,
+        },
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
     )
 
 
