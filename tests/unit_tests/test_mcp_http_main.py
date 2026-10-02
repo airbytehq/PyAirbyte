@@ -216,6 +216,7 @@ def test_main_sets_hosted_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "get_default_cloud_context" in instructions
     assert "Safe mode (default)" in instructions
     assert "Read-only mode" in instructions
+    assert "list_cloud_organizations" in instructions
 
 
 def test_stdio_instructions_keep_local_guidance() -> None:
@@ -225,3 +226,4 @@ def test_stdio_instructions_keep_local_guidance() -> None:
     assert "AIRBYTE_CLOUD_BEARER_TOKEN" in instructions
     assert "AIRBYTE_PROJECT_DIR" in instructions
     assert "Local connector execution" in instructions
+    assert "list_cloud_organizations" in instructions

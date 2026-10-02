@@ -160,8 +160,10 @@ _INSTRUCTIONS_STDIO_CLOUD_AUTH = """
 _INSTRUCTIONS_WORKSPACE_GUIDANCE = """
   When a tool's workspace_id is omitted, the authenticated user's default
   workspace (and its organization) is used. Use get_default_cloud_context or
-  list_cloud_workspaces to discover workspaces. If multiple organizations or
-  workspaces are candidates, ask the user to choose; never select automatically."""
+  list_cloud_workspaces to discover workspaces. Only call list_cloud_organizations
+  when you need to search organizations by name, passing name_contains. If multiple
+  organizations or workspaces are candidates, ask the user to choose; never select
+  automatically."""
 
 _INSTRUCTIONS_LOCAL_MODE = """
 - Local operations: Run connectors locally for data extraction (requires
