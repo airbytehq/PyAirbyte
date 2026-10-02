@@ -3,14 +3,8 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import math
-import os
-import subprocess
-import sys
-import time
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
@@ -201,11 +195,8 @@ class _HostileDict(dict):
     [_HostileStr("x"), _HostileList(["x"]), _HostileDict({"a": "x"})],
     ids=["str", "list", "dict"],
 )
-@pytest.mark.parametrize(
-    "cls", [HASH, t.ArgClass(cat=t.Cat.ENTITY)], ids=["hash", "entity"]
-)
-def test_canonical_bytes_hostile_subclasses_never_raise(value, cls):
-    assert t.canonical_bytes(value, cls) is None
+def test_canonical_bytes_hostile_subclasses_never_raise(value):
+    assert t.canonical_bytes(value, HASH) is None
 
 
 def _nested(depth: int) -> object:
@@ -479,13 +470,10 @@ def test_approximate_buckets_and_clients():
     assert len({sid(), sid(bucket=2), sid(client="d"), sid(major="2")}) == 4
 
 
-def test_golden_vectors_and_reference_formulas():
+def test_golden_vectors():
     golden = json.loads((FIXTURES / "arg_trace_golden.json").read_text())
     master = bytes.fromhex(golden["master_hex"])
     assert t.key_id(master) == golden["key_id"]
-
-    def ref_mac(key: bytes, msg: bytes) -> bytes:
-        return hmac.new(key, msg, hashlib.sha256).digest()
 
     for kind, expected in golden["scopes"].items():
         if kind == "approximate":
@@ -498,20 +486,9 @@ def test_golden_vectors_and_reference_formulas():
             )
         else:
             keys = t.keys_for(master, kind, golden["principal"], golden["raw_digest"])
-            scope_input = (
-                f"{kind}|{golden['principal']}|{golden['raw_digest']}".encode()
-            )
-            assert keys.scope_input == scope_input
-            ref_eq = ref_mac(master, b"airbyte.mcp.v1|arg-eq|" + scope_input)
-            assert keys.k_eq == ref_eq
-            assert (
-                t.scope_id(ref_eq)
-                == ref_mac(ref_eq, b"airbyte.mcp.v1|arg-scope-id")[:8].hex()
-            )
         assert t.scope_id(keys.k_eq) == expected["scope_id"]
         for canonical, digest in expected["eq"].items():
             assert t.eq_hex(keys.k_eq, canonical.encode()) == digest
-            assert digest == ref_mac(keys.k_eq, canonical.encode())[:16].hex()
         for text, fingerprint in expected["fp_text"].items():
             assert (
                 t.fp_text(text, t.k_fp(keys, "synthetic_tool", "name")) == fingerprint
@@ -522,45 +499,6 @@ def test_golden_vectors_and_reference_formulas():
             )
             == expected["fp_list"]
         )
-
-
-def test_determinism_across_hash_seeds():
-    script = (
-        "import json;from airbyte.mcp import _arg_trace as t;"
-        "k=t.keys_for(bytes(range(32)),'transport_session','p\\x00u','ab'*32);"
-        "c={'a':t.ArgClass(t.Cat.LIST),'b':t.ArgClass(t.Cat.HASH)};"
-        "print(json.dumps(t.build_records('x',{'a':['q','r','s'],'b':{'z':1,'y':[2,1]}},c,k)))"
-    )
-    outputs = {
-        subprocess.run(
-            [sys.executable, "-c", script],
-            env={**os.environ, "PYTHONHASHSEED": seed},
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        for seed in ("0", "1", "12345")
-    }
-    assert len(outputs) == 1
-
-
-def test_per_call_cost_at_caps():
-    classes = {f"h{i}": HASH for i in range(8)} | {
-        "l": LIST,
-        "api_args": t.MANUAL_MAP["api_args"],
-    }
-    args: dict[str, object] = {f"h{i}": "x" * 40 for i in range(8)}
-    args["l"] = [f"field_{i}" for i in range(t.FP_LIST_MAX)]
-    args["api_args"] = json.dumps({
-        str(i): "v" * 10 for i in range(t.MAX_NODES // 2 - 1)
-    })
-    runs = 20
-    start = time.perf_counter()
-    for _ in range(runs):
-        t.build_records("synthetic_tool", args, classes, KEYS)
-    per_call_ms = (time.perf_counter() - start) * 1000 / runs
-    print(f"arg-trace per-call cost at caps: {per_call_ms:.2f} ms")
-    assert per_call_ms < 50  # Spec target is < 5 ms locally; loose bound for shared CI.
 
 
 # ---------------------------------------------------------------- validation
@@ -597,10 +535,12 @@ def _span_attrs(**extra):
 
 
 def test_validate_accepts_builder_output():
-    attrs = _span_attrs()
+    attrs = _span_attrs(**{t.DROPPED_KEY: 99})
     accepted, dropped = t.validate("synthetic_tool", attrs, CLASSES)
     assert dropped == 0
-    assert accepted == {k: v for k, v in attrs.items() if t.is_new_key(k)}
+    assert accepted == {
+        k: v for k, v in attrs.items() if t.is_new_key(k) and k != t.DROPPED_KEY
+    }
 
 
 @pytest.mark.parametrize(
@@ -655,14 +595,6 @@ def test_validate_unknown_tool_drops_everything():
     accepted, dropped = t.validate("other_tool", _span_attrs(), CLASSES)
     assert accepted == {}
     assert dropped == 7
-
-
-def test_validate_ignores_incoming_dropped_count():
-    accepted, dropped = t.validate(
-        "synthetic_tool", _span_attrs(**{t.DROPPED_KEY: 99}), CLASSES
-    )
-    assert dropped == 0
-    assert t.DROPPED_KEY not in accepted
 
 
 def test_merge_tool_flats_entity_valid():

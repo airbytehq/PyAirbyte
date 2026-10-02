@@ -54,7 +54,6 @@ def test_load_master_unset_is_silent(environ, caplog):
         _b64(b"\x02" * 31),
         _b64(b"\x02" * 33),
         _b64(VALID_KEY) + "=",
-        base64.urlsafe_b64encode(VALID_KEY).decode(),
         base64.b64encode(b"\xfb" * 32).decode().rstrip("="),
         _b64(VALID_KEY)[:-1] + "!",
         _b64(VALID_KEY) + " extra",

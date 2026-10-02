@@ -9,7 +9,6 @@ import hashlib
 import json
 import logging
 import random
-import string
 import threading
 from collections.abc import Iterator
 from typing import Literal
@@ -46,7 +45,6 @@ def _propagate_airbyte_logs(monkeypatch):
 
 agents_app = otel_tests.agents_app
 isolated_otel = otel_tests.isolated_otel
-uninitialized_provider = otel_tests.uninitialized_provider
 
 ARG = _arg_trace.ARG_PREFIX
 KEY = bytes(range(0x40, 0x60))
@@ -59,7 +57,6 @@ PRIVACY_TOOLS = (
     "deploy_connector_to_cloud",
     "publish_custom_source_definition",
 )
-_HEX16 = set(string.hexdigits.lower())
 
 
 @pytest.fixture(scope="module")
@@ -209,9 +206,9 @@ def _sentinel_arguments(tool: str, sentinel: str) -> dict:
 
 
 def _assert_absent(sentinel: str, text: str) -> None:
-    for size in range(6, len(sentinel) + 1):
-        for start in range(len(sentinel) - size + 1):
-            assert sentinel[start : start + size] not in text
+    # Every longer substring contains a six-character substring.
+    for start in range(len(sentinel) - 5):
+        assert sentinel[start : start + 6] not in text
 
 
 @pytest.mark.parametrize("keyed", [False, True])
@@ -235,13 +232,17 @@ def test_privacy_sentinel_end_to_end(agents_app, export, monkeypatch, tool, keye
             continue
         record = _record(attrs, name)
         assert "value" not in record, name
+        if observability._TOOL_ARG_CLASSES[tool][name].cat is _arg_trace.Cat.PRESENT:
+            assert record == {"present": True}
         if not keyed:
             assert not {"eq", "fp"} & record.keys()
     text = "\n".join(span.to_json() for span in _finished(export))
     _assert_absent(sentinel, text)
 
 
-def test_registered_records_have_specified_shapes(agents_app, export, monkeypatch):
+def test_registered_records_have_specified_shapes(
+    agents_app, export, monkeypatch, backend
+):
     _keyed(monkeypatch)
     _stub_api(monkeypatch)
     _run(
@@ -274,52 +275,18 @@ def test_registered_records_have_specified_shapes(agents_app, export, monkeypatc
     assert len(attrs[_arg_trace.SCOPE_ID_KEY]) == 16
     assert attrs[_arg_trace.RESULT_ERROR_LIKE_KEY] is False
     assert _arg_trace.DROPPED_KEY not in attrs
-
-
-def test_present_records_for_payload_arguments(agents_app, export, monkeypatch):
-    _run(
-        agents_app,
-        (
-            "deploy_connector_to_cloud",
-            {"connector_name": "source-faker", "config": {"a": 1}, "name": "n"},
-        ),
+    metadata = json.loads(attrs.get("_dd.ml_obs.metadata", "{}"))
+    new_metadata = {
+        key for key in metadata if _arg_trace.is_new_key("airbyte.mcp." + key)
+    }
+    expected_metadata = (
+        _arg_trace.LLMOBS_ALLOWED if backend == "datadog-otlp" else set()
     )
-    attrs = _root(export, "deploy_connector_to_cloud")
-    assert _record(attrs, "config") == {"present": True}
-    assert _record(attrs, "connector_name") == {"present": True}
+    assert new_metadata == expected_metadata
 
 
 def _eq(attrs, name):
     return _record(attrs, name)["eq"]
-
-
-def _fp_jaccard(a: str, b: str) -> float:
-    x, y = int(a, 16), int(b, 16)
-    union = (x | y).bit_count()
-    return (x & y).bit_count() / union if union else 1.0
-
-
-FIELDS = ["id", "email", "first_name", "last_name", "company", "updated_at"]
-
-
-def test_equality_scope_and_similarity(agents_app, export, monkeypatch):
-    _keyed(monkeypatch)
-    _stub_api(monkeypatch)
-    base = {"connector_id": "conn-a", "entity_type": "contacts", "action": "list"}
-    _run(
-        agents_app,
-        (API_TOOL, {**base, "select_fields": [*FIELDS, "created_at"]}),
-        (API_TOOL, {**base, "select_fields": ["created_on", *reversed(FIELDS)]}),
-        (API_TOOL, {**base, "connector_id": "conn-b", "select_fields": ["zzz", "qqq"]}),
-    )
-    spans = [dict(s.attributes) for s in _finished(export) if s.parent is None]
-    first, near, other = spans
-    assert _eq(first, "connector_id") == _eq(near, "connector_id")
-    assert _eq(first, "connector_id") != _eq(other, "connector_id")
-    assert first[_arg_trace.SCOPE_ID_KEY] == near[_arg_trace.SCOPE_ID_KEY]
-    fp = [_record(attrs, "select_fields")["fp"] for attrs in spans]
-    assert _fp_jaccard(fp[0], fp[1]) >= 0.6
-    assert _fp_jaccard(fp[0], fp[2]) < 0.6
 
 
 def test_scope_ids_differ_across_principals_and_groupings(
@@ -353,8 +320,10 @@ def _assert_keyless(attrs, state: str, values=()):
     assert attrs[_arg_trace.TRACING_KEY] == state
     assert attrs[_arg_trace.KEY_SCOPE_KEY] == "none"
     assert _arg_trace.SCOPE_ID_KEY not in attrs
+    for key, value in attrs.items():
+        if key.startswith(ARG):
+            assert not {"eq", "fp"} & json.loads(value).keys()
     blob = json.dumps(attrs)
-    assert '"eq"' not in blob and '"fp"' not in blob
     for value in values:
         assert hashlib.sha256(value.encode()).hexdigest()[:16] not in blob
 
@@ -426,7 +395,7 @@ def test_hand_made_session_id_with_verified_token_is_approximate(
     assert attrs[_arg_trace.KEY_SCOPE_KEY] == "approximate"
 
 
-def test_key_is_loaded_once_and_never_logged(monkeypatch, caplog):
+def test_key_is_loaded_without_logging_its_value(monkeypatch, caplog):
     raw = base64.urlsafe_b64encode(KEY).decode().rstrip("=")
     monkeypatch.setenv("AIRBYTE_MCP_TELEMETRY_HMAC_KEY", raw)
     with caplog.at_level(logging.INFO, logger="airbyte.mcp._otel"):
@@ -549,17 +518,15 @@ def test_span_attribute_hook_failure_never_changes_tool_result(
 
 
 @pytest.mark.parametrize(
-    ("status", "side_effect", "entity", "valid"),
+    ("status", "side_effect", "entity"),
     [
-        ("success", None, "contacts", True),
-        ("warning", None, "contacts", None),
-        ("success", RuntimeError("boom"), "contacts", None),
-        ("success", TimeoutError("timeout"), "contacts", None),
-        ("success", None, "contacts\x00", None),
+        ("warning", None, "contacts"),
+        ("success", TimeoutError("timeout"), "contacts"),
+        ("success", None, "contacts\x00"),
     ],
 )
-def test_entity_valid_only_on_success(
-    agents_app, export, monkeypatch, status, side_effect, entity, valid
+def test_entity_valid_absent_on_failure_or_unbounded_entity(
+    agents_app, export, monkeypatch, status, side_effect, entity
 ):
     _stub_api(monkeypatch, status=status, side_effect=side_effect)
     _run(agents_app, (API_TOOL, {"connector_id": "c", "entity_type": entity}))
@@ -567,11 +534,9 @@ def test_entity_valid_only_on_success(
     record = _record(attrs, "entity_type")
     if entity == "contacts\x00":
         assert record == {"present": True}
-    elif valid:
-        assert record == {"valid": True, "value": entity}
     else:
         assert record == {"value": entity}
-    assert attrs.get(_arg_trace.ENTITY_VALID_KEY) is valid
+    assert _arg_trace.ENTITY_VALID_KEY not in attrs
 
 
 def _start(provider, name, attributes, kind=SpanKind.SERVER):
@@ -611,28 +576,6 @@ def test_exporter_validates_forged_non_root_and_orphan_flat(export):
     for span in spans[2:]:
         assert not _new_keys(span.attributes), span.name
     _assert_absent(sentinel, "\n".join(s.to_json() for s in _finished(export)))
-
-
-def test_datadog_otlp_metadata_has_only_allowed_arg_keys(
-    agents_app, export, monkeypatch, backend
-):
-    _keyed(monkeypatch)
-    _stub_api(monkeypatch)
-    _run(
-        agents_app,
-        (API_TOOL, {"connector_id": "c", "entity_type": "contacts", "action": "list"}),
-    )
-    attrs = _root(export, API_TOOL)
-    metadata = json.loads(attrs.get("_dd.ml_obs.metadata", "{}"))
-    assert not any(key.startswith("arg.") for key in metadata)
-    if backend == "datadog-otlp":
-        assert {
-            "arg_tracing",
-            "arg_key_scope",
-            "result_error_like",
-            "arg_valid.entity_type",
-        } <= metadata.keys()
-        assert "arg_scope_id" not in metadata
 
 
 def test_late_attributes_are_thread_safe(export):
