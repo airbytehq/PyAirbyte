@@ -9,12 +9,12 @@ import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
+import lazy_loader
 import requests
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
-from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.noop import NoOpExecutor
@@ -27,7 +27,11 @@ from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
+    from airbyte._executors import declarative as _declarative
     from airbyte._executors.base import Executor
+else:
+    # Deferred until first use: the declarative executor imports the full Airbyte CDK.
+    _declarative = lazy_loader.load("airbyte._executors.declarative", suppress_warning=True)
 
 
 VERSION_LATEST = "latest"
@@ -346,7 +350,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 if not components_py_path.exists():
                     components_py_path = None
 
-            return DeclarativeExecutor(
+            return _declarative.DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
                 components_py=components_py_path,
@@ -361,7 +365,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 )
             )
 
-            return DeclarativeExecutor(
+            return _declarative.DeclarativeExecutor(
                 name=name,
                 manifest=manifest_dict,
                 components_py=components_py,
