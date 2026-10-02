@@ -44,6 +44,7 @@ from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any, Protocol
 
+from airbyte._util.meta import is_mcp_mode
 from airbyte.constants import (
     AIRBYTE_PRINT_FULL_ERROR_LOGS,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -281,7 +282,7 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
         """Set guidance for the current execution mode."""
         if self.guidance is not None:
             return
-        if is_hosted_mcp_mode():
+        if is_mcp_mode():
             self.guidance = (
                 "The authenticated user's default workspace was checked and none was "
                 "available. `list_cloud_workspaces` returns direct workspace memberships "
