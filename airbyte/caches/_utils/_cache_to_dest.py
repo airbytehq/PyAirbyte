@@ -16,6 +16,7 @@ from airbyte_api.models import (
     UsernameAndPassword,
 )
 
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
@@ -52,10 +53,12 @@ def cache_to_destination_configuration(
     }
     cache_class_name = cache.__class__.__name__
     if cache_class_name not in conversion_fn_map:
-        raise ValueError(
-            "Cannot convert cache type to destination configuration. "
-            f"Cache type {cache_class_name} not supported. "
-            f"Supported cache types: {list(conversion_fn_map.keys())}"
+        raise PyAirbyteInputError(
+            message=(
+                "Cannot convert cache type to destination configuration. "
+                f"Cache type {cache_class_name} not supported. "
+                f"Supported cache types: {list(conversion_fn_map.keys())}"
+            ),
         )
 
     conversion_fn = conversion_fn_map[cache_class_name]

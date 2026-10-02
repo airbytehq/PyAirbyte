@@ -3744,17 +3744,21 @@ def update_cloud_connection(
 
     # Validate that at least one setting is provided
     if enabled is None and cron_expression is None and manual_schedule is None:
-        raise ValueError(
-            "At least one setting must be provided: 'enabled', 'cron_expression', "
-            "or 'manual_schedule'."
+        raise PyAirbyteInputError(
+            message=(
+                "At least one setting must be provided: 'enabled', 'cron_expression', "
+                "or 'manual_schedule'."
+            ),
         )
 
     # Validate mutually exclusive schedule options
     if cron_expression is not None and manual_schedule is True:
-        raise ValueError(
-            "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
-            "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "
-            "for manual-only syncs."
+        raise PyAirbyteInputError(
+            message=(
+                "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
+                "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "
+                "for manual-only syncs."
+            ),
         )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)

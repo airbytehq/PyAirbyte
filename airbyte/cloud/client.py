@@ -624,7 +624,7 @@ class CloudClient:
         resolved_organization_id = organization.get("organizationId")
         if isinstance(resolved_organization_id, str) and resolved_organization_id:
             return resolved_organization_id
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteCloudError(
             message="The workspace response did not include an organization ID.",
             context={"workspace_id": workspace_id, "response": organization},
         )
@@ -666,7 +666,7 @@ class CloudClient:
         user = self._get_authenticated_user_info()
         user_id = user.get("userId")
         if not isinstance(user_id, str) or not user_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteCloudError(
                 message="The Airbyte user response did not include a user ID.",
                 context={"response": user},
             )
@@ -971,12 +971,12 @@ class CloudClient:
         user_id = user.get("userId")
         authenticated_email = user.get("email")
         if not isinstance(user_id, str) or not user_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteCloudError(
                 message="The Airbyte user response did not include a user ID.",
                 context={"response": user},
             )
         if not isinstance(authenticated_email, str) or not authenticated_email:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteCloudError(
                 message="The Airbyte user response did not include an email.",
                 context={"response": user},
             )
