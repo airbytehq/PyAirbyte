@@ -127,6 +127,29 @@ Datadog's automatic MCP integration with `DD_TRACE_MCP_ENABLED=false` when enabl
 this backend on an SDK version where that integration is active; startup refuses
 two active MCP span producers. No platform deployment change is made by this code.
 
+Privacy-preserving argument tracing (both backends). Registered tool spans carry
+one compact JSON record per supplied argument under `airbyte.mcp.arg.<name>`:
+closed-set values (booleans, `Literal`/`Enum` members, bounded page sizes) and a
+bounded `entity_type` verbatim; payload arguments such as `config` only as
+`{"present":true}`; everything else as keyed digests: `eq` (equality) and, for
+short text and string lists, `fp` (a 128-bit similarity bitset). Root tool spans also
+carry `airbyte.mcp.arg_tracing` (`ok`, `no_key`, `no_scope`, `error`),
+`airbyte.mcp.arg_key_scope` (`conversation`, `transport_session`, `approximate`,
+`none`), `airbyte.mcp.arg_scope_id` (only when `ok`; compare `eq`/`fp` only between
+spans with equal scope ids), `airbyte.mcp.result_error_like`, and
+`airbyte.mcp.arg_valid.entity_type` after a successful API query. Every new key is
+re-validated at the export boundary; `airbyte.mcp.arg_trace_dropped` counts rejects.
+
+- `AIRBYTE_MCP_TELEMETRY_HMAC_KEY`: hosted-only secret, shared with session grouping
+  (unpadded base64url of exactly 32 bytes). Keys are derived per verified principal
+  (token issuer and Airbyte user id) and per grouping scope: the conversation, a
+  server-minted transport session, or else an approximate scope of client name,
+  client major version and a 30-minute window.
+
+Tracing fails closed: without a valid secret records stay keyless and
+`arg_tracing=no_key`; without a verified access token (stdio, no token, unverified
+headers) `arg_tracing=no_scope`. Neither case emits a digest of any value.
+
 Optional OpenTelemetry observability. Nothing is exported unless a traces endpoint
 is configured. The hosted entrypoint installs tracing after hosted mode is set;
 no launcher or agent is needed. The exporter uses OTLP/HTTP protobuf.

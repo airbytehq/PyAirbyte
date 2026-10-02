@@ -14,6 +14,8 @@ import logging
 import os
 import re
 import sys
+import threading
+import time
 import unicodedata
 from contextlib import nullcontext
 from contextvars import ContextVar
@@ -34,7 +36,9 @@ from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_CONFIG_API_ROOT,
 )
+from airbyte.mcp import _arg_trace
 from airbyte.mcp._scope import current_call_scope, enrich_call_scope, scope_from_request
+from airbyte.mcp._telemetry_key import load_master
 from airbyte.version import get_version
 
 
@@ -101,6 +105,11 @@ _INSTALLED = False
 _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
+_TOOL_ARG_CLASSES: dict[str, dict[str, _arg_trace.ArgClass]] = {}
+_TOOL_ERROR_STRINGS: dict[str, frozenset[str]] = {}
+# Loaded once per process from the hosted-only secret; never exported or logged.
+_ARG_MASTER: bytes | None = None
+_APPROXIMATE_BUCKET_SECONDS = 1800
 _AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
     "execute_external_api_query": {
         member.value: member.value for member in ExternalApiReadOnlyAction
@@ -111,10 +120,11 @@ _AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
     },
 }
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
-_INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
+_INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool | int] | None] = ContextVar(
     "mcp_intent", default=None
 )
-_LATE_ATTRIBUTES: dict[int, dict[str, str]] = {}
+_LATE_ATTRIBUTES: dict[int, dict[str, str | bool | int]] = {}
+_LATE_LOCK = threading.Lock()
 
 
 def _env(environ: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -171,7 +181,7 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
-            _build_tool_maps()
+            _build_tool_maps(environ)
             provider = _build_provider(OTLPSpanExporter())
             trace.set_tracer_provider(provider)
         except Exception:
@@ -214,12 +224,19 @@ def _build_provider(exporter: SpanExporter) -> TracerProvider:
 def _reset_for_tests() -> None:
     global _INSTALLED, _ENVIRON
     _INSTALLED, _ENVIRON = False, None
-    _LATE_ATTRIBUTES.clear()
+    global _ARG_MASTER
+    _ARG_MASTER = None
+    with _LATE_LOCK:
+        _LATE_ATTRIBUTES.clear()
     _TOOL_MODULES.clear()
     _TOOL_ANNOTATIONS.clear()
+    _TOOL_ARG_CLASSES.clear()
+    _TOOL_ERROR_STRINGS.clear()
 
 
-def _build_tool_maps() -> None:
+def _build_tool_maps(environ: Mapping[str, str] | None = None) -> None:
+    """Index registered tools and load the argument-tracing key, once per install."""
+    global _ARG_MASTER
     from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE
     from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
@@ -228,6 +245,16 @@ def _build_tool_maps() -> None:
         if name:
             _TOOL_MODULES[name] = str(tool_annotations.get(ANNOTATION_MCP_MODULE, ""))
             _TOOL_ANNOTATIONS[name] = dict(tool_annotations)
+            try:
+                _TOOL_ARG_CLASSES[name] = _arg_trace.classify_tool(func)
+                _TOOL_ERROR_STRINGS[name] = _arg_trace.literal_error_strings(func)
+            except Exception as exc:
+                # An unclassifiable tool keeps its other telemetry but gets no arg records.
+                _TOOL_ARG_CLASSES.pop(name, None)
+                logger.warning("Argument tracing disabled for one tool: %s", type(exc).__name__)
+    _ARG_MASTER = load_master(_env(environ))
+    if _ARG_MASTER is not None:
+        logger.info("arg tracing key loaded, key_id=%s", _arg_trace.key_id(_ARG_MASTER))
 
 
 class _StripMetaTraceContextMiddleware:
@@ -322,7 +349,7 @@ class IntentCaptureMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Strip synthetic arguments and untrusted tracing context before dispatch."""
-        attrs: dict[str, str | bool] = {}
+        attrs: dict[str, str | bool | int] = {}
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
@@ -352,7 +379,7 @@ class IntentCaptureMiddleware(Middleware):
         self,
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
-        attrs: dict[str, str | bool],
+        attrs: dict[str, str | bool | int],
     ) -> ToolResult:
         """Record an OTel call after common argument preparation."""
         # HTTP already owns a seam span above middleware. Nested/in-process calls
@@ -373,6 +400,10 @@ class IntentCaptureMiddleware(Middleware):
                         logger.debug("Intent stamping skipped")
                     result = await call_next(context)
                     try:
+                        span.set_attributes(result_error_like_attributes(context, result))
+                    except Exception:
+                        logger.debug("Result classification skipped")
+                    try:
                         span.set_attribute("airbyte.mcp.outcome", "success")
                         if result.is_error and context.message.name in _TOOL_MODULES:
                             # Never read error content: only a fixed category leaves here.
@@ -392,6 +423,7 @@ class IntentCaptureMiddleware(Middleware):
                     try:
                         span.set_status(Status(StatusCode.ERROR))
                         _record_late_attributes(_exception_attributes(exc))
+                        span.set_attributes(result_error_like_attributes(context, None))
                     except Exception:
                         logger.debug("Exception class capture skipped")
                     raise
@@ -414,7 +446,7 @@ class IntentCaptureMiddleware(Middleware):
     def _attributes(
         context: MiddlewareContext[CallToolRequestParams],
         intent: object,
-    ) -> dict[str, str | bool]:
+    ) -> dict[str, str | bool | int]:
         from airbyte._util.meta import get_cloud_api_analytic_source
 
         name = context.message.name
@@ -422,7 +454,8 @@ class IntentCaptureMiddleware(Middleware):
         if len(intent) > _MAX_INTENT_LENGTH:
             marker = "...[truncated]"
             intent = intent[: _MAX_INTENT_LENGTH - len(marker)] + marker
-        attrs: dict[str, str | bool] = {
+        tool_start = time.time()
+        attrs: dict[str, str | bool | int] = {
             "gen_ai.operation.name": "execute_tool",
             "gen_ai.tool.name": name,
             "airbyte.mcp.intent_present": bool(intent),
@@ -477,7 +510,114 @@ class IntentCaptureMiddleware(Middleware):
                 if value
             }
         )
+        attrs.update(_arg_trace_attributes(name, arguments, tool_start))
         return attrs
+
+
+def _verified_principal() -> str | None:
+    """Return `iss + NUL + subject` of the verified access token, else `None`.
+
+    Never reads headers or unverified claims; the value is neither logged nor exported.
+    """
+    from fastmcp.server.dependencies import get_access_token
+
+    from airbyte._util.api_util import get_user_id_from_bearer_token
+    from airbyte.exceptions import PyAirbyteInputError
+    from airbyte.secrets.base import SecretString
+
+    token = get_access_token()
+    if token is None:
+        return None
+    issuer = token.claims.get("iss")
+    try:
+        subject = get_user_id_from_bearer_token(SecretString(token.token))
+    except PyAirbyteInputError:
+        return None
+    if not (isinstance(issuer, str) and issuer and isinstance(subject, str) and subject):
+        return None
+    if "\x00" in issuer or "\x00" in subject:
+        return None
+    return f"{issuer}\x00{subject}"
+
+
+def _arg_keys(
+    master: bytes | None, tool_start: float
+) -> tuple[_arg_trace.ArgKeys | None, str, str]:
+    """Return `(keys, arg_tracing, arg_key_scope)`; fails closed without key or principal."""
+    from airbyte.mcp._telemetry import current_grouping_id, request_properties
+
+    if master is None:
+        return None, "no_key", "none"
+    principal = _verified_principal()
+    if principal is None:
+        return None, "no_scope", "none"
+    grouping = current_grouping_id()
+    if grouping.kind != "none" and grouping.raw_digest:
+        keys = _arg_trace.keys_for(master, grouping.kind, principal, grouping.raw_digest)
+        return keys, "ok", grouping.kind
+    properties = request_properties()
+    client_name = _client_label(properties.get("mcp_client_name")) or ""
+    client_version = _client_label(properties.get("mcp_client_version")) or ""
+    major = re.match(r"[0-9]+", client_version)
+    keys = _arg_trace.approximate_keys_for(
+        master,
+        principal,
+        client_name,
+        major.group() if major else "",
+        int(tool_start // _APPROXIMATE_BUCKET_SECONDS),
+    )
+    return keys, "ok", "approximate"
+
+
+def _arg_trace_attributes(
+    name: str, arguments: Mapping[str, object], tool_start: float
+) -> dict[str, str | bool | int]:
+    """Return argument records and tracing state for a registered tool; never raises."""
+    classes = _TOOL_ARG_CLASSES.get(name)
+    if classes is None:
+        return {}
+    try:
+        keys, tracing, key_scope = _arg_keys(_ARG_MASTER, tool_start)
+        attrs: dict[str, str | bool | int] = dict(
+            _arg_trace.build_records(name, arguments, classes, keys)
+        )
+        attrs[_arg_trace.TRACING_KEY] = tracing
+        attrs[_arg_trace.KEY_SCOPE_KEY] = key_scope
+        if keys is not None:
+            attrs[_arg_trace.SCOPE_ID_KEY] = _arg_trace.scope_id(keys.k_eq)
+    except Exception as exc:
+        logger.debug("Argument tracing failed: %s", type(exc).__name__)
+        return {_arg_trace.TRACING_KEY: "error", _arg_trace.KEY_SCOPE_KEY: "none"}
+    return attrs
+
+
+def result_error_like_attributes(
+    context: MiddlewareContext[CallToolRequestParams], result: ToolResult | None
+) -> dict[str, bool]:
+    """Classify a registered tool result by its declared `Literal` error strings only.
+
+    A raised exception (`result is None`) is `false`; `outcome` already records it.
+    """
+    name = context.message.name
+    if name not in _TOOL_ARG_CLASSES:
+        return {}
+    errors = _TOOL_ERROR_STRINGS.get(name, frozenset())
+    return {
+        _arg_trace.RESULT_ERROR_LIKE_KEY: result is not None
+        and not result.is_error
+        and _arg_trace.is_error_like(result, errors)
+    }
+
+
+def record_tool_span_attributes(attrs: Mapping[str, str | bool | int]) -> None:
+    """Attach attributes from inside a tool to its root span on either backend; never raises."""
+    try:
+        current = _INTENT_ATTRIBUTES.get()
+        if current is not None:
+            current.update(attrs)
+        _record_late_attributes(dict(attrs))
+    except Exception as exc:
+        logger.debug("Tool span attributes skipped: %s", type(exc).__name__)
 
 
 def _request_trace_attributes() -> dict[str, str]:
@@ -564,17 +704,18 @@ def _record_default_workspace() -> None:
             logger.debug("Default workspace capture skipped")
 
 
-def _record_late_attributes(attributes: dict[str, str]) -> None:
+def _record_late_attributes(attributes: Mapping[str, str | bool | int]) -> None:
     """Attach attributes to the in-flight span at export, after it has ended."""
     span = trace.get_current_span()
     span_context = span.get_span_context()
     if not (span.is_recording() and span_context.is_valid):
         return
-    if span_context.span_id not in _LATE_ATTRIBUTES and len(_LATE_ATTRIBUTES) >= (
-        _MAX_LATE_ATTRIBUTES
-    ):
-        _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-    _LATE_ATTRIBUTES.setdefault(span_context.span_id, {}).update(attributes)
+    with _LATE_LOCK:
+        if span_context.span_id not in _LATE_ATTRIBUTES and len(_LATE_ATTRIBUTES) >= (
+            _MAX_LATE_ATTRIBUTES
+        ):
+            _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
+        _LATE_ATTRIBUTES.setdefault(span_context.span_id, {}).update(attributes)
 
 
 def _call_id_digest(request_id: object) -> str:
@@ -605,17 +746,30 @@ class IntentStampProcessor(SpanProcessor):
                 and span.name.startswith("tools/call ")
             ):
                 # Bound state when the batch processor discards spans from a full queue.
-                if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
-                    _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-                _LATE_ATTRIBUTES.setdefault(span.context.span_id, {}).update(
-                    _exception_attributes(exc)
-                )
+                with _LATE_LOCK:
+                    if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
+                        _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
+                    _LATE_ATTRIBUTES.setdefault(span.context.span_id, {}).update(
+                        _exception_attributes(exc)
+                    )
         except Exception:
             logger.debug("Exception class capture skipped")
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:  # noqa: ARG002
         """Allow the provider to continue flushing the batch processor."""
         return True
+
+
+def _validate_arg_attributes(attrs: dict[str, Any], root_tool: str | None) -> None:
+    """Remove every argument-tracing key; re-add only validated keys on root tool spans."""
+    _arg_trace.merge_tool_flats(attrs)
+    arg_attrs = {key: attrs.pop(key) for key in list(attrs) if _arg_trace.is_new_key(key)}
+    if root_tool is None or root_tool not in _TOOL_ARG_CLASSES:
+        return
+    accepted, dropped = _arg_trace.validate(root_tool, arg_attrs, _TOOL_ARG_CLASSES)
+    attrs.update(accepted)
+    if dropped:
+        attrs[_arg_trace.DROPPED_KEY] = dropped
 
 
 class RedactingExporter(SpanExporter):
@@ -626,7 +780,8 @@ class RedactingExporter(SpanExporter):
         self._exporter, self._environ = exporter, environ
 
     def _rebuild(self, span: ReadableSpan) -> ReadableSpan | None:
-        late = _LATE_ATTRIBUTES.pop(span.context.span_id, {}) if span.context else {}
+        with _LATE_LOCK:
+            late = _LATE_ATTRIBUTES.pop(span.context.span_id, {}) if span.context else {}
         # FastMCP also traces resource/prompt requests, including unknown caller
         # names, and the `mcp` SDK emits its own client/session spans. Only the
         # server tool spans belong in this hosted export pipeline.
@@ -684,6 +839,7 @@ class RedactingExporter(SpanExporter):
             and span.name.startswith("tools/call ")
             and tool_name in _TOOL_MODULES
         )
+        _validate_arg_attributes(attrs, tool_name if root_tool_span else None)
         if root_tool_span and isinstance(action, str):
             canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
             if canonical_action is not None:
@@ -727,6 +883,7 @@ class RedactingExporter(SpanExporter):
                     "agent.entity_type",
                     "client_name",
                     "client_version",
+                    *sorted(_arg_trace.LLMOBS_ALLOWED),
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }

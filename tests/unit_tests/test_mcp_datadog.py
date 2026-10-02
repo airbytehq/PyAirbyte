@@ -748,7 +748,7 @@ def _native_http_contract():
         assert [span.resource for span in primary] == [
             "server_request",
             "server_request",
-        ] + ["server_tool_call"] * 5
+        ] + ["execute_external_api_query"] * 3 + ["run_sql_query", "unknown_tool"]
         for index in (2, 3, 4):
             span, event = primary[index], events[index]
             assert json.loads(event["meta"]["input"]["value"]) == {

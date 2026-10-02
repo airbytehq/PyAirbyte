@@ -1,0 +1,372 @@
+{
+  "cancel_cloud_sync": {
+    "connection_id": "eq_only",
+    "job_id": "eq_only",
+    "workspace_id": "skip"
+  },
+  "check_cloud_connector": {
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "workspace_id": "skip"
+  },
+  "create_connection_on_cloud": {
+    "connection_name": "hash",
+    "destination_id": "eq_only",
+    "selected_streams": "list",
+    "source_id": "eq_only",
+    "table_prefix": "hash",
+    "workspace_id": "skip"
+  },
+  "deploy_connector_to_cloud": {
+    "config": "present",
+    "config_secret_name": "hash",
+    "connector_name": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "defer_credentials": "value allowed=[false,true]",
+    "name": "hash",
+    "unique": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "deploy_noop_destination_to_cloud": {
+    "name": "hash",
+    "unique": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "describe_cloud_connection": {
+    "connection_id": "eq_only",
+    "workspace_id": "skip"
+  },
+  "describe_cloud_connector": {
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "with_config": "value allowed=[false,true]",
+    "with_data_replication_docs": "value allowed=[false,true]",
+    "with_direct_access_guidance": "value allowed=[false,true]",
+    "with_replication_details": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "describe_cloud_organization": {
+    "organization_id": "eq_only",
+    "organization_name": "hash"
+  },
+  "describe_cloud_workspace": {
+    "workspace_id": "skip"
+  },
+  "describe_default_cache": {},
+  "destination_smoke_test": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "custom_scenarios": "present",
+    "destination_connector_name": "hash",
+    "docker_image": "hash",
+    "namespace_suffix": "hash",
+    "reuse_namespace": "hash",
+    "scenarios": "list",
+    "skip_preflight": "value allowed=[false,true]"
+  },
+  "execute_external_api_query": {
+    "action": "value allowed=[\"get\",\"list\",\"search\"]",
+    "api_args": "eq_only",
+    "connector_id": "eq_only",
+    "cursor": "eq_only",
+    "entity_type": "entity",
+    "exclude_fields": "list",
+    "intent": "skip",
+    "page_size": "value range=0..10000",
+    "select_fields": "list",
+    "skip_truncation": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "execute_external_search_query": {
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "destination_id": "eq_only",
+    "limit": "value range=0..10000",
+    "lookback_seconds": "hash",
+    "max_context_chars": "hash",
+    "max_similarity_diff": "hash",
+    "min_similarity": "hash",
+    "prompt": "hash",
+    "search_type": "value allowed=[\"hybrid\",\"keyword\",\"semantic\"]",
+    "streams": "list no_fp parser=dicts",
+    "workspace_id": "skip"
+  },
+  "execute_external_sql_query": {
+    "connector_id": "eq_only",
+    "cursor": "eq_only",
+    "dry_run": "value allowed=[false,true]",
+    "page_size": "value range=0..10000",
+    "sql": "eq_only",
+    "sql_dialect": "value allowed=[\"bigquery\",\"snowflake\"]",
+    "workspace_id": "skip"
+  },
+  "get_agent_skill_docs": {
+    "connector_id": "eq_only",
+    "docs_skill_id": "eq_only",
+    "section": "hash",
+    "workspace_id": "skip"
+  },
+  "get_api_docs_urls": {
+    "connector_name": "hash"
+  },
+  "get_cloud_organization_billing_status": {
+    "organization_id": "eq_only",
+    "organization_name": "hash"
+  },
+  "get_cloud_search_status": {
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "namespace": "hash",
+    "stream_name": "hash",
+    "workspace_id": "skip"
+  },
+  "get_cloud_sync_logs": {
+    "attempt_number": "eq_only",
+    "connection_id": "eq_only",
+    "from_tail": "value allowed=[false,true]",
+    "job_id": "eq_only",
+    "line_offset": "hash",
+    "max_lines": "hash",
+    "workspace_id": "skip"
+  },
+  "get_cloud_sync_status": {
+    "connection_id": "eq_only",
+    "include_attempts": "value allowed=[false,true]",
+    "job_id": "eq_only",
+    "workspace_id": "skip"
+  },
+  "get_connection_artifact": {
+    "artifact_type": "value allowed=[\"catalog\",\"state\"]",
+    "connection_id": "eq_only",
+    "workspace_id": "skip"
+  },
+  "get_connector_builder_draft_manifest": {
+    "definition_id": "eq_only",
+    "workspace_id": "skip"
+  },
+  "get_connector_info": {
+    "connector_name": "hash"
+  },
+  "get_connector_version_history": {
+    "connector_name": "hash",
+    "limit": "value range=0..10000",
+    "num_versions_to_validate": "hash"
+  },
+  "get_custom_source_definition": {
+    "definition_id": "eq_only",
+    "include_draft": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "get_default_cloud_context": {},
+  "get_source_stream_json_schema": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "manifest_path": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "hash",
+    "stream_name": "hash"
+  },
+  "get_stream_previews": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "limit": "value range=0..10000",
+    "manifest_path": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_name": "hash",
+    "streams": "list"
+  },
+  "list_cached_streams": {},
+  "list_cloud_connections": {
+    "failing_connections_only": "value allowed=[false,true]",
+    "limit": "value range=0..10000",
+    "name_contains": "hash",
+    "with_connection_status": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "list_cloud_connectors": {
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "feature_filter": "value allowed=[\"direct_access\",\"direct_api_action\",\"direct_api_query\",\"direct_sql_query\",\"search_indexing\"]",
+    "limit": "value range=0..10000",
+    "name_contains": "hash",
+    "workspace_id": "skip"
+  },
+  "list_cloud_organizations": {
+    "feature_filter": "value allowed=[\"direct_access\",\"search_indexing\"]",
+    "limit": "value range=0..10000",
+    "name_contains": "hash"
+  },
+  "list_cloud_sync_jobs": {
+    "connection_id": "eq_only",
+    "from_tail": "value allowed=[false,true]",
+    "job_type": "value allowed=[\"clear\",\"refresh\",\"reset\",\"sync\"]",
+    "max_jobs": "hash",
+    "workspace_id": "skip"
+  },
+  "list_cloud_workspaces": {
+    "limit": "value range=0..10000",
+    "name_contains": "hash",
+    "organization_id": "eq_only",
+    "organization_name": "hash",
+    "privilege_scope": "value allowed=[\"any\",\"instance_admin\",\"member_of\",\"organization_admin\"]"
+  },
+  "list_connector_config_secrets": {
+    "connector_name": "hash"
+  },
+  "list_connectors": {
+    "connector_type_filter": "value allowed=[\"destination\",\"source\"]",
+    "install_types": "value allowed=[\"docker\",\"java\",\"python\",\"yaml\"] list",
+    "keyword_filter": "hash"
+  },
+  "list_custom_source_definitions": {
+    "workspace_id": "skip"
+  },
+  "list_dotenv_secrets": {},
+  "list_source_streams": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "manifest_path": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "hash"
+  },
+  "permanently_delete_cloud_connection": {
+    "cascade_delete_destination": "value allowed=[false,true]",
+    "cascade_delete_source": "value allowed=[false,true]",
+    "connection_id": "eq_only",
+    "name": "hash",
+    "workspace_id": "skip"
+  },
+  "permanently_delete_cloud_connector": {
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "name": "hash",
+    "workspace_id": "skip"
+  },
+  "permanently_delete_custom_source_definition": {
+    "definition_id": "eq_only",
+    "name": "hash",
+    "workspace_id": "skip"
+  },
+  "publish_custom_source_definition": {
+    "manifest_yaml": "present",
+    "name": "hash",
+    "pre_validate": "value allowed=[false,true]",
+    "testing_values": "present",
+    "testing_values_secret_name": "hash",
+    "unique": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "read_source_stream_records": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "manifest_path": "hash",
+    "max_records": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "hash",
+    "stream_name": "hash"
+  },
+  "rename_cloud_connection": {
+    "connection_id": "eq_only",
+    "name": "hash",
+    "workspace_id": "skip"
+  },
+  "rename_cloud_connector": {
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "name": "hash",
+    "workspace_id": "skip"
+  },
+  "run_cloud_sync": {
+    "connection_id": "eq_only",
+    "wait": "value allowed=[false,true]",
+    "wait_timeout": "hash",
+    "workspace_id": "skip"
+  },
+  "run_sql_query": {
+    "max_records": "hash",
+    "sql_query": "eq_only"
+  },
+  "search_airbyte_knowledge_sources": {
+    "query": "hash"
+  },
+  "set_cloud_connection_selected_streams": {
+    "connection_id": "eq_only",
+    "stream_names": "list",
+    "workspace_id": "skip"
+  },
+  "set_cloud_connection_table_prefix": {
+    "connection_id": "eq_only",
+    "prefix": "hash",
+    "workspace_id": "skip"
+  },
+  "set_default_cloud_workspace": {
+    "user_email": "eq_only",
+    "workspace_id": "skip"
+  },
+  "show_connection_sync_history": {
+    "agent_context": "value allowed=[\"min\",\"summary\",\"verbose\"]",
+    "connection_id": "eq_only",
+    "max_jobs": "hash",
+    "suppress_ui": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "show_connectors_list": {
+    "certified": "value allowed=[false,true]",
+    "connector_type": "value allowed=[\"\",\"destination\",\"source\"]",
+    "limit": "value range=0..10000",
+    "min_support_level": "value allowed=[\"\",\"archived\",\"certified\",\"community\"]",
+    "search": "hash",
+    "support_level": "value allowed=[\"\",\"archived\",\"certified\",\"community\"]"
+  },
+  "show_workspace_sync_status": {
+    "agent_context": "value allowed=[\"min\",\"summary\",\"verbose\"]",
+    "max_connections": "hash",
+    "max_jobs_per_connection": "hash",
+    "recent_hours": "hash",
+    "suppress_ui": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "sync_source_to_cache": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "manifest_path": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "hash",
+    "streams": "list"
+  },
+  "update_cloud_connection": {
+    "connection_id": "eq_only",
+    "cron_expression": "hash",
+    "enabled": "value allowed=[false,true]",
+    "manual_schedule": "value allowed=[false,true]",
+    "workspace_id": "skip"
+  },
+  "update_cloud_connector_config": {
+    "config": "present",
+    "config_secret_name": "hash",
+    "connector_id": "eq_only",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "workspace_id": "skip"
+  },
+  "update_custom_source_definition": {
+    "definition_id": "eq_only",
+    "manifest_yaml": "present",
+    "pre_validate": "value allowed=[false,true]",
+    "testing_values": "present",
+    "testing_values_secret_name": "hash",
+    "workspace_id": "skip"
+  },
+  "validate_connector_config": {
+    "config": "present",
+    "config_file": "hash",
+    "config_secret_name": "hash",
+    "connector_name": "hash",
+    "manifest_path": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]"
+  }
+}

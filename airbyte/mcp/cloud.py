@@ -82,10 +82,12 @@ from airbyte.mcp._arg_resolvers import (
     resolve_list_of_strings,
     resolve_manifest_yaml,
 )
+from airbyte.mcp._arg_trace import ENTITY_VALID_KEY
 from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,
     render_connector_docs_result,
 )
+from airbyte.mcp._otel import record_tool_span_attributes
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
@@ -1604,7 +1606,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     connector's action docs.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
-    return connector.execute_api_query(
+    result = connector.execute_api_query(
         entity_type,
         action,
         resolve_api_args(api_args),
@@ -1615,6 +1617,9 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
         skip_truncation=skip_truncation,
         intent=intent,
     )
+    if result.status == "success":
+        record_tool_span_attributes({ENTITY_VALID_KEY: True})
+    return result
 
 
 # Not yet registered as an MCP tool: write actions are not supported by the backend.
