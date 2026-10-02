@@ -23,6 +23,7 @@ from airbyte.mcp import _arg_trace
 from airbyte.mcp._otel import (
     _INTENT_ATTRIBUTES,
     _TOOL_ARG_CLASSES,
+    _TOOL_MODULES,
     INTENT_INSTRUCTIONS_SENTENCE,
     IntentCaptureMiddleware,
     _build_tool_maps,
@@ -367,7 +368,11 @@ class _DatadogRequestMiddleware:
             span = start(name=name)
             # LLMObs retains its display name independently of these APM fields.
             span.name = f"mcp.{ctx.method}"
-            span.resource = "server_tool_call" if tool_call else "server_request"
+            if tool_call:
+                # Per-tool APM trace metrics group by resource; keep it bounded.
+                span.resource = name if name in _TOOL_MODULES else "unknown_tool"
+            else:
+                span.resource = "server_request"
             span.set_metric("_dd.measured", 1)
             _annotate_request(span, ctx)
         except Exception:
