@@ -820,6 +820,9 @@ def create_connection_on_cloud(
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
+    New connections use a manual schedule by default. Automatic syncs require a later
+    schedule update with `update_cloud_connection`.
+
     When `selected_streams` is not provided, the connection selects the source
     connector's suggested streams from the connector registry. If the connector has
     no suggested streams, the call fails with guidance to pass streams explicitly.
@@ -3727,9 +3730,24 @@ def update_cloud_connection(
                 "'0 0 0 ? * SUN' (weekly on Sunday at midnight UTC), "
                 "'0 0 9 ? * MON-FRI US/Pacific' (weekdays at 9am Pacific). "
                 "Leave unset to keep the current schedule. "
-                "Cannot be used together with 'manual_schedule'."
+                "Cannot be used together with 'interval_hours' or 'manual_schedule=True'."
             ),
             default=None,
+        ),
+    ],
+    interval_hours: Annotated[
+        int | None,
+        Field(
+            description=(
+                "A positive whole number of hours between automatic syncs. "
+                "Uses a basic interval schedule: an active connection runs a first sync "
+                "as soon as scheduling is enabled, then measures each interval from "
+                "the previous sync. Leave unset to keep the current schedule. "
+                "Cannot be used together with 'cron_expression' or 'manual_schedule=True'."
+            ),
+            default=None,
+            strict=True,
+            gt=0,
         ),
     ],
     manual_schedule: Annotated[
@@ -3738,7 +3756,7 @@ def update_cloud_connection(
             description=(
                 "Set to True to disable automatic syncs (manual scheduling only). "
                 "Syncs will only run when manually triggered. "
-                "Cannot be used together with 'cron_expression'."
+                "Cannot be used together with 'cron_expression' or 'interval_hours'."
             ),
             default=None,
         ),
@@ -3756,27 +3774,35 @@ def update_cloud_connection(
     This tool allows updating multiple connection settings in a single call:
     - Enable or disable the connection
     - Set a cron schedule for automatic syncs
+    - Set a basic interval schedule in whole hours between syncs
     - Switch to manual scheduling (no automatic syncs)
 
-    At least one setting must be provided. The 'cron_expression' and 'manual_schedule'
-    parameters are mutually exclusive.
+    At least one setting must be provided. `interval_hours`, `cron_expression`, and
+    `manual_schedule=True` are mutually exclusive.
     """
     check_guid_created_in_session(connection_id)
 
     # Validate that at least one setting is provided
-    if enabled is None and cron_expression is None and manual_schedule is None:
+    if (
+        enabled is None
+        and cron_expression is None
+        and interval_hours is None
+        and manual_schedule is None
+    ):
         raise ValueError(
-            "At least one setting must be provided: 'enabled', 'cron_expression', "
-            "or 'manual_schedule'."
+            "At least one setting must be provided: 'enabled', 'interval_hours', "
+            "'cron_expression', or 'manual_schedule'."
         )
 
     # Validate mutually exclusive schedule options
-    if cron_expression is not None and manual_schedule is True:
+    if sum((interval_hours is not None, cron_expression is not None, manual_schedule is True)) > 1:
         raise ValueError(
-            "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
-            "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "
-            "for manual-only syncs."
+            "Cannot specify more than one of 'interval_hours', 'cron_expression', "
+            "and 'manual_schedule=True'."
         )
+
+    if interval_hours is not None:
+        api_util.validate_interval_hours(interval_hours)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
@@ -3793,6 +3819,9 @@ def update_cloud_connection(
     if cron_expression is not None:
         connection.set_schedule(cron_expression=cron_expression)
         changes_made.append(f"schedule set to '{cron_expression}'")
+    elif interval_hours is not None:
+        connection.set_interval_schedule(interval_hours=interval_hours)
+        changes_made.append(f"schedule set to 'every {interval_hours} hours'")
     elif manual_schedule is True:
         connection.set_manual_schedule()
         changes_made.append("schedule set to 'manual'")

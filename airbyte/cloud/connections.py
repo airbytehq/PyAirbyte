@@ -1078,6 +1078,28 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     # Scheduling
 
+    def set_interval_schedule(self, interval_hours: int) -> None:
+        """Set a basic interval schedule measured in whole hours.
+
+        On an active connection, interval scheduling runs a first sync as soon as it
+        is enabled, then measures each interval from the previous sync.
+
+        Args:
+            interval_hours: A positive whole number of hours between syncs.
+        """
+        api_util.set_connection_interval_schedule(
+            connection_id=self.connection_id,
+            interval_hours=interval_hours,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        # The Config API response differs from the public API connection model.
+        # Clear cached details so the next property read fetches the updated schedule.
+        self._connection_info = None
+
     def set_schedule(
         self,
         cron_expression: str,

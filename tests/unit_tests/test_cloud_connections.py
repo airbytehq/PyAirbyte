@@ -71,6 +71,102 @@ def _connection() -> CloudConnection:
     return CloudConnection(workspace=workspace, connection_id="connection-id")
 
 
+def _scheduled_connection_response(*, basic: bool = False) -> models.ConnectionResponse:
+    """Create a response with a real public API schedule model."""
+    return models.ConnectionResponse(
+        connection_id="connection-id",
+        created_at=0,
+        destination_id="destination-id",
+        name="name",
+        source_id="source-id",
+        status=models.ConnectionStatusEnum.ACTIVE,
+        workspace_id="workspace-id",
+        configurations=models.StreamConfigurations(streams=[]),
+        schedule=models.ConnectionScheduleResponse(
+            schedule_type=(
+                models.ScheduleTypeWithBasicEnum.BASIC
+                if basic
+                else models.ScheduleTypeWithBasicEnum.MANUAL
+            ),
+            basic_timing="Every 24 HOURS" if basic else None,
+        ),
+        tags=[],
+    )
+
+
+def test_set_interval_schedule_invalidates_cached_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forward workspace settings and lazily reload the schedule after success."""
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        client_id="client-id",
+        client_secret="client-secret",
+        api_root="https://public.example/custom",
+        config_api_root="https://config.example/custom",
+    )
+    connection = CloudConnection(workspace=workspace, connection_id="connection-id")
+    update = MagicMock(return_value={"scheduleType": "basic"})
+    monkeypatch.setattr(api_util, "set_connection_interval_schedule", update)
+    read = MagicMock(
+        side_effect=[
+            _scheduled_connection_response(),
+            _scheduled_connection_response(basic=True),
+        ]
+    )
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.reset_mock()
+
+    connection.set_interval_schedule(interval_hours=24)
+
+    update.assert_called_once_with(
+        connection_id="connection-id",
+        interval_hours=24,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    read.assert_not_called()
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "basic"
+    assert connection.schedule.schedule_expression == "Every 24 HOURS"
+    assert connection.name == "name"
+    read.assert_called_once()
+
+
+@pytest.mark.parametrize("interval_hours", [0, -1, True, False, 1.0, 1.5, "24", None])
+def test_set_interval_schedule_rejects_invalid_hours(interval_hours: object) -> None:
+    """The public core API also rejects boolean, fractional, and nonpositive hours."""
+    connection = _connection()
+    with pytest.raises(PyAirbyteInputError, match="positive whole number"):
+        connection.set_interval_schedule(interval_hours=interval_hours)
+
+
+def test_set_interval_schedule_preserves_cache_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed update raises and leaves the last known schedule intact."""
+    connection = _connection()
+    update = MagicMock(side_effect=AirbyteError(message="schedule rejected"))
+    monkeypatch.setattr(api_util, "set_connection_interval_schedule", update)
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+    read.side_effect = AssertionError("No refresh needed after failure")
+
+    with pytest.raises(AirbyteError, match="schedule rejected"):
+        connection.set_interval_schedule(interval_hours=24)
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("api_status", "expected_status"),
     [
