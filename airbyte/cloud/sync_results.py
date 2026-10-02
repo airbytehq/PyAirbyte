@@ -70,8 +70,8 @@ print(
 ### Reading data from Airbyte Cloud sync result
 
 **This feature is currently only available for specific SQL-based destinations.** This includes
-SQL-based destinations such as Snowflake and BigQuery.
-Support is determined by the destination type.
+SQL-based destinations such as Snowflake and BigQuery. The list of supported destinations may be
+determined by inspecting the constant `airbyte.cloud.constants.READABLE_DESTINATION_TYPES`.
 
 If your destination is supported, you can read records directly from the SyncResult object.
 
@@ -109,7 +109,7 @@ from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 
 from airbyte._util import api_util
 from airbyte.caches._utils._dest_to_cache import destination_to_cache
-from airbyte.cloud._constants import FAILED_STATUSES, FINAL_STATUSES
+from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, JobStatusEnum
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError

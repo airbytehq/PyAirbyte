@@ -33,7 +33,6 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
 )
 from airbyte._util import api_util
-from airbyte.cloud._constants import FAILED_STATUSES
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connectors import (
     CheckResult,
@@ -42,6 +41,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
     CustomCloudSourceDefinition,
 )
+from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,

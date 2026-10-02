@@ -714,7 +714,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 )
                 self._rich_view.start()
             except Exception:
-                logs._warn_once(  # noqa: SLF001
+                logs._warn_once(  # noqa: SLF001  # non-public API
                     "Failed to start Rich live view. Falling back to plain text progress.",
                     with_stack=False,
                 )

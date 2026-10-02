@@ -21,8 +21,8 @@ from airbyte.cloud._connection_state import (
     _match_stream,
     _normalize_state_to_protocol,
 )
-from airbyte.cloud._constants import FINAL_STATUSES
 from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
