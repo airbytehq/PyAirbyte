@@ -132,7 +132,7 @@ one compact JSON record per supplied argument under `airbyte.mcp.arg.<name>`:
 closed-set values (booleans, `Literal`/`Enum` members, bounded page sizes) and a
 bounded `entity_type` verbatim; payload arguments such as `config` only as
 `{"present":true}`; everything else as keyed digests: `eq` (equality) and, for
-short text and string lists, `fp` (a 64-bit similarity bitset). Root tool spans also
+short text and string lists, `fp` (a 128-bit similarity bitset). Root tool spans also
 carry `airbyte.mcp.arg_tracing` (`ok`, `no_key`, `no_scope`, `error`),
 `airbyte.mcp.arg_key_scope` (`conversation`, `transport_session`, `approximate`,
 `none`), `airbyte.mcp.arg_scope_id` (only when `ok`; compare `eq`/`fp` only between

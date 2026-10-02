@@ -410,6 +410,14 @@ def test_fp_near_miss_and_unrelated():
     assert t.fp_text("   ", key) is None
 
 
+def test_fp_shared_prefix_different_tail_not_near_miss():
+    key = t.k_fp(KEYS, "synthetic_tool", "name")
+    a = t.fp_text("synthetic-prefix-val-abcdefghij", key)
+    b = t.fp_text("synthetic-prefix-val-0123456789", key)
+    assert a is not None and len(a) == 32
+    assert _jaccard(a, b) < 0.6
+
+
 def test_fp_list_near_miss():
     key = t.k_fp(KEYS, "synthetic_tool", "fields")
     a = t.fp_list(["id", "name", "email", "created_at", "updated_at"], key)

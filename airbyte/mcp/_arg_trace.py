@@ -13,7 +13,7 @@ argument becomes a compact JSON record under `airbyte.mcp.arg.<name>`:
 | `LIST` | `{"count": n, "eq": h, "fp": f}` | `{"count": n, "present": true}` |
 | `ENTITY` | `{"value": s}` within bounds, else `{"eq": h}` | `{"value": s}` or present |
 
-`eq` is a keyed equality digest; `fp` is a keyed 64-bit similarity bitset. Both
+`eq` is a keyed equality digest; `fp` is a keyed 128-bit similarity bitset. Both
 are scoped by `ArgKeys`, derived from the hosted-only master secret and the
 verified principal, so values can be compared only within one scope and are
 never recoverable. Without keys no digest of any value is produced. Raw values
@@ -83,6 +83,8 @@ FP_LIST_MAX = 32
 FP_LIST_ITEM_MAX = 200
 _MAX_SAFE_INT = 2**53
 _HEX16 = re.compile(r"[0-9a-f]{16}")
+_HEX32 = re.compile(r"[0-9a-f]{32}")
+FP_BITS = 128
 
 _LABEL_EQ = b"airbyte.mcp.v1|arg-eq|"
 _LABEL_FP = b"airbyte.mcp.v1|arg-fp|"
@@ -486,8 +488,8 @@ def eq_hex(k_eq: bytes, canonical: bytes) -> str:
 def _bitset(features: Iterable[str], key: bytes) -> str | None:
     bits = 0
     for feature in features:
-        bits |= 1 << (_hmac(key, feature.encode("utf-8", "surrogatepass"))[0] & 63)
-    return f"{bits:016x}" if bits else None
+        bits |= 1 << (_hmac(key, feature.encode("utf-8", "surrogatepass"))[0] % FP_BITS)
+    return f"{bits:032x}" if bits else None
 
 
 def fp_text(s: str, key: bytes) -> str | None:
@@ -667,7 +669,7 @@ def _record_ok(record: dict[str, object], cls: ArgClass) -> bool:  # noqa: PLR09
     if "eq" in keys and not (isinstance(record["eq"], str) and _HEX16.fullmatch(record["eq"])):
         return False
     if "fp" in keys and not (
-        "eq" in keys and isinstance(record["fp"], str) and _HEX16.fullmatch(record["fp"])
+        "eq" in keys and isinstance(record["fp"], str) and _HEX32.fullmatch(record["fp"])
     ):
         return False
     if "present" in keys and (record["present"] is not True or "eq" in keys):
