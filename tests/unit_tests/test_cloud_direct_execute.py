@@ -42,7 +42,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.exceptions import (
     AirbyteCloudApiError,
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteExternalAccessNotEnabledError,
     AirbyteMissingResourceError,
     PyAirbyteInputError,
@@ -287,21 +287,21 @@ _FLAG_LOOKUP_ERROR: Any = object()
         pytest.param(
             404,
             True,
-            AirbyteError,
+            AirbyteCloudError,
             404,
             id="not_found_enabled_reraises",
         ),
         pytest.param(
             403,
             _FLAG_LOOKUP_ERROR,
-            AirbyteError,
+            AirbyteCloudError,
             403,
             id="flag_lookup_failure_reraises",
         ),
         pytest.param(
             500,
             True,
-            AirbyteError,
+            AirbyteCloudError,
             500,
             id="other_error_propagates",
         ),
@@ -332,7 +332,7 @@ def test_execute_error_handling(
         else patch.object(
             CloudConnector,
             "is_feature_enabled",
-            side_effect=AirbyteError(context={"status_code": 500}),
+            side_effect=AirbyteCloudError(context={"status_code": 500}),
         )
     )
     with flag_patch, pytest.raises(expected_exc) as exc_info:
@@ -343,7 +343,7 @@ def test_execute_error_handling(
         assert exc_info.value.connector_id == "source-1"
         assert exc_info.value.connector_name == "GitHub Issues"
     else:
-        assert isinstance(exc_info.value, AirbyteError)
+        assert isinstance(exc_info.value, AirbyteCloudError)
         assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
         assert isinstance(exc_info.value, AirbyteCloudApiError)
         assert exc_info.value.status_code == expected_status
@@ -851,7 +851,7 @@ def test_cloud_execute_rejects_malformed_envelope(
     _patch_execute(monkeypatch, payload)
     source = _seed_source(workspace, "source-1", "Source")
 
-    with pytest.raises(AirbyteError, match=message) as exc_info:
+    with pytest.raises(AirbyteCloudError, match=message) as exc_info:
         source.execute_api_query("records")
 
     assert (exc_info.value.context or {})["path"] == "/sources/source-1/execute"
@@ -1087,7 +1087,7 @@ def test_search_rejects_malformed_response(
     args = ("refunds",) if method_name == "execute_search_query" else ()
 
     with pytest.raises(
-        AirbyteError, match="Malformed Airbyte Cloud search"
+        AirbyteCloudError, match="Malformed Airbyte Cloud search"
     ) as exc_info:
         getattr(source, method_name)(*args)
 
@@ -1158,15 +1158,17 @@ def test_search_input_validation(
             None,
             id="forbidden_disabled_raises_not_enabled",
         ),
-        pytest.param(404, True, AirbyteError, 404, id="not_found_enabled_reraises"),
+        pytest.param(
+            404, True, AirbyteCloudError, 404, id="not_found_enabled_reraises"
+        ),
         pytest.param(
             403,
             _FLAG_LOOKUP_ERROR,
-            AirbyteError,
+            AirbyteCloudError,
             403,
             id="flag_lookup_failure_reraises",
         ),
-        pytest.param(500, True, AirbyteError, 500, id="other_error_propagates"),
+        pytest.param(500, True, AirbyteCloudError, 500, id="other_error_propagates"),
     ],
 )
 def test_search_error_handling(
@@ -1193,7 +1195,7 @@ def test_search_error_handling(
         else patch.object(
             CloudConnector,
             "is_feature_enabled",
-            side_effect=AirbyteError(context={"status_code": 500}),
+            side_effect=AirbyteCloudError(context={"status_code": 500}),
         )
     )
     with flag_patch as flag_mock, pytest.raises(expected_exc) as exc_info:
@@ -1424,7 +1426,7 @@ def test_forbidden_recheck_uses_enablement_outcome(
 
     for _ in range(2):
         with pytest.raises((
-            AirbyteError,
+            AirbyteCloudError,
             AirbyteExternalAccessNotEnabledError,
         )) as exc_info:
             getattr(destination, method_name)(*args)

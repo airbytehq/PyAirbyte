@@ -33,8 +33,8 @@ from airbyte.cloud.models import (
 )
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
+    AirbyteCloudError,
     AirbyteConnectionSyncError,
-    AirbyteError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceMismatchError,
     PyAirbyteInputError,
@@ -548,7 +548,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
             )
-        except AirbyteError as ex:
+        except AirbyteCloudError as ex:
             status_code = (ex.context or {}).get("status_code")
             if status_code is None:
                 status_code = getattr(ex, "status_code", None)
@@ -966,7 +966,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 bearer_token=self.workspace.bearer_token,
                 configurations=configurations,
             )
-        except AirbyteError as ex:
+        except AirbyteCloudError as ex:
             status_code = (ex.context or {}).get("status_code")
             if status_code is None:
                 status_code = getattr(ex, "status_code", None)

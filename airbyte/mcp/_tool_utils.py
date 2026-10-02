@@ -67,7 +67,7 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteSafeModeError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -97,12 +97,6 @@ When set, the workspace_id parameter is hidden from cloud tools.
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
 
 
-class SafeModeError(Exception):
-    """Raised when a tool is blocked by safe mode restrictions."""
-
-    pass
-
-
 def register_guid_created_in_session(guid: str) -> None:
     """Register a GUID as created in this session.
 
@@ -117,17 +111,19 @@ def check_guid_created_in_session(guid: str) -> None:
 
     This is a no-op if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "0".
 
-    Raises SafeModeError if the GUID was not created in this session and
+    Raises `AirbyteSafeModeError` if the GUID was not created in this session and
     AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
 
     Args:
         guid: The GUID to check
     """
     if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
-        raise SafeModeError(
-            f"Cannot perform destructive operation on '{guid}': "
-            f"Object was not created in this session. "
-            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+        raise AirbyteSafeModeError(
+            message=(
+                f"Cannot perform destructive operation on '{guid}': "
+                f"Object was not created in this session. "
+                f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+            ),
         )
 
 

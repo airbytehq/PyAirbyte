@@ -332,6 +332,13 @@ class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     feature: str | None = None
 
 
+class AirbyteSafeModeError(AirbyteMCPError):
+    """A destructive operation was blocked by MCP safe mode.
+
+    Safe mode only allows destructive operations on objects created in the current session.
+    """
+
+
 # Normalization Errors
 
 
@@ -347,27 +354,6 @@ class PyAirbyteNameNormalizationError(PyAirbyteError, ValueError):
 
     raw_name: str | None = None
     normalization_result: str | None = None
-
-
-# PyAirbyte Cache Errors
-
-
-class PyAirbyteCacheError(PyAirbyteError):
-    """Error occurred while accessing the cache."""
-
-
-@dataclass
-class PyAirbyteCacheTableValidationError(PyAirbyteCacheError):
-    """Cache table validation failed."""
-
-    violation: str | None = None
-
-
-@dataclass
-class AirbyteConnectorConfigurationMissingError(PyAirbyteCacheError):
-    """Connector is missing configuration."""
-
-    connector_name: str | None = None
 
 
 # Subprocess Errors
@@ -455,8 +441,8 @@ class AirbyteConnectorInstallationError(AirbyteConnectorError):
     """Error when installing the connector."""
 
 
-class AirbyteConnectorReadError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+class AirbyteConnectorConfigurationMissingError(AirbyteConnectorError):
+    """Connector is missing configuration."""
 
 
 class AirbyteConnectorWriteError(AirbyteConnectorError):
@@ -465,10 +451,6 @@ class AirbyteConnectorWriteError(AirbyteConnectorError):
 
 class AirbyteConnectorSpecFailedError(AirbyteConnectorError):
     """Error when getting spec from the connector."""
-
-
-class AirbyteConnectorDiscoverFailedError(AirbyteConnectorError):
-    """Error when running discovery on the connector."""
 
 
 class AirbyteNoDataFromConnectorError(AirbyteConnectorError):
@@ -515,7 +497,7 @@ class AirbyteStreamNotFoundError(AirbyteConnectorError):
 
 
 @dataclass
-class AirbyteStateNotFoundError(AirbyteConnectorError, KeyError):
+class AirbyteStateNotFoundError(AirbyteConnectorError):
     """State entry not found."""
 
     stream_name: str | None = None
@@ -552,7 +534,7 @@ class _WorkspaceWithUrl(Protocol):
 
 
 @dataclass
-class AirbyteError(PyAirbyteError):
+class AirbyteCloudError(PyAirbyteError):
     """An error occurred while communicating with the hosted Airbyte instance."""
 
     response: AirbyteApiResponseDuckType | None = None
@@ -571,7 +553,7 @@ class AirbyteError(PyAirbyteError):
 
 
 @dataclass
-class AirbyteAgentsUnavailableError(AirbyteError):
+class AirbyteAgentsUnavailableError(AirbyteCloudError):
     """The Airbyte Agents API is not available for this deployment.
 
     The Agents API lives on the Cloud Config API. When the Cloud API roots point
@@ -587,14 +569,14 @@ class AirbyteAgentsUnavailableError(AirbyteError):
 
 
 @dataclass
-class AirbyteCloudApiError(AirbyteError):
+class AirbyteCloudApiError(AirbyteCloudError):
     """The Airbyte Cloud Config API returned a non-2xx response."""
 
     status_code: int | None = None
 
 
 @dataclass
-class AirbyteExternalAccessNotEnabledError(PyAirbyteError):
+class AirbyteExternalAccessNotEnabledError(AirbyteCloudError):
     """The connector is not enabled for external access, so it cannot execute direct actions."""
 
     connector_name: str | None = None
@@ -607,8 +589,8 @@ class AirbyteExternalAccessNotEnabledError(PyAirbyteError):
 
 
 @dataclass
-class AirbyteConnectionError(AirbyteError):
-    """An connection error occurred while communicating with the hosted Airbyte instance."""
+class AirbyteCloudConnectionError(AirbyteCloudError):
+    """An error occurred while operating on an Airbyte Cloud connection."""
 
     connection_id: str | None = None
     """The connection ID where the error occurred."""
@@ -645,17 +627,17 @@ class AirbyteConnectionError(AirbyteError):
 
 
 @dataclass
-class AirbyteConnectionSyncError(AirbyteConnectionError):
+class AirbyteConnectionSyncError(AirbyteCloudConnectionError):
     """An error occurred while executing the remote Airbyte job."""
 
 
 @dataclass
-class AirbyteConnectionSyncActiveError(AirbyteConnectionError):
+class AirbyteConnectionSyncActiveError(AirbyteCloudConnectionError):
     """State update rejected because a sync is currently running (HTTP 423)."""
 
 
 @dataclass
-class AirbyteWorkspaceMismatchError(AirbyteError):
+class AirbyteWorkspaceMismatchError(AirbyteCloudError):
     """Resource does not belong to the expected workspace.
 
     This error is raised when a resource (connection, source, or destination) is fetched
@@ -676,7 +658,7 @@ class AirbyteWorkspaceMismatchError(AirbyteError):
 
 
 @dataclass
-class AirbyteWorkspaceNotEmptyError(AirbyteError):
+class AirbyteWorkspaceNotEmptyError(AirbyteCloudError):
     """Workspace cannot be deleted because it contains connections."""
 
     workspace_id: str | None = None
@@ -687,7 +669,7 @@ class AirbyteWorkspaceNotEmptyError(AirbyteError):
 
 
 @dataclass
-class AirbyteConnectorInUseError(AirbyteError):
+class AirbyteConnectorInUseError(AirbyteCloudError):
     """Connector cannot be deleted because connections still use it."""
 
     connector_id: str | None = None
@@ -712,7 +694,7 @@ class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
 
 
 @dataclass
-class AirbyteMissingResourceError(AirbyteError):
+class AirbyteMissingResourceError(AirbyteCloudError):
     """Remote Airbyte resources does not exist."""
 
     resource_type: str | None = None
@@ -720,7 +702,7 @@ class AirbyteMissingResourceError(AirbyteError):
 
 
 @dataclass
-class AirbyteDuplicateResourcesError(AirbyteError):
+class AirbyteDuplicateResourcesError(AirbyteCloudError):
     """Process failed because resource name was not unique."""
 
     resource_type: str | None = None
@@ -728,7 +710,7 @@ class AirbyteDuplicateResourcesError(AirbyteError):
 
 
 @dataclass
-class AirbyteDeferredSetupError(AirbyteError):
+class AirbyteDeferredSetupError(AirbyteCloudError):
     """Airbyte Cloud created a connector without acknowledging draft mode."""
 
     actor_id: str | None = None
@@ -737,18 +719,11 @@ class AirbyteDeferredSetupError(AirbyteError):
 
 # Custom Warnings
 @dataclass
-class AirbyteMultipleResourcesError(AirbyteError):
+class AirbyteMultipleResourcesError(AirbyteCloudError):
     """Could not locate the resource because multiple matching resources were found."""
 
     resource_type: str | None = None
     resource_name_or_id: str | None = None
-
-
-# Custom Warnings
-
-
-class AirbyteExperimentalFeatureWarning(FutureWarning):
-    """Warning whenever using experimental features in PyAirbyte."""
 
 
 # PyAirbyte Warnings

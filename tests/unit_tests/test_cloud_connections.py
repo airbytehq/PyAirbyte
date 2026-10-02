@@ -20,7 +20,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectionSyncError,
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
     PyAirbyteInputError,
 )
@@ -234,12 +234,12 @@ def test_get_sync_result_validates_job_id(
 ) -> None:
     """Job lookup status and ownership determine the sync result outcome."""
     if status_code == 404:
-        original_error: AirbyteError | None = AirbyteCloudApiError(
+        original_error: AirbyteCloudError | None = AirbyteCloudApiError(
             message="Job lookup failed",
             status_code=status_code,
         )
     elif status_code is not None:
-        original_error = AirbyteError(
+        original_error = AirbyteCloudError(
             message="Job lookup failed",
             context={"status_code": status_code},
         )
@@ -277,7 +277,7 @@ def test_get_sync_result_validates_job_id(
             "job_id": 42,
         }
     elif status_code is not None:
-        with pytest.raises(AirbyteError) as exc_info:
+        with pytest.raises(AirbyteCloudError) as exc_info:
             connection.get_sync_result(job_id=42)
 
         assert exc_info.value is original_error
@@ -329,7 +329,7 @@ def test_set_selected_streams_enriches_only_bad_requests(
     catalog_behavior: str,
 ) -> None:
     """Only valid HTTP 400 catalog responses provide stream-name guidance."""
-    original_error = AirbyteError(
+    original_error = AirbyteCloudError(
         message="Invalid stream name" if status_code == 400 else "API request failed",
         context={"status_code": status_code},
     )
@@ -347,7 +347,7 @@ def test_set_selected_streams_enriches_only_bad_requests(
         dump_raw_catalog = MagicMock(return_value=catalog_response)
     elif catalog_behavior == "failure":
         dump_raw_catalog = MagicMock(
-            side_effect=AirbyteError(message="Catalog unavailable")
+            side_effect=AirbyteCloudError(message="Catalog unavailable")
         )
     elif catalog_behavior == "unexpected-shape":
         dump_raw_catalog = MagicMock(return_value={"streams": "unexpected"})
@@ -371,7 +371,7 @@ def test_set_selected_streams_enriches_only_bad_requests(
         assert exc_info.value.__cause__ is original_error
         dump_raw_catalog.assert_called_once_with()
     else:
-        with pytest.raises(AirbyteError) as exc_info:
+        with pytest.raises(AirbyteCloudError) as exc_info:
             connection.set_selected_streams(["missing"])
 
         assert exc_info.value is original_error
