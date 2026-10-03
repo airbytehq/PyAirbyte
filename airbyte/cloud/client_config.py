@@ -32,11 +32,18 @@ Example using environment variables:
     ```python
     from airbyte.cloud.client_config import CloudClientConfig
 
-    # Resolves from AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET,
-    # AIRBYTE_CLOUD_BEARER_TOKEN, AIRBYTE_CLOUD_API_URL, and
-    # AIRBYTE_CLOUD_CONFIG_API_URL environment variables
+    # Resolves through airbyte.settings.AirbyteCloudSettings from process environment
+    # variables and .env (process environment takes precedence).
+    # Generic aliases include AIRBYTE_CLIENT_ID, AIRBYTE_CLIENT_SECRET,
+    # AIRBYTE_BEARER_TOKEN, AIRBYTE_WORKSPACE_ID, and AIRBYTE_ORGANIZATION_ID.
     config = CloudClientConfig.from_env()
     ```
+
+Cloud credentials and URLs are read from the process environment and `./.env` by
+`airbyte.settings.AirbyteCloudSettings`. Process environment values take precedence, and these
+settings do not use registered secret managers or interactive prompts. Generic credential aliases
+(`AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_BEARER_TOKEN`, `AIRBYTE_WORKSPACE_ID`, and
+`AIRBYTE_ORGANIZATION_ID`) take precedence over their `AIRBYTE_CLOUD_*` alternatives.
 """
 
 from __future__ import annotations
@@ -151,16 +158,18 @@ class CloudClientConfig:
         api_root: str | None = None,
         config_api_root: str | None = None,
     ) -> CloudClientConfig:
-        """Create CloudClientConfig from environment variables.
+        """Create a CloudClientConfig from `AirbyteCloudSettings`.
 
-        This factory method resolves credentials from environment variables,
-        providing a convenient way to create credentials without explicitly
-        passing secrets.
+        Credentials and URLs are resolved from process environment variables and `./.env` through
+        `airbyte.settings.AirbyteCloudSettings`. Process environment values take precedence; this
+        does not consult registered secret managers or prompt interactively.
 
-        Environment variables used:
-            - `AIRBYTE_CLOUD_CLIENT_ID`: OAuth client ID (for client credentials flow).
-            - `AIRBYTE_CLOUD_CLIENT_SECRET`: OAuth client secret (for client credentials flow).
-            - `AIRBYTE_CLOUD_BEARER_TOKEN`: Bearer token (alternative to client credentials).
+        Environment variable aliases:
+            - `AIRBYTE_CLIENT_ID` or `AIRBYTE_CLOUD_CLIENT_ID`: OAuth client ID.
+            - `AIRBYTE_CLIENT_SECRET` or `AIRBYTE_CLOUD_CLIENT_SECRET`: OAuth client secret.
+            - `AIRBYTE_BEARER_TOKEN` or `AIRBYTE_CLOUD_BEARER_TOKEN`: Bearer token.
+            - `AIRBYTE_WORKSPACE_ID` or `AIRBYTE_CLOUD_WORKSPACE_ID`: Workspace ID.
+            - `AIRBYTE_ORGANIZATION_ID` or `AIRBYTE_CLOUD_ORGANIZATION_ID`: Organization ID.
             - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
             - `AIRBYTE_CLOUD_CONFIG_API_URL`: Optional. The Config API root URL.
 
@@ -169,17 +178,17 @@ class CloudClientConfig:
 
         Args:
             api_root: The API root URL. If not provided, will be resolved from
-                the `AIRBYTE_CLOUD_API_URL` environment variable, or default to
+                `airbyte.settings.AirbyteCloudSettings`, or default to
                 the Airbyte Cloud API.
             config_api_root: The Config API root URL. If not provided, will be resolved
-                from the `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable.
+                from `airbyte.settings.AirbyteCloudSettings`.
 
         Returns:
             A CloudClientConfig instance configured with credentials from the environment.
 
         Raises:
             PyAirbyteSecretNotFoundError: If required credentials are not found in
-                the environment.
+                the environment or `./.env`.
         """
         resolved_api_root = resolve_cloud_api_url(api_root)
         resolved_config_api_root = resolve_cloud_config_api_url(config_api_root)

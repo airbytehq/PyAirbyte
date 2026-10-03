@@ -32,15 +32,16 @@ def test_is_public_cloud_for_custom_config_root() -> None:
     )
 
 
-def test_cloud_api_environment_override_takes_precedence(
+def test_explicit_cloud_api_root_takes_precedence_over_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Use the Cloud API environment override before the explicit root."""
+    """Use the environment override only when no explicit API root is passed."""
     monkeypatch.setenv(
         "AIRBYTE_CLOUD_API_URL", "https://airbyte.example.com/api/public/v1"
     )
 
-    assert not deployment.is_public_cloud(public_api_root=CLOUD_API_ROOT)
+    assert not deployment.is_public_cloud()
+    assert deployment.is_public_cloud(public_api_root=CLOUD_API_ROOT)
 
 
 def test_is_agents_api_available() -> None:

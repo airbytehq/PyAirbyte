@@ -3,7 +3,9 @@
 
 `AirbyteSettings` reads environment variables when instantiated, so a new instance observes
 environment changes and dotenv files loaded after import. It does not cache settings or create
-directories. Each field documents its corresponding environment variable.
+directories. `AirbyteCloudSettings` reads Cloud configuration from the process environment and
+`./.env`, with process environment values taking precedence. Neither settings class caches values.
+Each field documents its corresponding environment variable.
 """
 
 from __future__ import annotations
@@ -11,10 +13,26 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from airbyte._util.text_util import _str_to_bool
+from airbyte.constants import (
+    AIRBYTE_BEARER_TOKEN_ENV_VAR,
+    AIRBYTE_CLIENT_ID_ENV_VAR,
+    AIRBYTE_CLIENT_SECRET_ENV_VAR,
+    AIRBYTE_ORGANIZATION_ID_ENV_VAR,
+    AIRBYTE_WORKSPACE_ID_ENV_VAR,
+    CLOUD_API_ROOT,
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_ORGANIZATION_ID_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+)
+from airbyte.secrets.base import SecretString  # noqa: TC001
 
 
 class AirbyteSettings(BaseSettings):
@@ -108,3 +126,79 @@ class AirbyteSettings(BaseSettings):
         if value is None:
             return None
         return value.expanduser().absolute()
+
+
+class AirbyteCloudSettings(BaseSettings):
+    """Cloud credentials and URLs read from the process environment and `./.env`.
+
+    Process environment values take precedence over values in `./.env`. Settings are not cached,
+    so each instance reflects the environment at the time it is created.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore",
+    )
+
+    client_id: SecretString | None = Field(
+        default=None,
+        validation_alias=AliasChoices(AIRBYTE_CLIENT_ID_ENV_VAR, CLOUD_CLIENT_ID_ENV_VAR),
+        description=(
+            f"Cloud client ID (`{AIRBYTE_CLIENT_ID_ENV_VAR}` or " f"`{CLOUD_CLIENT_ID_ENV_VAR}`)."
+        ),
+    )
+    client_secret: SecretString | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            AIRBYTE_CLIENT_SECRET_ENV_VAR,
+            CLOUD_CLIENT_SECRET_ENV_VAR,
+        ),
+        description=(
+            "Cloud client secret "
+            f"(`{AIRBYTE_CLIENT_SECRET_ENV_VAR}` or `{CLOUD_CLIENT_SECRET_ENV_VAR}`)."
+        ),
+    )
+    bearer_token: SecretString | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            AIRBYTE_BEARER_TOKEN_ENV_VAR,
+            CLOUD_BEARER_TOKEN_ENV_VAR,
+        ),
+        description=(
+            "Cloud bearer token "
+            f"(`{AIRBYTE_BEARER_TOKEN_ENV_VAR}` or `{CLOUD_BEARER_TOKEN_ENV_VAR}`)."
+        ),
+    )
+    workspace_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            AIRBYTE_WORKSPACE_ID_ENV_VAR,
+            CLOUD_WORKSPACE_ID_ENV_VAR,
+        ),
+        description=(
+            "Cloud workspace ID "
+            f"(`{AIRBYTE_WORKSPACE_ID_ENV_VAR}` or `{CLOUD_WORKSPACE_ID_ENV_VAR}`)."
+        ),
+    )
+    organization_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            AIRBYTE_ORGANIZATION_ID_ENV_VAR,
+            CLOUD_ORGANIZATION_ID_ENV_VAR,
+        ),
+        description=(
+            "Cloud organization ID "
+            f"(`{AIRBYTE_ORGANIZATION_ID_ENV_VAR}` or `{CLOUD_ORGANIZATION_ID_ENV_VAR}`)."
+        ),
+    )
+    api_url: str = Field(
+        default=CLOUD_API_ROOT,
+        validation_alias=CLOUD_API_ROOT_ENV_VAR,
+        description=f"Cloud API root URL (`{CLOUD_API_ROOT_ENV_VAR}`).",
+    )
+    config_api_url: str | None = Field(
+        default=None,
+        validation_alias=CLOUD_CONFIG_API_ROOT_ENV_VAR,
+        description=f"Cloud Config API root URL (`{CLOUD_CONFIG_API_ROOT_ENV_VAR}`).",
+    )

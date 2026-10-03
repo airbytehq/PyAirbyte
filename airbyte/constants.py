@@ -65,6 +65,21 @@ For more information, see the `airbyte.secrets` module documentation.
 
 # Cloud Constants
 
+AIRBYTE_CLIENT_ID_ENV_VAR: str = "AIRBYTE_CLIENT_ID"
+"""The generic environment variable name for the Airbyte Cloud client ID."""
+
+AIRBYTE_CLIENT_SECRET_ENV_VAR: str = "AIRBYTE_CLIENT_SECRET"
+"""The generic environment variable name for the Airbyte Cloud client secret."""
+
+AIRBYTE_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_WORKSPACE_ID"
+"""The generic environment variable name for the Airbyte Cloud workspace ID."""
+
+AIRBYTE_ORGANIZATION_ID_ENV_VAR: str = "AIRBYTE_ORGANIZATION_ID"
+"""The generic environment variable name for the Airbyte Cloud organization ID."""
+
+AIRBYTE_BEARER_TOKEN_ENV_VAR: str = "AIRBYTE_BEARER_TOKEN"
+"""The generic environment variable name for the Airbyte Cloud bearer token."""
+
 CLOUD_CLIENT_ID_ENV_VAR: str = "AIRBYTE_CLOUD_CLIENT_ID"
 """The environment variable name for the Airbyte Cloud client ID."""
 

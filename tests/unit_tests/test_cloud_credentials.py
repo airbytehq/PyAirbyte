@@ -1,8 +1,8 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
+from pathlib import Path
 from types import SimpleNamespace
 from typing import NoReturn
 from unittest.mock import MagicMock
@@ -45,6 +45,25 @@ from airbyte.exceptions import (
 )
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
+
+
+def _clear_cloud_settings_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    for env_var in (
+        constants.AIRBYTE_CLIENT_ID_ENV_VAR,
+        constants.AIRBYTE_CLIENT_SECRET_ENV_VAR,
+        constants.AIRBYTE_WORKSPACE_ID_ENV_VAR,
+        constants.AIRBYTE_ORGANIZATION_ID_ENV_VAR,
+        constants.AIRBYTE_BEARER_TOKEN_ENV_VAR,
+        constants.CLOUD_CLIENT_ID_ENV_VAR,
+        constants.CLOUD_CLIENT_SECRET_ENV_VAR,
+        constants.CLOUD_WORKSPACE_ID_ENV_VAR,
+        constants.CLOUD_ORGANIZATION_ID_ENV_VAR,
+        constants.CLOUD_BEARER_TOKEN_ENV_VAR,
+        constants.CLOUD_API_ROOT_ENV_VAR,
+        constants.CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
 
 
 def _raise(error: Exception) -> Callable[..., NoReturn]:
@@ -118,24 +137,13 @@ def _patch_workspace_discovery(
     return captured
 
 
-def test_airbyte_credentials_from_auth_uses_pyairbyte_secret_lookup(
+def test_airbyte_credentials_from_auth_uses_cloud_settings(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    secrets = {
-        constants.CLOUD_BEARER_TOKEN_ENV_VAR: SecretString("test-bearer-token"),
-        constants.CLOUD_WORKSPACE_ID_ENV_VAR: SecretString("test-workspace-id"),
-    }
-
-    def fake_try_get_secret(
-        secret_name: str,
-        /,
-        *,
-        default: str | SecretString | None = None,
-        **_: object,
-    ) -> SecretString | str | None:
-        return secrets.get(secret_name, default)
-
-    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+    _clear_cloud_settings_env(monkeypatch, tmp_path)
+    monkeypatch.setenv(constants.CLOUD_BEARER_TOKEN_ENV_VAR, "test-bearer-token")
+    monkeypatch.setenv(constants.CLOUD_WORKSPACE_ID_ENV_VAR, "test-workspace-id")
 
     credentials = cloud_credentials._AirbyteCredentials.from_auth(env_vars=True)
 
@@ -145,21 +153,10 @@ def test_airbyte_credentials_from_auth_uses_pyairbyte_secret_lookup(
 
 def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    secrets = {
-        constants.CLOUD_BEARER_TOKEN_ENV_VAR: SecretString("test-bearer-token"),
-    }
-
-    def fake_try_get_secret(
-        secret_name: str,
-        /,
-        *,
-        default: str | SecretString | None = None,
-        **_: object,
-    ) -> SecretString | str | None:
-        return secrets.get(secret_name, default)
-
-    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+    _clear_cloud_settings_env(monkeypatch, tmp_path)
+    monkeypatch.setenv(constants.CLOUD_BEARER_TOKEN_ENV_VAR, "test-bearer-token")
 
     credentials = cloud_credentials._AirbyteCredentials.from_auth()
 
@@ -168,20 +165,11 @@ def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
 
 def test_airbyte_credentials_from_auth_ignores_legacy_api_root_env_vars(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    _clear_cloud_settings_env(monkeypatch, tmp_path)
     legacy_public_api_root_env_var = "AIRBYTE_API_ROOT"
     legacy_config_api_root_env_var = "AIRBYTE_CONFIG_API_ROOT"
-    for env_var in (
-        constants.CLOUD_API_ROOT_ENV_VAR,
-        constants.CLOUD_CONFIG_API_ROOT_ENV_VAR,
-        constants.CLOUD_BEARER_TOKEN_ENV_VAR,
-        constants.CLOUD_CLIENT_ID_ENV_VAR,
-        constants.CLOUD_CLIENT_SECRET_ENV_VAR,
-        cloud_credentials.BEARER_TOKEN_ENV_VAR,
-        cloud_credentials.CLIENT_ID_ENV_VAR,
-        cloud_credentials.CLIENT_SECRET_ENV_VAR,
-    ):
-        monkeypatch.delenv(env_var, raising=False)
     monkeypatch.setenv(constants.CLOUD_BEARER_TOKEN_ENV_VAR, "test-bearer-token")
     monkeypatch.setenv(
         legacy_public_api_root_env_var, "http://legacy.example.com/api/public/v1"
@@ -189,17 +177,6 @@ def test_airbyte_credentials_from_auth_ignores_legacy_api_root_env_vars(
     monkeypatch.setenv(
         legacy_config_api_root_env_var, "http://legacy.example.com/api/v1"
     )
-
-    def fake_try_get_secret(
-        secret_name: str,
-        /,
-        *,
-        default: str | SecretString | None = None,
-        **_: object,
-    ) -> SecretString | str | None:
-        return os.environ.get(secret_name, default)
-
-    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
 
     credentials = cloud_credentials._AirbyteCredentials.from_auth(env_vars=True)
 
@@ -242,10 +219,11 @@ def test_airbyte_credentials_from_auth_ignores_legacy_api_root_env_vars(
 )
 def test_airbyte_credentials_missing_credentials_guidance_matches_resolution_mode(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     env_vars: bool,
     expected_guidance: str,
 ) -> None:
-    monkeypatch.setattr(cloud_credentials, "try_get_secret", lambda *_, **__: None)
+    _clear_cloud_settings_env(monkeypatch, tmp_path)
 
     with pytest.raises(PyAirbyteInputError) as exc_info:
         cloud_credentials._AirbyteCredentials.from_auth(env_vars=env_vars)
@@ -769,21 +747,10 @@ def test_cloud_workspace_permanently_delete_forwards_inputs(
 
 def test_cloud_workspace_explicit_credentials_do_not_resolve_env_vars(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    secrets = {
-        constants.CLOUD_BEARER_TOKEN_ENV_VAR: SecretString("env-bearer-token"),
-    }
-
-    def fake_try_get_secret(
-        secret_name: str,
-        /,
-        *,
-        default: str | SecretString | None = None,
-        **_: object,
-    ) -> SecretString | str | None:
-        return secrets.get(secret_name, default)
-
-    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+    _clear_cloud_settings_env(monkeypatch, tmp_path)
+    monkeypatch.setenv(constants.CLOUD_BEARER_TOKEN_ENV_VAR, "env-bearer-token")
 
     workspace = CloudWorkspace(
         workspace_id="workspace-id",
