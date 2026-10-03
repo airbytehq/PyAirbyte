@@ -27,10 +27,9 @@ def resolve_cloud_bearer_token(
     Returns:
         The bearer token as a SecretString, or None if not found.
     """
-    settings = AirbyteCloudSettings()
     if input_value is not None:
         return SecretString(input_value)
-    return settings.bearer_token
+    return AirbyteCloudSettings().bearer_token
 
 
 def resolve_cloud_client_secret(
@@ -38,9 +37,9 @@ def resolve_cloud_client_secret(
     /,
 ) -> SecretString:
     """Get the Airbyte Cloud client secret from the environment or `./.env`."""
-    settings = AirbyteCloudSettings()
     if input_value is not None:
         return SecretString(input_value)
+    settings = AirbyteCloudSettings()
     if settings.client_secret is None:
         raise PyAirbyteSecretNotFoundError(
             secret_name=CLOUD_CLIENT_SECRET_ENV_VAR,
@@ -54,9 +53,9 @@ def resolve_cloud_client_id(
     /,
 ) -> SecretString:
     """Get the Airbyte Cloud client ID from the environment or `./.env`."""
-    settings = AirbyteCloudSettings()
     if input_value is not None:
         return SecretString(input_value)
+    settings = AirbyteCloudSettings()
     if settings.client_id is None:
         raise PyAirbyteSecretNotFoundError(
             secret_name=CLOUD_CLIENT_ID_ENV_VAR,
@@ -70,8 +69,7 @@ def resolve_cloud_api_url(
     /,
 ) -> str:
     """Get the Airbyte Cloud API URL from the environment or `./.env`."""
-    settings = AirbyteCloudSettings()
-    return input_value or settings.api_url
+    return input_value or AirbyteCloudSettings().api_url
 
 
 def resolve_cloud_workspace_id(
@@ -79,9 +77,9 @@ def resolve_cloud_workspace_id(
     /,
 ) -> str:
     """Get the Airbyte Cloud workspace ID from the environment or `./.env`."""
-    settings = AirbyteCloudSettings()
     if input_value is not None:
         return input_value
+    settings = AirbyteCloudSettings()
     if settings.workspace_id is None:
         raise PyAirbyteSecretNotFoundError(
             secret_name=CLOUD_WORKSPACE_ID_ENV_VAR,
@@ -102,5 +100,4 @@ def resolve_cloud_config_api_url(
     Returns:
         The Config API URL if set via environment, `./.env`, or input, otherwise None.
     """
-    settings = AirbyteCloudSettings()
-    return input_value or settings.config_api_url
+    return input_value or AirbyteCloudSettings().config_api_url

@@ -75,6 +75,31 @@ def test_explicit_cloud_auth_input_precedes_environment(
     assert str(resolver(input_value)) == expected
 
 
+@pytest.mark.parametrize(
+    ("resolver", "input_value"),
+    [
+        (_auth.resolve_cloud_bearer_token, "explicit-token"),
+        (_auth.resolve_cloud_client_secret, "explicit-secret"),
+        (_auth.resolve_cloud_client_id, "explicit-client-id"),
+        (_auth.resolve_cloud_workspace_id, "explicit-workspace-id"),
+        (_auth.resolve_cloud_api_url, "https://explicit.example"),
+        (_auth.resolve_cloud_config_api_url, "https://explicit-config.example"),
+    ],
+)
+def test_explicit_cloud_auth_input_skips_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    resolver: Callable[[str], SecretString | str | None],
+    input_value: str,
+) -> None:
+    monkeypatch.setattr(
+        _auth,
+        "AirbyteCloudSettings",
+        lambda: pytest.fail("Explicit values should not load AirbyteCloudSettings"),
+    )
+
+    assert str(resolver(input_value)) == input_value
+
+
 def test_missing_client_id_raises_secret_not_found(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

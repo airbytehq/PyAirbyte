@@ -145,7 +145,8 @@ class AirbyteCloudSettings(BaseSettings):
         default=None,
         validation_alias=AliasChoices(AIRBYTE_CLIENT_ID_ENV_VAR, CLOUD_CLIENT_ID_ENV_VAR),
         description=(
-            f"Cloud client ID (`{AIRBYTE_CLIENT_ID_ENV_VAR}` or " f"`{CLOUD_CLIENT_ID_ENV_VAR}`)."
+            "Cloud client ID environment variables "
+            f"(`{AIRBYTE_CLIENT_ID_ENV_VAR}` or `{CLOUD_CLIENT_ID_ENV_VAR}`)."
         ),
     )
     client_secret: SecretString | None = Field(
