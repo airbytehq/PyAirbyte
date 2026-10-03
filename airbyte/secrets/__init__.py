@@ -47,8 +47,9 @@ configuring the GitHub source.
 The naming convention for secrets is as `{CONNECTOR_NAME}_{PROPERTY_NAME}`, for instance
 `SNOWFLAKE_PASSWORD` and `BIGQUERY_CREDENTIALS_PATH`.
 
-PyAirbyte will also auto-discover secrets for interop with hosted Airbyte: `AIRBYTE_CLOUD_API_URL`,
-`AIRBYTE_CLOUD_API_KEY`, etc.
+PyAirbyte can auto-discover secrets such as `AIRBYTE_CLOUD_API_KEY` when requested. Cloud OAuth
+credentials and API URLs are resolved from environment variables and `./.env` through
+`airbyte.settings.AirbyteCloudSettings`, not through secret managers or prompts.
 
 ## Custom Secret Managers
 

@@ -5,26 +5,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from airbyte.constants import (
-    CLOUD_API_ROOT,
-    CLOUD_API_ROOT_ENV_VAR,
-    CLOUD_BEARER_TOKEN_ENV_VAR,
-    CLOUD_CLIENT_ID_ENV_VAR,
-    CLOUD_CLIENT_SECRET_ENV_VAR,
-    CLOUD_CONFIG_API_ROOT_ENV_VAR,
-    CLOUD_ORGANIZATION_ID_ENV_VAR,
-    CLOUD_WORKSPACE_ID_ENV_VAR,
-)
+from airbyte.constants import CLOUD_API_ROOT
 from airbyte.exceptions import AirbyteNoCloudCredentialsError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
-from airbyte.secrets.util import try_get_secret
-
-
-CLIENT_ID_ENV_VAR = "AIRBYTE_CLIENT_ID"
-CLIENT_SECRET_ENV_VAR = "AIRBYTE_CLIENT_SECRET"
-WORKSPACE_ID_ENV_VAR = "AIRBYTE_WORKSPACE_ID"
-ORGANIZATION_ID_ENV_VAR = "AIRBYTE_ORGANIZATION_ID"
-BEARER_TOKEN_ENV_VAR = "AIRBYTE_BEARER_TOKEN"
+from airbyte.settings import AirbyteCloudSettings
 
 
 @dataclass(frozen=True)
@@ -54,20 +38,27 @@ class _AirbyteCredentials:
     ) -> _AirbyteCredentials:
         """Resolve Airbyte Cloud credentials from inputs and optionally env vars.
 
-        When `env_vars` is True (default), environment variables are checked as a
-        fallback after explicit inputs.
+        When `env_vars` is True (default), process environment and `./.env` settings are checked
+        as a fallback after explicit inputs.
         """
+        settings = AirbyteCloudSettings() if env_vars else None
         resolved_bearer_token = _first_value(
             str(bearer_token) if bearer_token is not None else None,
-            _env_value(BEARER_TOKEN_ENV_VAR, CLOUD_BEARER_TOKEN_ENV_VAR) if env_vars else None,
+            str(settings.bearer_token)
+            if settings is not None and settings.bearer_token is not None
+            else None,
         )
         resolved_client_id = _first_value(
             str(client_id) if client_id is not None else None,
-            _env_value(CLIENT_ID_ENV_VAR, CLOUD_CLIENT_ID_ENV_VAR) if env_vars else None,
+            str(settings.client_id)
+            if settings is not None and settings.client_id is not None
+            else None,
         )
         resolved_client_secret = _first_value(
             str(client_secret) if client_secret is not None else None,
-            _env_value(CLIENT_SECRET_ENV_VAR, CLOUD_CLIENT_SECRET_ENV_VAR) if env_vars else None,
+            str(settings.client_secret)
+            if settings is not None and settings.client_secret is not None
+            else None,
         )
 
         if resolved_bearer_token and (resolved_client_id or resolved_client_secret):
@@ -92,22 +83,20 @@ class _AirbyteCredentials:
             bearer_token=SecretString(resolved_bearer_token) if resolved_bearer_token else None,
             public_api_root=_first_value(
                 public_api_root,
-                _env_value(CLOUD_API_ROOT_ENV_VAR) if env_vars else None,
+                settings.api_url if settings is not None else None,
             )
             or CLOUD_API_ROOT,
             config_api_root=_first_value(
                 config_api_root,
-                _env_value(CLOUD_CONFIG_API_ROOT_ENV_VAR) if env_vars else None,
+                settings.config_api_url if settings is not None else None,
             ),
             workspace_id=_first_value(
                 workspace_id,
-                _env_value(WORKSPACE_ID_ENV_VAR, CLOUD_WORKSPACE_ID_ENV_VAR) if env_vars else None,
+                settings.workspace_id if settings is not None else None,
             ),
             organization_id=_first_value(
                 organization_id,
-                _env_value(ORGANIZATION_ID_ENV_VAR, CLOUD_ORGANIZATION_ID_ENV_VAR)
-                if env_vars
-                else None,
+                settings.organization_id if settings is not None else None,
             ),
         )
 
@@ -125,13 +114,4 @@ def _first_value(*values: str | None) -> str | None:
     for value in values:
         if value:
             return value
-    return None
-
-
-def _env_value(*names: str) -> str | None:
-    """Return the first available environment variable value."""
-    for name in names:
-        value = try_get_secret(name, default=None)
-        if value:
-            return str(value)
     return None

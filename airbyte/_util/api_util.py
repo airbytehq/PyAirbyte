@@ -37,7 +37,7 @@ from airbyte.exceptions import (
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
-from airbyte.secrets.util import try_get_secret
+from airbyte.settings import AirbyteCloudSettings
 
 
 if TYPE_CHECKING:
@@ -156,7 +156,7 @@ def get_config_api_root(
 
     Resolution order:
     1. If `config_api_root` is provided, use that value.
-    2. If `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable is set, use that value.
+    2. If `AIRBYTE_CLOUD_CONFIG_API_URL` is set in the environment or `./.env`, use that value.
     3. If `api_root` matches the default Cloud API root, return the default Config API root.
     4. If `api_root` looks like a self-managed public API root, infer the Config API root.
     5. Otherwise, raise NotImplementedError (cannot derive Config API from custom API root).
@@ -174,8 +174,8 @@ def get_config_api_root(
     if config_api_root:
         return config_api_root.rstrip("/")
 
-    # Next, check if the Config API URL is explicitly set via environment variable
-    config_api_override = try_get_secret(CLOUD_CONFIG_API_ROOT_ENV_VAR, default=None)
+    # Next, check if the Config API URL is explicitly set via environment variable or `./.env`.
+    config_api_override = AirbyteCloudSettings().config_api_url
     if config_api_override:
         return str(config_api_override).rstrip("/")
 
