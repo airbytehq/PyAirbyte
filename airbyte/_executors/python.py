@@ -15,9 +15,10 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
+from airbyte._util.paths import _try_create_dir_if_missing
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.constants import DEFAULT_INSTALL_DIR, NO_UV
+from airbyte.settings import AirbyteSettings
 
 
 if TYPE_CHECKING:
@@ -65,9 +66,15 @@ class VenvExecutor(Executor):
             if metadata and metadata.pypi_package_name
             else f"airbyte-{self.name}"
         )
-        self.install_root = install_root or DEFAULT_INSTALL_DIR or Path.cwd()
-        with suppress(Exception):
-            self.install_root.mkdir(parents=True, exist_ok=True)
+        if install_root is None:
+            self.install_root = _try_create_dir_if_missing(
+                AirbyteSettings().install_dir,
+                desc="install",
+            )
+        else:
+            self.install_root = install_root
+            with suppress(Exception):
+                self.install_root.mkdir(parents=True, exist_ok=True)
         self.use_python = use_python
 
     def _get_venv_name(self) -> str:
@@ -127,14 +134,15 @@ class VenvExecutor(Executor):
                 input_value=str(self.use_python),
             )
 
+        no_uv = AirbyteSettings().no_uv
         python_override: str | None = None
-        if not NO_UV and isinstance(self.use_python, Path):
+        if not no_uv and isinstance(self.use_python, Path):
             python_override = str(self.use_python.absolute())
 
-        elif not NO_UV and isinstance(self.use_python, str):
+        elif not no_uv and isinstance(self.use_python, str):
             python_override = self.use_python
 
-        uv_cmd_prefix = ["uv"] if not NO_UV else []
+        uv_cmd_prefix = ["uv"] if not no_uv else []
         python_clause: list[str] = ["--python", python_override] if python_override else []
 
         venv_cmd: list[str] = [
@@ -157,7 +165,7 @@ class VenvExecutor(Executor):
                 "--python",  # uv requires --python after the subcommand
                 str(self.interpreter_path),
             ]
-            if not NO_UV
+            if not no_uv
             else [
                 "pip",
                 "--python",  # pip requires --python before the subcommand

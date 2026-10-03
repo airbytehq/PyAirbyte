@@ -25,8 +25,8 @@ from fastmcp_extensions import (
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
+from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte._util.registry_spec import get_connector_spec_from_registry
-from airbyte.constants import is_hosted_mcp_mode
 from airbyte.mcp._docs_results import AgentSkillDocsResult, render_agent_skill_docs_result
 from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.cloud import (

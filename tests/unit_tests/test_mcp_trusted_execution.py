@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import pytest
-from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
     AirbyteTrustedExecutionRequiredError,
     PyAirbyteInputError,
 )
 from airbyte.mcp import local
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
+from airbyte.mcp._constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
     raise_if_untrusted_execution_context,

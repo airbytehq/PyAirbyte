@@ -9,6 +9,7 @@ import json
 
 import httpx
 import pytest
+from airbyte._util import meta
 from fastmcp import FastMCP
 from fastmcp_extensions import (
     CapabilityTokenMiddleware,
@@ -319,9 +320,7 @@ def test_http_session_header_is_hashed_once(
 def test_manually_hosted_http_auth_matches_request_and_analytics(
     client_app, monkeypatch, otel_provider, process_credentials, headers, expected
 ):
-    from airbyte import constants
-
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", False)
     monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
     monkeypatch.delenv("AIRBYTE_CLOUD_CLIENT_ID", raising=False)
     if process_credentials:

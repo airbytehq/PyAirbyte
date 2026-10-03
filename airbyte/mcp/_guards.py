@@ -4,7 +4,7 @@
 Trusted execution is the master gate for the MCP server's *trusted-machine* capabilities:
 local filesystem access, local connector installation/execution, and server-side secret
 resolution. It is controlled solely by the `AIRBYTE_MCP_TRUSTED_EXECUTION` server
-environment variable (`airbyte.constants.MCP_TRUSTED_EXECUTION_ENV_VAR`) and defaults to
+environment variable (`airbyte.mcp._constants.MCP_TRUSTED_EXECUTION_ENV_VAR`) and defaults to
 *off* on every transport.
 
 `fastmcp_extensions` already hides trusted-machine tools from the tool listing when the
@@ -19,21 +19,22 @@ from __future__ import annotations
 
 import os
 
-from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
+from airbyte._util.text_util import _str_to_bool
 from airbyte.exceptions import AirbyteTrustedExecutionRequiredError
-
-
-_TRUTHY_VALUES = frozenset({"1", "true", "yes"})
+from airbyte.mcp._constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 
 
 def is_trusted_execution_enabled() -> bool:
     """Return whether trusted execution is enabled for the MCP server.
 
-    Reads `AIRBYTE_MCP_TRUSTED_EXECUTION` from the server environment only. A value of
-    `1`/`true`/`yes` (case-insensitive) enables it; anything else -- including unset --
-    leaves it disabled.
+    Reads `AIRBYTE_MCP_TRUSTED_EXECUTION` from the server environment only. Values `1`, `true`,
+    `t`, `yes`, `y`, and `on` (case-insensitive) enable it. Values `0`, `false`, `f`, `no`,
+    `n`, and `off` (case-insensitive), as well as unset or unrecognized values, leave it disabled.
     """
-    return os.environ.get(MCP_TRUSTED_EXECUTION_ENV_VAR, "0").strip().lower() in _TRUTHY_VALUES
+    return _str_to_bool(
+        os.environ.get(MCP_TRUSTED_EXECUTION_ENV_VAR),
+        default=False,
+    )
 
 
 def raise_if_untrusted_execution_context(feature: str) -> None:

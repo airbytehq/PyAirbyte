@@ -94,11 +94,11 @@ from fastmcp_extensions import Capability, get_tool_traits
 from fastmcp_extensions.capability_tokens import DEFAULT_EXTENSIONS_HEADER
 from starlette.requests import Request
 
-from airbyte.constants import (
-    MCP_INSIDERS_ENV_VAR,
-    MCP_INSIDERS_HEADER,
-    MCP_INSIDERS_MODULES,
-    MCP_TRUSTED_EXECUTION_ENV_VAR,
+from airbyte.mcp._constants import (
+    MCP_INSIDERS_ENV_VAR,  # noqa: PLC2701
+    MCP_INSIDERS_HEADER,  # noqa: PLC2701
+    MCP_INSIDERS_MODULES,  # noqa: PLC2701
+    MCP_TRUSTED_EXECUTION_ENV_VAR,  # noqa: PLC2701
 )
 
 

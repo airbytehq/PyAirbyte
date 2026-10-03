@@ -76,9 +76,8 @@ if TYPE_CHECKING:
     from key_value.aio.protocols.key_value import AsyncKeyValue
     from starlette.requests import Request
 
-from airbyte._util.meta import set_mcp_mode
+from airbyte._util.meta import is_hosted_mcp_mode, set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_MCP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -122,6 +121,7 @@ from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.registry import register_registry_tools
 from airbyte.secrets import SecretSourceEnum
 from airbyte.secrets.config import disable_secret_source
+from airbyte.settings import AirbyteSettings
 
 
 # =============================================================================
@@ -484,10 +484,7 @@ SEGMENT_USER_ID = "airbyte-mcp"
 
 def _segment_write_key() -> str | None:
     """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
-    offline_mode_from_env = os.environ.get("AIRBYTE_OFFLINE_MODE")
-    # Dotenv secrets load after constants are imported, so check the environment at call time.
-    offline_mode = AIRBYTE_OFFLINE_MODE or _str_to_bool(offline_mode_from_env, default=False)
-    if os.environ.get(DO_NOT_TRACK) or offline_mode:
+    if os.environ.get(DO_NOT_TRACK) or AirbyteSettings().offline_mode:
         return None
 
     return PYAIRBYTE_MCP_TRACKING_KEY

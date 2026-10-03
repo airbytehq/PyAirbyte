@@ -44,7 +44,8 @@ In some cases, you may get better stability by using `docker_image=True` in `get
 
 By default, beginning with version `0.29.0`, PyAirbyte defaults to [`uv`](https://docs.astral.sh/uv) instead of `pip` for Python connector installation. Compared with `pip`, `uv` is much faster. It also provides the unique ability of specifying different versions of Python than PyAirbyte is using, and even Python versions which are not already pre-installed on the local workstation.
 
-If you prefer to fall back to the prior `pip`-based installation methods, set the env var `AIRBYTE_NO_UV=true`.
+If you prefer to fall back to the prior `pip`-based installation methods, set
+`AIRBYTE_NO_UV=true` (`airbyte.settings.AirbyteSettings.no_uv`).
 
 #### Installing Connectors With a Custom Python Version
 

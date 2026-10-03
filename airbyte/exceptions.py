@@ -39,20 +39,18 @@ In addition, the following principles are applied for exception class design:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any, Protocol
 
-from airbyte._util.meta import is_mcp_mode
+from airbyte._util.meta import is_hosted_mcp_mode, is_mcp_mode
 from airbyte.constants import (
-    AIRBYTE_PRINT_FULL_ERROR_LOGS,
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
-    MCP_BEARER_TOKEN_HEADER,
-    is_hosted_mcp_mode,
 )
+from airbyte.settings import AirbyteSettings
 
 
 if TYPE_CHECKING:
@@ -77,7 +75,7 @@ class PyAirbyteError(Exception):
     help_url: str | None = None
     log_text: str | list[str] | None = None
     log_file: Path | None = None
-    print_full_log: bool = AIRBYTE_PRINT_FULL_ERROR_LOGS
+    print_full_log: bool = field(default_factory=lambda: AirbyteSettings().print_full_error_logs)
     context: dict[str, Any] | None = None
     message: str | None = None
     original_exception: Exception | None = None
@@ -244,7 +242,7 @@ class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
         if is_hosted_mcp_mode():
             if self._allow_bearer:
                 self.guidance = (
-                    f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
+                    "Provide a bearer token via the `Authorization` header, "
                     "or client credentials via the transport `Client-Id` and "
                     "`Client-Secret` headers."
                 )

@@ -29,7 +29,8 @@ from fastmcp_extensions import get_mcp_config
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util
-from airbyte.constants import CLOUD_API_ROOT, MCP_CONFIG_API_URL, MCP_CONFIG_CONFIG_API_URL
+from airbyte.constants import CLOUD_API_ROOT
+from airbyte.mcp._constants import MCP_CONFIG_API_URL, MCP_CONFIG_CONFIG_API_URL
 from airbyte.secrets.base import SecretString
 
 

@@ -55,15 +55,6 @@ from airbyte.cloud.models import (
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.constants import (
-    MCP_CONFIG_API_URL,
-    MCP_CONFIG_BEARER_TOKEN,
-    MCP_CONFIG_CLIENT_ID,
-    MCP_CONFIG_CLIENT_SECRET,
-    MCP_CONFIG_CONFIG_API_URL,
-    MCP_CONFIG_ORGANIZATION_ID,
-    MCP_CONFIG_WORKSPACE_ID,
-)
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
     AirbyteCloudApiError,
@@ -81,6 +72,15 @@ from airbyte.mcp._arg_resolvers import (
     resolve_list_of_dicts,
     resolve_list_of_strings,
     resolve_manifest_yaml,
+)
+from airbyte.mcp._constants import (
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_CLIENT_ID,
+    MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_CONFIG_API_URL,
+    MCP_CONFIG_ORGANIZATION_ID,
+    MCP_CONFIG_WORKSPACE_ID,
 )
 from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,

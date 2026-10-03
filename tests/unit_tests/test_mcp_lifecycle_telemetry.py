@@ -27,7 +27,8 @@ from mcp.types import TextContent
 from starlette.types import Receive, Scope, Send
 
 from airbyte import constants
-from airbyte._util import api_util
+from airbyte._util import api_util, meta
+from airbyte.mcp import _constants as mcp_constants
 from airbyte.mcp import _telemetry, _user_identity, server
 from airbyte.mcp._otel import SessionIdHeaderDigest
 from airbyte.mcp._user_identity import AirbyteUserMiddleware
@@ -84,7 +85,7 @@ def records(
 @pytest.fixture
 def hosted(monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolve telemetry as the hosted HTTP server does."""
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", True)
     monkeypatch.delenv(constants.CLOUD_API_ROOT_ENV_VAR, raising=False)
 
 
@@ -242,8 +243,8 @@ def test_hosted_session_context_reaches_every_event(records, hosted) -> None:
     sinks, captured = records
     app = _probe_app(sinks)
     config_headers = {
-        constants.MCP_ORGANIZATION_ID_HEADER: "org-123",
-        constants.MCP_WORKSPACE_ID_HEADER: "ws-456",
+        mcp_constants.MCP_ORGANIZATION_ID_HEADER: "org-123",
+        mcp_constants.MCP_WORKSPACE_ID_HEADER: "ws-456",
     }
     (init,) = asyncio.run(
         _stateless_session(
@@ -407,9 +408,9 @@ def test_hosted_initialize_prefers_header_workspace_and_organization(
     expected_lookups: list[str],
 ) -> None:
     sinks, captured = records
-    headers = {constants.MCP_WORKSPACE_ID_HEADER: "header-workspace"}
+    headers = {mcp_constants.MCP_WORKSPACE_ID_HEADER: "header-workspace"}
     if organization_header is not None:
-        headers[constants.MCP_ORGANIZATION_ID_HEADER] = organization_header
+        headers[mcp_constants.MCP_ORGANIZATION_ID_HEADER] = organization_header
     (response,) = asyncio.run(
         _stateless_session(_probe_app(sinks), [_initialize_request(headers)])
     )
@@ -426,13 +427,13 @@ def test_hosted_initialize_prefers_header_workspace_and_organization(
     ("headers", "expected_workspace", "expected_organization", "expected_source"),
     [
         (
-            {constants.MCP_WORKSPACE_ID_HEADER: "header-workspace"},
+            {mcp_constants.MCP_WORKSPACE_ID_HEADER: "header-workspace"},
             "header-workspace",
             None,
             "header",
         ),
         (
-            {constants.MCP_ORGANIZATION_ID_HEADER: "header-organization"},
+            {mcp_constants.MCP_ORGANIZATION_ID_HEADER: "header-organization"},
             None,
             "header-organization",
             "header",
@@ -589,7 +590,7 @@ def test_hosted_initialize_without_default_workspace_has_no_scope(
 def test_stdio_context_uses_process_session(records, monkeypatch) -> None:
     """Over stdio, the process is the session and client info comes from initialize."""
     sinks, captured = records
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", False)
     monkeypatch.setenv(constants.CLOUD_CLIENT_ID_ENV_VAR, "client-id")
     monkeypatch.delenv(constants.CLOUD_BEARER_TOKEN_ENV_VAR, raising=False)
     monkeypatch.setenv(
@@ -704,7 +705,7 @@ def test_auth_failures_are_classified(
                 headers=headers
                 | {
                     "mcp-session-id": token,
-                    constants.MCP_ORGANIZATION_ID_HEADER: "org-123",
+                    mcp_constants.MCP_ORGANIZATION_ID_HEADER: "org-123",
                 },
             )
 
@@ -785,7 +786,7 @@ def test_auth_failures_fall_back_to_env_scope(
                 "/mcp",
                 headers={
                     "authorization": "Bearer x",
-                    constants.MCP_WORKSPACE_ID_HEADER: "ws-header",
+                    mcp_constants.MCP_WORKSPACE_ID_HEADER: "ws-header",
                 },
             )
 

@@ -9,7 +9,6 @@ from unittest.mock import Mock
 
 import pytest
 import requests
-from airbyte import constants
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
     AirbyteCloudError,
@@ -1398,7 +1397,7 @@ def test_get_analytic_source_reflects_runtime_mode(
     expected: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
 
     assert meta.get_cloud_api_analytic_source() == expected
 
@@ -1445,7 +1444,7 @@ def test_get_analytic_source_upstream_header(
     expected: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
     monkeypatch.setattr(meta, "get_http_headers", lambda **_: headers)
 
     assert meta.get_cloud_api_analytic_source() == expected
@@ -1455,7 +1454,7 @@ def test_config_api_request_sends_analytic_source_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", True)
     captured: dict[str, object] = {}
 
     def fake_request(**kwargs: object) -> SimpleNamespace:
@@ -1658,7 +1657,7 @@ def test_public_api_client_sends_analytic_source_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
-    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    monkeypatch.setattr(meta, "_HOSTED_MCP_MODE_ENABLED", False)
 
     airbyte_instance = api_util.get_airbyte_server_instance(
         api_root="https://api.airbyte.com/v1",

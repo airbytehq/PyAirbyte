@@ -30,6 +30,7 @@ from fastmcp_extensions.capability_tokens import (
 )
 from starlette.datastructures import Headers
 
+from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_API_ROOT_ENV_VAR,
@@ -37,13 +38,14 @@ from airbyte.constants import (
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+)
+from airbyte.mcp._constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_WORKSPACE_ID,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_WORKSPACE_ID_HEADER,
-    is_hosted_mcp_mode,
 )
 from airbyte.mcp._user_identity import (
     airbyte_user_context,

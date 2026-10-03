@@ -238,7 +238,7 @@ from fastmcp_extensions import (
     run_mcp_http_server,
 )
 
-from airbyte.constants import set_hosted_mcp_mode
+from airbyte._util.meta import set_hosted_mcp_mode
 from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
