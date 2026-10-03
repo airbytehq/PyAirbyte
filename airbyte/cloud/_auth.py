@@ -37,7 +37,7 @@ def resolve_cloud_client_secret(
     /,
 ) -> SecretString:
     """Get the Airbyte Cloud client secret from the environment or `./.env`."""
-    if input_value is not None:
+    if input_value is not None and input_value != "":  # noqa: PLC1901
         return SecretString(input_value)
     settings = AirbyteCloudSettings()
     if settings.client_secret is None:
@@ -53,7 +53,7 @@ def resolve_cloud_client_id(
     /,
 ) -> SecretString:
     """Get the Airbyte Cloud client ID from the environment or `./.env`."""
-    if input_value is not None:
+    if input_value is not None and input_value != "":  # noqa: PLC1901
         return SecretString(input_value)
     settings = AirbyteCloudSettings()
     if settings.client_id is None:
@@ -77,7 +77,7 @@ def resolve_cloud_workspace_id(
     /,
 ) -> str:
     """Get the Airbyte Cloud workspace ID from the environment or `./.env`."""
-    if input_value is not None:
+    if input_value is not None and input_value != "":  # noqa: PLC1901
         return input_value
     settings = AirbyteCloudSettings()
     if settings.workspace_id is None:

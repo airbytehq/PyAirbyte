@@ -113,6 +113,61 @@ def test_missing_client_id_raises_secret_not_found(
     assert exc_info.value.sources == ["env", "dotenv"]
 
 
+@pytest.mark.parametrize(
+    ("resolver", "secret_name"),
+    [
+        (_auth.resolve_cloud_client_id, constants.CLOUD_CLIENT_ID_ENV_VAR),
+        (_auth.resolve_cloud_client_secret, constants.CLOUD_CLIENT_SECRET_ENV_VAR),
+        (_auth.resolve_cloud_workspace_id, constants.CLOUD_WORKSPACE_ID_ENV_VAR),
+    ],
+)
+def test_empty_explicit_cloud_credentials_raise_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    resolver: Callable[[str], SecretString | str],
+    secret_name: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(PyAirbyteSecretNotFoundError) as exc_info:
+        resolver("")
+
+    assert exc_info.value.secret_name == secret_name
+
+
+@pytest.mark.parametrize(
+    ("resolver", "env_var", "env_value"),
+    [
+        (
+            _auth.resolve_cloud_client_id,
+            constants.CLOUD_CLIENT_ID_ENV_VAR,
+            "environment-client-id",
+        ),
+        (
+            _auth.resolve_cloud_client_secret,
+            constants.CLOUD_CLIENT_SECRET_ENV_VAR,
+            "environment-client-secret",
+        ),
+        (
+            _auth.resolve_cloud_workspace_id,
+            constants.CLOUD_WORKSPACE_ID_ENV_VAR,
+            "environment-workspace-id",
+        ),
+    ],
+)
+def test_empty_explicit_cloud_credentials_fall_back_to_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    resolver: Callable[[str], SecretString | str],
+    env_var: str,
+    env_value: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(env_var, env_value)
+
+    assert str(resolver("")) == env_value
+
+
 def test_cloud_auth_does_not_consult_registered_secret_managers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
