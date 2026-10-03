@@ -17,7 +17,7 @@ def test_exceptions():
         for name, obj in inspect.getmembers(exceptions_module)
         if inspect.isclass(obj) and name.endswith("Error")
     ]
-    assert "AirbyteError" in [name for name, _ in exception_classes]
+    assert "AirbyteCloudError" in [name for name, _ in exception_classes]
     assert "NotAnError" not in [name for name, _ in exception_classes]
     for name, obj in exception_classes:
         instance = obj()

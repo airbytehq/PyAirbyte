@@ -12,7 +12,7 @@ import requests
 from airbyte import constants
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
@@ -137,7 +137,7 @@ def _list_workspaces_response(
         ),
         pytest.param(
             500,
-            AirbyteError,
+            AirbyteCloudError,
             "API error occurred: Workspace lookup failed.",
             None,
             id="server_error",
@@ -146,7 +146,7 @@ def _list_workspaces_response(
 )
 def test_wrap_sdk_error_classifies_missing_or_forbidden(
     status_code: int,
-    expected_error_type: type[AirbyteError],
+    expected_error_type: type[AirbyteCloudError],
     expected_message: str,
     expected_guidance: str | None,
 ) -> None:
@@ -410,7 +410,7 @@ def test_config_api_helpers_reject_unexpected_response(
         lambda **_: response,
     )
 
-    with pytest.raises(AirbyteError, match=expected_message) as exc_info:
+    with pytest.raises(AirbyteCloudError, match=expected_message) as exc_info:
         helper(
             **kwargs,
             api_root="https://api.example",
@@ -1371,7 +1371,7 @@ def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as error:
+    with pytest.raises(AirbyteCloudError) as error:
         api_util.cancel_job(
             job_id=42,
             api_root="https://api.airbyte.com/v1/",
@@ -1603,7 +1603,7 @@ def test_update_connector_builder_project_payload(
         ),
         pytest.param(
             500,
-            AirbyteError,
+            AirbyteCloudError,
             "API request failed with status 500",
             None,
             id="server-error",
@@ -1613,7 +1613,7 @@ def test_update_connector_builder_project_payload(
 def test_config_api_request_maps_forbidden_as_missing_resource(
     monkeypatch: pytest.MonkeyPatch,
     status_code: int,
-    expected_error_type: type[AirbyteError],
+    expected_error_type: type[AirbyteCloudError],
     expected_message: str,
     expected_guidance: str | None,
 ) -> None:
@@ -1746,7 +1746,7 @@ def test_api_util_calls_wrap_sdk_errors_with_status_context(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         if operation == "get-job":
             api_util.get_job_info(
                 job_id=42,
@@ -1910,7 +1910,7 @@ def test_get_connector_error_fallback(
         api_util, "get_airbyte_server_instance", lambda **_: airbyte_instance
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         api_util.get_connector(
             "connector-id",
             api_root="https://api.airbyte.com/v1",
@@ -1977,7 +1977,7 @@ def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         api_util.get_source(
             "source-id",
             api_root="https://api.airbyte.com/v1",
@@ -1986,4 +1986,4 @@ def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
             bearer_token=SecretString("token"),
         )
 
-    assert type(exc_info.value) is AirbyteError
+    assert type(exc_info.value) is AirbyteCloudError

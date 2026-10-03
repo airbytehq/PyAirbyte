@@ -39,7 +39,7 @@ from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
     PyAirbyteInputError,
 )
@@ -888,7 +888,7 @@ def test_cloud_client_get_organization_adds_missing_lookup_context(
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(api_util, "list_organizations_for_user", lambda **_: [])
 
@@ -1067,7 +1067,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_membership_organization_ids",
-            _raise(AirbyteError(message="membership failed")),
+            _raise(AirbyteCloudError(message="membership failed")),
         )
 
     assert client._resolve_default_organization_id() == expected_id
@@ -1248,7 +1248,7 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(
         api_util,
@@ -1402,7 +1402,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
@@ -1702,12 +1702,12 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
@@ -1750,13 +1750,13 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
             id="multiple-organizations",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 401}),
+            AirbyteCloudError(context={"status_code": 401}),
             0,
             "permission",
             id="unauthorized",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
+            AirbyteCloudError(context={"status_code": 403}),
             0,
             "permission",
             id="forbidden",
@@ -1765,7 +1765,7 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
 )
 def test_mcp_list_cloud_organizations_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    organizations_or_error: list[CloudOrganization] | AirbyteError,
+    organizations_or_error: list[CloudOrganization] | AirbyteCloudError,
     expected_count: int,
     expected_message: str | None,
 ) -> None:
@@ -1773,7 +1773,7 @@ def test_mcp_list_cloud_organizations_discovery(
 
     class DiscoveryClient:
         def list_organizations(self, **_: object) -> list[CloudOrganization]:
-            if isinstance(organizations_or_error, AirbyteError):
+            if isinstance(organizations_or_error, AirbyteCloudError):
                 raise organizations_or_error
             return organizations_or_error
 
@@ -2362,7 +2362,7 @@ _ENABLEMENT_FAILURES = [
     pytest.param(AirbyteCloudApiError(status_code=500), id="server_error"),
     pytest.param(AirbyteCloudApiError(status_code=503), id="service_unavailable"),
     pytest.param(requests.ConnectionError("connection reset"), id="transport"),
-    pytest.param(AirbyteError(message="Malformed enablement"), id="malformed"),
+    pytest.param(AirbyteCloudError(message="Malformed enablement"), id="malformed"),
 ]
 
 
@@ -2391,7 +2391,7 @@ def test_cloud_connector_features_raise_on_enablement_failure(
 def test_cloud_connector_enablement_rejects_malformed_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A response missing the enablement flags raises `AirbyteError`, not "not enabled"."""
+    """A response missing the enablement flags raises `AirbyteCloudError`, not "not enabled"."""
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "make_cloud_agent_request",
@@ -2402,7 +2402,7 @@ def test_cloud_connector_enablement_rejects_malformed_response(
     )
 
     with pytest.raises(
-        AirbyteError, match="Malformed Airbyte Cloud enablement"
+        AirbyteCloudError, match="Malformed Airbyte Cloud enablement"
     ) as exc_info:
         cloud_workspaces.agents_api_util.get_cloud_connector_enablement(
             connector_id="source-1",
@@ -2490,7 +2490,9 @@ def test_cloud_connector_features_ignore_docs_failure(
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
+        lambda **_: (_ for _ in ()).throw(
+            AirbyteCloudError(context={"status_code": 500})
+        ),
     )
 
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
@@ -2845,13 +2847,13 @@ def test_cloud_workspace_enabled_features(
             id="org-less-public-api-without-organization-name",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 401}),
+            AirbyteCloudError(context={"status_code": 401}),
             True,
             None,
             id="unauthorized",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
+            AirbyteCloudError(context={"status_code": 403}),
             True,
             None,
             id="forbidden",
@@ -2860,7 +2862,7 @@ def test_cloud_workspace_enabled_features(
 )
 def test_mcp_list_cloud_workspaces_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteError,
+    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteCloudError,
     expect_message: bool,
     organization_name: str | None,
 ) -> None:
@@ -2874,7 +2876,7 @@ def test_mcp_list_cloud_workspaces_discovery(
         ) -> list[CloudWorkspaceInfo]:
             nonlocal captured_organization_id
             captured_organization_id = organization_id
-            if isinstance(workspaces_or_error, AirbyteError):
+            if isinstance(workspaces_or_error, AirbyteCloudError):
                 raise workspaces_or_error
             return workspaces_or_error
 
@@ -3113,7 +3115,7 @@ def test_cloud_organization_get_billing_status_requires_billing(
         api_util, "get_organization_info", lambda **_: {"organizationId": "org-1"}
     )
     organization = CloudOrganization(organization_id="organization-id")
-    with pytest.raises(AirbyteError, match="billing details"):
+    with pytest.raises(AirbyteCloudError, match="billing details"):
         organization.get_billing_status()
 
 
@@ -3125,5 +3127,7 @@ def test_cloud_organization_get_billing_status_wraps_transport_error(
 
     monkeypatch.setattr(api_util, "get_organization_info", get_organization_info)
     organization = CloudOrganization(organization_id="organization-id")
-    with pytest.raises(AirbyteError, match="Failed to retrieve organization billing"):
+    with pytest.raises(
+        AirbyteCloudError, match="Failed to retrieve organization billing"
+    ):
         organization.get_billing_status()

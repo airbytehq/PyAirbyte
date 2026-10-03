@@ -155,7 +155,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._enablement: ConnectorEnablement | None = None
         """Fusion enablement lookup result. (Cached; `None` until fetched.)"""
 
-        self._enablement_error: exc.AirbyteError | None = None
+        self._enablement_error: exc.AirbyteCloudError | None = None
         """The 404 (no active connector of this kind) that answered the enablement
         lookup, if any. (Cached; other failures, including 403s, are never cached.)"""
 
@@ -591,7 +591,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
                 error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
             )
@@ -610,7 +610,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 connector_type=self.connector_type,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
                 error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
             )
@@ -618,7 +618,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     def _raise_if_feature_not_enabled(
         self,
-        error: exc.AirbyteError,
+        error: exc.AirbyteCloudError,
         feature: ConnectorFeature,
         *,
         guidance: str | None = None,
@@ -636,7 +636,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             return
         try:
             enabled = self.is_feature_enabled(feature)
-        except (exc.AirbyteError, requests.RequestException, ValueError) as lookup_error:
+        except (exc.AirbyteCloudError, requests.RequestException, ValueError) as lookup_error:
             if (
                 isinstance(lookup_error, exc.AirbyteCloudApiError)
                 and lookup_error.status_code == HTTPStatus.FORBIDDEN
@@ -686,7 +686,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         workspace's API roots have no Context layer API. When the Cloud Config API
         reports the connector as forbidden or not found, the error is re-raised as
         `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise,
+        disabled for the connector; the original `AirbyteCloudError` propagates otherwise,
         including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
@@ -727,7 +727,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(error, ConnectorFeature.DIRECT_ACCESS)
             raise
 
@@ -742,7 +742,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Fetch and cache the Context layer connector details.
 
         The connector's docs skill is probed: a skill doc exists only for connectors the
-        Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
+        Context layer knows. A 403 or 404 `AirbyteCloudError` from the docs read means the
         connector is not enabled for agent access, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
         response, transport) is raised to the caller.
@@ -762,7 +762,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     credentials=self.workspace._credentials,  # noqa: SLF001
                 )
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
             warnings.append(f"Connector direct-access docs lookup failed: {error}")
@@ -935,7 +935,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                         section=section,
                     )
                 )
-            except exc.AirbyteError as error:
+            except exc.AirbyteCloudError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
                 return connector_docs.build_direct_access_sql_guidance(

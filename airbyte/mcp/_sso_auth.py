@@ -164,7 +164,7 @@ def _token_has_airbyte_user(access_token: str) -> bool:
         )
     except exc.AirbyteMissingResourceError:
         return False
-    except exc.AirbyteError as error:
+    except exc.AirbyteCloudError as error:
         if error.context is not None and error.context.get("status_code") in {401, 404}:
             return False
         raise
@@ -1154,7 +1154,7 @@ class AirbyteSsoOidcProxy(OIDCProxy):
 
         try:
             linked = await asyncio.to_thread(_token_has_airbyte_user, access_token)
-        except (exc.AirbyteError, requests.RequestException):
+        except (exc.AirbyteCloudError, requests.RequestException):
             await self._code_store.delete(key=code)
             logger.warning("Unable to verify linked Airbyte user; rejecting interactive login")
             return self._reject_login(

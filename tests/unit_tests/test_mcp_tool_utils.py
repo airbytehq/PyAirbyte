@@ -9,13 +9,13 @@ from unittest.mock import patch
 import pytest
 from fastmcp_extensions import MCPServerConfigArg
 
+from airbyte.exceptions import AirbyteSafeModeError
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
-    SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
@@ -114,9 +114,9 @@ def test_check_guid_created_in_session_passes_for_registered_guid() -> None:
 
 
 def test_check_guid_created_in_session_raises_for_unregistered_guid() -> None:
-    """Test that check raises SafeModeError for unregistered GUIDs when safe mode is enabled."""
+    """Test that check raises AirbyteSafeModeError for unregistered GUIDs when safe mode is enabled."""
     with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
-        with pytest.raises(SafeModeError) as exc_info:
+        with pytest.raises(AirbyteSafeModeError) as exc_info:
             check_guid_created_in_session("unregistered-guid")
         assert "unregistered-guid" in str(exc_info.value)
         assert "not created in this session" in str(exc_info.value)

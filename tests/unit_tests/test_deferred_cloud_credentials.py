@@ -124,7 +124,7 @@ def test_deferred_create_uses_bounded_timeouts_and_never_follows_redirects(
 
     monkeypatch.setattr(api_util.requests, "post", _recording_post)
 
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred("source")
 
     assert raised.value.context is not None
@@ -213,7 +213,7 @@ def test_deferred_create_errors_do_not_expose_response_body(
         json={"message": "Invalid credential abc123", "config": {"token": "abc123"}},
     )
 
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred(connector_type)
 
     assert not isinstance(raised.value, exc.AirbyteDeferredSetupError)
@@ -237,7 +237,7 @@ def test_deferred_create_errors_do_not_expose_response_body(
 def test_deferred_create_rejects_invalid_response_without_replaying(body: str) -> None:
     """A malformed successful response must not cause duplicate creates or leak its body."""
     responses.post(f"{CONFIG_API_ROOT}/sources/create", body=body)
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred("source")
     assert "abc123" not in str(raised.value)
     assert len(responses.calls) == 1
@@ -546,7 +546,7 @@ def test_connector_check_reports_draft_failures_and_raises_on_errors(
     connector = _workspace().get_source(ACTOR_ID)
 
     if expected is None:
-        with pytest.raises(exc.AirbyteError):
+        with pytest.raises(exc.AirbyteCloudError):
             connector.check(raise_on_error=False)
         return
 

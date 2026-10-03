@@ -15,7 +15,7 @@ import responses
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
-    AirbyteError,
+    AirbyteCloudError,
     check_connector,
     get_bearer_token,
 )
@@ -277,7 +277,7 @@ def test_get_bearer_token(
             api_root=api_root,
         )
         assert token is not None
-    except AirbyteError as e:
+    except AirbyteCloudError as e:
         pytest.fail(f"API call failed: {e}")
 
 
@@ -304,7 +304,7 @@ def test_check_connector(
             bearer_token=None,
         )
         assert result == expect_success
-    except AirbyteError as e:
+    except AirbyteCloudError as e:
         pytest.fail(f"API call failed: {e}")
 
 
@@ -330,7 +330,7 @@ def test_404_error_includes_request_url_context() -> None:
         status=404,
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         api_util.list_sources(
             workspace_id=workspace_id,
             api_root=api_root,

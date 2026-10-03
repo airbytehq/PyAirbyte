@@ -256,7 +256,7 @@ def send_telemetry(
         payload_props["cache"] = cache.to_dict()
 
     if exception:
-        if isinstance(exception, exc.AirbyteError):
+        if isinstance(exception, exc.AirbyteCloudError):
             payload_props["exception"] = exception.safe_logging_dict()
         else:
             payload_props["exception"] = {"class": type(exception).__name__}
