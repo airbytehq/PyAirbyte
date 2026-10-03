@@ -79,6 +79,7 @@ def test_directory_overrides_and_home_expansion(
 ) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("AIRBYTE_PROJECT_DIR", "~/project")
     monkeypatch.setenv("AIRBYTE_INSTALL_DIR", "~/install")
     monkeypatch.setenv("AIRBYTE_CACHE_ROOT", "~/cache")
