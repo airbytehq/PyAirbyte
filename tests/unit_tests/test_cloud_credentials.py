@@ -715,6 +715,92 @@ def test_custom_cloud_source_definition_builder_url_uses_owner_workspace(
     )
 
 
+@pytest.mark.parametrize(
+    ("has_draft", "expected_draft_manifest"),
+    [
+        pytest.param(True, {"version": "0.1.0"}, id="preserves-draft"),
+        pytest.param(False, None, id="no-draft"),
+    ],
+)
+def test_custom_cloud_source_definition_rename_preserves_builder_data(
+    monkeypatch: pytest.MonkeyPatch,
+    has_draft: bool,
+    expected_draft_manifest: dict[str, object] | None,
+) -> None:
+    workspace = CloudWorkspace(
+        workspace_id="caller-workspace",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    project_data = {
+        "builderProject": {
+            "hasDraft": has_draft,
+            "componentsFileContent": "components: []",
+        },
+        "declarativeManifest": {"manifest": {"version": "0.1.0"}},
+    }
+    builder_lookup = MagicMock(
+        return_value={
+            "builderProjectId": "builder-project-id",
+            "workspaceId": "owner-workspace",
+        }
+    )
+    get_project = MagicMock(return_value=project_data)
+    update_project = MagicMock()
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
+    )
+    monkeypatch.setattr(api_util, "get_connector_builder_project", get_project)
+    monkeypatch.setattr(api_util, "update_connector_builder_project", update_project)
+    definition = CustomCloudSourceDefinition(
+        workspace=workspace,
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+    definition._definition_info = object()  # type: ignore[assignment]
+    definition._builder_project_data = {"cached": True}
+
+    result = definition.rename(name="Renamed definition")
+
+    assert result is definition
+    get_project.assert_called_once_with(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+    update_project.assert_called_once_with(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        name="Renamed definition",
+        draft_manifest=expected_draft_manifest,
+        components_file_content="components: []",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+    assert definition._definition_info is None
+    assert definition._builder_project_data is None
+
+
+def test_custom_cloud_source_definition_docker_rename_is_not_implemented() -> None:
+    definition = CustomCloudSourceDefinition(
+        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
+        definition_id="definition-id",
+        definition_type="docker",
+    )
+
+    with pytest.raises(NotImplementedError, match="Docker custom source definitions"):
+        definition.rename(name="Renamed definition")
+
+
 def test_cloud_workspace_rename_forwards_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -2109,6 +2109,9 @@ def _make_config_api_request(
                 context=error_context,
             ) from ex
 
+    if response.status_code == HTTPStatus.NO_CONTENT:
+        return {}
+
     return response.json()
 
 
@@ -2661,6 +2664,46 @@ def get_connector_builder_project(
         json={
             "workspaceId": workspace_id,
             "builderProjectId": builder_project_id,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def update_connector_builder_project(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    name: str,
+    draft_manifest: dict[str, Any] | None,
+    components_file_content: str | None,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> None:
+    """Update a connector builder project name and preserve its optional draft content.
+
+    The Config API replaces the draft manifest and components file with the values in
+    `builderProject`, so these fields are included only when not None to avoid wiping
+    existing content.
+    """
+    builder_project: dict[str, Any] = {"name": name}
+    if draft_manifest is not None:
+        builder_project["draftManifest"] = draft_manifest
+    if components_file_content is not None:
+        builder_project["componentsFileContent"] = components_file_content
+
+    _make_config_api_request(
+        path="/connector_builder_projects/update",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "builderProject": builder_project,
         },
         api_root=api_root,
         config_api_root=config_api_root,

@@ -1579,30 +1579,47 @@ class CustomCloudSourceDefinition:
             "Only YAML manifest-based custom sources are currently available."
         )
 
-    def rename(
-        self,
-        new_name: str,  # noqa: ARG002
-    ) -> CustomCloudSourceDefinition:
+    def rename(self, name: str) -> CustomCloudSourceDefinition:
         """Rename this custom source definition.
 
-        Note: Only Docker custom sources can be renamed. YAML custom sources
-        cannot be renamed as their names are derived from the manifest.
+        Renames the definition and its Connector Builder project while preserving
+        any unpublished draft.
 
         Args:
-            new_name: New display name for the connector
+            name: New display name for the definition
 
         Returns:
             Updated CustomCloudSourceDefinition object
 
         Raises:
-            AirbyteLibInputError: If attempting to rename a YAML connector
-            NotImplementedError: If attempting to rename a Docker connector (not yet supported)
+            AirbyteLibInputError: If the connector builder project ID cannot be found.
+            NotImplementedError: If attempting to rename a Docker connector (not yet supported).
         """
         if self.definition_type == "yaml":
-            raise exc.AirbyteLibInputError(
-                message="Cannot rename YAML custom source definitions",
-                context={"definition_id": self.definition_id},
+            project = self.get_builder_project_data(use_cache=False)
+            builder_project_id = self._connector_builder_project_id
+            assert builder_project_id is not None
+            builder_project = project["builderProject"]
+            draft_manifest = (
+                project["declarativeManifest"]["manifest"]
+                if builder_project.get("hasDraft")
+                else None
             )
+            api_util.update_connector_builder_project(
+                workspace_id=self._builder_project_workspace_id or self.workspace.workspace_id,
+                builder_project_id=builder_project_id,
+                name=name,
+                draft_manifest=draft_manifest,
+                components_file_content=builder_project.get("componentsFileContent"),
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                config_api_root=self.workspace.config_api_root,
+            )
+            self._definition_info = None
+            self._builder_project_data = None
+            return self
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
