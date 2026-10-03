@@ -355,7 +355,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             error_message=result[1],
         )
         if raise_on_error and not check_result:
-            raise ValueError(f"Check failed: {check_result}")
+            raise exc.AirbyteConnectorCheckFailedError(
+                connector_name=(self._connector_info.name if self._connector_info else None),
+                message=f"Check failed: {check_result}",
+                context={"connector_id": self.connector_id},
+            )
 
         return check_result
 

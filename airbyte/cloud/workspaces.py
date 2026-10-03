@@ -1021,7 +1021,7 @@ class CloudWorkspace:
                 to cascade deletes.
         """
         if connection is None:
-            raise ValueError("No connection ID provided.")
+            raise exc.PyAirbyteInputError(message="No connection ID provided.")
 
         if isinstance(connection, str):
             connection = CloudConnection(
