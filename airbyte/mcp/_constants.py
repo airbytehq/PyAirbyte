@@ -27,12 +27,13 @@ If set, only tools from these domains will be advertised by the MCP server.
 MCP_TRUSTED_EXECUTION_ENV_VAR: str = "AIRBYTE_MCP_TRUSTED_EXECUTION"
 """Environment variable that enables trusted (local) execution for the MCP server.
 
-When set to `1`/`true`/`yes`, the server may use its trusted-machine capabilities: local
-filesystem access, local connector installation/execution, and server-side secret
-resolution. It defaults to *off* on every transport and is permanently unavailable over
-the HTTP transport (a hosted deployment can never enable it). This gate is server-owned
-and is deliberately never read from a request header, because it *widens* the surface and
-so must never be caller-controllable.
+Values `1`, `true`, `t`, `yes`, `y`, and `on` (case-insensitive) enable the server's
+trusted-machine capabilities: local filesystem access, local connector installation/execution,
+and server-side secret resolution. Values `0`, `false`, `f`, `no`, `n`, and `off`
+(case-insensitive), as well as unset or unrecognized values, leave it disabled. It is
+permanently unavailable over the HTTP transport (a hosted deployment can never enable it).
+This gate is server-owned and is deliberately never read from a request header, because it
+*widens* the surface and so must never be caller-controllable.
 """
 
 MCP_WORKSPACE_ID_HEADER: str = "X-Airbyte-Workspace-Id"

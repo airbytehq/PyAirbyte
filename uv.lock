@@ -215,7 +215,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.1.19,<4.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.9,<3.0" },
     { name = "pyarrow", specifier = ">=16.1,<22.0" },
-    { name = "pydantic", specifier = ">=2.0,<3.0" },
+    { name = "pydantic", specifier = ">=2.10,<3.0" },
     { name = "pydantic-core" },
     { name = "pydantic-settings", specifier = ">=2.0,<3.0" },
     { name = "python-dotenv", specifier = ">=1.0.1,<2.0" },

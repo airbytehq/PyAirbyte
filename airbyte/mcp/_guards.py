@@ -27,9 +27,9 @@ from airbyte.mcp._constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 def is_trusted_execution_enabled() -> bool:
     """Return whether trusted execution is enabled for the MCP server.
 
-    Reads `AIRBYTE_MCP_TRUSTED_EXECUTION` from the server environment only. A value of
-    `1`/`true`/`yes` (case-insensitive) enables it; anything else -- including unset --
-    leaves it disabled.
+    Reads `AIRBYTE_MCP_TRUSTED_EXECUTION` from the server environment only. Values `1`, `true`,
+    `t`, `yes`, `y`, and `on` (case-insensitive) enable it. Values `0`, `false`, `f`, `no`,
+    `n`, and `off` (case-insensitive), as well as unset or unrecognized values, leave it disabled.
     """
     return _str_to_bool(
         os.environ.get(MCP_TRUSTED_EXECUTION_ENV_VAR),
