@@ -12,8 +12,8 @@ from fastmcp.exceptions import ToolError
 from airbyte.exceptions import (
     AirbyteConnectorInUseError,
     AirbyteMissingResourceError,
-    PyAirbyteError,
-    PyAirbyteInputError,
+    AirbyteLibError,
+    AirbyteLibInputError,
 )
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -51,7 +51,7 @@ def test_unexpected_errors_keep_fastmcp_default_handling() -> None:
     "error",
     [
         pytest.param(
-            PyAirbyteInputError(message="bad", guidance="fix it"),
+            AirbyteLibInputError(message="bad", guidance="fix it"),
             id="input-error",
         ),
         pytest.param(
@@ -72,7 +72,7 @@ def test_unexpected_errors_keep_fastmcp_default_handling() -> None:
         ),
     ],
 )
-def test_expected_errors_are_presented_concisely(error: PyAirbyteError) -> None:
+def test_expected_errors_are_presented_concisely(error: AirbyteLibError) -> None:
     server = mcp_server(
         "test",
         telemetry=False,
@@ -101,8 +101,8 @@ def test_expected_errors_are_presented_concisely(error: PyAirbyteError) -> None:
 
 def test_format_user_facing_error() -> None:
     assert (
-        format_user_facing_error(PyAirbyteInputError(message="bad", guidance="fix it"))
+        format_user_facing_error(AirbyteLibInputError(message="bad", guidance="fix it"))
         == "bad fix it"
     )
-    assert format_user_facing_error(PyAirbyteInputError(message="bad")) == "bad"
+    assert format_user_facing_error(AirbyteLibInputError(message="bad")) == "bad"
     assert format_user_facing_error(ValueError("plain")) == "plain"

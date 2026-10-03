@@ -41,7 +41,7 @@ from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteMissingResourceError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
@@ -247,14 +247,14 @@ def test_airbyte_credentials_missing_credentials_guidance_matches_resolution_mod
 ) -> None:
     monkeypatch.setattr(cloud_credentials, "try_get_secret", lambda *_, **__: None)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         cloud_credentials._AirbyteCredentials.from_auth(env_vars=env_vars)
 
     assert exc_info.value.guidance == expected_guidance
 
 
 def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
-    with pytest.raises(PyAirbyteInputError, match="Cannot use both"):
+    with pytest.raises(AirbyteLibInputError, match="Cannot use both"):
         cloud_credentials._AirbyteCredentials.from_auth(
             bearer_token="token",
             client_id="client-id",
@@ -288,7 +288,7 @@ def test_cloud_client_init_validates_auth_inputs(
     bearer_token: str | None,
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         CloudClient(
             client_id=client_id,
             client_secret=client_secret,
@@ -340,7 +340,7 @@ def test_cloud_client_list_workspaces_rejects_invalid_argument_combinations(
     request_kwargs: dict[str, object],
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         CloudClient(bearer_token="token").list_workspaces(**request_kwargs)
 
 
@@ -1014,7 +1014,7 @@ def test_cloud_client_get_organization_rejects_ambiguous_default_context(
         },
     )
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         CloudClient(bearer_token="token").get_organization()
 
     error = exc_info.value
@@ -1056,7 +1056,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_workspace_parent_organization_id",
-            _raise(PyAirbyteInputError(message="workspace lookup failed")),
+            _raise(AirbyteLibInputError(message="workspace lookup failed")),
         )
         monkeypatch.setattr(
             client,
@@ -1350,7 +1350,7 @@ def test_cloud_client_get_organization_requires_context_without_defaults(
     monkeypatch.setattr(CloudClient, "_get_membership_organization_ids", lambda _: ())
 
     with pytest.raises(
-        PyAirbyteInputError,
+        AirbyteLibInputError,
         match="Organization ID or organization name is required.",
     ):
         CloudClient(bearer_token="token").get_organization()
@@ -1406,7 +1406,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         client.get_organization(organization_name="Duplicate")
 
     error = exc_info.value
@@ -2171,7 +2171,7 @@ def test_cloud_workspace_list_connectors_rejects_non_positive_limit(
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         workspace.list_connectors(limit=0)
 
 
@@ -2745,7 +2745,7 @@ def test_mcp_list_cloud_connectors_rejects_non_positive_limit(
     )
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         mcp_cloud.list_cloud_connectors(
             None,
             connector_type=connector_type,

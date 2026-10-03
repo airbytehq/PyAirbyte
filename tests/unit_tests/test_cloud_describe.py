@@ -42,7 +42,7 @@ from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteExternalAccessNotEnabledError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 
 
@@ -376,7 +376,7 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
     destination = _seed_destination(workspace, "dest-1", "other-definition")
 
     with pytest.raises(
-        PyAirbyteInputError, match="does not support direct access docs"
+        AirbyteLibInputError, match="does not support direct access docs"
     ):
         destination.get_direct_access_guidance()
 
@@ -563,7 +563,7 @@ def test_get_direct_access_guidance_destination_no_context_layer_notices(
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)
 
-    with pytest.raises(PyAirbyteInputError, match="Section-scoped"):
+    with pytest.raises(AirbyteLibInputError, match="Section-scoped"):
         destination.get_direct_access_guidance(section="streams")
 
 

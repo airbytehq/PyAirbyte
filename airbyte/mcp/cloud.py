@@ -70,10 +70,10 @@ from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteConnectorNotRegisteredError,
     AirbyteDeferredSetupError,
+    AirbyteLibError,
+    AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
-    PyAirbyteError,
-    PyAirbyteInputError,
 )
 from airbyte.mcp._arg_resolvers import (
     resolve_api_args,
@@ -240,7 +240,7 @@ def _infer_connector_type_from_name(connector_name: str) -> ConnectorType:
         return ConnectorType.SOURCE
     if connector_name.startswith("destination-"):
         return ConnectorType.DESTINATION
-    raise PyAirbyteInputError(
+    raise AirbyteLibInputError(
         message=(
             f"Cannot infer connector type from connector name '{connector_name}'. "
             "Pass `connector_type` explicitly or use a canonical name with a "
@@ -702,7 +702,7 @@ def _deploy_deferred_to_cloud(
 ) -> DeferredDeployResult:
     """Create a connector from non-secret configuration; a person completes it in Cloud."""
     if config_secret_name is not None:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="`config_secret_name` cannot be used with `defer_credentials=True`.",
             guidance="Pass non-secret configuration in `config`; credentials are entered in Cloud.",
         )
@@ -710,7 +710,7 @@ def _deploy_deferred_to_cloud(
     if metadata is None or metadata.definition_id is None:
         raise AirbyteConnectorNotRegisteredError(connector_name=connector_name)
     if metadata.connector_type != connector_type:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=f"`{connector_name}` is not a {connector_type} connector.",
             guidance=f"Pass a `{connector_type}-*` connector name.",
         )
@@ -758,7 +758,7 @@ def _get_suggested_streams_for_source(
     metadata = get_connector_metadata_by_definition_id(source.definition_id)
     suggested_streams = metadata.suggested_streams if metadata else None
     if not suggested_streams:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 f"No `selected_streams` provided and source '{source_id}' has no "
                 "suggested streams in the connector registry."
@@ -1225,7 +1225,7 @@ def list_cloud_connectors(
     `feature_filter` to find connectors with external-access features.
     """
     if limit is not None and limit <= 0:
-        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
+        raise AirbyteLibInputError(message="`limit` must be greater than 0.")
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connectors = workspace.list_connectors(
         connector_type=connector_type,
@@ -1416,7 +1416,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     if with_direct_access_guidance:
         try:
             docs = connector.get_direct_access_guidance()
-        except (PyAirbyteError, requests.RequestException) as error:
+        except (AirbyteLibError, requests.RequestException) as error:
             warnings.append(f"Direct access docs are unavailable: {error}")
         else:
             result.direct_access_guidance = render_connector_docs_result(docs)
@@ -1424,7 +1424,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     if with_data_replication_docs:
         try:
             result.data_replication_docs = connector.get_data_replication_docs()
-        except (PyAirbyteError, requests.RequestException) as error:
+        except (AirbyteLibError, requests.RequestException) as error:
             warnings.append(f"Data replication docs are unavailable: {error}")
 
     result.warnings = warnings
@@ -2142,7 +2142,7 @@ def get_cloud_sync_logs(
     """Get the logs from a sync job attempt on Airbyte Cloud."""
     # Validate that line_offset and from_tail are not both set
     if line_offset is not None and from_tail:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Cannot specify both 'line_offset' and 'from_tail' parameters.",
             context={"line_offset": line_offset, "from_tail": from_tail},
         )
@@ -3212,7 +3212,7 @@ def update_custom_source_definition(
         and testing_values is None
         and testing_values_secret_name is None
     ):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "At least one of name, manifest_yaml, testing_values, or "
                 "testing_values_secret_name must be provided to update a custom source definition."
@@ -3304,7 +3304,7 @@ def permanently_delete_custom_source_definition(
 
     # Verify the name matches
     if actual_name != name:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 f"Name mismatch: expected '{name}' but found '{actual_name}'. "
                 "The provided name must exactly match the definition's actual name. "
@@ -3367,7 +3367,7 @@ def permanently_delete_cloud_connector(
 
     # Verify the name matches
     if actual_name != name:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 f"Name mismatch: expected '{name}' but found '{actual_name}'. "
                 f"The provided name must exactly match the {resolved_type.value}'s actual name. "
@@ -3449,7 +3449,7 @@ def permanently_delete_cloud_connection(
 
     # Verify the name matches
     if actual_name != name:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 f"Name mismatch: expected '{name}' but found '{actual_name}'. "
                 "The provided name must exactly match the connection's actual name. "
@@ -3764,7 +3764,7 @@ def update_cloud_connection(
 
     # Validate that at least one setting is provided
     if enabled is None and cron_expression is None and manual_schedule is None:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "At least one setting must be provided: 'enabled', 'cron_expression', "
                 "or 'manual_schedule'."
@@ -3773,7 +3773,7 @@ def update_cloud_connection(
 
     # Validate mutually exclusive schedule options
     if cron_expression is not None and manual_schedule is True:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
                 "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "

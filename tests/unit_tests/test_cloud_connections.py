@@ -22,7 +22,7 @@ from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteCloudError,
     AirbyteMissingResourceError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte_api import models
 from airbyte_api.errors import SDKError
@@ -356,7 +356,7 @@ def test_set_selected_streams_enriches_only_bad_requests(
     monkeypatch.setattr(connection, "dump_raw_catalog", dump_raw_catalog)
 
     if status_code == 400 and catalog_behavior == "available":
-        with pytest.raises(PyAirbyteInputError) as exc_info:
+        with pytest.raises(AirbyteLibInputError) as exc_info:
             connection.set_selected_streams(["missing", "orders"])
 
         assert exc_info.value.get_message().startswith(
@@ -439,7 +439,7 @@ def test_cancel_sync_rejects_latest_completed_job(
 
     monkeypatch.setattr(connection, "get_previous_sync_logs", get_previous_sync_logs)
 
-    with pytest.raises(PyAirbyteInputError, match="succeeded"):
+    with pytest.raises(AirbyteLibInputError, match="succeeded"):
         connection.cancel_sync()
 
 
@@ -461,7 +461,7 @@ def test_cancel_sync_rejects_connection_without_jobs(
 
     monkeypatch.setattr(connection, "get_previous_sync_logs", get_previous_sync_logs)
 
-    with pytest.raises(PyAirbyteInputError, match="No sync jobs found"):
+    with pytest.raises(AirbyteLibInputError, match="No sync jobs found"):
         connection.cancel_sync()
 
 
@@ -520,7 +520,7 @@ def test_cancel_sync_rejects_explicit_job_from_different_connection(
     )
 
     with pytest.raises(
-        PyAirbyteInputError,
+        AirbyteLibInputError,
         match="different-connection-id.*connection-id",
     ):
         connection.cancel_sync(job_id=123)
@@ -547,7 +547,7 @@ def test_cancel_sync_rejects_explicit_completed_job(
         _job_response(123, models.JobStatusEnum.CANCELLED),
     )
 
-    with pytest.raises(PyAirbyteInputError, match="succeeded"):
+    with pytest.raises(AirbyteLibInputError, match="succeeded"):
         connection.cancel_sync(job_id=123)
 
     assert captured_lookup_job_ids == [123]
@@ -627,7 +627,7 @@ def test_set_schedule_rejects_non_quartz_cron(
 
     monkeypatch.setattr(api_util, "patch_connection", patch_connection)
 
-    with pytest.raises(PyAirbyteInputError, match="Quartz"):
+    with pytest.raises(AirbyteLibInputError, match="Quartz"):
         connection.set_schedule(cron_expression=cron_expression)
 
 
@@ -662,7 +662,7 @@ def test_run_sync_conflict_on_disabled_connection_raises_input_error(
     fetch_mock = MagicMock(return_value=_connection_info_with_status("inactive"))
     monkeypatch.setattr(connection, "_fetch_connection_info", fetch_mock)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         connection.run_sync()
 
     assert "disabled" in exc_info.value.message

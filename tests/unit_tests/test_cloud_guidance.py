@@ -217,7 +217,7 @@ def test_get_agent_skill_docs_requires_exactly_one_id(
     """Passing both or neither of `docs_skill_id`/`connector_id` raises."""
     workspace = _make_workspace(monkeypatch)
 
-    with pytest.raises(exc.PyAirbyteInputError, match="exactly one"):
+    with pytest.raises(exc.AirbyteLibInputError, match="exactly one"):
         workspace.get_agent_skill_docs()
-    with pytest.raises(exc.PyAirbyteInputError, match="exactly one"):
+    with pytest.raises(exc.AirbyteLibInputError, match="exactly one"):
         workspace.get_agent_skill_docs("connector:github", connector_id="connector-1")

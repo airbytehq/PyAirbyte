@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from airbyte._util.compat import StrEnum
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 
 
 if TYPE_CHECKING:
@@ -239,11 +239,11 @@ class ExternalApiExecuteResult(BaseModel):
     def entities(self) -> list[dict[str, Any]]:
         """The result as a list of entities.
 
-        Raises `PyAirbyteInputError` if the action did not return a list of entities. Use
+        Raises `AirbyteLibInputError` if the action did not return a list of entities. Use
         `result` for actions whose payload is not a list of entities.
         """
         if not isinstance(self.result, list):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="This action did not return a list of entities.",
                 guidance="Use the `result` attribute to read non-entity result payloads.",
                 context={"result_type": type(self.result).__name__},
@@ -253,7 +253,7 @@ class ExternalApiExecuteResult(BaseModel):
             {type(entity).__name__ for entity in self.result if not isinstance(entity, dict)}
         )
         if invalid_types:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="This action returned a list that is not a list of entities.",
                 guidance="Use the `result` attribute to read non-entity result payloads.",
                 context={"unexpected_item_types": invalid_types},

@@ -15,7 +15,7 @@ from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
@@ -208,7 +208,7 @@ def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
     token: str,
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         api_util.get_user_id_from_bearer_token(SecretString(token))
 
 
@@ -835,7 +835,7 @@ def test_patch_connection_rejects_invalid_status(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(PyAirbyteInputError, match="`status` must be one of"):
+    with pytest.raises(AirbyteLibInputError, match="`status` must be one of"):
         api_util.patch_connection(
             connection_id="connection-1",
             api_root="https://api.airbyte.com/v1",
@@ -904,7 +904,7 @@ def test_permanently_delete_workspace_requires_safe_name(
         )
         assert delete_calls == 1
     else:
-        with pytest.raises(PyAirbyteInputError):
+        with pytest.raises(AirbyteLibInputError):
             api_util.permanently_delete_workspace(
                 workspace_id="workspace-1",
                 api_root="https://api.airbyte.com/v1",
@@ -1173,7 +1173,7 @@ def test_list_workspaces_caps_unfiltered_api_page_size(
 @pytest.mark.parametrize("limit", [0, -1])
 def test_list_connections_rejects_invalid_limits(limit: int) -> None:
     """Verify connection list pagination rejects non-positive limits."""
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         api_util.list_connections(
             workspace_id="workspace-id",
             api_root="https://api.airbyte.com/v1/",

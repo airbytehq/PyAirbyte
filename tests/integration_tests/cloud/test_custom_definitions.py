@@ -106,12 +106,12 @@ def test_yaml_validation_error(
 ) -> None:
     """Test that validation catches invalid manifests."""
     from airbyte._util import text_util
-    from airbyte.exceptions import PyAirbyteInputError
+    from airbyte.exceptions import AirbyteLibInputError
 
     name = f"test-invalid-{text_util.generate_random_suffix()}"
     invalid_manifest = {"version": "0.1.0"}
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         cloud_workspace.publish_custom_source_definition(
             name=name,
             manifest_yaml=invalid_manifest,
@@ -136,7 +136,7 @@ def test_safe_mode_deletion(
 ) -> None:
     """Test safe_mode deletion behavior with different connector names."""
     from airbyte._util import text_util
-    from airbyte.exceptions import PyAirbyteInputError
+    from airbyte.exceptions import AirbyteLibInputError
 
     name = name_template.format(suffix=text_util.generate_random_suffix())
 
@@ -158,7 +158,7 @@ def test_safe_mode_deletion(
         definition.permanently_delete(safe_mode=True)
     else:
         try:
-            with pytest.raises(PyAirbyteInputError) as exc_info:
+            with pytest.raises(AirbyteLibInputError) as exc_info:
                 definition.permanently_delete(safe_mode=True)
 
             error_message = str(exc_info.value).lower()

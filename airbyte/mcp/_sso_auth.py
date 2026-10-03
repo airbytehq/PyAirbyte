@@ -149,7 +149,7 @@ def _token_has_airbyte_user(access_token: str) -> bool:
 
     try:
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer)
-    except exc.PyAirbyteInputError:
+    except exc.AirbyteLibInputError:
         return False
 
     try:

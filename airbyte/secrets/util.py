@@ -22,7 +22,7 @@ def is_secret_available(
     """
     try:
         _ = get_secret(secret_name, allow_prompt=False)
-    except exc.PyAirbyteSecretNotFoundError:
+    except exc.AirbyteLibSecretNotFoundError:
         return False
     else:
         # If no exception was raised, the secret was found.
@@ -44,9 +44,9 @@ def try_get_secret(
     This function will not prompt the user for input if the secret is not found.
 
     Raises:
-        PyAirbyteInputError: If an invalid source name is provided in the `sources` argument.
+        AirbyteLibInputError: If an invalid source name is provided in the `sources` argument.
     """
-    with suppress(exc.PyAirbyteSecretNotFoundError):
+    with suppress(exc.AirbyteLibSecretNotFoundError):
         return get_secret(
             secret_name,
             sources=sources,
@@ -76,9 +76,9 @@ def get_secret(
     sources.
 
     Raises:
-        PyAirbyteSecretNotFoundError: If the secret is not found in any of the configured sources,
+        AirbyteLibSecretNotFoundError: If the secret is not found in any of the configured sources,
             and if no default value is provided.
-        PyAirbyteInputError: If an invalid source name is provided in the `sources` argument.
+        AirbyteLibInputError: If an invalid source name is provided in the `sources` argument.
     """
     if secret_name.startswith(SECRETS_HYDRATION_PREFIX):
         # If the secret name starts with the hydration prefix, we assume it's a secret reference.
@@ -102,7 +102,7 @@ def get_secret(
     for source in list(sources):
         if isinstance(source, SecretSourceEnum):
             if source not in available_sources:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     guidance="Invalid secret source name.",
                     input_value=source,
                     context={
@@ -132,7 +132,7 @@ def get_secret(
     if default:
         return SecretString(default)
 
-    raise exc.PyAirbyteSecretNotFoundError(
+    raise exc.AirbyteLibSecretNotFoundError(
         secret_name=secret_name,
         sources=[str(s) for s in available_sources],
     )

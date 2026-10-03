@@ -14,7 +14,7 @@ from typing import Any, overload
 import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
     raise_if_untrusted_execution_context,
@@ -68,7 +68,7 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
         return list(value)
 
     if not isinstance(value, str):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "Expected a string, list of strings, a set of strings, or None. "
                 f"Got '{type(value).__name__}': {value}"
@@ -86,7 +86,7 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
             if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
                 return parsed
         except json.JSONDecodeError as ex:
-            raise PyAirbyteInputError(message=f"Invalid JSON array: {value}") from ex
+            raise AirbyteLibInputError(message=f"Invalid JSON array: {value}") from ex
 
     # Fallback to CSV split:
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -153,7 +153,7 @@ def resolve_connector_config(  # noqa: PLR0912
             config_file = Path(config_file)
 
         if not isinstance(config_file, Path):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     "config_file must be a string or Path object, "
                     f"got: {type(config_file).__name__}"
@@ -164,7 +164,7 @@ def resolve_connector_config(  # noqa: PLR0912
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
         def _raise_invalid_type(file_config: object) -> None:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Configuration file must contain a valid JSON/YAML object, "
                     f"got: {type(file_config).__name__}"
@@ -177,7 +177,7 @@ def resolve_connector_config(  # noqa: PLR0912
                 _raise_invalid_type(file_config)
             config_dict.update(file_config)
         except Exception as e:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"Error reading configuration file {config_file}: {e}"
             ) from e
 
@@ -188,7 +188,7 @@ def resolve_connector_config(  # noqa: PLR0912
             try:
                 parsed_config = json.loads(config)
                 if not isinstance(parsed_config, dict):
-                    raise PyAirbyteInputError(
+                    raise AirbyteLibInputError(
                         message=(
                             f"Parsed JSON config must be an object/dict, "
                             f"got: {type(parsed_config).__name__}"
@@ -196,9 +196,9 @@ def resolve_connector_config(  # noqa: PLR0912
                     )
                 config_dict.update(parsed_config)
             except json.JSONDecodeError as e:
-                raise PyAirbyteInputError(message=f"Invalid JSON in config parameter: {e}") from e
+                raise AirbyteLibInputError(message=f"Invalid JSON in config parameter: {e}") from e
         else:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"Config must be a dict or JSON string, got: {type(config).__name__}"
             )
 
@@ -223,7 +223,7 @@ def resolve_connector_config(  # noqa: PLR0912
                 "To set a secret via reference, set its value to "
                 "`secret_reference::ENV_VAR_NAME`.\n"
             )
-            raise PyAirbyteInputError(message=error_msg)
+            raise AirbyteLibInputError(message=error_msg)
 
     if config_secret_name is not None:
         raise_if_untrusted_execution_context(
@@ -232,7 +232,7 @@ def resolve_connector_config(  # noqa: PLR0912
         # Assume this is a secret name that points to a JSON/YAML config.
         secret_config = yaml.safe_load(str(get_secret(config_secret_name)))
         if not isinstance(secret_config, dict):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Secret '{config_secret_name}' must contain a valid JSON or YAML object, "
                     f"but got: {type(secret_config).__name__}"
@@ -256,13 +256,13 @@ def resolve_api_args(api_args: dict[str, Any] | str | None) -> dict[str, Any] | 
     try:
         parsed: Any = json.loads(api_args)
     except json.JSONDecodeError as ex:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The `api_args` string is not valid JSON.",
             guidance="Pass `api_args` as an object, or as a JSON object string.",
         ) from ex
 
     if not isinstance(parsed, dict):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The `api_args` string is not a JSON object.",
             guidance="Pass `api_args` as an object, or as a JSON object string.",
             context={"parsed_type": type(parsed).__name__},
@@ -282,13 +282,13 @@ def resolve_list_of_dicts(
     try:
         parsed: Any = json.loads(value)
     except json.JSONDecodeError as ex:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=f"The `{arg_name}` string is not valid JSON.",
             guidance=f"Pass `{arg_name}` as a list of objects, or as a JSON array string.",
         ) from ex
 
     if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=f"The `{arg_name}` string is not a JSON array of objects.",
             guidance=f"Pass `{arg_name}` as a list of objects, or as a JSON array string.",
             context={"parsed_type": type(parsed).__name__},

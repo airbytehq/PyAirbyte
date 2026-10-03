@@ -45,7 +45,7 @@ from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteExternalAccessNotEnabledError,
     AirbyteMissingResourceError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 
 
@@ -246,7 +246,7 @@ def test_execute_rejects_mismatched_action(
     calls = _patch_execute(monkeypatch, {"data": None})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    with pytest.raises(PyAirbyteInputError):
+    with pytest.raises(AirbyteLibInputError):
         getattr(source, method_name)("issues", bad_action)  # type: ignore[arg-type]
 
     assert calls == []
@@ -260,7 +260,7 @@ def test_execute_direct_action_rejects_write_action_as_read_only(
     calls = _patch_execute(monkeypatch, {"data": None})
     source = _seed_source(workspace, "source-1", "GitHub Issues")
 
-    with pytest.raises(PyAirbyteInputError, match="read-only"):
+    with pytest.raises(AirbyteLibInputError, match="read-only"):
         source._execute_direct_action(  # noqa: SLF001
             entity_type="issues",
             action="delete",
@@ -491,7 +491,7 @@ def test_execute_sql_query_requires_dialect_when_not_inferrable(
         workspace, "destination-1", "not-a-passthrough-definition"
     )
 
-    with pytest.raises(PyAirbyteInputError):
+    with pytest.raises(AirbyteLibInputError):
         destination.execute_sql_query("SELECT 1")
 
     assert calls == []
@@ -687,7 +687,7 @@ def test_as_cloud_subclass_casts(
     assert casted.connector_id == "connector-1"
     assert casted._connector_info is connector._connector_info  # noqa: SLF001
     assert getattr(casted, cast_name)() is casted
-    with pytest.raises(PyAirbyteInputError, match=mismatch_match):
+    with pytest.raises(AirbyteLibInputError, match=mismatch_match):
         getattr(connector, mismatch_name)()
 
 
@@ -811,7 +811,7 @@ def test_cloud_execute_preserves_payload(
     if isinstance(data, list):
         assert result.entities == data
     else:
-        with pytest.raises(PyAirbyteInputError, match="did not return a list"):
+        with pytest.raises(AirbyteLibInputError, match="did not return a list"):
             _ = result.entities
 
 
@@ -1141,7 +1141,7 @@ def test_search_input_validation(
         else _seed_destination(workspace, "connector-1", SNOWFLAKE_DEFINITION_ID)
     )
 
-    with pytest.raises(PyAirbyteInputError, match=match):
+    with pytest.raises(AirbyteLibInputError, match=match):
         connector.execute_search_query("refunds", **kwargs)
 
     assert calls == []
