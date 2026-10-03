@@ -2434,7 +2434,7 @@ def test_describe_helper_fallback_guidance_names_no_tools() -> None:
     connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
     connector.guidance = connector_docs.build_direct_access_sql_guidance(
         destination,
-        sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+        sql_passthrough_warning=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
     )
 
     result = _describe(connector, with_direct_access_guidance=True)
