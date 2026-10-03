@@ -23,7 +23,7 @@ from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._sql import CachedDataset
 from airbyte.settings import AirbyteSettings
 from airbyte.shared.catalog_providers import CatalogProvider
-from airbyte.shared.sql_processor import SqlConfig, TableStatistics
+from airbyte.shared.sql_processor import SqlConfig, SQLRuntimeError, TableStatistics
 from airbyte.shared.state_writers import StdOutStateWriter
 
 
@@ -221,7 +221,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
                 sqlalchemy_exc.SQLAlchemyError,
             ) as ex:
                 msg = f"Error when executing SQL:\n{sql_query}\n{type(ex).__name__}{ex!s}"
-                raise RuntimeError(msg) from ex
+                raise SQLRuntimeError(message=msg) from ex
 
             # Convert the result to a list of dictionaries while connection is still open
             if result.returns_rows:

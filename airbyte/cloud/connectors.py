@@ -155,7 +155,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._enablement: ConnectorEnablement | None = None
         """Fusion enablement lookup result. (Cached; `None` until fetched.)"""
 
-        self._enablement_error: exc.AirbyteError | None = None
+        self._enablement_error: exc.AirbyteCloudError | None = None
         """The 404 (no active connector of this kind) that answered the enablement
         lookup, if any. (Cached; other failures, including 403s, are never cached.)"""
 
@@ -355,7 +355,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             error_message=result[1],
         )
         if raise_on_error and not check_result:
-            raise ValueError(f"Check failed: {check_result}")
+            raise exc.AirbyteConnectorCheckFailedError(
+                connector_name=(self._connector_info.name if self._connector_info else None),
+                message=f"Check failed: {check_result}",
+                context={"connector_id": self.connector_id},
+            )
 
         return check_result
 
@@ -591,7 +595,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
                 error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
             )
@@ -610,7 +614,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 connector_type=self.connector_type,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
                 error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
             )
@@ -618,7 +622,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     def _raise_if_feature_not_enabled(
         self,
-        error: exc.AirbyteError,
+        error: exc.AirbyteCloudError,
         feature: ConnectorFeature,
         *,
         guidance: str | None = None,
@@ -636,7 +640,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             return
         try:
             enabled = self.is_feature_enabled(feature)
-        except (exc.AirbyteError, requests.RequestException, ValueError) as lookup_error:
+        except (exc.AirbyteCloudError, requests.RequestException, ValueError) as lookup_error:
             if (
                 isinstance(lookup_error, exc.AirbyteCloudApiError)
                 and lookup_error.status_code == HTTPStatus.FORBIDDEN
@@ -686,7 +690,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         workspace's API roots have no Context layer API. When the Cloud Config API
         reports the connector as forbidden or not found, the error is re-raised as
         `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise,
+        disabled for the connector; the original `AirbyteCloudError` propagates otherwise,
         including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
@@ -727,7 +731,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(error, ConnectorFeature.DIRECT_ACCESS)
             raise
 
@@ -742,7 +746,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Fetch and cache the Context layer connector details.
 
         The connector's docs skill is probed: a skill doc exists only for connectors the
-        Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
+        Context layer knows. A 403 or 404 `AirbyteCloudError` from the docs read means the
         connector is not enabled for agent access, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
         response, transport) is raised to the caller.
@@ -762,7 +766,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     credentials=self.workspace._credentials,  # noqa: SLF001
                 )
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
             warnings.append(f"Connector direct-access docs lookup failed: {error}")
@@ -935,7 +939,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                         section=section,
                     )
                 )
-            except exc.AirbyteError as error:
+            except exc.AirbyteCloudError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
                 return connector_docs.build_direct_access_sql_guidance(
@@ -1575,30 +1579,47 @@ class CustomCloudSourceDefinition:
             "Only YAML manifest-based custom sources are currently available."
         )
 
-    def rename(
-        self,
-        new_name: str,  # noqa: ARG002
-    ) -> CustomCloudSourceDefinition:
+    def rename(self, name: str) -> CustomCloudSourceDefinition:
         """Rename this custom source definition.
 
-        Note: Only Docker custom sources can be renamed. YAML custom sources
-        cannot be renamed as their names are derived from the manifest.
+        Renames the definition and its Connector Builder project while preserving
+        any unpublished draft.
 
         Args:
-            new_name: New display name for the connector
+            name: New display name for the definition
 
         Returns:
             Updated CustomCloudSourceDefinition object
 
         Raises:
-            PyAirbyteInputError: If attempting to rename a YAML connector
-            NotImplementedError: If attempting to rename a Docker connector (not yet supported)
+            PyAirbyteInputError: If the connector builder project ID cannot be found.
+            NotImplementedError: If attempting to rename a Docker connector (not yet supported).
         """
         if self.definition_type == "yaml":
-            raise exc.PyAirbyteInputError(
-                message="Cannot rename YAML custom source definitions",
-                context={"definition_id": self.definition_id},
+            project = self.get_builder_project_data(use_cache=False)
+            builder_project_id = self._connector_builder_project_id
+            assert builder_project_id is not None
+            builder_project = project["builderProject"]
+            draft_manifest = (
+                project["declarativeManifest"]["manifest"]
+                if builder_project.get("hasDraft")
+                else None
             )
+            api_util.update_connector_builder_project(
+                workspace_id=self._builder_project_workspace_id or self.workspace.workspace_id,
+                builder_project_id=builder_project_id,
+                name=name,
+                draft_manifest=draft_manifest,
+                components_file_content=builder_project.get("componentsFileContent"),
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                config_api_root=self.workspace.config_api_root,
+            )
+            self._definition_info = None
+            self._builder_project_data = None
+            return self
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

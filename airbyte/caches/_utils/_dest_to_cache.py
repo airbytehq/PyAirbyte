@@ -21,7 +21,7 @@ from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.exceptions import PyAirbyteSecretNotFoundError
+from airbyte.exceptions import PyAirbyteInputError, PyAirbyteSecretNotFoundError
 from airbyte.secrets import get_secret
 from airbyte.secrets.base import SecretString
 
@@ -76,17 +76,22 @@ def destination_to_cache(
             else:
                 destination_type = str(destination_type)
         except KeyError as ex:
-            raise ValueError(
-                f"Missing 'destinationType' in keys {list(destination_configuration.keys())}."
+            raise PyAirbyteInputError(
+                message=(
+                    "Missing 'destinationType' in keys "
+                    f"{list(destination_configuration.keys())}."
+                ),
             ) from ex
     else:
         destination_type = destination_configuration.DESTINATION_TYPE.value
 
     if destination_type not in conversion_fn_map:
-        raise ValueError(
-            "Cannot convert destination to a cache configuration. "
-            f"Destination type {destination_type} not supported. "
-            f"Supported cache types: {list(conversion_fn_map.keys())}"
+        raise PyAirbyteInputError(
+            message=(
+                "Cannot convert destination to a cache configuration. "
+                f"Destination type {destination_type} not supported. "
+                f"Supported cache types: {list(conversion_fn_map.keys())}"
+            ),
         )
 
     conversion_fn = conversion_fn_map[destination_type]
@@ -193,7 +198,7 @@ def motherduck_destination_to_cache(
         destination_configuration = DestinationDuckdb(**filtered)
 
     if not destination_configuration.motherduck_api_key:
-        raise ValueError("MotherDuck API key is required for MotherDuck cache.")
+        raise PyAirbyteInputError(message="MotherDuck API key is required for MotherDuck cache.")
 
     return MotherDuckCache(
         database=destination_configuration.destination_path,
@@ -217,7 +222,7 @@ def postgres_destination_to_cache(
 
     port: int = int(destination_configuration.port) if destination_configuration.port else 5432
     if not destination_configuration.password:
-        raise ValueError("Password is required for Postgres cache.")
+        raise PyAirbyteInputError(message="Password is required for Postgres cache.")
 
     return PostgresCache(
         database=destination_configuration.database,

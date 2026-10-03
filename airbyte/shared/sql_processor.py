@@ -79,7 +79,7 @@ class RecordDedupeMode(enum.Enum):
     REPLACE = "replace"
 
 
-class SQLRuntimeError(Exception):
+class SQLRuntimeError(exc.PyAirbyteError):
     """Raised when an SQL operation fails."""
 
 
@@ -863,7 +863,7 @@ class SqlProcessorBase(abc.ABC):
                 sqlalchemy.exc.SQLAlchemyError,
             ) as ex:
                 msg = f"Error when executing SQL:\n{sql}\n{type(ex).__name__}{ex!s}"
-                raise SQLRuntimeError(msg) from None  # from ex
+                raise SQLRuntimeError(message=msg) from None  # from ex
 
         return result
 

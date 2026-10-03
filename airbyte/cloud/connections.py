@@ -33,8 +33,8 @@ from airbyte.cloud.models import (
 )
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
+    AirbyteCloudError,
     AirbyteConnectionSyncError,
-    AirbyteError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceMismatchError,
     PyAirbyteInputError,
@@ -548,7 +548,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
             )
-        except AirbyteError as ex:
+        except AirbyteCloudError as ex:
             status_code = (ex.context or {}).get("status_code")
             if status_code is None:
                 status_code = getattr(ex, "status_code", None)
@@ -667,7 +667,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     "message dicts (each with a top-level `type` of STREAM, GLOBAL, "
                     "or LEGACY). Got a list that does not match protocol format."
                 )
-                raise ValueError(msg)
+                raise PyAirbyteInputError(message=msg)
             api_state = _denormalize_protocol_state_to_api(
                 protocol_messages=connection_state,
                 connection_id=self.connection_id,
@@ -682,7 +682,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 api_state = connection_state
         else:
             msg = f"Expected a dict or list, got {type(connection_state)}"
-            raise TypeError(msg)
+            raise PyAirbyteInputError(message=msg)
 
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
@@ -966,7 +966,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 bearer_token=self.workspace.bearer_token,
                 configurations=configurations,
             )
-        except AirbyteError as ex:
+        except AirbyteCloudError as ex:
             status_code = (ex.context or {}).get("status_code")
             if status_code is None:
                 status_code = getattr(ex, "status_code", None)
@@ -1046,11 +1046,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             enabled: True to enable (set status to 'active'), False to disable
                 (set status to 'inactive').
             ignore_noop: If True (default), silently return if the connection is already
-                in the requested state. If False, raise ValueError when the requested
+                in the requested state. If False, raise `PyAirbyteInputError` when the requested
                 state matches the current state.
 
         Raises:
-            ValueError: If ignore_noop is False and the connection is already in the
+            PyAirbyteInputError: If ignore_noop is False and the connection is already in the
                 requested state.
         """
         # Always fetch fresh data to check current status
@@ -1061,9 +1061,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         if current_status == desired_status:
             if ignore_noop:
                 return
-            raise ValueError(
-                f"Connection is already {'enabled' if enabled else 'disabled'}. "
-                f"Current status: {current_status}"
+            raise PyAirbyteInputError(
+                message=(
+                    f"Connection is already {'enabled' if enabled else 'disabled'}. "
+                    f"Current status: {current_status}"
+                ),
             )
 
         updated_response = api_util.patch_connection(

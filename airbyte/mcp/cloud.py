@@ -58,9 +58,9 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
     AirbyteCloudApiError,
+    AirbyteCloudError,
     AirbyteConnectorNotRegisteredError,
     AirbyteDeferredSetupError,
-    AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
     PyAirbyteError,
@@ -143,7 +143,7 @@ _DiscoveryResult = TypeVar("_DiscoveryResult")
 
 
 def _handle_discovery_permission_error(
-    error: AirbyteError,
+    error: AirbyteCloudError,
     *,
     make_result: Callable[[str], _DiscoveryResult],
 ) -> _DiscoveryResult:
@@ -1251,7 +1251,7 @@ def list_cloud_connectors(
         if probe_failure is None:
             try:
                 features = connector.enabled_features
-            except (AirbyteError, requests.RequestException) as error:
+            except (AirbyteCloudError, requests.RequestException) as error:
                 warning = _feature_lookup_warning(error)
                 if isinstance(error, requests.RequestException) or (
                     isinstance(error, AirbyteCloudApiError)
@@ -1364,7 +1364,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     warnings: list[str] = []
     try:
         integration_name = connector.integration_name
-    except AirbyteError as error:
+    except AirbyteCloudError as error:
         warnings.append(f"Integration name lookup failed: {error}")
         integration_name = None
 
@@ -1379,7 +1379,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
 
     try:
         result.enabled_features = sorted(connector.enabled_features)
-    except (AirbyteError, requests.RequestException) as error:
+    except (AirbyteCloudError, requests.RequestException) as error:
         result.enabled_features = FEATURES_UNKNOWN
         warnings.append(_feature_lookup_warning(error))
 
@@ -1392,7 +1392,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
             context_layer = connector._context_layer_inspect(  # noqa: SLF001
                 warnings=warnings,
             )
-        except (AirbyteError, requests.RequestException) as error:
+        except (AirbyteCloudError, requests.RequestException) as error:
             warnings.append(f"Connector direct-access docs lookup failed: {error}")
         else:
             if context_layer is not None:
@@ -1404,13 +1404,13 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
                 result.config = connector.as_cloud_source().configuration
             elif connector_type == ConnectorType.DESTINATION:
                 result.config = connector.as_cloud_destination().configuration
-        except AirbyteError as error:
+        except AirbyteCloudError as error:
             warnings.append(f"Connector configuration lookup failed: {error}")
 
     if with_replication_details:
         try:
             result.replication_details = connector_docs.build_connection_details(connector)
-        except AirbyteError as error:
+        except AirbyteCloudError as error:
             warnings.append(f"Connection listing failed: {error}")
 
     if with_direct_access_guidance:
@@ -2411,7 +2411,7 @@ def list_cloud_workspaces(
             limit=limit,
             privilege_scope=privilege_scope,
         )
-    except AirbyteError as error:
+    except AirbyteCloudError as error:
         return _handle_discovery_permission_error(
             error,
             make_result=lambda message: CloudWorkspaceListResult(
@@ -2447,7 +2447,7 @@ def list_cloud_workspaces(
             record_resolved_organization(resolved_organization_id)
         try:
             organization = client.get_organization(organization_id=resolved_organization_id)
-        except AirbyteError:
+        except AirbyteCloudError:
             pass
         else:
             for result in results:
@@ -2666,7 +2666,7 @@ def list_cloud_organizations(
             feature_filter=feature_filter,
             limit=effective_limit,
         )
-    except AirbyteError as error:
+    except AirbyteCloudError as error:
         return _handle_discovery_permission_error(
             error,
             make_result=lambda message: CloudOrganizationListResult(
@@ -2837,8 +2837,10 @@ def get_cloud_organization_billing_status(
     record_resolved_organization(org.organization_id)
     try:
         info = org.get_billing_status()
-    except (AirbyteError, NotImplementedError) as error:
-        reason = error.message if isinstance(error, AirbyteError) and error.message else str(error)
+    except (AirbyteCloudError, NotImplementedError) as error:
+        reason = (
+            error.message if isinstance(error, AirbyteCloudError) and error.message else str(error)
+        )
         return CloudOrganizationBillingStatusResult(
             organization_id=org.organization_id,
             organization_name=org.organization_name,
@@ -3148,6 +3150,16 @@ def update_custom_source_definition(
             default=None,
         ),
     ],
+    name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional new display name for the definition (also renames its "
+                "Connector Builder project)."
+            ),
+            default=None,
+        ),
+    ] = None,
     pre_validate: Annotated[
         bool,
         Field(
@@ -3185,18 +3197,25 @@ def update_custom_source_definition(
 ) -> str:
     """Update a custom YAML source definition in Airbyte Cloud.
 
-    Updates the manifest and/or testing values for an existing custom source definition.
-    At least one of manifest_yaml, testing_values, or testing_values_secret_name must be provided.
+    Updates the definition name, manifest, and/or testing values for an existing custom source
+    definition. Renaming also updates the Connector Builder project name.
+    At least one of name, manifest_yaml, testing_values, or testing_values_secret_name must be
+    provided.
     """
     check_guid_created_in_session(definition_id)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
-    if manifest_yaml is None and testing_values is None and testing_values_secret_name is None:
+    if (
+        name is None
+        and manifest_yaml is None
+        and testing_values is None
+        and testing_values_secret_name is None
+    ):
         raise PyAirbyteInputError(
             message=(
-                "At least one of manifest_yaml, testing_values, or testing_values_secret_name "
-                "must be provided to update a custom source definition."
+                "At least one of name, manifest_yaml, testing_values, or "
+                "testing_values_secret_name must be provided to update a custom source definition."
             ),
             context={
                 "definition_id": definition_id,
@@ -3228,6 +3247,9 @@ def update_custom_source_definition(
             manifest_yaml=processed_manifest,
             pre_validate=pre_validate,
         )
+
+    if name is not None:
+        custom_source = custom_source.rename(name=name)
 
     if testing_values_dict is not None:
         custom_source.set_testing_values(testing_values_dict)
@@ -3742,17 +3764,21 @@ def update_cloud_connection(
 
     # Validate that at least one setting is provided
     if enabled is None and cron_expression is None and manual_schedule is None:
-        raise ValueError(
-            "At least one setting must be provided: 'enabled', 'cron_expression', "
-            "or 'manual_schedule'."
+        raise PyAirbyteInputError(
+            message=(
+                "At least one setting must be provided: 'enabled', 'cron_expression', "
+                "or 'manual_schedule'."
+            ),
         )
 
     # Validate mutually exclusive schedule options
     if cron_expression is not None and manual_schedule is True:
-        raise ValueError(
-            "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
-            "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "
-            "for manual-only syncs."
+        raise PyAirbyteInputError(
+            message=(
+                "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
+                "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "
+                "for manual-only syncs."
+            ),
         )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)

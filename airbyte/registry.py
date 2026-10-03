@@ -86,8 +86,8 @@ class ConnectorType(StrEnum):
             return cls(value)
         except ValueError:
             valid = ", ".join(f"`{member.value}`" for member in cls)
-            raise ValueError(
-                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
+            raise exc.PyAirbyteInputError(
+                message=f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
             ) from None
 
 

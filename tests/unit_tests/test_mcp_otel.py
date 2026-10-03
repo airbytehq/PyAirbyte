@@ -1690,6 +1690,10 @@ _FUSION_ID = "326245c8-0000-4000-8000-000000000000"
             "/connector_builder_projects/list",
             "https://cloud.airbyte.com/api/v1/connector_builder_projects/list",
         ),
+        (
+            "/connector_builder_projects/update",
+            "https://cloud.airbyte.com/api/v1/connector_builder_projects/update",
+        ),
         ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
         *[
             (

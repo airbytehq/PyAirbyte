@@ -66,7 +66,7 @@ from airbyte.cloud.models import (
 )
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.destinations.base import Destination
-from airbyte.exceptions import AirbyteError
+from airbyte.exceptions import AirbyteCloudError
 from airbyte.registry import _get_connector_name_by_definition_id
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.hydration import detect_hardcoded_secrets
@@ -341,7 +341,7 @@ class CloudWorkspace:
         which may not be available with workspace-scoped credentials.
 
         Args:
-            raise_on_error: If True (default), raises AirbyteError on permission or API errors.
+            raise_on_error: If True (default), raises AirbyteCloudError on permission or API errors.
                 If False, returns None instead of raising.
 
         Returns:
@@ -349,12 +349,12 @@ class CloudWorkspace:
             or None if raise_on_error=False and an error occurred.
 
         Raises:
-            AirbyteError: If raise_on_error=True and the organization info cannot be fetched
+            AirbyteCloudError: If raise_on_error=True and the organization info cannot be fetched
                 (e.g., due to insufficient permissions or missing data).
         """
         try:
             info = self._organization_info
-        except (AirbyteError, NotImplementedError):
+        except (AirbyteCloudError, NotImplementedError):
             if raise_on_error:
                 raise
             return None
@@ -365,7 +365,7 @@ class CloudWorkspace:
         # Validate that both organization_id and organization_name are non-null and non-empty
         if not organization_id or not organization_name:
             if raise_on_error:
-                raise AirbyteError(
+                raise AirbyteCloudError(
                     message="Organization info is incomplete.",
                     context={
                         "organization_id": organization_id,
@@ -556,13 +556,13 @@ class CloudWorkspace:
             if connector.name and name_lower in connector.name.lower()
         ]
         if not matches:
-            raise exc.AirbyteError(
+            raise exc.AirbyteCloudError(
                 message="No connector found with the given ID or name.",
                 guidance="Use `list_connectors()` to see the available connectors.",
                 context={"lookup": lookup.name, "workspace_id": self.workspace_id},
             )
         if len(matches) > 1:
-            raise exc.AirbyteError(
+            raise exc.AirbyteCloudError(
                 message="Multiple connectors matched the given name.",
                 guidance="Pass `connector_id`, or a name that matches only one connector.",
                 context={
@@ -1021,7 +1021,7 @@ class CloudWorkspace:
                 to cascade deletes.
         """
         if connection is None:
-            raise ValueError("No connection ID provided.")
+            raise exc.PyAirbyteInputError(message="No connection ID provided.")
 
         if isinstance(connection, str):
             connection = CloudConnection(
