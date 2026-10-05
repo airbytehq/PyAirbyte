@@ -2010,8 +2010,8 @@ def get_cloud_search_status(
 
 
 @mcp_tool(
-    read_only=False,
-    idempotent=False,
+    read_only=True,
+    idempotent=True,
     open_world=True,
 )
 def check_cloud_connector(
