@@ -69,6 +69,7 @@ from airbyte.constants import (
     MCP_DOMAINS_ENV_VAR,
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
+    MCP_INSIDERS_MODULES,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
@@ -525,11 +526,33 @@ def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
     )
 
 
+def _insiders_mode(app: FastMCP) -> bool | None:
+    """Return whether insiders tool modules are advertised for this request.
+
+    `AIRBYTE_MCP_INSIDERS` sets the deployment default and callers may only narrow it: a
+    falsy host value denies insiders tools outright, while a truthy one still honors an
+    explicit `X-MCP-Insiders: 0`. Returns `None` when neither is set to a recognized value.
+    """
+    hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
+    caller_mode = _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
+
+    if hosted_mode is False:
+        return False
+    if hosted_mode is True:
+        return caller_mode is not False
+
+    return caller_mode
+
+
 def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
     When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
     When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
+
+    Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
+    list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
+    include list.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
@@ -543,6 +566,13 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     # Hide tools from excluded modules
     if exclude_modules and tool_module and tool_module in exclude_modules:
         return False
+
+    if tool_module in MCP_INSIDERS_MODULES:
+        insiders_mode = _insiders_mode(app)
+        if insiders_mode is False:
+            return False
+        if insiders_mode is None:
+            return tool_module in include_modules
 
     if include_modules:
         # Only show tools from included modules
