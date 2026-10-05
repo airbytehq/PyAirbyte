@@ -252,6 +252,11 @@ set; the interactive path activates once the OIDC client credentials are set.
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST` — host interface to bind for the HTTP server (defaults
   to `0.0.0.0`).
+- `AIRBYTE_MCP_LOG_FORMAT` — `text` (default) leaves the existing console
+  logging untouched; `json` writes one JSON object per line on stdout,
+  including fastmcp and uvicorn logs and Datadog trace-correlation fields.
+  Case-insensitive; any other value fails startup. Field details are
+  documented in `airbyte.mcp.http_main`.
 - `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — enable
   interactive OIDC (both required).
 - `AIRBYTE_MCP_OIDC_CONFIG_URL` — OIDC discovery URL (required when the client

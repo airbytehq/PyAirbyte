@@ -39,6 +39,22 @@ Environment variables:
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
   to `0.0.0.0`.
+- `AIRBYTE_MCP_LOG_FORMAT`: log output format, case-insensitive. Valid values:
+  - `text` (default; also used when unset or blank): leaves the existing
+    console logging untouched. Root loggers use the handler `airbyte_cdk`
+    installs on import (AirbyteMessage-shaped lines on stdout), fastmcp
+    writes Rich console output to stderr, and uvicorn uses its own text
+    handlers.
+  - `json`: one JSON object per line on stdout for every logger, including
+    fastmcp and uvicorn. Each line has `timestamp`, `severity`, `logger.name`,
+    and `message`; exceptions go in `error.kind`, `error.message`, and
+    `error.stack`, so a traceback stays in one entry. With `DD_LOGS_INJECTION`
+    enabled under `ddtrace-run`, it also includes `dd.trace_id`, `dd.span_id`,
+    `dd.service`, `dd.env`, and `dd.version`, which Datadog uses to link logs
+    to traces. `severity` uses the stdlib level names, which both Datadog and
+    Cloud Logging accept.
+
+  Any other value fails startup.
 - `KAPA_API_KEY`: optional secret for Kapa's Retrieval API.
 - `KAPA_RETRIEVAL_API_URL`: optional Kapa Retrieval API endpoint, including the project ID.
 
@@ -243,6 +259,7 @@ from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
 )
+from airbyte.mcp._logging import configure_logging, resolve_log_format
 from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
@@ -369,7 +386,7 @@ def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     from airbyte.mcp._otel import SessionIdHeaderDigest, install  # noqa: PLC0415
 
-    logging.basicConfig(level=logging.INFO)
+    uvicorn_config = configure_logging(resolve_log_format())
     set_hosted_mcp_mode()
     app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
@@ -440,6 +457,7 @@ def main() -> None:
             wrapper=wrap_http_app,
             host=http_host,
             port=DEFAULT_HTTP_PORT,
+            uvicorn_config=uvicorn_config,
         )
     except KeyboardInterrupt:
         logger.info("Airbyte MCP HTTP server interrupted by user.")
