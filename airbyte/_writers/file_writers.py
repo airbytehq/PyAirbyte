@@ -188,7 +188,7 @@ class FileWriterBase(AirbyteWriterInterface):
             )
 
         if batch_handle.open_file_writer is None:
-            raise exc.PyAirbyteInternalError(message="Expected open file writer.")
+            raise exc.AirbyteLibInternalError(message="Expected open file writer.")
 
         self._write_record_dict(
             record_dict=StreamRecord.from_record_message(
@@ -214,7 +214,7 @@ class FileWriterBase(AirbyteWriterInterface):
         handles state tracking and other logic.
         """
         _ = stdin, catalog_provider, write_strategy, state_writer, progress_tracker
-        raise exc.PyAirbyteInternalError from NotImplementedError(
+        raise exc.AirbyteLibInternalError from NotImplementedError(
             "File writers should be wrapped by another AirbyteWriterInterface."
         )
 

@@ -112,7 +112,11 @@ from airbyte.caches._utils._dest_to_cache import destination_to_cache
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, JobStatusEnum
 from airbyte.datasets import CachedDataset
-from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
+from airbyte.exceptions import (
+    AirbyteConnectionSyncError,
+    AirbyteConnectionSyncTimeoutError,
+    AirbyteLibInputError,
+)
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
@@ -171,9 +175,11 @@ class SyncAttempt:
     def _get_attempt_data(self) -> dict[str, Any]:
         """Get attempt data from the provided attempt data."""
         if self._attempt_data is None:
-            raise ValueError(
-                "Attempt data not provided. SyncAttempt should be created via "
-                "SyncResult.get_attempts()."
+            raise AirbyteLibInputError(
+                message=(
+                    "Attempt data not provided. SyncAttempt should be created via "
+                    "SyncResult.get_attempts()."
+                ),
             )
         return self._attempt_data["attempt"]
 

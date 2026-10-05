@@ -130,6 +130,10 @@ the current session. Modifications to configurations are likewise treated as pot
 and are only allowed for objects created in the current session.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
+When `AIRBYTE_CLOUD_MCP_SAFE_MODE` is explicitly set to a truthy value, external-access tools
+(for example `execute_external_api_query`) are also disabled unless
+`AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` explicitly allows them. Safe mode's default-on
+behavior does not by itself disable external access.
 
 ### Airbyte Cloud Read-Only Mode
 
@@ -143,6 +147,26 @@ This mode does allow running syncs on existing connectors, since sync operations
 are not considered to be modifications of the Airbyte Cloud workspace.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+
+## Airbyte Cloud Pipeline and External Access Permissions
+
+Pipeline changes and external access can be controlled independently. The
+`AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES` environment variable and
+`X-MCP-Allow-Pipeline-Changes` request header control pipeline-changing tools. The
+`AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS` environment variable and
+`X-MCP-Allow-External-Access` request header control external-access tools, such as
+`execute_external_api_query`, which can run connector passthrough queries, search, and inspect
+external data or skill documentation.
+
+Each setting accepts `1`, `true`, or `yes` to allow, and `0`, `false`, or `no` to deny. An
+explicit environment denial cannot be overridden by a request header. An environment allow can
+be narrowed by a request header denial. If the environment setting is unset, the request header
+decides. The legacy `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
+
+When external access is unset, it is disabled if pipeline changes are disabled or
+`AIRBYTE_CLOUD_MCP_SAFE_MODE=1` is explicitly set; otherwise external-access tools remain
+available. Explicitly allowing external access overrides these calculated defaults. Running or
+cancelling a sync is not a pipeline change.
 
 ## Authentication for Remote (HTTP) Servers
 

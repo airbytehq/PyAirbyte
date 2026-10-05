@@ -15,6 +15,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, TypeVar
@@ -235,6 +236,13 @@ def request_properties(
     else:
         auth_method = _stdio_auth_method()
         session_id = _STDIO_SESSION_ID
+
+    # A manually hosted HTTP app may not set the hosted-mode flag. Prefer its
+    # actual request scheme; middleware state preserves it across token exchange.
+    with suppress(RuntimeError):
+        auth_method = state.get(_AUTH_METHOD_STATE_KEY) or _auth_method_from_headers(
+            get_http_request().headers
+        )
 
     return context_properties(
         auth_method=auth_method if auth_method in {"bearer", "client_credentials"} else "none",

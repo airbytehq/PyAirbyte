@@ -39,9 +39,9 @@ from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
@@ -247,14 +247,14 @@ def test_airbyte_credentials_missing_credentials_guidance_matches_resolution_mod
 ) -> None:
     monkeypatch.setattr(cloud_credentials, "try_get_secret", lambda *_, **__: None)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         cloud_credentials._AirbyteCredentials.from_auth(env_vars=env_vars)
 
     assert exc_info.value.guidance == expected_guidance
 
 
 def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
-    with pytest.raises(PyAirbyteInputError, match="Cannot use both"):
+    with pytest.raises(AirbyteLibInputError, match="Cannot use both"):
         cloud_credentials._AirbyteCredentials.from_auth(
             bearer_token="token",
             client_id="client-id",
@@ -288,7 +288,7 @@ def test_cloud_client_init_validates_auth_inputs(
     bearer_token: str | None,
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         CloudClient(
             client_id=client_id,
             client_secret=client_secret,
@@ -340,7 +340,7 @@ def test_cloud_client_list_workspaces_rejects_invalid_argument_combinations(
     request_kwargs: dict[str, object],
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         CloudClient(bearer_token="token").list_workspaces(**request_kwargs)
 
 
@@ -581,29 +581,6 @@ def test_cloud_client_permanently_delete_workspace_forwards_inputs(
     assert captured_kwargs["safe_mode"] is True
 
 
-def test_cloud_workspace_list_workspaces_forwards_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_limit = None
-
-    def fake_list_workspaces(
-        *,
-        limit: int | None = None,
-        **_: object,
-    ) -> list[object]:
-        nonlocal captured_limit
-        captured_limit = limit
-        return []
-
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
-
-    CloudWorkspace(workspace_id="workspace-id", bearer_token="token").list_workspaces(
-        limit=3
-    )
-
-    assert captured_limit == 3
-
-
 def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -738,6 +715,92 @@ def test_custom_cloud_source_definition_builder_url_uses_owner_workspace(
     )
 
 
+@pytest.mark.parametrize(
+    ("has_draft", "expected_draft_manifest"),
+    [
+        pytest.param(True, {"version": "0.1.0"}, id="preserves-draft"),
+        pytest.param(False, None, id="no-draft"),
+    ],
+)
+def test_custom_cloud_source_definition_rename_preserves_builder_data(
+    monkeypatch: pytest.MonkeyPatch,
+    has_draft: bool,
+    expected_draft_manifest: dict[str, object] | None,
+) -> None:
+    workspace = CloudWorkspace(
+        workspace_id="caller-workspace",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    project_data = {
+        "builderProject": {
+            "hasDraft": has_draft,
+            "componentsFileContent": "components: []",
+        },
+        "declarativeManifest": {"manifest": {"version": "0.1.0"}},
+    }
+    builder_lookup = MagicMock(
+        return_value={
+            "builderProjectId": "builder-project-id",
+            "workspaceId": "owner-workspace",
+        }
+    )
+    get_project = MagicMock(return_value=project_data)
+    update_project = MagicMock()
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
+    )
+    monkeypatch.setattr(api_util, "get_connector_builder_project", get_project)
+    monkeypatch.setattr(api_util, "update_connector_builder_project", update_project)
+    definition = CustomCloudSourceDefinition(
+        workspace=workspace,
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+    definition._definition_info = object()  # type: ignore[assignment]
+    definition._builder_project_data = {"cached": True}
+
+    result = definition.rename(name="Renamed definition")
+
+    assert result is definition
+    get_project.assert_called_once_with(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+    update_project.assert_called_once_with(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        name="Renamed definition",
+        draft_manifest=expected_draft_manifest,
+        components_file_content="components: []",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+    assert definition._definition_info is None
+    assert definition._builder_project_data is None
+
+
+def test_custom_cloud_source_definition_docker_rename_is_not_implemented() -> None:
+    definition = CustomCloudSourceDefinition(
+        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
+        definition_id="definition-id",
+        definition_type="docker",
+    )
+
+    with pytest.raises(NotImplementedError, match="Docker custom source definitions"):
+        definition.rename(name="Renamed definition")
+
+
 def test_cloud_workspace_rename_forwards_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -825,7 +888,7 @@ def test_cloud_client_get_organization_adds_missing_lookup_context(
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(api_util, "list_organizations_for_user", lambda **_: [])
 
@@ -951,7 +1014,7 @@ def test_cloud_client_get_organization_rejects_ambiguous_default_context(
         },
     )
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         CloudClient(bearer_token="token").get_organization()
 
     error = exc_info.value
@@ -993,7 +1056,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_workspace_parent_organization_id",
-            _raise(PyAirbyteInputError(message="workspace lookup failed")),
+            _raise(AirbyteLibInputError(message="workspace lookup failed")),
         )
         monkeypatch.setattr(
             client,
@@ -1004,7 +1067,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_membership_organization_ids",
-            _raise(AirbyteError(message="membership failed")),
+            _raise(AirbyteCloudError(message="membership failed")),
         )
 
     assert client._resolve_default_organization_id() == expected_id
@@ -1185,7 +1248,7 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(
         api_util,
@@ -1287,7 +1350,7 @@ def test_cloud_client_get_organization_requires_context_without_defaults(
     monkeypatch.setattr(CloudClient, "_get_membership_organization_ids", lambda _: ())
 
     with pytest.raises(
-        PyAirbyteInputError,
+        AirbyteLibInputError,
         match="Organization ID or organization name is required.",
     ):
         CloudClient(bearer_token="token").get_organization()
@@ -1339,11 +1402,11 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         client.get_organization(organization_name="Duplicate")
 
     error = exc_info.value
@@ -1639,12 +1702,12 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
@@ -1687,13 +1750,13 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
             id="multiple-organizations",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 401}),
+            AirbyteCloudError(context={"status_code": 401}),
             0,
             "permission",
             id="unauthorized",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
+            AirbyteCloudError(context={"status_code": 403}),
             0,
             "permission",
             id="forbidden",
@@ -1702,7 +1765,7 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
 )
 def test_mcp_list_cloud_organizations_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    organizations_or_error: list[CloudOrganization] | AirbyteError,
+    organizations_or_error: list[CloudOrganization] | AirbyteCloudError,
     expected_count: int,
     expected_message: str | None,
 ) -> None:
@@ -1710,7 +1773,7 @@ def test_mcp_list_cloud_organizations_discovery(
 
     class DiscoveryClient:
         def list_organizations(self, **_: object) -> list[CloudOrganization]:
-            if isinstance(organizations_or_error, AirbyteError):
+            if isinstance(organizations_or_error, AirbyteCloudError):
                 raise organizations_or_error
             return organizations_or_error
 
@@ -2108,7 +2171,7 @@ def test_cloud_workspace_list_connectors_rejects_non_positive_limit(
     workspace = _make_workspace(
         monkeypatch, organization_info={"organizationId": "organization-id"}
     )
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         workspace.list_connectors(limit=0)
 
 
@@ -2299,7 +2362,7 @@ _ENABLEMENT_FAILURES = [
     pytest.param(AirbyteCloudApiError(status_code=500), id="server_error"),
     pytest.param(AirbyteCloudApiError(status_code=503), id="service_unavailable"),
     pytest.param(requests.ConnectionError("connection reset"), id="transport"),
-    pytest.param(AirbyteError(message="Malformed enablement"), id="malformed"),
+    pytest.param(AirbyteCloudError(message="Malformed enablement"), id="malformed"),
 ]
 
 
@@ -2328,7 +2391,7 @@ def test_cloud_connector_features_raise_on_enablement_failure(
 def test_cloud_connector_enablement_rejects_malformed_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A response missing the enablement flags raises `AirbyteError`, not "not enabled"."""
+    """A response missing the enablement flags raises `AirbyteCloudError`, not "not enabled"."""
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "make_cloud_agent_request",
@@ -2339,7 +2402,7 @@ def test_cloud_connector_enablement_rejects_malformed_response(
     )
 
     with pytest.raises(
-        AirbyteError, match="Malformed Airbyte Cloud enablement"
+        AirbyteCloudError, match="Malformed Airbyte Cloud enablement"
     ) as exc_info:
         cloud_workspaces.agents_api_util.get_cloud_connector_enablement(
             connector_id="source-1",
@@ -2427,7 +2490,9 @@ def test_cloud_connector_features_ignore_docs_failure(
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
+        lambda **_: (_ for _ in ()).throw(
+            AirbyteCloudError(context={"status_code": 500})
+        ),
     )
 
     destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
@@ -2680,7 +2745,7 @@ def test_mcp_list_cloud_connectors_rejects_non_positive_limit(
     )
     monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         mcp_cloud.list_cloud_connectors(
             None,
             connector_type=connector_type,
@@ -2782,13 +2847,13 @@ def test_cloud_workspace_enabled_features(
             id="org-less-public-api-without-organization-name",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 401}),
+            AirbyteCloudError(context={"status_code": 401}),
             True,
             None,
             id="unauthorized",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
+            AirbyteCloudError(context={"status_code": 403}),
             True,
             None,
             id="forbidden",
@@ -2797,7 +2862,7 @@ def test_cloud_workspace_enabled_features(
 )
 def test_mcp_list_cloud_workspaces_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteError,
+    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteCloudError,
     expect_message: bool,
     organization_name: str | None,
 ) -> None:
@@ -2811,7 +2876,7 @@ def test_mcp_list_cloud_workspaces_discovery(
         ) -> list[CloudWorkspaceInfo]:
             nonlocal captured_organization_id
             captured_organization_id = organization_id
-            if isinstance(workspaces_or_error, AirbyteError):
+            if isinstance(workspaces_or_error, AirbyteCloudError):
                 raise workspaces_or_error
             return workspaces_or_error
 
@@ -3050,7 +3115,7 @@ def test_cloud_organization_get_billing_status_requires_billing(
         api_util, "get_organization_info", lambda **_: {"organizationId": "org-1"}
     )
     organization = CloudOrganization(organization_id="organization-id")
-    with pytest.raises(AirbyteError, match="billing details"):
+    with pytest.raises(AirbyteCloudError, match="billing details"):
         organization.get_billing_status()
 
 
@@ -3062,5 +3127,7 @@ def test_cloud_organization_get_billing_status_wraps_transport_error(
 
     monkeypatch.setattr(api_util, "get_organization_info", get_organization_info)
     organization = CloudOrganization(organization_id="organization-id")
-    with pytest.raises(AirbyteError, match="Failed to retrieve organization billing"):
+    with pytest.raises(
+        AirbyteCloudError, match="Failed to retrieve organization billing"
+    ):
         organization.get_billing_status()

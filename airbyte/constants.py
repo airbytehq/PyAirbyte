@@ -298,10 +298,16 @@ def is_hosted_mcp_mode() -> bool:
 
 
 MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
-"""Environment variable to enable read-only mode for the MCP server.
+"""Legacy environment variable that disables pipeline-changing MCP tools when truthy."""
 
-When set to "1" or "true", only tools with readOnlyHint=True will be available.
-"""
+MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES"
+"""Environment variable controlling access to Cloud pipeline-changing tools."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS"
+"""Environment variable controlling access to external-access Cloud tools."""
+
+CLOUD_MCP_SAFE_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_SAFE_MODE"
+"""Environment variable controlling safe mode for destructive Cloud operations."""
 
 MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
 """Environment variable to disable specific MCP tool domains.
@@ -371,6 +377,12 @@ boundary: every insiders tool authorizes each call against the Airbyte API.
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
 """Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
 
+MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
+"""Config arg name for the Cloud pipeline-change permission."""
+
+MCP_CONFIG_ALLOW_EXTERNAL_ACCESS: str = "allow_external_access"
+"""Config arg name for external-access permission."""
+
 MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
 """Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
 
@@ -408,6 +420,12 @@ MCP_BEARER_TOKEN_HEADER: str = "Authorization"
 
 MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
 """HTTP header key for client-declared MCP extension IDs."""
+
+MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
+"""HTTP header key for narrowing Cloud pipeline-change permission."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
+"""HTTP header key for narrowing external-access permission."""
 
 # Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing

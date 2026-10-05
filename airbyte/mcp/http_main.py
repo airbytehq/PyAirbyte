@@ -189,8 +189,23 @@ omitted if they contain control characters. These bounds do not sanitize
 arbitrary text or secrets; clients must not put customer data in these labels
 (or in free-text intent).
 
-Tool spans include tool/server/protocol identity, timing, session correlation and
-error status. Returned `isError` results are marked as errors with the fixed
+Tool spans expose `auth_method`, `mcp_protocol_version`, `session_id`, `workspace_id`,
+`organization_id` and `scope_source` as `airbyte.mcp.*` attributes and Datadog metadata
+when available. Session IDs are digests, never raw tokens. Workspace/org IDs use the
+same effective-call scope as analytics. When only the workspace is known, tracing
+reuses the organization lookup/cache with at most one second of additional waiting;
+concurrent calls with the same credentials and API host share a pending lookup, and
+slower lookups can warm the cache for later calls. Background enrichment is limited
+to four lookups per process; when full, new lookups are skipped without queuing.
+Lookup failure/retry state is isolated by credentials and API host. Failed or skipped
+lookups leave the org absent. Cancellation stops waiting and is
+recorded as `cancelled`. Calls never inherit an unrelated default org.
+These fields are metadata, not tool Input.
+
+`airbyte.mcp.outcome` / metadata `outcome` is `success`, `tool_error`, `exception` or
+`cancelled`. Failed calls expose the class in `airbyte.mcp.error_type`, `error.type`
+and metadata `error_type`; successful calls omit it. Tool spans also include timing.
+Returned `isError` results are marked as errors with the fixed
 category `ToolError`; raised exceptions retain their cause class. Neither path
 exports error messages or result content. Nested tool errors stay on the child
 span when the caller handles them successfully. Hosting-level HTTP, Cloud Run,
@@ -241,6 +256,7 @@ from airbyte.mcp.server import (
     MCP_SERVER_URL_ENV,
     _env_or_default,
     app,
+    build_mcp_server_instructions,
     lifecycle_telemetry_sinks,
 )
 from airbyte.version import get_version
@@ -355,6 +371,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
+    app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path

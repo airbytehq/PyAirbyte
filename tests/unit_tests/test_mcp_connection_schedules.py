@@ -18,8 +18,8 @@ from fastmcp.exceptions import ToolError
 
 from airbyte._util import api_util
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.constants import MCP_CONFIG_READONLY_MODE
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.constants import MCP_READONLY_MODE_ENV_VAR
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp import _tool_utils
 from airbyte.mcp import cloud as cloud_mcp
 
@@ -144,7 +144,7 @@ def test_direct_update_rejects_invalid_intervals_before_status_change(
     """Python calls bypassing schema validation still reject invalid intervals first."""
     _server, http, lookup, patch = schedule_backend
 
-    with pytest.raises(PyAirbyteInputError, match="positive whole number"):
+    with pytest.raises(AirbyteLibInputError, match="positive whole number"):
         cloud_mcp.update_cloud_connection(
             ctx=None,
             connection_id="connection-id",
@@ -291,11 +291,7 @@ def test_update_remains_hidden_in_readonly_mode(
     """The schedule update retains its existing read-only-mode filter protection."""
     server = FastMCP("readonly-schedule-tests")
     cloud_mcp.register_cloud_tools(server)
-    monkeypatch.setattr(
-        _tool_utils,
-        "get_mcp_config",
-        lambda _app, key: "1" if key == MCP_CONFIG_READONLY_MODE else None,
-    )
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
     tool = asyncio.run(server.get_tool("update_cloud_connection"))
 
     assert not _tool_utils.airbyte_readonly_mode_filter(tool.to_mcp_tool(), server)

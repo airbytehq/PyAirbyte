@@ -65,7 +65,7 @@ from airbyte.constants import (
 )
 
 
-class Source(ConnectorBase):  # noqa: PLR0904
+class Source(ConnectorBase):
     """A class representing a source that can be called."""
 
     connector_type = ConnectorType.SOURCE
@@ -116,34 +116,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
         if primary_key_overrides is not None:
             self.set_primary_keys(**primary_key_overrides)
 
-    def set_streams(self, streams: list[str]) -> None:
-        """Deprecated. See select_streams()."""
-        warnings.warn(
-            "The 'set_streams' method is deprecated and will be removed in a future version. "
-            "Please use the 'select_streams' method instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.select_streams(streams)
-
-    def set_cursor_key(
-        self,
-        stream_name: str,
-        cursor_key: str,
-    ) -> None:
-        """Set the cursor for a single stream.
-
-        Note:
-        - This does not unset previously set cursors.
-        - The cursor key must be a single field name.
-        - Not all streams support custom cursors. If a stream does not support custom cursors,
-          the override may be ignored.
-        - Stream names are case insensitive, while field names are case sensitive.
-        - Stream names are not validated by PyAirbyte. If the stream name
-          does not exist in the catalog, the override may be ignored.
-        """
-        self._cursor_key_overrides[stream_name.lower()] = cursor_key
-
     def set_cursor_keys(
         self,
         **kwargs: str,
@@ -168,26 +140,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
           does not exist in the catalog, the override may be ignored.
         """
         self._cursor_key_overrides.update({k.lower(): v for k, v in kwargs.items()})
-
-    def set_primary_key(
-        self,
-        stream_name: str,
-        primary_key: str | list[str],
-    ) -> None:
-        """Set the primary key for a single stream.
-
-        Note:
-        - This does not unset previously set primary keys.
-        - The primary key must be a single field name or a list of field names.
-        - Not all streams support overriding primary keys. If a stream does not support overriding
-          primary keys, the override may be ignored.
-        - Stream names are case insensitive, while field names are case sensitive.
-        - Stream names are not validated by PyAirbyte. If the stream name
-          does not exist in the catalog, the override may be ignored.
-        """
-        self._primary_key_overrides[stream_name.lower()] = (
-            primary_key if isinstance(primary_key, list) else [primary_key]
-        )
 
     def set_primary_keys(
         self,
@@ -446,7 +398,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         elif isinstance(streams, list):
             selected_streams = streams
         else:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid streams argument.",
                 input_value=streams,
             )
@@ -500,13 +452,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
         ]
 
         if len(found) == 0:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Stream name does not exist in catalog.",
                 input_value=stream_name,
             )
 
         if len(found) > 1:
-            raise exc.PyAirbyteInternalError(
+            raise exc.AirbyteLibInternalError(
                 message="Duplicate streams found with the same name.",
                 context={
                     "found_streams": found,
@@ -550,7 +502,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         stop_event = stop_event or threading.Event()
         configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Requested stream does not exist.",
                 context={
                     "stream": stream,
@@ -888,7 +840,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             self.select_streams(streams)
 
         if not self._selected_stream_names:
-            raise exc.PyAirbyteNoStreamsSelectedError(
+            raise exc.AirbyteLibNoStreamsSelectedError(
                 connector_name=self.name,
                 available_streams=self.get_available_streams(),
             )
@@ -907,7 +859,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 skip_validation=skip_validation,
                 progress_tracker=progress_tracker,
             )
-        except exc.PyAirbyteInternalError as ex:
+        except exc.AirbyteLibInternalError as ex:
             progress_tracker.log_failure(exception=ex)
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
@@ -940,17 +892,17 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     "Using `REPLACE` strategy without also setting `force_full_refresh=True` "
                     "could result in data loss. "
                     "To silence this warning, use the following: "
-                    'warnings.filterwarnings("ignore", '
-                    'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
+                    "`from airbyte.exceptions import AirbyteLibDataLossWarning; "
+                    'warnings.filterwarnings("ignore", category=AirbyteLibDataLossWarning)`'
                 ),
-                category=exc.PyAirbyteDataLossWarning,
+                category=exc.AirbyteLibDataLossWarning,
                 stacklevel=1,
             )
         if isinstance(write_strategy, str):
             try:
                 write_strategy = WriteStrategy(write_strategy)
             except ValueError:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message="Invalid strategy",
                     context={
                         "write_strategy": write_strategy,

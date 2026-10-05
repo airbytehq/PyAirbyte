@@ -62,23 +62,30 @@ class SnowflakeConfig(SqlConfig):
 
         if primary_auth_count == 0:
             if has_passphrase:
-                raise ValueError(
-                    "You have to provide a primary authentication method "
-                    "if you want to use a private key passphrase."
+                raise exc.AirbyteLibInputError(
+                    message=(
+                        "You have to provide a primary authentication method "
+                        "if you want to use a private key passphrase."
+                    ),
                 )
             return
 
         if primary_auth_count > 1:
             provided_methods = [method for method, has_method in auth_methods.items() if has_method]
-            raise ValueError(
-                f"Multiple primary authentication methods provided: {', '.join(provided_methods)}. "
-                "Please provide only one of: 'password', 'private_key', or 'private_key_path'."
+            raise exc.AirbyteLibInputError(
+                message=(
+                    "Multiple primary authentication methods provided: "
+                    f"{', '.join(provided_methods)}. "
+                    "Please provide only one of: 'password', 'private_key', or 'private_key_path'."
+                ),
             )
 
         if has_passphrase and auth_methods["password"]:
-            raise ValueError(
-                "private_key_passphrase cannot be used with password authentication. "
-                "It can only be used with 'private_key' or 'private_key_path'."
+            raise exc.AirbyteLibInputError(
+                message=(
+                    "private_key_passphrase cannot be used with password authentication. "
+                    "It can only be used with 'private_key' or 'private_key_path'."
+                ),
             )
 
     def _get_private_key_content(self) -> bytes:
@@ -87,7 +94,7 @@ class SnowflakeConfig(SqlConfig):
             return str(self.private_key).encode("utf-8")
         if self.private_key_path:
             return Path(self.private_key_path).read_bytes()
-        raise ValueError("No private key provided")
+        raise exc.AirbyteLibInputError(message="No private key provided")
 
     def _get_private_key_bytes(self) -> bytes:
         private_key_content = self._get_private_key_content()
@@ -236,7 +243,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
             try:
                 executor.map(upload_file, files)
             except Exception as e:
-                raise exc.PyAirbyteInternalError(
+                raise exc.AirbyteLibInternalError(
                     message="Failed to upload batch files to Snowflake.",
                     context={"files": [str(f) for f in files]},
                 ) from e

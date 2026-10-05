@@ -28,6 +28,7 @@ from airbyte._util.destination_smoke_tests import (
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.destinations.util import get_destination
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
 from airbyte.registry import get_connector_metadata
@@ -114,9 +115,11 @@ def _get_mcp_source(
             install_if_missing=False,
         )
     else:
-        raise ValueError(
-            f"Unknown execution method: {override_execution_mode}. "
-            "Expected one of: ['auto', 'docker', 'python', 'yaml']."
+        raise AirbyteLibInputError(
+            message=(
+                f"Unknown execution method: {override_execution_mode}. "
+                "Expected one of: ['auto', 'docker', 'python', 'yaml']."
+            ),
         )
 
     # Ensure installed:

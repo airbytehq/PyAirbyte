@@ -22,7 +22,7 @@ from airbyte._registry_utils import fetch_registry_version_date, parse_changelog
 from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
-from airbyte.logs import warn_once
+from airbyte.logs import _warn_once
 from airbyte.version import get_version
 
 
@@ -88,8 +88,8 @@ class ConnectorType(StrEnum):
             return cls(value)
         except ValueError:
             valid = ", ".join(f"`{member.value}`" for member in cls)
-            raise ValueError(
-                f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
+            raise exc.AirbyteLibInputError(
+                message=f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
             ) from None
 
 
@@ -271,7 +271,7 @@ def _get_registry_cache(
     if len(new_cache) == 0:
         # This isn't necessarily fatal, since users can bring their own
         # connector definitions.
-        warn_once(
+        _warn_once(
             message=f"Connector registry is empty: {registry_url}",
             with_stack=False,
         )
@@ -321,7 +321,7 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     cache = copy(_get_registry_cache())
 
     if not cache:
-        raise exc.PyAirbyteInternalError(
+        raise exc.AirbyteLibInternalError(
             message="Connector registry could not be loaded.",
             context={
                 "registry_url": _get_registry_url(),
@@ -396,7 +396,7 @@ def get_available_connectors(
         )
 
     # pragma: no cover  # Should never be reached.
-    raise exc.PyAirbyteInputError(
+    raise exc.AirbyteLibInputError(
         message="Invalid install type.",
         context={
             "install_type": install_type,

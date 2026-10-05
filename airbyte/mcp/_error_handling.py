@@ -6,16 +6,22 @@ from __future__ import annotations
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteConnectorInUseError,
+    AirbyteExternalAccessDisabledError,
+    AirbyteLibError,
+    AirbyteLibInputError,
     AirbyteMCPError,
     AirbyteMissingResourceError,
-    PyAirbyteError,
-    PyAirbyteInputError,
+    AirbytePipelineChangesDisabledError,
+    AirbyteSafeModeError,
 )
 
 
-MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
-    PyAirbyteInputError,
+MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
+    AirbyteLibInputError,
     AirbyteMCPError,
+    AirbyteSafeModeError,
+    AirbytePipelineChangesDisabledError,
+    AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,
     AirbyteConnectorInUseError,
     AirbyteMissingResourceError,
@@ -25,7 +31,7 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[PyAirbyteError], ...] = (
 
 def format_user_facing_error(error: BaseException) -> str:
     """Return the error message followed by its guidance, when present."""
-    if not isinstance(error, PyAirbyteError):
+    if not isinstance(error, AirbyteLibError):
         return str(error)
     text = error.get_message()
     if error.guidance:

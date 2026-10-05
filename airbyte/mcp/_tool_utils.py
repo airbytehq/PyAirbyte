@@ -12,8 +12,9 @@ from __future__ import annotations
 import inspect
 import os
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp_extensions import (
@@ -35,6 +36,7 @@ from fastmcp_extensions.tool_filters import (
     CONFIG_TRUSTED_EXECUTION,
     get_annotation,
 )
+from mcp.types import Tool
 
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
@@ -42,9 +44,16 @@ from airbyte.constants import (
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_ALLOW_PIPELINE_CHANGES_HEADER,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -67,13 +76,14 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteSafeModeError
 
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.apps import AppConfig
-    from mcp.types import Tool
+    from fastmcp.server.context import Context
+    from fastmcp.tools import Tool as FastMCPTool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 
@@ -97,12 +107,6 @@ When set, the workspace_id parameter is hidden from cloud tools.
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
 
 
-class SafeModeError(Exception):
-    """Raised when a tool is blocked by safe mode restrictions."""
-
-    pass
-
-
 def register_guid_created_in_session(guid: str) -> None:
     """Register a GUID as created in this session.
 
@@ -117,17 +121,19 @@ def check_guid_created_in_session(guid: str) -> None:
 
     This is a no-op if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "0".
 
-    Raises SafeModeError if the GUID was not created in this session and
+    Raises `AirbyteSafeModeError` if the GUID was not created in this session and
     AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
 
     Args:
         guid: The GUID to check
     """
     if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
-        raise SafeModeError(
-            f"Cannot perform destructive operation on '{guid}': "
-            f"Object was not created in this session. "
-            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+        raise AirbyteSafeModeError(
+            message=(
+                f"Cannot perform destructive operation on '{guid}': "
+                f"Object was not created in this session. "
+                f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+            ),
         )
 
 
@@ -175,6 +181,24 @@ INSIDERS_CONFIG_ARG = MCPServerConfigArg(
 The default is empty rather than `0`, because `0` is an explicit denial that also refuses
 the include-list opt-in.
 """
+
+ALLOW_PIPELINE_CHANGES_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
+    http_header_key=MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+    env_var=MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run pipeline-changing Cloud tools."""
+
+ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    http_header_key=MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    env_var=MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run external-access Cloud tools."""
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
@@ -347,6 +371,24 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+@dataclass(frozen=True)
+class ToolPolicy:
+    pipeline_change: bool
+    external_access: bool = False
+
+
+_TOOL_POLICIES: dict[str, ToolPolicy] = {}
+
+
+def get_tool_policy(tool: Tool | FastMCPTool) -> ToolPolicy:
+    """Return registered policy metadata, falling back to the tool's read-only hint."""
+    policy = _TOOL_POLICIES.get(tool.name)
+    if policy is not None:
+        return policy
+    read_only = get_annotation(cast(Tool, tool), ANNOTATION_READ_ONLY_HINT, default=False)
+    return ToolPolicy(pipeline_change=not bool(read_only))
+
+
 def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     *,
     read_only: bool = False,
@@ -358,8 +400,10 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     annotations: Mapping[str, object] | None = None,
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
-    required_capabilities: Iterable[Capability] | None = None,
+    required_capabilities: Iterable[Capability | str] | None = None,
     extra_help_text: str | None = None,
+    pipeline_change: bool | None = None,
+    external_access: bool = False,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata."""
     base_decorator = _mcp_tool(
@@ -377,11 +421,18 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+        # Dedent first so the appended help text doesn't defeat FastMCP's dedent.
+        if func.__doc__:
+            func.__doc__ = inspect.cleandoc(func.__doc__)
         decorated = base_decorator(func)
         registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
         if registered_func is not decorated:
             raise RuntimeError("Unexpected MCP tool registration state.")
         registered_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(decorated)
+        _TOOL_POLICIES[decorated.__name__] = ToolPolicy(
+            pipeline_change=not read_only if pipeline_change is None else pipeline_change,
+            external_access=external_access,
+        )
         return decorated
 
     return decorator
@@ -421,14 +472,58 @@ def _normalize_mcp_module(mcp_module: str) -> str:
 
 
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var.
+    """Hide pipeline-changing tools when pipeline changes are disabled."""
+    return not (pipeline_changes_allowed(app) is False and get_tool_policy(tool).pipeline_change)
 
-    When set to "1", only show tools with readOnlyHint=True.
+
+def airbyte_external_access_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide external-access tools when external access is disabled."""
+    return not (get_tool_policy(tool).external_access and external_access_allowed(app) is False)
+
+
+def _resolve_policy(
+    app_or_ctx: FastMCP | Context,
+    config_name: str,
+    env_var: str,
+) -> bool | None:
+    environment_value = _str_to_bool(os.environ.get(env_var))
+    if environment_value is False:
+        return False
+    request_value = _str_to_bool(get_mcp_config(app_or_ctx, config_name))
+    if environment_value is True:
+        return request_value is not False
+    return request_value
+
+
+def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    if _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True:
+        return False
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    )
+
+
+def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Resolve explicit permission first, then derive the external-access default.
+
+    Disabled pipeline changes and explicitly enabled safe mode disable external access
+    when no explicit permission is configured; otherwise the result remains unset.
     """
-    config_value = (get_mcp_config(app, MCP_CONFIG_READONLY_MODE) or "").lower()
-    if config_value in {"1", "true"}:
-        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
-    return True
+    explicit_value = _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    )
+    if explicit_value is not None:
+        return explicit_value
+    explicitly_enabled_safe_mode = _str_to_bool(os.environ.get(CLOUD_MCP_SAFE_MODE_ENV_VAR)) is True
+    return (
+        False
+        if pipeline_changes_allowed(app_or_ctx) is False or explicitly_enabled_safe_mode
+        else None
+    )
 
 
 def _insiders_mode(app: FastMCP) -> bool | None:
@@ -518,13 +613,13 @@ def validate_airbyte_domains(app: FastMCP) -> None:
         app: The FastMCP app instance.
 
     Raises:
-        PyAirbyteInputError: If the domain configuration is incompatible.
+        AirbyteLibInputError: If the domain configuration is incompatible.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
 
     if include_modules and exclude_modules:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED are mutually exclusive."
             ),
@@ -543,7 +638,7 @@ def validate_airbyte_domains(app: FastMCP) -> None:
         {module for module in (*include_modules, *exclude_modules) if module not in known_modules}
     )
     if unknown_modules:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="One or more requested MCP domains are not recognized.",
             guidance=(
                 "Correct the unknown domain name(s) in `AIRBYTE_MCP_DOMAINS` / "

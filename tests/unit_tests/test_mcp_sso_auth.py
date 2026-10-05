@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
+import requests
 from fastmcp.server.auth import TokenVerifier
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.auth.oauth_proxy import proxy as fastmcp_proxy_module
@@ -36,6 +37,7 @@ from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
+from airbyte.exceptions import AirbyteCloudError, AirbyteMissingResourceError
 from airbyte.mcp import _sso_auth as sso
 from airbyte.mcp import _sso_login_page as login_page
 from airbyte.mcp._transport_security import HostOriginGuardMiddleware
@@ -641,9 +643,17 @@ def _make_proxy(
     *,
     fetch: _FakeFetch | None = None,
     config: sso.SsoRealmConfig | None = None,
+    user_lookup_calls: list[dict[str, Any]] | None = None,
     **overrides: Any,
 ) -> sso.AirbyteSsoOidcProxy:
     _patch_default_discovery(monkeypatch)
+    recorded_calls = user_lookup_calls if user_lookup_calls is not None else []
+
+    def fake_get_user_by_auth_id(auth_user_id: str, **kwargs: Any) -> dict[str, Any]:
+        recorded_calls.append({"auth_user_id": auth_user_id, **kwargs})
+        return {"userId": "user-1"}
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", fake_get_user_by_auth_id)
     return sso.AirbyteSsoOidcProxy(
         sso_config=config or _config(),
         discovery_fetch=fetch or _FakeFetch({"acme": _realm_ok("acme")}),
@@ -654,16 +664,24 @@ def _make_proxy(
 class _Harness:
     """A proxy mounted in Starlette plus a `TestClient` whose portal runs async setup."""
 
-    def __init__(self, proxy: sso.AirbyteSsoOidcProxy, client: TestClient) -> None:
+    def __init__(
+        self,
+        proxy: sso.AirbyteSsoOidcProxy,
+        client: TestClient,
+        user_lookup_calls: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.proxy = proxy
         self.client = client
+        self.user_lookup_calls = (
+            user_lookup_calls if user_lookup_calls is not None else []
+        )
 
     def run(self, fn: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         portal = self.client.portal
         assert portal is not None, "use the harness inside the TestClient context"
         return portal.call(functools.partial(fn, *args, **kwargs))
 
-    def start_login(self) -> str:
+    def start_login(self, redirect_uri: str = MCP_REDIRECT_URI) -> str:
         """Register an MCP client and start a transaction; return its `txn_id`."""
 
         async def go() -> str:
@@ -671,7 +689,7 @@ class _Harness:
                 OAuthClientInformationFull(
                     client_id=MCP_CLIENT_ID,
                     client_name="Test Client",
-                    redirect_uris=[AnyUrl(MCP_REDIRECT_URI)],
+                    redirect_uris=[AnyUrl(redirect_uri)],
                 )
             )
             client = await self.proxy.get_client(MCP_CLIENT_ID)
@@ -682,7 +700,7 @@ class _Harness:
                     state="client-state",
                     scopes=SCOPES,
                     code_challenge="client-challenge",
-                    redirect_uri=AnyUrl(MCP_REDIRECT_URI),
+                    redirect_uri=AnyUrl(redirect_uri),
                     redirect_uri_provided_explicitly=True,
                     resource=None,
                 ),
@@ -711,10 +729,11 @@ class _Harness:
 
 @pytest.fixture
 def harness(monkeypatch: MonkeyPatch) -> Iterator[_Harness]:
-    proxy = _make_proxy(monkeypatch)
+    user_lookup_calls: list[dict[str, Any]] = []
+    proxy = _make_proxy(monkeypatch, user_lookup_calls=user_lookup_calls)
     app = Starlette(routes=proxy.get_routes("/mcp"))
     with TestClient(app, base_url=BASE_URL) as client:
-        yield _Harness(proxy, client)
+        yield _Harness(proxy, client, user_lookup_calls)
 
 
 def _login_default(h: _Harness) -> tuple[str, httpx.Response]:
@@ -727,8 +746,10 @@ def _login_default(h: _Harness) -> tuple[str, httpx.Response]:
     })
 
 
-def _login_sso(h: _Harness, identifier: str = "acme") -> tuple[str, httpx.Response]:
-    txn_id = h.start_login()
+def _login_sso(
+    h: _Harness, identifier: str = "acme", *, redirect_uri: str = MCP_REDIRECT_URI
+) -> tuple[str, httpx.Response]:
+    txn_id = h.start_login(redirect_uri=redirect_uri)
     _, csrf = h.get_login_page(txn_id)
     form = {
         "txn_id": txn_id,
@@ -1047,6 +1068,40 @@ def _install_fake_upstream(
     return fake
 
 
+def _capture_code_store_put(harness: _Harness, monkeypatch: MonkeyPatch) -> list[str]:
+    code_keys: list[str] = []
+    original_put = harness.proxy._code_store.put
+
+    async def capture_put(*args: Any, **kwargs: Any) -> Any:
+        code_keys.append(kwargs["key"])
+        return await original_put(*args, **kwargs)
+
+    monkeypatch.setattr(harness.proxy._code_store, "put", capture_put)
+    return code_keys
+
+
+def _assert_unlinked_error_redirect(
+    response: httpx.Response, harness: _Harness, *, registered_code: str | None = None
+) -> None:
+    assert response.status_code == 302
+    location = urlsplit(response.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == MCP_REDIRECT_URI
+    query = parse_qs(location.query, keep_blank_values=True)
+    assert query["error"] == ["access_denied"]
+    assert query["error_description"] == [sso.UNLINKED_LOGIN_ERROR_DESCRIPTION]
+    assert query["state"] == ["client-state"]
+    assert query["iss"] == [str(harness.proxy.issuer_url)]
+    if registered_code is None:
+        assert "code" not in query
+    else:
+        assert query.get("code") == [registered_code]
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any(
+        "__Host-MCP_CONSENT_BINDING" in header and "max-age=0" in header.lower()
+        for header in set_cookie_headers
+    )
+
+
 def test_callback_rejects_browser_without_binding_cookie(harness: _Harness) -> None:
     txn_id, _ = _login_sso(harness, "acme")
     with TestClient(harness.client.app, base_url=BASE_URL) as other_browser:
@@ -1115,6 +1170,216 @@ def test_default_callback_exchanges_code_at_the_default_token_endpoint(
     assert (
         fake.fetch_calls[0]["url"] == f"{DEFAULT_ISSUER}/protocol/openid-connect/token"
     )
+
+
+def test_sso_callback_allows_linked_airbyte_user(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    fake = _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    location = urlsplit(response.headers["location"])
+    query = parse_qs(location.query)
+    assert query["state"] == ["client-state"]
+    assert query["code"]
+    assert len(harness.user_lookup_calls) == 1
+    lookup = harness.user_lookup_calls[0]
+    assert lookup["auth_user_id"] == "user"
+    assert str(lookup["bearer_token"]) == fake.access_token
+    assert lookup["api_root"] == sso.CLOUD_API_ROOT
+    assert lookup["config_api_root"] is None
+    assert lookup["timeout"] == (10.0, 10.0)
+
+
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        AirbyteMissingResourceError(message="not linked"),
+        AirbyteCloudError(context={"status_code": 401}),
+        AirbyteCloudError(context={"status_code": 404}),
+    ],
+    ids=["missing-resource", "unauthorized", "not-found"],
+)
+def test_sso_callback_rejects_unlinked_airbyte_user(
+    harness: _Harness, monkeypatch: MonkeyPatch, lookup_error: AirbyteCloudError
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    code_keys = _capture_code_store_put(harness, monkeypatch)
+
+    def reject_lookup(_auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
+        raise lookup_error
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    _assert_unlinked_error_redirect(response, harness)
+    assert len(code_keys) == 1
+    assert harness.run(harness.proxy._code_store.get, key=code_keys[0]) is None
+
+
+def test_sso_callback_rejects_lookup_result_without_user_id(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    monkeypatch.setattr(
+        sso.api_util, "get_user_by_auth_id", lambda *_args, **_kwargs: {}
+    )
+
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    _assert_unlinked_error_redirect(response, harness)
+
+
+def test_callback_checks_generated_code_after_registered_code_query(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(
+        harness, "acme", redirect_uri=f"{MCP_REDIRECT_URI}?code=existing"
+    )
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    code_keys = _capture_code_store_put(harness, monkeypatch)
+    lookup_calls: list[str] = []
+
+    def reject_lookup(auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
+        lookup_calls.append(auth_user_id)
+        raise AirbyteCloudError(context={"status_code": 404})
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    _assert_unlinked_error_redirect(response, harness, registered_code="existing")
+    assert lookup_calls == ["user"]
+    assert len(code_keys) == 1
+    assert harness.run(harness.proxy._code_store.get, key=code_keys[0]) is None
+
+
+def test_callback_fails_closed_when_client_code_is_missing_from_store(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+
+    async def missing_code(**_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(harness.proxy._code_store, "get", missing_code)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    location = urlsplit(response.headers["location"])
+    query = parse_qs(location.query, keep_blank_values=True)
+    assert f"{location.scheme}://{location.netloc}{location.path}" == MCP_REDIRECT_URI
+    assert query["error"] == ["server_error"]
+    assert query["error_description"] == [
+        "Login could not be completed. Please try again."
+    ]
+    assert query["state"] == ["client-state"]
+    assert query["iss"] == [str(harness.proxy.issuer_url)]
+    assert "code" not in query
+    assert harness.user_lookup_calls == []
+
+
+def test_default_callback_rejects_unlinked_airbyte_user(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    txn_id, _ = _login_default(harness)
+    _install_fake_upstream(monkeypatch, harness.proxy, DEFAULT_ISSUER)
+
+    def reject_lookup(_auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
+        raise AirbyteCloudError(context={"status_code": 404})
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    _assert_unlinked_error_redirect(response, harness)
+
+
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        AirbyteCloudError(context={"status_code": 500}),
+        requests.ConnectionError("offline"),
+    ],
+    ids=["server-error", "connection-error"],
+)
+def test_callback_fails_closed_when_linked_user_lookup_is_unavailable(
+    harness: _Harness, monkeypatch: MonkeyPatch, lookup_error: Exception
+) -> None:
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+    code_keys = _capture_code_store_put(harness, monkeypatch)
+
+    def fail_lookup(_auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
+        raise lookup_error
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", fail_lookup)
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    location = urlsplit(response.headers["location"])
+    query = parse_qs(location.query, keep_blank_values=True)
+    assert f"{location.scheme}://{location.netloc}{location.path}" == MCP_REDIRECT_URI
+    assert query["error"] == ["server_error"]
+    assert query["error_description"] == [sso.LOGIN_COMPLETION_ERROR_DESCRIPTION]
+    assert query["state"] == ["client-state"]
+    assert query["iss"] == [str(harness.proxy.issuer_url)]
+    assert "code" not in query
+    assert len(code_keys) == 1
+    assert harness.run(harness.proxy._code_store.get, key=code_keys[0]) is None
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any(
+        "__Host-MCP_CONSENT_BINDING" in header and "max-age=0" in header.lower()
+        for header in set_cookie_headers
+    )
+
+
+def test_linked_user_lookup_uses_environment_api_roots(
+    harness: _Harness, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AIRBYTE_CLOUD_API_URL", "https://custom-api.example/v1")
+    monkeypatch.setenv(
+        "AIRBYTE_CLOUD_CONFIG_API_URL", "https://custom-config.example/api/v1"
+    )
+    txn_id, _ = _login_sso(harness, "acme")
+    _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
+
+    response = harness.client.get(
+        f"/auth/callback?code=idp-code&state={txn_id}", follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    assert len(harness.user_lookup_calls) == 1
+    lookup = harness.user_lookup_calls[0]
+    assert lookup["api_root"] == "https://custom-api.example/v1"
+    assert lookup["config_api_root"] == "https://custom-config.example/api/v1"
+
+
+def test_token_without_user_id_or_sub_is_unlinked(monkeypatch: MonkeyPatch) -> None:
+    def unexpected_lookup(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        pytest.fail("user lookup should not run for a token without a subject")
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", unexpected_lookup)
+
+    assert sso._token_has_airbyte_user(_unsigned_jwt({"iss": DEFAULT_ISSUER})) is False
 
 
 def test_sso_callback_returns_503_when_realm_discovery_is_down(

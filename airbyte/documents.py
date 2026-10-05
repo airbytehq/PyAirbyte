@@ -19,13 +19,6 @@ if TYPE_CHECKING:
     import datetime
 
 
-MAX_SINGLE_LINE_LENGTH = 60
-AIRBYTE_DOCUMENT_RENDERING = "airbyte_document_rendering"
-TITLE_PROPERTY = "title_property"
-CONTENT_PROPS = "content_properties"
-METADATA_PROPERTIES = "metadata_properties"
-
-
 class Document(BaseModel):
     """A PyAirbyte document is a specific projection on top of a record.
 

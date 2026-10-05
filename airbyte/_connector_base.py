@@ -262,7 +262,7 @@ class ConnectorBase(abc.ABC):
                 want to print the spec to the console but not interfere with other output.
         """
         if output_file and stderr:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="You can set output_file or stderr but not both.",
                 context={
                     "output_file": output_file,
@@ -271,7 +271,7 @@ class ConnectorBase(abc.ABC):
             )
 
         if format not in {"yaml", "json"}:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,
             )

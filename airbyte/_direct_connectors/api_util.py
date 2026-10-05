@@ -34,8 +34,8 @@ from airbyte._util.api_util import (
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteCloudApiError,
-    AirbyteError,
-    PyAirbyteInputError,
+    AirbyteCloudError,
+    AirbyteLibInputError,
 )
 from airbyte.registry import ConnectorType
 
@@ -58,7 +58,7 @@ def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
         return str(credentials.bearer_token)
 
     if credentials.client_id is None or credentials.client_secret is None:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="No authentication credentials provided.",
             guidance="Provide either `client_id` and `client_secret`, or `bearer_token`.",
         )
@@ -103,7 +103,7 @@ def _error_guidance(*, response: requests.Response) -> str | None:
     return None
 
 
-def is_not_enabled_error(error: AirbyteError) -> bool:
+def is_not_enabled_error(error: AirbyteCloudError) -> bool:
     """Return whether `error` reports the connector is not enabled for a Fusion feature.
 
     Only 403 and 404 responses mean that: a 404 says the Context layer has no such
@@ -134,7 +134,7 @@ def make_cloud_agent_request(
 
     Raises `AirbyteAgentsUnavailableError` when the credentials' API roots have no
     Context layer API, `AirbyteCloudApiError` with the status code and response text on
-    non-2xx responses, or `AirbyteError` when the response is not a JSON object.
+    non-2xx responses, or `AirbyteCloudError` when the response is not a JSON object.
     """
     if not deployment.is_agents_api_available(
         public_api_root=credentials.public_api_root,
@@ -183,7 +183,7 @@ def make_cloud_agent_request(
 
     content_type = response.headers.get("Content-Type", "")
     if "json" not in content_type:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="The Airbyte Cloud API returned a non-JSON response.",
             guidance=(
                 "PyAirbyte does not yet support streaming responses, which some actions "
@@ -195,13 +195,13 @@ def make_cloud_agent_request(
     try:
         parsed: Any = response.json()
     except requests.exceptions.JSONDecodeError as ex:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="The Airbyte Cloud API returned malformed JSON.",
             context={"full_url": full_url},
         ) from ex
 
     if not isinstance(parsed, dict):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Unexpected response payload from the Airbyte Cloud API.",
             context={"full_url": full_url, "payload_type": type(parsed).__name__},
         )
@@ -236,12 +236,12 @@ def execute_cloud_connector_action(
     )
 
     if "data" not in response:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Malformed Airbyte Cloud execute response: missing required `data` field.",
             context={"path": path},
         )
     if "meta" in response and not isinstance(response["meta"], dict):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Malformed Airbyte Cloud execute response: `meta` must be an object.",
             context={"path": path, "meta_type": type(response["meta"]).__name__},
         )
@@ -278,7 +278,7 @@ def execute_cloud_connector_search(
     try:
         return ExternalSearchResult.model_validate(response)
     except ValidationError as ex:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Malformed Airbyte Cloud search response.",
             context={"path": path, "errors": ex.errors(include_url=False)},
         ) from ex
@@ -308,7 +308,7 @@ def get_cloud_connector_search_status(
     try:
         return ExternalSearchStatusResult.model_validate(response)
     except ValidationError as ex:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Malformed Airbyte Cloud search-status response.",
             context={"path": path, "errors": ex.errors(include_url=False)},
         ) from ex
@@ -338,7 +338,7 @@ def get_cloud_connector_enablement(
     try:
         return ConnectorEnablement.model_validate(response)
     except ValidationError as ex:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Malformed Airbyte Cloud enablement response.",
             context={"path": path, "errors": ex.errors(include_url=False)},
         ) from ex
@@ -403,7 +403,7 @@ def _resolve_connector_lookup(
         key for key, value in all_args.items() if value is not None and not value.strip()
     )
     if blank_args:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Connector lookup arguments cannot be blank.",
             guidance="Omit the argument entirely, or pass a non-blank value.",
             context={"blank_args": blank_args},
@@ -414,7 +414,7 @@ def _resolve_connector_lookup(
             key for key, value in all_args.items() if value and key != "id_or_name"
         )
         if keyword_args:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="A positional connector lookup cannot be combined with keyword arguments.",
                 guidance="Pass the value positionally, or pass `id`, `connector_id`, or `name`.",
                 context={"keyword_args": keyword_args},
@@ -425,14 +425,14 @@ def _resolve_connector_lookup(
         key: value for key, value in {"id": id, "connector_id": connector_id}.items() if value
     }
     if len(set(provided.values())) > 1:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="`id` and `connector_id` were given conflicting values.",
             guidance="These arguments are synonyms, so pass only one of them.",
             context={"provided": sorted(provided)},
         )
 
     if bool(provided) == bool(name):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Exactly one connector lookup argument is required.",
             guidance=(
                 "Pass a connector ID or name positionally, or as `id`, `connector_id`, "

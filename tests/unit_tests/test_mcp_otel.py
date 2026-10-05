@@ -14,7 +14,7 @@ import subprocess
 import sys
 import textwrap
 from collections.abc import Iterator
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -92,6 +92,11 @@ def isolated_otel(
         if key.startswith(("OTEL_", "AIRBYTE_MCP_")):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DO_NOT_TRACK", "1")
+    from airbyte.mcp import _scope
+
+    monkeypatch.setattr(
+        _scope, "resolve_call_workspace_organization_id", AsyncMock(return_value=None)
+    )
     for owner, name, index in (
         (socket.socket, "connect", 1),
         (socket.socket, "connect_ex", 1),
@@ -642,6 +647,8 @@ def test_error_span_has_error_type_and_no_exception_text(
     assert span.status.status_code == StatusCode.ERROR
     assert not span.status.description
     assert span.attributes["airbyte.mcp.error_type"] == error.__name__
+    assert span.attributes["airbyte.mcp.outcome"] == "exception"
+    assert span.attributes["error.type"] == error.__name__
     assert span.events
     assert all(set(event.attributes) == {"exception.type"} for event in span.events)
     assert "SENTINEL" not in _export_text(otel_provider)
@@ -699,6 +706,9 @@ def test_returned_tool_error_status_matches_response_without_exporting_content(
     assert span.attributes.get("error.type") == ("ToolError" if is_error else None)
     metadata = json.loads(span.attributes.get("_dd.ml_obs.metadata", "{}"))
     assert metadata.get("error_type") == ("ToolError" if is_error else None)
+    expected_outcome = "tool_error" if is_error else "success"
+    assert span.attributes["airbyte.mcp.outcome"] == expected_outcome
+    assert metadata["outcome"] == expected_outcome
     if transport == "direct":
         assert "gen_ai.tool.call.arguments" not in span.attributes
     else:
@@ -1303,6 +1313,7 @@ def test_wrap_http_app_places_session_digest_innermost(
     monkeypatch.setattr(
         http_main, "run_mcp_http_server", lambda app, **kwargs: captured.update(kwargs)
     )
+    monkeypatch.setattr(http_main.app, "instructions", http_main.app.instructions)
     monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
     http_main.main()
     sentinel = object()
@@ -1679,6 +1690,10 @@ _FUSION_ID = "326245c8-0000-4000-8000-000000000000"
             "/connector_builder_projects/list",
             "https://cloud.airbyte.com/api/v1/connector_builder_projects/list",
         ),
+        (
+            "/connector_builder_projects/update",
+            "https://cloud.airbyte.com/api/v1/connector_builder_projects/update",
+        ),
         ("/jobs/list_for_workspaces-SENTINEL", observability.REDACTED_PLACEHOLDER),
         *[
             (
@@ -1803,3 +1818,109 @@ def test_users_default_organization_is_exported_for_an_unscoped_call(
     assert attributes["airbyte.mcp.organization_id"] == organization_id
     assert attributes["airbyte.mcp.scope_source"] == "user_default"
     assert "airbyte.mcp.workspace_id" not in attributes
+
+
+@pytest.mark.parametrize("phase", ["tool", "after_success", "after_error"])
+def test_cancelled_tool_outcome_is_exported_without_exception_text(
+    app, monkeypatch, otel_provider, phase
+):
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+
+    @app.tool()
+    async def example() -> str:
+        if phase == "tool":
+            raise asyncio.CancelledError("private-cancellation-SENTINEL")
+        if phase == "after_error":
+            raise ValueError("private-tool-SENTINEL")
+        return "ok"
+
+    monkeypatch.setitem(observability._TOOL_MODULES, "example", "cloud")
+
+    async def run():
+        enriching = asyncio.Event()
+
+        async def enrich(_ctx):
+            enriching.set()
+            await asyncio.Future()
+
+        monkeypatch.setattr(observability, "enrich_call_scope", enrich)
+        task = asyncio.create_task(app.call_tool("example", {}))
+        if phase != "tool":
+            await asyncio.wait_for(enriching.wait(), 5)
+            task.cancel("private-cancellation-SENTINEL")
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+
+    asyncio.run(run())
+    span = _tool_span(otel_provider)
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.attributes["airbyte.mcp.outcome"] == "cancelled"
+    assert span.attributes["airbyte.mcp.error_type"] == "CancelledError"
+    assert span.attributes["error.type"] == "CancelledError"
+    assert json.loads(span.attributes["_dd.ml_obs.metadata"])["outcome"] == "cancelled"
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+@pytest.mark.parametrize("explicit", [True, False])
+def test_workspace_organization_enrichment_matches_analytics_and_actual_scope(
+    agents_app, monkeypatch, otel_provider, explicit
+):
+    from fastmcp_extensions import ToolCallTelemetryMiddleware
+    from airbyte.cloud.client import CloudClient
+    from airbyte.mcp import _scope
+
+    workspace_id = "12345678-1234-1234-1234-123456789abc"
+    organization_id = "87654321-4321-4321-4321-cba987654321"
+    unrelated_org = "99999999-9999-9999-9999-999999999999"
+    monkeypatch.setenv("AIRBYTE_MCP_TRACING_BACKEND", "datadog-otlp")
+    monkeypatch.setenv("AIRBYTE_CLOUD_BEARER_TOKEN", "cloud-bearer-SENTINEL")
+    for key in ("AIRBYTE_CLOUD_WORKSPACE_ID", "AIRBYTE_CLOUD_ORGANIZATION_ID"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(
+        CloudClient, "resolve_default_workspace_id", lambda _: workspace_id
+    )
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        CloudClient,
+        "get_workspace",
+        lambda *_: SimpleNamespace(list_custom_source_definitions=lambda **_: []),
+    )
+    lookups = []
+
+    async def resolve(actual_workspace, _ctx):
+        lookups.append(actual_workspace)
+        return organization_id
+
+    async def user_default(_ctx):
+        return unrelated_org
+
+    monkeypatch.setattr(_scope, "resolve_call_workspace_organization_id", resolve)
+    monkeypatch.setattr(_scope, "resolve_user_default_organization_id", user_default)
+    telemetry = next(
+        item
+        for item in agents_app.middleware
+        if isinstance(item, ToolCallTelemetryMiddleware)
+    )
+    records = []
+    monkeypatch.setattr(telemetry._sinks, "emit", records.append)
+    response = asyncio.run(
+        _http_rpc(
+            agents_app,
+            "tools/call",
+            {
+                "name": "list_custom_source_definitions",
+                "arguments": {"workspace_id": workspace_id} if explicit else {},
+            },
+        )
+    )
+    assert not response.json()["result"].get("isError")
+    metadata = json.loads(_tool_span(otel_provider).attributes["_dd.ml_obs.metadata"])
+    for key, value in {
+        "workspace_id": workspace_id,
+        "organization_id": organization_id,
+        "scope_source": "arg" if explicit else "default",
+    }.items():
+        assert metadata[key] == records[-1].extra[key] == value
+    assert lookups == [workspace_id]
+    assert unrelated_org not in _export_text(otel_provider)
