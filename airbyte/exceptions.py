@@ -355,9 +355,10 @@ class AirbyteExternalAccessDisabledError(AirbyteMCPError):
     """An external-access operation was blocked by MCP policy."""
 
     guidance: str | None = (
-        "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` to allow external access. "
-        "Disabled pipeline changes (including legacy read-only mode) and an explicit "
-        "`AIRBYTE_CLOUD_MCP_SAFE_MODE=1` also disable external access when this setting is unset."
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` and ensure the "
+        "`X-MCP-Allow-External-Access` request header is not `0`. Disabled pipeline changes "
+        "(including legacy read-only mode) and an explicit `AIRBYTE_CLOUD_MCP_SAFE_MODE=1` "
+        "also disable external access when this setting is unset."
     )
 
 
