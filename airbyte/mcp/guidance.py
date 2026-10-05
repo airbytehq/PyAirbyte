@@ -174,6 +174,7 @@ def test_my_tools_prompt(
     idempotent=True,
     open_world=True,
     extra_help_text=SKILL_DOCS_SECTION_HINT,
+    external_access=True,
 )
 def get_agent_skill_docs(
     ctx: Context,

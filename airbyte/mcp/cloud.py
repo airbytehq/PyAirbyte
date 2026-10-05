@@ -854,6 +854,7 @@ def create_connection_on_cloud(
 
 @mcp_tool(
     open_world=True,
+    pipeline_change=False,
 )
 def run_cloud_sync(
     ctx: Context,
@@ -1109,6 +1110,7 @@ def list_cloud_sync_jobs(
 @mcp_tool(
     destructive=True,
     open_world=True,
+    pipeline_change=False,
 )
 def cancel_cloud_sync(
     ctx: Context,
@@ -1514,6 +1516,7 @@ def describe_cloud_connector(
     idempotent=True,
     open_world=True,
     extra_help_text=SKILL_DOCS_SECTION_HINT,
+    external_access=True,
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1618,8 +1621,9 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 
 
 # Not yet registered as an MCP tool: write actions are not supported by the backend.
-# Restore the `@mcp_tool(open_world=True, extra_help_text=...)` decorator and revert the
-# `_` prefix when these are live. Tracked in https://linear.app/airbyteio/issue/AGENTIC-2280
+# Restore the `@mcp_tool(open_world=True, external_access=True,
+# extra_help_text=...)` decorator and revert the `_` prefix when these are live.
+# Tracked in https://linear.app/airbyteio/issue/AGENTIC-2280
 def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
     *,
@@ -1711,6 +1715,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     read_only=True,
     idempotent=True,
     open_world=True,
+    external_access=True,
 )
 def execute_external_sql_query(
     ctx: Context,
@@ -1791,6 +1796,7 @@ def execute_external_sql_query(
     read_only=True,
     idempotent=True,
     open_world=True,
+    external_access=True,
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1915,6 +1921,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     read_only=True,
     idempotent=True,
     open_world=True,
+    external_access=True,
 )
 def get_cloud_search_status(
     ctx: Context,
