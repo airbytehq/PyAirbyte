@@ -37,7 +37,7 @@ from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
-from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
+from airbyte.exceptions import AirbyteCloudError, AirbyteMissingResourceError
 from airbyte.mcp import _sso_auth as sso
 from airbyte.mcp import _sso_login_page as login_page
 from airbyte.mcp._transport_security import HostOriginGuardMiddleware
@@ -1200,13 +1200,13 @@ def test_sso_callback_allows_linked_airbyte_user(
     "lookup_error",
     [
         AirbyteMissingResourceError(message="not linked"),
-        AirbyteError(context={"status_code": 401}),
-        AirbyteError(context={"status_code": 404}),
+        AirbyteCloudError(context={"status_code": 401}),
+        AirbyteCloudError(context={"status_code": 404}),
     ],
     ids=["missing-resource", "unauthorized", "not-found"],
 )
 def test_sso_callback_rejects_unlinked_airbyte_user(
-    harness: _Harness, monkeypatch: MonkeyPatch, lookup_error: AirbyteError
+    harness: _Harness, monkeypatch: MonkeyPatch, lookup_error: AirbyteCloudError
 ) -> None:
     txn_id, _ = _login_sso(harness, "acme")
     _install_fake_upstream(monkeypatch, harness.proxy, _issuer("acme"))
@@ -1253,7 +1253,7 @@ def test_callback_checks_generated_code_after_registered_code_query(
 
     def reject_lookup(auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
         lookup_calls.append(auth_user_id)
-        raise AirbyteError(context={"status_code": 404})
+        raise AirbyteCloudError(context={"status_code": 404})
 
     monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
     response = harness.client.get(
@@ -1301,7 +1301,7 @@ def test_default_callback_rejects_unlinked_airbyte_user(
     _install_fake_upstream(monkeypatch, harness.proxy, DEFAULT_ISSUER)
 
     def reject_lookup(_auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
-        raise AirbyteError(context={"status_code": 404})
+        raise AirbyteCloudError(context={"status_code": 404})
 
     monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
     response = harness.client.get(
@@ -1314,7 +1314,7 @@ def test_default_callback_rejects_unlinked_airbyte_user(
 @pytest.mark.parametrize(
     "lookup_error",
     [
-        AirbyteError(context={"status_code": 500}),
+        AirbyteCloudError(context={"status_code": 500}),
         requests.ConnectionError("offline"),
     ],
     ids=["server-error", "connection-error"],

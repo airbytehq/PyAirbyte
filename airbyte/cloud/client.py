@@ -92,7 +92,7 @@ from airbyte.cloud.models import (
 )
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
+from airbyte.exceptions import AirbyteCloudError, AirbyteMissingResourceError
 
 
 if TYPE_CHECKING:
@@ -241,7 +241,7 @@ class CloudClient:
         """
         resolved_workspace_id = workspace_id or self.resolve_default_workspace_id()
         if not resolved_workspace_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Workspace ID is required.",
                 guidance=(
                     "No workspace was configured, and no default workspace could be resolved "
@@ -369,20 +369,20 @@ class CloudClient:
         organization workspaces, or instance-wide workspaces.
         """
         if limit is not None and limit <= 0:
-            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+            raise exc.AirbyteLibInputError(message="`limit` must be greater than 0.")
         if organization_id is not None and organization_name is not None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Provide either organization ID or organization name."
             )
         has_explicit_organization = organization_id is not None or organization_name is not None
         has_explicit_workspace = workspace_id is not None
 
         if name_contains is not None and name_filter is not None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="You can provide name_contains or name_filter, but not both."
             )
         if name is not None and name_contains is not None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="You can provide name or name_contains, but not both."
             )
         if has_explicit_organization or has_explicit_workspace:
@@ -411,7 +411,7 @@ class CloudClient:
 
         if privilege_scope is WorkspacePrivilegeScope.INSTANCE_ADMIN:
             if not self._is_instance_admin():
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message="privilege_scope=instance_admin requires the instance_admin permission."
                 )
             return self._list_unscoped_workspaces(
@@ -444,7 +444,7 @@ class CloudClient:
                 limit=limit,
             )
 
-        raise exc.PyAirbyteInputError(message="Unsupported workspace privilege scope.")
+        raise exc.AirbyteLibInputError(message="Unsupported workspace privilege scope.")
 
     def _list_member_workspaces(
         self,
@@ -580,18 +580,18 @@ class CloudClient:
         if self.default_workspace_id is not None:
             try:
                 return self._get_workspace_parent_organization_id(self.default_workspace_id)
-            except (exc.AirbyteError, exc.PyAirbyteInputError):
+            except (exc.AirbyteCloudError, exc.AirbyteLibInputError):
                 pass
         user_default_workspace_id = self._get_user_default_workspace_id()
         if user_default_workspace_id:
             try:
                 return self._get_workspace_parent_organization_id(user_default_workspace_id)
-            except (exc.AirbyteError, exc.PyAirbyteInputError):
+            except (exc.AirbyteCloudError, exc.AirbyteLibInputError):
                 pass
 
         try:
             organization_ids = self._get_membership_organization_ids()
-        except (exc.AirbyteError, exc.PyAirbyteInputError):
+        except (exc.AirbyteCloudError, exc.AirbyteLibInputError):
             return None
         if len(organization_ids) > 1:
             self._raise_ambiguous_organization_error(organization_ids)
@@ -624,7 +624,7 @@ class CloudClient:
         resolved_organization_id = organization.get("organizationId")
         if isinstance(resolved_organization_id, str) and resolved_organization_id:
             return resolved_organization_id
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteCloudError(
             message="The workspace response did not include an organization ID.",
             context={"workspace_id": workspace_id, "response": organization},
         )
@@ -633,7 +633,7 @@ class CloudClient:
         """Return the parent organization ID of a workspace, or `None` if it cannot be resolved."""
         try:
             return self._get_workspace_parent_organization_id(workspace_id)
-        except (exc.AirbyteError, exc.PyAirbyteInputError):
+        except (exc.AirbyteCloudError, exc.AirbyteLibInputError):
             return None
 
     def _get_authenticated_user_info(self) -> dict[str, Any]:
@@ -643,7 +643,7 @@ class CloudClient:
 
         bearer_token = self._get_config_api_bearer_token()
         if bearer_token is None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="No authentication credentials provided.",
                 guidance="Provide either client credentials or a bearer token.",
             )
@@ -666,7 +666,7 @@ class CloudClient:
         user = self._get_authenticated_user_info()
         user_id = user.get("userId")
         if not isinstance(user_id, str) or not user_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteCloudError(
                 message="The Airbyte user response did not include a user ID.",
                 context={"response": user},
             )
@@ -677,7 +677,7 @@ class CloudClient:
         """Get the authenticated user's default workspace ID, when available."""
         try:
             default_workspace_id = self._get_authenticated_user_info().get("defaultWorkspaceId")
-        except (exc.AirbyteError, exc.PyAirbyteInputError):
+        except (exc.AirbyteCloudError, exc.AirbyteLibInputError):
             return None
         return (
             default_workspace_id
@@ -695,7 +695,7 @@ class CloudClient:
             return user_default_workspace_id
         try:
             live_workspaces, unvalidated_count = self._validate_direct_workspaces()
-        except (AirbyteError, exc.PyAirbyteInputError):
+        except (AirbyteCloudError, exc.AirbyteLibInputError):
             return None
         if unvalidated_count == 0 and len(live_workspaces) == 1:
             return live_workspaces[0].workspace_id
@@ -715,7 +715,7 @@ class CloudClient:
                 limit=2,
                 page_size=2,
             )
-        except (AirbyteError, exc.PyAirbyteInputError):
+        except (AirbyteCloudError, exc.AirbyteLibInputError):
             return None
         return workspaces[0].workspace_id if len(workspaces) == 1 else None
 
@@ -795,7 +795,7 @@ class CloudClient:
                 client_secret=self.client_secret,
                 bearer_token=self._get_config_api_bearer_token(),
             )
-        except (AirbyteError, NotImplementedError):
+        except (AirbyteCloudError, NotImplementedError):
             # The workspace is readable via the public API but its organization is not
             # (e.g. the caller lacks org-level read, or no Config API root can be derived
             # from a custom public API root). Keep the live workspace and leave the
@@ -858,7 +858,7 @@ class CloudClient:
         user: dict[str, Any] | None = None
         try:
             user = self._get_authenticated_user_info()
-        except (AirbyteError, exc.PyAirbyteInputError):
+        except (AirbyteCloudError, exc.AirbyteLibInputError):
             pass
         else:
             user_id = user.get("userId") if isinstance(user.get("userId"), str) else None
@@ -868,7 +868,7 @@ class CloudClient:
         default_workspace_id = self.resolve_default_workspace_id()
         try:
             permissions = self._get_user_permissions()
-        except (AirbyteError, exc.PyAirbyteInputError):
+        except (AirbyteCloudError, exc.AirbyteLibInputError):
             permissions = ()
             membership_organization_ids = ()
             member_workspaces = []
@@ -881,7 +881,7 @@ class CloudClient:
             )
             try:
                 member_workspaces, unvalidated_workspace_count = self._validate_direct_workspaces()
-            except (AirbyteError, exc.PyAirbyteInputError):
+            except (AirbyteCloudError, exc.AirbyteLibInputError):
                 member_workspaces = []
                 unvalidated_workspace_count = 0
             member_workspaces = member_workspaces[:]
@@ -897,7 +897,7 @@ class CloudClient:
         if default_workspace_id is not None:
             try:
                 default_workspace_info = self._get_direct_workspace_info(default_workspace_id)
-            except (AirbyteError, exc.PyAirbyteInputError):
+            except (AirbyteCloudError, exc.AirbyteLibInputError):
                 default_workspace_info = None
             if default_workspace_info is not None:
                 default_workspace_organization = self._get_workspace_organization(
@@ -971,17 +971,17 @@ class CloudClient:
         user_id = user.get("userId")
         authenticated_email = user.get("email")
         if not isinstance(user_id, str) or not user_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteCloudError(
                 message="The Airbyte user response did not include a user ID.",
                 context={"response": user},
             )
         if not isinstance(authenticated_email, str) or not authenticated_email:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteCloudError(
                 message="The Airbyte user response did not include an email.",
                 context={"response": user},
             )
         if user.get("status") == "disabled":
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     "The authenticated user is disabled/deactivated and cannot update "
                     "a default workspace."
@@ -990,7 +990,7 @@ class CloudClient:
             )
 
         if user_email.strip().lower() != authenticated_email.strip().lower():
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=("The provided `user_email` does not match the authenticated user."),
                 guidance=(
                     "Call get_default_cloud_context to see the authenticated user "
@@ -1013,21 +1013,21 @@ class CloudClient:
                 bearer_token=self._get_config_api_bearer_token(),
             )
         except exc.AirbyteMissingResourceError as error:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"Workspace {workspace_id} was not found.",
                 guidance=("Call get_default_cloud_context to see your member workspaces."),
                 context={"workspace_id": workspace_id},
             ) from error
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             if (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message=f"Workspace {workspace_id} was not found.",
                     guidance=("Call get_default_cloud_context to see your member workspaces."),
                     context={"workspace_id": workspace_id},
                 ) from error
             raise
         if workspace.get("tombstone"):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"Workspace {workspace_id} is tombstoned (deleted).",
                 guidance=("Call get_default_cloud_context to see your member workspaces."),
                 context={"workspace_id": workspace_id},
@@ -1042,7 +1042,7 @@ class CloudClient:
             and workspace_organization_id in self._get_membership_organization_ids()
         )
         if not direct and not via_org:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     f"You are not an explicit member of workspace {workspace_id} "
                     f"or its organization {workspace_organization_id}."
@@ -1062,7 +1062,7 @@ class CloudClient:
         )
 
         if workspace_organization_id is None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(f"Workspace {workspace_id} does not belong to an organization."),
                 guidance=(
                     "Every Airbyte Cloud workspace must belong to a live "
@@ -1084,7 +1084,7 @@ class CloudClient:
             bearer_token=self._get_config_api_bearer_token(),
         )
         if updated_user.get("defaultWorkspaceId") != workspace_id:
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="Default workspace update did not persist.",
                 context={
                     "workspace_id": workspace_id,
@@ -1125,7 +1125,7 @@ class CloudClient:
                     client_secret=self.client_secret,
                     bearer_token=self._get_config_api_bearer_token(),
                 )
-            except AirbyteError:
+            except AirbyteCloudError:
                 pass
             else:
                 candidate_name = organization_info.get("organizationName")
@@ -1152,7 +1152,7 @@ class CloudClient:
             f"({candidate['organization_name'] or 'name unavailable'})"
             for candidate in candidates
         )
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message=(
                 "Multiple organization memberships were found for these credentials. Retry "
                 "with one of these "
@@ -1183,7 +1183,7 @@ class CloudClient:
         See the module docstring for how organization search and limits are resolved.
         """
         if limit is not None and limit <= 0:
-            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+            raise exc.AirbyteLibInputError(message="`limit` must be greater than 0.")
 
         if feature_filter is None:
             return self._list_organizations(name_contains=name_contains, limit=limit)
@@ -1208,7 +1208,7 @@ class CloudClient:
                     name_contains=name_contains,
                     limit=limit,
                 )
-            except AirbyteError:
+            except AirbyteCloudError:
                 pass
 
         organizations = self._fetch_organizations()
@@ -1295,7 +1295,7 @@ class CloudClient:
                 client_secret=self.client_secret,
                 bearer_token=self._get_config_api_bearer_token(),
             )
-        except AirbyteError:
+        except AirbyteCloudError:
             return None
         if not isinstance(organization_info.get("organizationId"), str):
             return None
@@ -1309,7 +1309,7 @@ class CloudClient:
         if organization_name is not None:
             try:
                 return self._list_organizations_by_user_id(name_contains=organization_name)
-            except AirbyteError:
+            except AirbyteCloudError:
                 pass
         return self._fetch_organizations()
 
@@ -1326,13 +1326,13 @@ class CloudClient:
         """
         resolved_organization_id = organization_id
         if resolved_organization_id and organization_name:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Provide either organization ID or organization name."
             )
         if resolved_organization_id is None and organization_name is None:
             resolved_organization_id = self._resolve_default_organization_id()
         if not resolved_organization_id and not organization_name:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Organization ID or organization name is required.",
                 guidance=(
                     "Provide an organization ID or name, or call `get_default_cloud_context` "
@@ -1368,7 +1368,7 @@ class CloudClient:
                 f"{organization.organization_id} ({organization.email or 'email unavailable'})"
                 for organization in shown_matches
             )
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     "Organization name matches multiple organizations. Provide an "
                     f"organization ID to disambiguate. Matching organizations "

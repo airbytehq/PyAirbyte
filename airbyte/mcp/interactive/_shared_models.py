@@ -7,6 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.registry import ConnectorType
 
 
@@ -40,9 +41,11 @@ class SupportLevel(str, Enum):
             valid_int = ", ".join(
                 f"`{precedence}`" for precedence in _SUPPORT_LEVEL_PRECEDENCE.values()
             )
-            raise ValueError(
-                f"Unrecognized support level: {value!r}. "
-                f"Expected keyword ({valid_kw}) or integer ({valid_int})."
+            raise AirbyteLibInputError(
+                message=(
+                    f"Unrecognized support level: {value!r}. "
+                    f"Expected keyword ({valid_kw}) or integer ({valid_int})."
+                ),
             ) from None
 
 

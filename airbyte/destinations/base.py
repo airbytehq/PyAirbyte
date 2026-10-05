@@ -160,7 +160,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         available, a full refresh will be performed.
         """
         if not isinstance(source_data, ReadResult | Source):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid source_data type for `source_data` arg.",
                 context={
                     "source_data_type_provided": type(source_data).__name__,
@@ -220,7 +220,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                 "No state backend or cache provided. State will not be tracked."
                 "To track state, provide a cache or state backend."
                 "To silence this warning, set `state_cache=False` explicitly.",
-                category=exc.PyAirbyteWarning,
+                category=exc.AirbyteLibWarning,
                 stacklevel=2,
             )
 
@@ -235,7 +235,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         elif read_result:
             catalog_provider = CatalogProvider.from_read_result(read_result)
         else:
-            raise exc.PyAirbyteInternalError(
+            raise exc.AirbyteLibInternalError(
                 message="`source_data` must be a `Source` or `ReadResult` object.",
             )
 

@@ -122,7 +122,7 @@ class VenvExecutor(Executor):
             or self.use_python is False
             or isinstance(self.use_python, (str, Path))
         ):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid use_python parameter type",
                 input_value=str(self.use_python),
             )
@@ -216,7 +216,7 @@ class VenvExecutor(Executor):
         if not self.interpreter_path.exists():
             # No point in trying to detect the version if the interpreter does not exist
             if raise_on_error:
-                raise exc.PyAirbyteInternalError(
+                raise exc.AirbyteLibInternalError(
                     message="Connector's virtual environment interpreter could not be found.",
                     context={
                         "interpreter_path": self.interpreter_path,

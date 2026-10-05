@@ -402,7 +402,7 @@ class Source(ConnectorBase):
         elif isinstance(streams, list):
             selected_streams = streams
         else:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid streams argument.",
                 input_value=streams,
             )
@@ -456,13 +456,13 @@ class Source(ConnectorBase):
         ]
 
         if len(found) == 0:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Stream name does not exist in catalog.",
                 input_value=stream_name,
             )
 
         if len(found) > 1:
-            raise exc.PyAirbyteInternalError(
+            raise exc.AirbyteLibInternalError(
                 message="Duplicate streams found with the same name.",
                 context={
                     "found_streams": found,
@@ -506,7 +506,7 @@ class Source(ConnectorBase):
         stop_event = stop_event or threading.Event()
         configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Requested stream does not exist.",
                 context={
                     "stream": stream,
@@ -844,7 +844,7 @@ class Source(ConnectorBase):
             self.select_streams(streams)
 
         if not self._selected_stream_names:
-            raise exc.PyAirbyteNoStreamsSelectedError(
+            raise exc.AirbyteLibNoStreamsSelectedError(
                 connector_name=self.name,
                 available_streams=self.get_available_streams(),
             )
@@ -863,7 +863,7 @@ class Source(ConnectorBase):
                 skip_validation=skip_validation,
                 progress_tracker=progress_tracker,
             )
-        except exc.PyAirbyteInternalError as ex:
+        except exc.AirbyteLibInternalError as ex:
             progress_tracker.log_failure(exception=ex)
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
@@ -896,17 +896,17 @@ class Source(ConnectorBase):
                     "Using `REPLACE` strategy without also setting `force_full_refresh=True` "
                     "could result in data loss. "
                     "To silence this warning, use the following: "
-                    'warnings.filterwarnings("ignore", '
-                    'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
+                    "`from airbyte.exceptions import AirbyteLibDataLossWarning; "
+                    'warnings.filterwarnings("ignore", category=AirbyteLibDataLossWarning)`'
                 ),
-                category=exc.PyAirbyteDataLossWarning,
+                category=exc.AirbyteLibDataLossWarning,
                 stacklevel=1,
             )
         if isinstance(write_strategy, str):
             try:
                 write_strategy = WriteStrategy(write_strategy)
             except ValueError:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message="Invalid strategy",
                     context={
                         "write_strategy": write_strategy,

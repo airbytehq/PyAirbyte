@@ -26,14 +26,14 @@ from airbyte_api.errors import SDKError
 from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
+    AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteDeferredSetupError,
-    AirbyteError,
+    AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
     AirbyteWorkspaceNotEmptyError,
-    PyAirbyteInputError,
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
@@ -76,7 +76,7 @@ def _validate_pagination_params(
 ) -> None:
     """Validate common pagination parameters."""
     if limit is not None and limit <= 0:
-        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
+        raise AirbyteLibInputError(message="`limit` must be greater than 0.")
 
 
 def _get_page_limit(remaining: int | None) -> int:
@@ -108,10 +108,12 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
     return context
 
 
-def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None) -> AirbyteError:
+def _wrap_sdk_error(
+    error: SDKError, base_context: dict[str, Any] | None = None
+) -> AirbyteCloudError:
     """Wrap an SDKError with additional context for debugging.
 
-    This function converts a Speakeasy SDK error into an AirbyteError with
+    This function converts a Speakeasy SDK error into an AirbyteCloudError with
     full URL context, making it easier to debug API issues like 403 and 404 errors.
     """
     sdk_context = _get_sdk_error_context(error)
@@ -121,7 +123,7 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     error_type = (
         AirbyteMissingResourceError
         if is_forbidden or status_code == HTTPStatus.NOT_FOUND
-        else AirbyteError
+        else AirbyteCloudError
     )
     return error_type(
         message=(
@@ -233,18 +235,18 @@ def get_airbyte_server_instance(
         An authenticated AirbyteAPI instance.
 
     Raises:
-        PyAirbyteInputError: If authentication parameters are invalid.
+        AirbyteLibInputError: If authentication parameters are invalid.
     """
     # Guard: must provide either bearer token OR both client credentials
     if bearer_token is None and (client_id is None or client_secret is None):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="No authentication credentials provided.",
             guidance="Provide either client_id and client_secret, or bearer_token.",
         )
 
     # Guard: cannot provide both auth methods
     if bearer_token is not None and (client_id is not None or client_secret is not None):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Cannot use both client credentials and bearer token authentication.",
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
@@ -356,7 +358,7 @@ def create_workspace(
     if status_ok(response.status_code) and response.workspace_response:
         return response.workspace_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not create workspace.",
         context={
             **base_context,
@@ -401,7 +403,7 @@ def rename_workspace(
     if status_ok(response.status_code) and response.workspace_response:
         return response.workspace_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not rename workspace.",
         context={
             **base_context,
@@ -436,7 +438,7 @@ def permanently_delete_workspace(
             (case insensitive). Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe mode is True and the workspace name does not meet
+        AirbyteLibInputError: If safe mode is True and the workspace name does not meet
             the safety requirements.
         AirbyteWorkspaceNotEmptyError: If the workspace contains connections.
     """
@@ -452,7 +454,7 @@ def permanently_delete_workspace(
             workspace_name = workspace_info.name
 
         if not _is_safe_name_to_delete(workspace_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     "Cannot delete workspace with safe_mode enabled because the workspace "
                     "name does not contain 'delete-me' or 'deleteme'."
@@ -496,7 +498,7 @@ def permanently_delete_workspace(
         raise _wrap_sdk_error(e, base_context) from e
 
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             context={
                 **base_context,
                 "request_url": response.raw_response.url,
@@ -522,7 +524,7 @@ def list_connections(
 ) -> list[models.ConnectionResponse]:
     """List connections."""
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -549,7 +551,7 @@ def list_connections(
             raise _wrap_sdk_error(e, base_context) from e
 
         if not status_ok(response.status_code):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 context={
                     "workspace_id": workspace_id,
                     "request_url": response.raw_response.url,
@@ -602,7 +604,7 @@ def list_workspaces(
         limit: Optional maximum number of matching workspaces to return.
     """
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     has_name_filter = name is not None or name_filter is not None
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
@@ -630,7 +632,7 @@ def list_workspaces(
             raise _wrap_sdk_error(e, base_context) from e
 
         if not status_ok(response.status_code):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 context={
                     "workspace_id": workspace_id,
                     "request_url": response.raw_response.url,
@@ -670,7 +672,7 @@ def list_sources(
 ) -> list[models.SourceResponse]:
     """List sources."""
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -698,7 +700,7 @@ def list_sources(
             raise _wrap_sdk_error(e, base_context) from e
 
         if not status_ok(response.status_code):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 context={
                     "workspace_id": workspace_id,
                     "request_url": response.raw_response.url,
@@ -737,7 +739,7 @@ def list_destinations(
 ) -> list[models.DestinationResponse]:
     """List destinations."""
     if name is not None and name_filter:
-        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+        raise AirbyteLibInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -765,7 +767,7 @@ def list_destinations(
             raise _wrap_sdk_error(e, base_context) from e
 
         if not status_ok(response.status_code):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 context={
                     "workspace_id": workspace_id,
                     "request_url": response.raw_response.url,
@@ -950,7 +952,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             job_type_value = models.JobTypeEnum(job_type)
         except ValueError:
             valid_job_types = ", ".join(job_type_enum.value for job_type_enum in models.JobTypeEnum)
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"`job_type` must be one of: {valid_job_types}.",
                 input_value=job_type,
             ) from None
@@ -984,7 +986,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
                         "status_code": response.status_code,
                     },
                 )
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="Failed to list jobs.",
                 response=response,
                 context={
@@ -994,7 +996,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
                 },
             )
         if not response.jobs_response:
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="Jobs response payload was empty.",
                 response=response,
                 context={
@@ -1080,7 +1082,7 @@ def cancel_job(
     if status_ok(response.status_code):
         if response.job_response:
             return response.job_response
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Job cancellation response payload was empty.",
             response=response,
             context={
@@ -1101,7 +1103,7 @@ def cancel_job(
             },
         )
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not cancel job.",
         response=response,
         log_text=response.raw_response.text,
@@ -1148,7 +1150,7 @@ def create_source(
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not create source.",
         context={
             "request_url": response.raw_response.url,
@@ -1230,7 +1232,7 @@ def delete_source(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the source name does not meet
+        AirbyteLibInputError: If safe_mode is True and the source name does not meet
             the safety requirements.
     """
     _ = workspace_id  # Not used (yet)
@@ -1247,7 +1249,7 @@ def delete_source(
             source_name = source_info.name
 
         if not _is_safe_name_to_delete(source_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete source '{source_name}' with safe_mode enabled. "
                     "To authorize deletion, the source name must contain 'delete-me' or 'deleteme' "
@@ -1273,7 +1275,7 @@ def delete_source(
         ),
     )
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             context={
                 "source_id": source_id,
                 "request_url": response.raw_response.url,
@@ -1327,7 +1329,7 @@ def patch_source(
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not update source.",
         context={
             "source_id": source_id,
@@ -1350,7 +1352,7 @@ def _get_destination_type_str(
         destination_type = getattr(destination, "DESTINATION_TYPE", None)
 
     if not destination_type or not isinstance(destination_type, str):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Could not determine destination type from configuration.",
             context={
                 "destination": destination,
@@ -1396,7 +1398,7 @@ def create_destination(
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not create destination.",
         context={
             "request_url": response.raw_response.url,
@@ -1476,7 +1478,7 @@ def get_connector(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
-    except AirbyteError as error:
+    except AirbyteCloudError as error:
         if not _is_not_found_or_forbidden(error):
             raise
         source_error = error
@@ -1489,7 +1491,7 @@ def get_connector(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
-    except AirbyteError as error:
+    except AirbyteCloudError as error:
         if not _is_not_found_or_forbidden(error):
             raise
         if _status_code(source_error) == _status_code(error) == HTTPStatus.NOT_FOUND:
@@ -1500,7 +1502,7 @@ def get_connector(
         raise source_error from error
 
 
-def _status_code(error: AirbyteError) -> object:
+def _status_code(error: AirbyteCloudError) -> object:
     """Return the HTTP status code recorded in `error`'s context.
 
     An `AirbyteMissingResourceError` without a recorded status counts as a 404.
@@ -1511,7 +1513,7 @@ def _status_code(error: AirbyteError) -> object:
     return status_code
 
 
-def _is_not_found_or_forbidden(error: AirbyteError) -> bool:
+def _is_not_found_or_forbidden(error: AirbyteCloudError) -> bool:
     """Return whether `error` is a 404 or 403, which may just mean the other connector kind.
 
     Checked by status code: `get_source`/`get_destination` raise
@@ -1618,7 +1620,7 @@ def delete_destination(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the destination name does not meet
+        AirbyteLibInputError: If safe_mode is True and the destination name does not meet
             the safety requirements.
     """
     _ = workspace_id  # Not used (yet)
@@ -1635,7 +1637,7 @@ def delete_destination(
             destination_name = destination_info.name
 
         if not _is_safe_name_to_delete(destination_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete destination '{destination_name}' with safe_mode enabled. "
                     "To authorize deletion, the destination name must contain 'delete-me' or "
@@ -1662,7 +1664,7 @@ def delete_destination(
         ),
     )
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             context={
                 "destination_id": destination_id,
                 "request_url": response.raw_response.url,
@@ -1716,7 +1718,7 @@ def patch_destination(
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not update destination.",
         context={
             "destination_id": destination_id,
@@ -1792,7 +1794,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
         ),
     )
     if not status_ok(response.status_code) or response.connection_response is None:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             context={
                 "source_id": source_id,
                 "destination_id": destination_id,
@@ -1882,7 +1884,7 @@ def delete_connection(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the connection name does not meet
+        AirbyteLibInputError: If safe_mode is True and the connection name does not meet
             the safety requirements.
     """
     if safe_mode:
@@ -1898,7 +1900,7 @@ def delete_connection(
             connection_name = connection_info.name
 
         if not _is_safe_name_to_delete(connection_name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete connection '{connection_name}' with safe_mode enabled. "
                     "To authorize deletion, the connection name must contain 'delete-me' or "
@@ -1926,7 +1928,7 @@ def delete_connection(
         ),
     )
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             context={
                 "connection_id": connection_id,
                 "request_url": response.raw_response.url,
@@ -1981,7 +1983,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
             valid_statuses = ", ".join(
                 connection_status.value for connection_status in models.ConnectionStatusEnum
             )
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"`status` must be one of: {valid_statuses}.",
                 input_value=status,
             ) from None
@@ -2007,7 +2009,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Could not update connection.",
         context={
             "connection_id": connection_id,
@@ -2102,10 +2104,13 @@ def _make_config_api_request(
                     guidance=FORBIDDEN_RESOURCE_GUIDANCE,
                     context=error_context,
                 ) from ex
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message=error_message,
                 context=error_context,
             ) from ex
+
+    if response.status_code == HTTPStatus.NO_CONTENT:
+        return {}
 
     return response.json()
 
@@ -2121,7 +2126,7 @@ def _config_api_headers(
     """Build Config API headers, minting a bearer token from client credentials if needed."""
     if bearer_token is None:
         if client_id is None or client_secret is None:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="No authentication credentials provided.",
                 guidance="Provide either client_id and client_secret, or bearer_token.",
             )
@@ -2184,7 +2189,7 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
         allow_redirects=False,
     )
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message=f"API request failed with status {response.status_code}",
             context={
                 "full_url": full_url,
@@ -2196,10 +2201,12 @@ def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
     try:
         body = response.json()
     except requests.exceptions.JSONDecodeError:
-        raise AirbyteError(message="Cloud returned an invalid draft-create response.") from None
+        raise AirbyteCloudError(
+            message="Cloud returned an invalid draft-create response."
+        ) from None
     actor_id = body.get(f"{connector_type}Id") if isinstance(body, dict) else None
     if not isinstance(actor_id, str) or not actor_id:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Cloud did not return the created connector ID.",
             context={"full_url": full_url, "path": path},
         )
@@ -2246,7 +2253,7 @@ def check_connector(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
-    except AirbyteError as ex:
+    except AirbyteCloudError as ex:
         # A draft connector with incomplete configuration returns HTTP 422; report it as
         # a failed check rather than an operational error so a person can finish setup.
         if (ex.context or {}).get("status_code") == HTTPStatus.UNPROCESSABLE_ENTITY:
@@ -2264,7 +2271,7 @@ def check_connector(
     if result == "failed":
         return False, message
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         context={
             "actor_id": actor_id,
             "connector_type": str(connector_type),
@@ -2292,7 +2299,7 @@ def validate_yaml_manifest(
     if not isinstance(manifest, dict):
         error = "Manifest must be a dictionary"
         if raise_on_error:
-            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+            raise AirbyteLibInputError(message=error, context={"manifest": manifest})
         return False, error
 
     required_fields = ["version", "type"]
@@ -2300,13 +2307,13 @@ def validate_yaml_manifest(
     if missing:
         error = f"Manifest missing required fields: {', '.join(missing)}"
         if raise_on_error:
-            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+            raise AirbyteLibInputError(message=error, context={"manifest": manifest})
         return False, error
 
     if manifest.get("type") != "DeclarativeSource":
         error = f"Manifest type must be 'DeclarativeSource', got '{manifest.get('type')}'"
         if raise_on_error:
-            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+            raise AirbyteLibInputError(message=error, context={"manifest": manifest})
         return False, error
 
     return True, None
@@ -2342,7 +2349,7 @@ def create_custom_yaml_source_definition(
         request
     )
     if response.declarative_source_definition_response is None:
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Failed to create custom YAML source definition",
             context={"name": name, "workspace_id": workspace_id},
         )
@@ -2375,7 +2382,7 @@ def list_custom_yaml_source_definitions(
         not status_ok(response.status_code)
         or response.declarative_source_definitions_response is None
     ):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Failed to list custom YAML source definitions",
             context={
                 "workspace_id": workspace_id,
@@ -2414,7 +2421,7 @@ def get_custom_yaml_source_definition(
         not status_ok(response.status_code)
         or response.declarative_source_definition_response is None
     ):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Failed to get custom YAML source definition",
             context={
                 "workspace_id": workspace_id,
@@ -2459,7 +2466,7 @@ def update_custom_yaml_source_definition(
         not status_ok(response.status_code)
         or response.declarative_source_definition_response is None
     ):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             message="Failed to update custom YAML source definition",
             context={
                 "workspace_id": workspace_id,
@@ -2494,7 +2501,7 @@ def delete_custom_yaml_source_definition(
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safe_mode is True and the connector name does not meet
+        AirbyteLibInputError: If safe_mode is True and the connector name does not meet
             the safety requirements.
     """
     if safe_mode:
@@ -2509,7 +2516,7 @@ def delete_custom_yaml_source_definition(
         connector_name = definition_info.name
 
         if not _is_safe_name_to_delete(definition_info.name):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Cannot delete custom connector definition '{connector_name}' "
                     "with safe_mode enabled. "
@@ -2542,7 +2549,7 @@ def delete_custom_yaml_source_definition(
         request
     )
     if not status_ok(response.status_code):
-        raise AirbyteError(
+        raise AirbyteCloudError(
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
@@ -2666,6 +2673,46 @@ def get_connector_builder_project(
     )
 
 
+def update_connector_builder_project(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    name: str,
+    draft_manifest: dict[str, Any] | None,
+    components_file_content: str | None,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> None:
+    """Update a connector builder project name and preserve its optional draft content.
+
+    The Config API replaces the draft manifest and components file with the values in
+    `builderProject`, so these fields are included only when not None to avoid wiping
+    existing content.
+    """
+    builder_project: dict[str, Any] = {"name": name}
+    if draft_manifest is not None:
+        builder_project["draftManifest"] = draft_manifest
+    if components_file_content is not None:
+        builder_project["componentsFileContent"] = components_file_content
+
+    _make_config_api_request(
+        path="/connector_builder_projects/update",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "builderProject": builder_project,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def update_connector_builder_project_testing_values(  # noqa: PLR0913
     *,
     workspace_id: str,
@@ -2751,7 +2798,7 @@ def list_organizations_for_user(
     if status_ok(response.status_code) and response.organizations_response:
         return response.organizations_response.data
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="Failed to list organizations for user.",
         context={
             "request_url": response.raw_response.url,
@@ -2820,13 +2867,13 @@ def list_organizations_for_user_id(
         )
 
         if not isinstance(json_result, dict):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="The organizations API returned an unexpected response.",
                 context={"response": json_result},
             )
         organizations = json_result.get("organizations", [])
         if not isinstance(organizations, list):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="The organizations API returned an unexpected response.",
                 context={"response": json_result},
             )
@@ -3051,7 +3098,7 @@ def get_workspace_organization_info(
     )
     if isinstance(result, dict):
         return result
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="The workspace API returned an unexpected response.",
         context={"response": result},
     )
@@ -3149,7 +3196,7 @@ def replace_connection_state(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
-    except AirbyteError as ex:
+    except AirbyteCloudError as ex:
         if ex.context and ex.context.get("status_code") == HTTPStatus.LOCKED:
             raise AirbyteConnectionSyncActiveError(
                 message="Cannot update connection state while a sync is running.",
@@ -3282,7 +3329,7 @@ def get_organization_info(
     )
     if isinstance(result, dict):
         return result
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="The organization API returned an unexpected response.",
         context={"response": result},
     )
@@ -3292,7 +3339,7 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
     """Extract the authentication user ID from a bearer token."""
     token_parts = str(bearer_token).split(".")
     if len(token_parts) != JWT_PART_COUNT:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The bearer token is not a valid JWT.",
             guidance="Provide a valid bearer token.",
         )
@@ -3304,7 +3351,7 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
             ).decode("utf-8")
         )
     except (UnicodeDecodeError, ValueError) as error:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The bearer token payload could not be decoded.",
             guidance="Provide a valid bearer token.",
         ) from error
@@ -3313,7 +3360,7 @@ def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
     if not isinstance(user_id, str) or not user_id:
         user_id = payload.get("sub") if isinstance(payload, dict) else None
     if not isinstance(user_id, str) or not user_id:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="The bearer token does not contain a user_id or sub claim.",
             guidance="Provide a bearer token issued for an Airbyte user.",
         )
@@ -3347,7 +3394,7 @@ def get_user_by_auth_id(
     if isinstance(result, dict):
         return result
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="The user API returned an unexpected response.",
         context={"response": result},
     )
@@ -3382,7 +3429,7 @@ def update_user_default_workspace(
     if isinstance(result, dict):
         return result
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="The user API returned an unexpected response.",
         context={"response": result},
     )
@@ -3419,7 +3466,7 @@ def get_workspace_config_api(
     if isinstance(result, dict):
         return result
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="The workspace API returned an unexpected response.",
         context={"response": result},
     )
@@ -3451,7 +3498,7 @@ def list_permissions_for_user(
     if isinstance(permissions, list):
         return permissions
 
-    raise AirbyteError(
+    raise AirbyteCloudError(
         message="The permissions API returned an unexpected response.",
         context={"response": result},
     )

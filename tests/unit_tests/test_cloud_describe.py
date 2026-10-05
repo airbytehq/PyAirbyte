@@ -14,6 +14,10 @@ import requests
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte.cloud import workspaces as cloud_workspaces
+from airbyte.mcp._docs_results import (
+    render_agent_skill_docs_result,
+    render_connector_docs_result,
+)
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudConnector,
@@ -36,9 +40,9 @@ from airbyte.cloud.models import (
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteExternalAccessNotEnabledError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 
 
@@ -235,11 +239,11 @@ def test_integration_name_raises_on_lookup_failure(
     workspace = _make_workspace(monkeypatch)
     monkeypatch.setattr(
         "airbyte._util.api_util.get_source_definition",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="lookup boom")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="lookup boom")),
     )
     source = _seed_source(workspace, "source-1", "GitHub")
 
-    with pytest.raises(AirbyteError, match="lookup boom"):
+    with pytest.raises(AirbyteCloudError, match="lookup boom"):
         _ = source.integration_name
 
 
@@ -292,7 +296,7 @@ def test_direct_access_guidance_id_source_without_context_layer(
 )
 def test_direct_access_guidance_id_source_probe_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
-    probe_error: AirbyteError,
+    probe_error: AirbyteCloudError,
 ) -> None:
     """A 403/404 docs probe leaves no guidance ID; reads raise not-enabled."""
     workspace = _make_workspace(monkeypatch)
@@ -312,8 +316,10 @@ def test_direct_access_guidance_id_source_probe_not_enabled(
 @pytest.mark.parametrize(
     "probe_error",
     [
-        pytest.param(AirbyteError(context={"status_code": 500}), id="server_error"),
-        pytest.param(AirbyteError(message="malformed docs"), id="malformed"),
+        pytest.param(
+            AirbyteCloudError(context={"status_code": 500}), id="server_error"
+        ),
+        pytest.param(AirbyteCloudError(message="malformed docs"), id="malformed"),
         pytest.param(requests.ConnectionError("offline"), id="transport"),
     ],
 )
@@ -370,7 +376,7 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
     destination = _seed_destination(workspace, "dest-1", "other-definition")
 
     with pytest.raises(
-        PyAirbyteInputError, match="does not support direct access docs"
+        AirbyteLibInputError, match="does not support direct access docs"
     ):
         destination.get_direct_access_guidance()
 
@@ -384,7 +390,7 @@ def test_get_direct_access_guidance_non_passthrough_destination_raises(
 )
 def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     monkeypatch: pytest.MonkeyPatch,
-    probe_error: AirbyteError,
+    probe_error: AirbyteCloudError,
 ) -> None:
     """A 403/404 unscoped docs read returns structure-only guidance with a notice."""
     workspace = _make_workspace(monkeypatch)
@@ -409,13 +415,15 @@ def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     notice = connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE
     guidance = destination.get_direct_access_guidance()
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
-    assert guidance.warnings == [notice]
+    assert guidance.metadata.warnings == [notice]
+    assert render_connector_docs_result(guidance).warnings == [notice]
+    assert render_agent_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert any(block.get("type") == "table" for block in guidance.content)
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)
 
-    with pytest.raises(AirbyteError):
+    with pytest.raises(AirbyteCloudError):
         destination.get_direct_access_guidance(section="streams")
 
 
@@ -506,13 +514,15 @@ def test_get_direct_access_guidance_destination_merges_server_docs(
 def test_get_direct_access_guidance_destination_server_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A non-403/404 docs read failure propagates the original `AirbyteError`."""
+    """A non-403/404 docs read failure propagates the original `AirbyteCloudError`."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(context={"status_code": 500})),
+        lambda **_: (_ for _ in ()).throw(
+            AirbyteCloudError(context={"status_code": 500})
+        ),
     )
     destination = _seed_destination(
         workspace,
@@ -521,7 +531,7 @@ def test_get_direct_access_guidance_destination_server_error_propagates(
         configuration={"database": "DATABASE", "schema": "SCHEMA"},
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         destination.get_direct_access_guidance()
     assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
 
@@ -546,12 +556,14 @@ def test_get_direct_access_guidance_destination_no_context_layer_notices(
     guidance = destination.get_direct_access_guidance()
     read_docs.assert_not_called()
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
-    assert guidance.warnings == [notice]
+    assert guidance.metadata.warnings == [notice]
+    assert render_connector_docs_result(guidance).warnings == [notice]
+    assert render_agent_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)
 
-    with pytest.raises(PyAirbyteInputError, match="Section-scoped"):
+    with pytest.raises(AirbyteLibInputError, match="Section-scoped"):
         destination.get_direct_access_guidance(section="streams")
 
 
@@ -598,7 +610,7 @@ def test_get_connector_ambiguous_name_raises(monkeypatch: pytest.MonkeyPatch) ->
         ],
     )
 
-    with pytest.raises(AirbyteError, match="Multiple connectors"):
+    with pytest.raises(AirbyteCloudError, match="Multiple connectors"):
         workspace.get_connector(name="github")
 
 
@@ -608,7 +620,7 @@ def test_get_connector_no_match_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch, workspace, [_seed_source(workspace, "source-1", "GitHub")]
     )
 
-    with pytest.raises(AirbyteError, match="No connector found"):
+    with pytest.raises(AirbyteCloudError, match="No connector found"):
         workspace.get_connector(name="missing")
 
 

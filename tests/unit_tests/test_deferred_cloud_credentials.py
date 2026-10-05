@@ -124,7 +124,7 @@ def test_deferred_create_uses_bounded_timeouts_and_never_follows_redirects(
 
     monkeypatch.setattr(api_util.requests, "post", _recording_post)
 
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred("source")
 
     assert raised.value.context is not None
@@ -213,7 +213,7 @@ def test_deferred_create_errors_do_not_expose_response_body(
         json={"message": "Invalid credential abc123", "config": {"token": "abc123"}},
     )
 
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred(connector_type)
 
     assert not isinstance(raised.value, exc.AirbyteDeferredSetupError)
@@ -237,7 +237,7 @@ def test_deferred_create_errors_do_not_expose_response_body(
 def test_deferred_create_rejects_invalid_response_without_replaying(body: str) -> None:
     """A malformed successful response must not cause duplicate creates or leak its body."""
     responses.post(f"{CONFIG_API_ROOT}/sources/create", body=body)
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred("source")
     assert "abc123" not in str(raised.value)
     assert len(responses.calls) == 1
@@ -350,7 +350,7 @@ def test_deploy_deferred_rejects_invalid_input_before_any_request(
     """Missing definition, non-dict config, secret values and references never reach Cloud."""
     call = _stub_create(monkeypatch, connector_type)
 
-    with pytest.raises(exc.PyAirbyteInputError, match=match):
+    with pytest.raises(exc.AirbyteLibInputError, match=match):
         _deploy(_workspace(), connector_type, config, defer_credentials=True, **kwargs)
 
     assert call.kwargs == {}
@@ -362,7 +362,7 @@ def test_deploy_source_rejects_dict_config_without_defer_credentials(
     """Raw source dictionaries are only accepted in deferred mode."""
     call = _stub_create(monkeypatch, "source")
 
-    with pytest.raises(exc.PyAirbyteInputError):
+    with pytest.raises(exc.AirbyteLibInputError):
         _deploy(_workspace(), "source", {"count": 10}, definition_id=DEFINITION_ID)
 
     assert call.kwargs == {}
@@ -376,7 +376,7 @@ def test_deploy_deferred_rejects_plaintext_credentials(
     """Plain-text credential fields (per the global secrets mask) never reach Cloud."""
     call = _stub_create(monkeypatch, connector_type)
 
-    with pytest.raises(exc.PyAirbyteInputError, match="credential values") as raised:
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
         _deploy(
             _workspace(),
             connector_type,
@@ -397,7 +397,7 @@ def test_deploy_deferred_rejects_nested_plaintext_credentials(
     """Credentials nested inside list-of-dict config values are also rejected."""
     call = _stub_create(monkeypatch, connector_type)
 
-    with pytest.raises(exc.PyAirbyteInputError, match="credential values") as raised:
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
         _deploy(
             _workspace(),
             connector_type,
@@ -453,7 +453,7 @@ def test_deploy_deferred_spec_still_rejects_secret_fields(
         cloud_workspaces, "_get_deferred_spec", lambda _id: _SPEC_WITH_SECRET_PASSWORD
     )
 
-    with pytest.raises(exc.PyAirbyteInputError, match="credential values") as raised:
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
         _deploy(
             _workspace(),
             connector_type,
@@ -546,7 +546,7 @@ def test_connector_check_reports_draft_failures_and_raises_on_errors(
     connector = _workspace().get_source(ACTOR_ID)
 
     if expected is None:
-        with pytest.raises(exc.AirbyteError):
+        with pytest.raises(exc.AirbyteCloudError):
             connector.check(raise_on_error=False)
         return
 
@@ -704,7 +704,7 @@ def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
     workspace_like: _WorkspaceLike,
 ) -> None:
     """An explicit `connector_type` must agree with the registry's type for the connector."""
-    with pytest.raises(exc.PyAirbyteInputError, match="not a source connector"):
+    with pytest.raises(exc.AirbyteLibInputError, match="not a source connector"):
         cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
             name="My connector",
@@ -736,7 +736,7 @@ def test_mcp_deploy_deferred_rejects_plaintext_credentials(
 
     monkeypatch.setattr(workspace_like, "deploy_source", _validated_deploy)
 
-    with pytest.raises(exc.PyAirbyteInputError, match="credential values"):
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values"):
         cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
             name="My connector",
@@ -762,7 +762,7 @@ def test_mcp_deploy_deferred_rejects_config_secret_name(
     workspace_like: _WorkspaceLike,
 ) -> None:
     """Server-side secrets cannot be combined with deferred credentials."""
-    with pytest.raises(exc.PyAirbyteInputError, match="config_secret_name"):
+    with pytest.raises(exc.AirbyteLibInputError, match="config_secret_name"):
         cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
             name="My connector",

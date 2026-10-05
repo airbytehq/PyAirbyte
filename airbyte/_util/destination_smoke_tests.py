@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import BaseModel
 
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
 from airbyte.sources.util import get_source
 
@@ -198,7 +198,7 @@ def get_smoke_test_source(
     if custom_scenarios_file:
         custom_path = Path(custom_scenarios_file)
         if not custom_path.exists():
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Custom scenarios file not found.",
                 input_value=str(custom_path),
             )
@@ -208,7 +208,7 @@ def get_smoke_test_source(
         elif isinstance(loaded, dict) and "custom_scenarios" in loaded:
             file_scenarios = loaded["custom_scenarios"]
         else:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     "Custom scenarios file must contain a list of scenarios "
                     "or a dict with a 'custom_scenarios' key."

@@ -48,9 +48,9 @@ from airbyte.mcp.cloud import (
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectorInUseError,
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from fastmcp import Context
 
@@ -695,7 +695,7 @@ def test_get_cloud_organization_billing_status_handles_permission_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def get_billing_status() -> None:
-        raise cloud_mcp.AirbyteError(message="not allowed")
+        raise cloud_mcp.AirbyteCloudError(message="not allowed")
 
     organization = SimpleNamespace(
         organization_id="org-id",
@@ -1019,7 +1019,7 @@ def test_get_cloud_sync_status_surfaces_library_errors(
     """Connection lookup and attempt errors propagate through the MCP tool."""
     include_attempts = failure_stage == "attempts"
     if include_attempts:
-        original_error: AirbyteError = AirbyteError(
+        original_error: AirbyteCloudError = AirbyteCloudError(
             message="Could not load attempts",
             context={"status_code": requests.codes.forbidden},
         )
@@ -1050,7 +1050,7 @@ def test_get_cloud_sync_status_surfaces_library_errors(
         )
     _patch_sync_status_workspace(monkeypatch, connection)
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         cloud_mcp.get_cloud_sync_status(
             cast(Context, object()),
             connection_id="connection-1",
@@ -1070,7 +1070,7 @@ def test_set_cloud_connection_selected_streams_surfaces_library_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Errors from CloudConnection stream validation pass through unchanged."""
-    original_error = PyAirbyteInputError(
+    original_error = AirbyteLibInputError(
         message="Invalid stream selection.",
         guidance="Use stream names from `available_streams`.",
         context={"available_streams": ["orders"]},
@@ -1083,7 +1083,7 @@ def test_set_cloud_connection_selected_streams_surfaces_library_error(
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         cloud_mcp.set_cloud_connection_selected_streams(
             cast(Context, object()),
             connection_id="connection-1",
@@ -1180,8 +1180,8 @@ def test_deploy_connector_to_cloud_routes_by_type(
 
 
 def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
-    """Verify a non-canonical name without an explicit type raises `PyAirbyteInputError`."""
-    with pytest.raises(PyAirbyteInputError, match="Cannot infer connector type"):
+    """Verify a non-canonical name without an explicit type raises `AirbyteLibInputError`."""
+    with pytest.raises(AirbyteLibInputError, match="Cannot infer connector type"):
         cloud_mcp.deploy_connector_to_cloud(
             cast(Context, object()),
             name="My Connector",
@@ -1302,13 +1302,13 @@ def test_create_connection_on_cloud_without_suggested_streams_raises(
     monkeypatch: pytest.MonkeyPatch,
     metadata: object,
 ) -> None:
-    """Missing `selected_streams` and missing suggestions raise `PyAirbyteInputError`."""
+    """Missing `selected_streams` and missing suggestions raise `AirbyteLibInputError`."""
     workspace = _patch_deploy_connection_workspace(monkeypatch)
     monkeypatch.setattr(
         cloud_mcp, "get_connector_metadata_by_definition_id", lambda _id: metadata
     )
 
-    with pytest.raises(PyAirbyteInputError, match="suggested streams"):
+    with pytest.raises(AirbyteLibInputError, match="suggested streams"):
         cloud_mcp.create_connection_on_cloud(
             cast(Context, object()),
             connection_name="My Connection",
@@ -1656,11 +1656,11 @@ def test_execute_external_api_query_forwards_kwargs(
 def test_execute_external_api_query_rejects_non_object_api_args(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A non-object `api_args` string raises `PyAirbyteInputError`."""
+    """A non-object `api_args` string raises `AirbyteLibInputError`."""
     connector = _RecordingExecuteConnector()
     _execute_workspace(monkeypatch, connector)
 
-    with pytest.raises(PyAirbyteInputError, match="JSON object"):
+    with pytest.raises(AirbyteLibInputError, match="JSON object"):
         cloud_mcp.execute_external_api_query(
             None,
             connector_id="source-1",
@@ -1804,11 +1804,11 @@ def test_execute_external_search_query_rejects_bad_streams(
     monkeypatch: pytest.MonkeyPatch,
     streams: str,
 ) -> None:
-    """A `streams` string that is not a JSON array of objects raises `PyAirbyteInputError`."""
+    """A `streams` string that is not a JSON array of objects raises `AirbyteLibInputError`."""
     connector = _RecordingExecuteConnector()
     _execute_workspace(monkeypatch, connector)
 
-    with pytest.raises(PyAirbyteInputError, match="`streams`"):
+    with pytest.raises(AirbyteLibInputError, match="`streams`"):
         cloud_mcp.execute_external_search_query(
             None,
             connector_id="source-1",
@@ -2016,7 +2016,7 @@ def test_resolve_list_of_dicts(
     ],
 )
 def test_resolve_list_of_dicts_rejects_invalid(value: str, match: str) -> None:
-    with pytest.raises(PyAirbyteInputError, match=match) as exc_info:
+    with pytest.raises(AirbyteLibInputError, match=match) as exc_info:
         resolve_list_of_dicts(value, arg_name="streams")
     assert "`streams`" in exc_info.value.get_message()
 
@@ -2135,18 +2135,18 @@ class _DescribedConnector:
     enabled_features: frozenset[ConnectorFeature] = frozenset()
 
     def __post_init__(self) -> None:
-        self._integration_name: str | AirbyteError = "GitHub"
+        self._integration_name: str | AirbyteCloudError = "GitHub"
         self.workspace = SimpleNamespace(_has_context_layer_api=lambda: False)
         self.inspect_result: object | None = None
-        self.inspect_error: AirbyteError | None = None
-        self.config: dict[str, object] | AirbyteError = {"key": "value"}
+        self.inspect_error: AirbyteCloudError | None = None
+        self.config: dict[str, object] | AirbyteCloudError = {"key": "value"}
         self.guidance: DirectAccessGuidance | Exception | None = None
         self.replication_docs: list[object] | Exception = []
 
     @property
     def integration_name(self) -> str:
         """The integration title, raising the stored error when set."""
-        if isinstance(self._integration_name, AirbyteError):
+        if isinstance(self._integration_name, AirbyteCloudError):
             raise self._integration_name
         return self._integration_name
 
@@ -2169,7 +2169,7 @@ class _DescribedConnector:
 
     @property
     def configuration(self) -> dict[str, object]:
-        if isinstance(self.config, AirbyteError):
+        if isinstance(self.config, AirbyteCloudError):
             raise self.config
         return self.config
 
@@ -2180,7 +2180,7 @@ class _DescribedConnector:
         return self.guidance
 
     def get_data_replication_docs(self, **_kwargs: object) -> list[object]:
-        if isinstance(self.replication_docs, AirbyteError):
+        if isinstance(self.replication_docs, AirbyteCloudError):
             raise self.replication_docs
         return self.replication_docs
 
@@ -2233,7 +2233,7 @@ def test_describe_helper_destination_with_no_features() -> None:
 def test_describe_helper_integration_name_failure_warns() -> None:
     """A definition lookup failure warns and leaves `integration_name` unset."""
     connector = _DescribedConnector()
-    connector._integration_name = AirbyteError(message="lookup boom")  # noqa: SLF001
+    connector._integration_name = AirbyteCloudError(message="lookup boom")  # noqa: SLF001
 
     result = _describe(connector)
 
@@ -2247,7 +2247,7 @@ def test_describe_helper_collects_inspect_warnings() -> None:
         enabled_features=frozenset({ConnectorFeature.DIRECT_ACCESS})
     )
     connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
-    connector.inspect_error = AirbyteError(message="inspect boom")
+    connector.inspect_error = AirbyteCloudError(message="inspect boom")
 
     result = _describe(connector)
 
@@ -2310,7 +2310,7 @@ def test_describe_helper_config_failure_warns(
 ) -> None:
     """A source or destination config fetch failure warns instead of raising."""
     connector = _DescribedConnector(connector_type=connector_type)
-    connector.config = AirbyteError(message="config boom")
+    connector.config = AirbyteCloudError(message="config boom")
 
     result = _describe(connector, with_config=True)
 
@@ -2390,7 +2390,7 @@ def test_describe_helper_replication_details_failure_warns(
     """A connection listing failure warns instead of raising."""
 
     def fail(_connector: object) -> list[object]:
-        raise AirbyteError(message="listing boom")
+        raise AirbyteCloudError(message="listing boom")
 
     monkeypatch.setattr(cloud_mcp.connector_docs, "build_connection_details", fail)
     connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
@@ -2434,7 +2434,7 @@ def test_describe_helper_fallback_guidance_names_no_tools() -> None:
     connector = _DescribedConnector(connector_type=ConnectorType.DESTINATION)
     connector.guidance = connector_docs.build_direct_access_sql_guidance(
         destination,
-        sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+        sql_passthrough_warning=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
     )
 
     result = _describe(connector, with_direct_access_guidance=True)
@@ -2448,7 +2448,7 @@ def test_describe_helper_fallback_guidance_names_no_tools() -> None:
 @pytest.mark.parametrize(
     "error",
     [
-        pytest.param(PyAirbyteInputError(message="bad docs"), id="input_error"),
+        pytest.param(AirbyteLibInputError(message="bad docs"), id="input_error"),
         pytest.param(requests.Timeout("docs timed out"), id="transport_error"),
     ],
 )
@@ -2466,7 +2466,7 @@ def test_describe_helper_direct_access_guidance_failure_warns(error: Exception) 
 def test_describe_helper_data_replication_docs_failure_warns() -> None:
     """A registry miss under `with_data_replication_docs` appends a warning."""
     connector = _DescribedConnector()
-    connector.replication_docs = AirbyteError(message="unregistered")
+    connector.replication_docs = AirbyteCloudError(message="unregistered")
 
     result = _describe(connector, with_data_replication_docs=True)
 
@@ -2624,8 +2624,8 @@ def test_list_cloud_connectors_feature_filter_connector_failure_keeps_probing(
 def test_list_cloud_connectors_limit_must_be_positive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`limit=0` raises `PyAirbyteInputError` before listing connectors."""
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0"):
+    """`limit=0` raises `AirbyteLibInputError` before listing connectors."""
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0"):
         cloud_mcp.list_cloud_connectors(
             None,
             workspace_id=None,

@@ -155,7 +155,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         self._enablement: ConnectorEnablement | None = None
         """Fusion enablement lookup result. (Cached; `None` until fetched.)"""
 
-        self._enablement_error: exc.AirbyteError | None = None
+        self._enablement_error: exc.AirbyteCloudError | None = None
         """The 404 (no active connector of this kind) that answered the enablement
         lookup, if any. (Cached; other failures, including 403s, are never cached.)"""
 
@@ -249,7 +249,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             return self
 
         if self.connector_type != ConnectorType.SOURCE:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     f"Connector {self.connector_id} is a {self.connector_type}, not a source."
                 ),
@@ -265,7 +265,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             return self
 
         if self.connector_type != ConnectorType.DESTINATION:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     f"Connector {self.connector_id} is a {self.connector_type}, "
                     "not a destination."
@@ -355,7 +355,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             error_message=result[1],
         )
         if raise_on_error and not check_result:
-            raise ValueError(f"Check failed: {check_result}")
+            raise exc.AirbyteConnectorCheckFailedError(
+                connector_name=(self._connector_info.name if self._connector_info else None),
+                message=f"Check failed: {check_result}",
+                context={"connector_id": self.connector_id},
+            )
 
         return check_result
 
@@ -392,7 +396,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         try:
             resolved_action = ExternalApiReadOnlyAction(action)
         except ValueError:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"The {action!r} action is not a valid read action.",
                 guidance="Use one of: list, get, search.",
                 context={"entity_type": entity_type, "action": action},
@@ -431,7 +435,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         try:
             resolved_action = ExternalApiWriteAction(action)
         except ValueError:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"The {action!r} action is not a valid write action.",
                 guidance="Use one of: create, update, delete.",
                 context={"entity_type": entity_type, "action": action},
@@ -473,7 +477,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 f"{name} ({definition_id})"
                 for definition_id, name in _SQL_PASSTHROUGH_DESTINATION_NAMES.items()
             )
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     f"Connector {self.name!r} has no registered SQL passthrough dialect, "
                     "so `sql_dialect` is required."
@@ -523,28 +527,28 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         try:
             resolved_type = ExternalSearchType(search_type)
         except ValueError:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"The {search_type!r} search type is not valid.",
                 guidance="Use one of: keyword, semantic, hybrid.",
                 context={"search_type": search_type},
             ) from None
 
         if limit is not None and not 1 <= limit <= _MAX_SEARCH_LIMIT:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=f"`limit` must be between 1 and {_MAX_SEARCH_LIMIT}.",
                 context={"limit": limit},
             )
         if resolved_type == ExternalSearchType.KEYWORD and (
             min_similarity is not None or max_similarity_diff is not None
         ):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     "`min_similarity` and `max_similarity_diff` do not apply to keyword search."
                 ),
                 guidance="Use a `semantic` or `hybrid` search, or omit these arguments.",
             )
         if destination_id is not None and self.connector_type == ConnectorType.DESTINATION:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="`destination_id` applies only to source-level search.",
                 guidance="Omit `destination_id` when searching a destination.",
                 context={"connector_id": self.connector_id},
@@ -560,7 +564,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 ]
             )
         except ValidationError as ex:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="A `streams` entry is invalid.",
                 guidance=(
                     "Each stream needs a `stream_name`, plus optional `source_id`, "
@@ -591,7 +595,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
                 error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
             )
@@ -610,7 +614,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 connector_type=self.connector_type,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
                 error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
             )
@@ -618,7 +622,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
 
     def _raise_if_feature_not_enabled(
         self,
-        error: exc.AirbyteError,
+        error: exc.AirbyteCloudError,
         feature: ConnectorFeature,
         *,
         guidance: str | None = None,
@@ -636,7 +640,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             return
         try:
             enabled = self.is_feature_enabled(feature)
-        except (exc.AirbyteError, requests.RequestException, ValueError) as lookup_error:
+        except (exc.AirbyteCloudError, requests.RequestException, ValueError) as lookup_error:
             if (
                 isinstance(lookup_error, exc.AirbyteCloudApiError)
                 and lookup_error.status_code == HTTPStatus.FORBIDDEN
@@ -686,12 +690,12 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         workspace's API roots have no Context layer API. When the Cloud Config API
         reports the connector as forbidden or not found, the error is re-raised as
         `AirbyteExternalAccessNotEnabledError` only when external access is actually
-        disabled for the connector; the original `AirbyteError` propagates otherwise,
+        disabled for the connector; the original `AirbyteCloudError` propagates otherwise,
         including when the enablement lookup itself fails.
         """
         self._require_context_layer_api()
         if read_only and action in {write_action.value for write_action in ExternalApiWriteAction}:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     f"The {action!r} action is a write action but was requested as read-only."
                 ),
@@ -727,7 +731,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 request_body=request_body,
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(error, ConnectorFeature.DIRECT_ACCESS)
             raise
 
@@ -742,7 +746,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Fetch and cache the Context layer connector details.
 
         The connector's docs skill is probed: a skill doc exists only for connectors the
-        Context layer knows. A 403 or 404 `AirbyteError` from the docs read means the
+        Context layer knows. A 403 or 404 `AirbyteCloudError` from the docs read means the
         connector is not enabled for agent access, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
         response, transport) is raised to the caller.
@@ -762,7 +766,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     credentials=self.workspace._credentials,  # noqa: SLF001
                 )
             )
-        except exc.AirbyteError as error:
+        except exc.AirbyteCloudError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
             warnings.append(f"Connector direct-access docs lookup failed: {error}")
@@ -871,7 +875,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         elif self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             skill_id = connector_docs.destination_skill_id(self.connector_id)
         else:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Destination does not support direct access docs.",
                 guidance=(
                     "Direct access docs are available for SQL passthrough destinations "
@@ -910,7 +914,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             destination = self.as_cloud_destination()
             if not self.workspace._has_context_layer_api():  # noqa: SLF001
                 if section is not None:
-                    raise exc.PyAirbyteInputError(
+                    raise exc.AirbyteLibInputError(
                         message=(
                             "Section-scoped destination docs are unavailable without "
                             "the Context Layer API."
@@ -923,7 +927,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     )
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
-                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
+                    sql_passthrough_warning=connector_docs.SQL_PASSTHROUGH_UNAVAILABLE_NOTICE,
                 )
             skill_id = connector_docs.destination_skill_id(self.connector_id)
             try:
@@ -935,16 +939,16 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                         section=section,
                     )
                 )
-            except exc.AirbyteError as error:
+            except exc.AirbyteCloudError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:
                     raise
                 return connector_docs.build_direct_access_sql_guidance(
                     destination,
-                    sql_passthrough_notice=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
+                    sql_passthrough_warning=connector_docs.SQL_PASSTHROUGH_NOT_ENABLED_NOTICE,
                 )
             return connector_docs.merge_destination_skill_docs(server_docs, destination)
 
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Destination does not support direct access docs.",
             guidance=(
                 "Direct access docs are available for SQL passthrough destinations "
@@ -1387,7 +1391,7 @@ class CustomCloudSourceDefinition:
 
         Raises:
             NotImplementedError: If this is not a YAML custom source definition.
-            PyAirbyteInputError: If the connector builder project ID cannot be found.
+            AirbyteLibInputError: If the connector builder project ID cannot be found.
         """
         if self.definition_type != "yaml":
             raise NotImplementedError(
@@ -1400,7 +1404,7 @@ class CustomCloudSourceDefinition:
 
         builder_project_id = self.connector_builder_project_id
         if not builder_project_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Could not find connector builder project ID for this definition.",
                 context={
                     "definition_id": self.definition_id,
@@ -1529,14 +1533,14 @@ class CustomCloudSourceDefinition:
             Updated CustomCloudSourceDefinition object
 
         Raises:
-            PyAirbyteInputError: If both or neither parameters are provided
+            AirbyteLibInputError: If both or neither parameters are provided
             NotImplementedError: If docker_tag is provided (Docker not yet supported)
         """
         is_yaml = manifest_yaml is not None
         is_docker = docker_tag is not None
 
         if is_yaml == is_docker:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     "Must specify EXACTLY ONE of manifest_yaml (for YAML) OR "
                     "docker_tag (for Docker), but not both"
@@ -1575,30 +1579,47 @@ class CustomCloudSourceDefinition:
             "Only YAML manifest-based custom sources are currently available."
         )
 
-    def rename(
-        self,
-        new_name: str,  # noqa: ARG002
-    ) -> CustomCloudSourceDefinition:
+    def rename(self, name: str) -> CustomCloudSourceDefinition:
         """Rename this custom source definition.
 
-        Note: Only Docker custom sources can be renamed. YAML custom sources
-        cannot be renamed as their names are derived from the manifest.
+        Renames the definition and its Connector Builder project while preserving
+        any unpublished draft.
 
         Args:
-            new_name: New display name for the connector
+            name: New display name for the definition
 
         Returns:
             Updated CustomCloudSourceDefinition object
 
         Raises:
-            PyAirbyteInputError: If attempting to rename a YAML connector
-            NotImplementedError: If attempting to rename a Docker connector (not yet supported)
+            AirbyteLibInputError: If the connector builder project ID cannot be found.
+            NotImplementedError: If attempting to rename a Docker connector (not yet supported).
         """
         if self.definition_type == "yaml":
-            raise exc.PyAirbyteInputError(
-                message="Cannot rename YAML custom source definitions",
-                context={"definition_id": self.definition_id},
+            project = self.get_builder_project_data(use_cache=False)
+            builder_project_id = self._connector_builder_project_id
+            assert builder_project_id is not None
+            builder_project = project["builderProject"]
+            draft_manifest = (
+                project["declarativeManifest"]["manifest"]
+                if builder_project.get("hasDraft")
+                else None
             )
+            api_util.update_connector_builder_project(
+                workspace_id=self._builder_project_workspace_id or self.workspace.workspace_id,
+                builder_project_id=builder_project_id,
+                name=name,
+                draft_manifest=draft_manifest,
+                components_file_content=builder_project.get("componentsFileContent"),
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                config_api_root=self.workspace.config_api_root,
+            )
+            self._definition_info = None
+            self._builder_project_data = None
+            return self
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -1703,7 +1724,7 @@ class CustomCloudSourceDefinition:
 
         Raises:
             NotImplementedError: If this is not a YAML custom source definition.
-            PyAirbyteInputError: If the connector builder project ID cannot be found.
+            AirbyteLibInputError: If the connector builder project ID cannot be found.
         """
         if self.definition_type != "yaml":
             raise NotImplementedError(
@@ -1713,7 +1734,7 @@ class CustomCloudSourceDefinition:
 
         builder_project_id = self.connector_builder_project_id
         if not builder_project_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Could not find connector builder project ID for this definition.",
                 context={
                     "definition_id": self.definition_id,

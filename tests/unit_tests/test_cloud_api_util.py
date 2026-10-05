@@ -12,10 +12,10 @@ import requests
 from airbyte import constants
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
-    AirbyteError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
@@ -137,7 +137,7 @@ def _list_workspaces_response(
         ),
         pytest.param(
             500,
-            AirbyteError,
+            AirbyteCloudError,
             "API error occurred: Workspace lookup failed.",
             None,
             id="server_error",
@@ -146,7 +146,7 @@ def _list_workspaces_response(
 )
 def test_wrap_sdk_error_classifies_missing_or_forbidden(
     status_code: int,
-    expected_error_type: type[AirbyteError],
+    expected_error_type: type[AirbyteCloudError],
     expected_message: str,
     expected_guidance: str | None,
 ) -> None:
@@ -208,7 +208,7 @@ def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
     token: str,
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         api_util.get_user_id_from_bearer_token(SecretString(token))
 
 
@@ -410,7 +410,7 @@ def test_config_api_helpers_reject_unexpected_response(
         lambda **_: response,
     )
 
-    with pytest.raises(AirbyteError, match=expected_message) as exc_info:
+    with pytest.raises(AirbyteCloudError, match=expected_message) as exc_info:
         helper(
             **kwargs,
             api_root="https://api.example",
@@ -835,7 +835,7 @@ def test_patch_connection_rejects_invalid_status(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(PyAirbyteInputError, match="`status` must be one of"):
+    with pytest.raises(AirbyteLibInputError, match="`status` must be one of"):
         api_util.patch_connection(
             connection_id="connection-1",
             api_root="https://api.airbyte.com/v1",
@@ -904,7 +904,7 @@ def test_permanently_delete_workspace_requires_safe_name(
         )
         assert delete_calls == 1
     else:
-        with pytest.raises(PyAirbyteInputError):
+        with pytest.raises(AirbyteLibInputError):
             api_util.permanently_delete_workspace(
                 workspace_id="workspace-1",
                 api_root="https://api.airbyte.com/v1",
@@ -1173,7 +1173,7 @@ def test_list_workspaces_caps_unfiltered_api_page_size(
 @pytest.mark.parametrize("limit", [0, -1])
 def test_list_connections_rejects_invalid_limits(limit: int) -> None:
     """Verify connection list pagination rejects non-positive limits."""
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         api_util.list_connections(
             workspace_id="workspace-id",
             api_root="https://api.airbyte.com/v1/",
@@ -1371,7 +1371,7 @@ def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as error:
+    with pytest.raises(AirbyteCloudError) as error:
         api_util.cancel_job(
             job_id=42,
             api_root="https://api.airbyte.com/v1/",
@@ -1478,6 +1478,28 @@ def test_config_api_request_sends_analytic_source_header(
     assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
+def test_config_api_request_handles_no_content_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = requests.Response()
+    response.status_code = 204
+    response.url = "https://config.airbyte.com/v1/connector_builder_projects/update"
+    response.request = requests.Request("POST", response.url).prepare()
+    monkeypatch.setattr(api_util.requests, "request", Mock(return_value=response))
+
+    result = api_util._make_config_api_request(
+        path="/connector_builder_projects/update",
+        json={},
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result == {}
+
+
 def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> None:
     projects = [
         {
@@ -1510,6 +1532,65 @@ def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.parametrize(
+    ("draft_manifest", "components_file_content", "expected_builder_project"),
+    [
+        pytest.param(
+            {"version": "0.1.0"},
+            "components: []",
+            {
+                "name": "Renamed source",
+                "draftManifest": {"version": "0.1.0"},
+                "componentsFileContent": "components: []",
+            },
+            id="preserve-draft-and-components",
+        ),
+        pytest.param(
+            None,
+            None,
+            {"name": "Renamed source"},
+            id="omit-empty-draft-and-components",
+        ),
+    ],
+)
+def test_update_connector_builder_project_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    draft_manifest: dict[str, object] | None,
+    components_file_content: str | None,
+    expected_builder_project: dict[str, object],
+) -> None:
+    config_api_request = Mock(return_value={})
+    monkeypatch.setattr(api_util, "_make_config_api_request", config_api_request)
+
+    result = api_util.update_connector_builder_project(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        name="Renamed source",
+        draft_manifest=draft_manifest,
+        components_file_content=components_file_content,
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result is None
+    config_api_request.assert_called_once_with(
+        path="/connector_builder_projects/update",
+        json={
+            "workspaceId": "owner-workspace",
+            "builderProjectId": "builder-project-id",
+            "builderProject": expected_builder_project,
+        },
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+
+@pytest.mark.parametrize(
     ("status_code", "expected_error_type", "expected_message", "expected_guidance"),
     [
         pytest.param(
@@ -1522,7 +1603,7 @@ def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> Non
         ),
         pytest.param(
             500,
-            AirbyteError,
+            AirbyteCloudError,
             "API request failed with status 500",
             None,
             id="server-error",
@@ -1532,7 +1613,7 @@ def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_config_api_request_maps_forbidden_as_missing_resource(
     monkeypatch: pytest.MonkeyPatch,
     status_code: int,
-    expected_error_type: type[AirbyteError],
+    expected_error_type: type[AirbyteCloudError],
     expected_message: str,
     expected_guidance: str | None,
 ) -> None:
@@ -1665,7 +1746,7 @@ def test_api_util_calls_wrap_sdk_errors_with_status_context(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         if operation == "get-job":
             api_util.get_job_info(
                 job_id=42,
@@ -1829,7 +1910,7 @@ def test_get_connector_error_fallback(
         api_util, "get_airbyte_server_instance", lambda **_: airbyte_instance
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         api_util.get_connector(
             "connector-id",
             api_root="https://api.airbyte.com/v1",
@@ -1896,7 +1977,7 @@ def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         api_util.get_source(
             "source-id",
             api_root="https://api.airbyte.com/v1",
@@ -1905,4 +1986,4 @@ def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
             bearer_token=SecretString("token"),
         )
 
-    assert type(exc_info.value) is AirbyteError
+    assert type(exc_info.value) is AirbyteCloudError

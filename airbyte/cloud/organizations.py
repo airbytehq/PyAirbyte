@@ -12,7 +12,7 @@ import requests
 from airbyte._util import api_util, deployment
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.models import CloudOrganizationBillingInfo, OrganizationFeature
-from airbyte.exceptions import AirbyteError
+from airbyte.exceptions import AirbyteCloudError
 from airbyte.secrets.base import SecretString
 
 
@@ -115,13 +115,13 @@ class CloudOrganization:
                 bearer_token=self._credentials.bearer_token,
             )
         except (requests.RequestException, ValueError) as ex:
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="Failed to retrieve organization billing information.",
                 context={"organization_id": self.organization_id},
             ) from ex
         billing = info.get("billing")
         if not isinstance(billing, dict):
-            raise AirbyteError(
+            raise AirbyteCloudError(
                 message="Organization info did not include billing details.",
                 context={"organization_id": self.organization_id},
             )

@@ -10,7 +10,7 @@ import requests
 import yaml
 
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, SECRETS_HYDRATION_PREFIX
-from airbyte.exceptions import PyAirbyteInternalError
+from airbyte.exceptions import AirbyteLibInternalError
 from airbyte.secrets.util import get_secret
 
 
@@ -110,7 +110,7 @@ def _get_global_secrets_mask() -> list[str]:
         timeout=_GLOBAL_MASK_TIMEOUT_SECS,
     )
     if not response.ok:
-        raise PyAirbyteInternalError(
+        raise AirbyteLibInternalError(
             "Failed to parse spec mask.",
             log_text=response.content.decode("utf-8"),
         ) from None
@@ -119,7 +119,7 @@ def _get_global_secrets_mask() -> list[str]:
         return cast("list[str]", yaml.safe_load(response.content)["properties"])
 
     except Exception as ex:
-        raise PyAirbyteInternalError(
+        raise AirbyteLibInternalError(
             "Failed to parse spec mask.",
             original_exception=ex,
         ) from None

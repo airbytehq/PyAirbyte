@@ -224,7 +224,7 @@ def test_failed_lookup_does_not_break_the_call_and_is_retried(
 
     def get_user_by_auth_id(auth_user_id: str, **_: Any) -> dict[str, Any]:
         calls.append(auth_user_id)
-        raise api_util.AirbyteError(message="boom")
+        raise api_util.AirbyteCloudError(message="boom")
 
     monkeypatch.setattr(api_util, "get_user_by_auth_id", get_user_by_auth_id)
     _call("keycloak-a")
