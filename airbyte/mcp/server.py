@@ -84,6 +84,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     format_user_facing_error,
 )
+from airbyte.mcp._policy_middleware import PolicyGuardMiddleware
 from airbyte.mcp._scope import CallScopeMiddleware, call_scope_properties
 from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
 from airbyte.mcp._telemetry import ServerConnectedTelemetryMiddleware, request_properties
@@ -91,6 +92,8 @@ from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_READONLY_MODE_CONFIG_ARG,
+    ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
+    ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
     API_URL_CONFIG_ARG,
     BEARER_TOKEN_CONFIG_ARG,
     CLIENT_ID_CONFIG_ARG,
@@ -100,6 +103,7 @@ from airbyte.mcp._tool_utils import (
     ORGANIZATION_ID_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
     WORKSPACE_ID_CONFIG_ARG,
+    airbyte_external_access_filter,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
     validate_airbyte_domains,
@@ -526,6 +530,8 @@ app = mcp_server(
     include_standard_tool_filters=True,
     server_config_args=[
         AIRBYTE_READONLY_MODE_CONFIG_ARG,
+        ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
+        ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
         AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
         AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
         INSIDERS_CONFIG_ARG,
@@ -545,6 +551,7 @@ app = mcp_server(
     },
     tool_filters=[
         airbyte_readonly_mode_filter,
+        airbyte_external_access_filter,
         airbyte_module_filter,
     ],
     auth=_create_auth(),
@@ -565,6 +572,7 @@ app = mcp_server(
 """The Airbyte MCP Server application instance."""
 
 app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
+app.add_middleware(PolicyGuardMiddleware())
 app.middleware.insert(0, CallScopeMiddleware())
 app.middleware.insert(0, AirbyteUserMiddleware())
 

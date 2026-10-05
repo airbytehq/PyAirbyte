@@ -11,12 +11,18 @@ from fastmcp_extensions import ToolTraits
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_INSIDERS,
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_READONLY_MODE_ENV_VAR,
     _str_to_bool,
 )
 from airbyte.mcp import _tool_utils
@@ -37,20 +43,28 @@ def _tool(name: str) -> Tool:
 def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
     monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
+    for env_var in (
+        CLOUD_MCP_SAFE_MODE_ENV_VAR,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+        MCP_READONLY_MODE_ENV_VAR,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.setattr(_tool_utils, "_TOOL_POLICIES", {})
     config: dict[str, str] = {}
     monkeypatch.setattr(
         _tool_utils,
         "get_mcp_config",
-        lambda app, key, **kwargs: config.get(key),  # noqa: ARG005
+        lambda _app, key, **_kwargs: config.get(key),
     )
     # `mcp_module` is internal state (never on the wire), so stub the traits
     # registry lookup with a tool-name -> module map.
     monkeypatch.setattr(
         _tool_utils,
         "get_tool_traits",
-        lambda app, name: ToolTraits(
+        lambda _app, name: ToolTraits(
             mcp_module=name if name != "unannotated" else None
-        ),  # noqa: ARG005
+        ),
     )
     return config
 
@@ -149,3 +163,139 @@ def test_insiders_gate_is_empty() -> None:
     assert not config_arg.required
     assert config_arg.http_header_key == MCP_INSIDERS_HEADER
     assert config_arg.env_var == MCP_INSIDERS_ENV_VAR
+
+
+def test_sync_tools_stay_visible_when_pipeline_changes_are_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    assert not mcp_config
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
+    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+        tool = _policy_tool(tool_name, pipeline_change=False)
+        assert _tool_utils.airbyte_readonly_mode_filter(tool, APP)
+
+
+def _policy_tool(
+    name: str,
+    *,
+    pipeline_change: bool | None,
+    external_access: bool = False,
+    read_only_hint: bool = False,
+) -> Tool:
+    if pipeline_change is not None or external_access:
+        _tool_utils._TOOL_POLICIES[name] = _tool_utils.ToolPolicy(
+            pipeline_change=bool(pipeline_change),
+            external_access=external_access,
+        )
+    return cast(
+        Tool,
+        SimpleNamespace(
+            name=name,
+            annotations=SimpleNamespace(read_only_hint=read_only_hint),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    (
+        "pipeline_env",
+        "header",
+        "legacy_readonly",
+        "policy",
+        "read_only_hint",
+        "visible",
+    ),
+    [
+        pytest.param("0", None, None, True, False, False, id="env-deny"),
+        pytest.param("1", "0", None, True, False, False, id="header-narrows-env-allow"),
+        pytest.param(
+            "0", "1", None, True, False, False, id="env-deny-wins-over-header"
+        ),
+        pytest.param(None, "0", None, True, False, False, id="header-deny-without-env"),
+        pytest.param("1", None, None, True, False, True, id="env-allow"),
+        pytest.param("1", None, "1", True, False, False, id="legacy-readonly-deny"),
+        pytest.param("0", None, None, False, False, True, id="pipeline-change-false"),
+        pytest.param("0", None, None, None, True, True, id="read-only-hint-fallback"),
+    ],
+)
+def test_pipeline_change_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    pipeline_env: str | None,
+    header: str | None,
+    legacy_readonly: str | None,
+    policy: bool | None,
+    read_only_hint: bool,
+    visible: bool,
+) -> None:
+    for env_var, value in (
+        (MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, pipeline_env),
+        (MCP_READONLY_MODE_ENV_VAR, legacy_readonly),
+    ):
+        if value is None:
+            monkeypatch.delenv(env_var, raising=False)
+        else:
+            monkeypatch.setenv(env_var, value)
+    if header is not None:
+        mcp_config[MCP_CONFIG_ALLOW_PIPELINE_CHANGES] = header
+    tool = _policy_tool(
+        "pipeline-policy-tool",
+        pipeline_change=policy,
+        read_only_hint=read_only_hint,
+    )
+
+    assert _tool_utils.airbyte_readonly_mode_filter(tool, APP) is visible
+
+
+@pytest.mark.parametrize(
+    (
+        "external_env",
+        "header",
+        "pipeline_env",
+        "legacy_readonly",
+        "safe_mode",
+        "visible",
+    ),
+    [
+        pytest.param("0", None, None, None, None, False, id="external-env-deny"),
+        pytest.param(
+            "1", "0", None, None, None, False, id="header-narrows-external-allow"
+        ),
+        pytest.param("0", "1", None, None, None, False, id="external-env-deny-wins"),
+        pytest.param(None, "0", None, None, None, False, id="external-header-deny"),
+        pytest.param("1", None, None, None, "1", True, id="explicit-external-allow"),
+        pytest.param(None, None, None, None, "1", False, id="explicit-safe-mode-deny"),
+        pytest.param(None, None, "0", None, None, False, id="pipeline-deny-default"),
+        pytest.param(None, None, None, "1", None, False, id="legacy-readonly-default"),
+        pytest.param(None, None, None, None, None, True, id="unset-default-allows"),
+        pytest.param(None, None, None, None, "auto", True, id="auto-safe-mode-allows"),
+    ],
+)
+def test_external_access_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    external_env: str | None,
+    header: str | None,
+    pipeline_env: str | None,
+    legacy_readonly: str | None,
+    safe_mode: str | None,
+    visible: bool,
+) -> None:
+    for env_var, value in (
+        (MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, external_env),
+        (MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, pipeline_env),
+        (MCP_READONLY_MODE_ENV_VAR, legacy_readonly),
+        (CLOUD_MCP_SAFE_MODE_ENV_VAR, safe_mode),
+    ):
+        if value is None:
+            monkeypatch.delenv(env_var, raising=False)
+        else:
+            monkeypatch.setenv(env_var, value)
+    if header is not None:
+        mcp_config[MCP_CONFIG_ALLOW_EXTERNAL_ACCESS] = header
+    tool = _policy_tool(
+        "external-access-tool", pipeline_change=False, external_access=True
+    )
+
+    assert _tool_utils.airbyte_external_access_filter(tool, APP) is visible
