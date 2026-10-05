@@ -343,7 +343,7 @@ class AirbyteSafeModeError(AirbyteMCPError):
 class AirbytePipelineChangesDisabledError(AirbyteMCPError):
     """A pipeline-changing operation was blocked by MCP policy."""
 
-    guidance: str = (
+    guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1`, unset legacy "
         "`AIRBYTE_CLOUD_MCP_READONLY_MODE`, and ensure the "
         "`X-MCP-Allow-Pipeline-Changes` request header is not `0`."
@@ -354,7 +354,7 @@ class AirbytePipelineChangesDisabledError(AirbyteMCPError):
 class AirbyteExternalAccessDisabledError(AirbyteMCPError):
     """An external-access operation was blocked by MCP policy."""
 
-    guidance: str = (
+    guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` to allow external access. "
         "Disabled pipeline changes (including legacy read-only mode) and an explicit "
         "`AIRBYTE_CLOUD_MCP_SAFE_MODE=1` also disable external access when this setting is unset."
