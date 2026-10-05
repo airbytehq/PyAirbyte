@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ import pytest
 import requests
 from airbyte import constants
 from airbyte._util import api_util, meta
+from airbyte.cloud.models import CloudJobInfo, JobStatusEnum
 from airbyte.exceptions import (
     AirbyteError,
     AirbyteMissingResourceError,
@@ -17,7 +19,7 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.secrets.base import SecretString
-from airbyte_api import api, models
+from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
 
 
@@ -964,6 +966,26 @@ def test_list_connections_rejects_invalid_limits(limit: int) -> None:
             bearer_token=None,
             limit=limit,
         )
+
+
+def test_sdk_decodes_queued_job_status() -> None:
+    payload = {
+        "data": [
+            {
+                "connectionId": "connection-id",
+                "jobId": 1,
+                "jobType": "sync",
+                "startTime": "2026-01-01T00:00:00Z",
+                "status": "queued",
+            }
+        ]
+    }
+
+    response = utils.unmarshal_json(json.dumps(payload), models.JobsResponse)
+    job = response.data[0]
+
+    assert job.status is models.JobStatusEnum("queued")
+    assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:

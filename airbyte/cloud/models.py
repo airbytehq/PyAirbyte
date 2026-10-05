@@ -92,6 +92,7 @@ class JobStatusEnum(str, Enum):
     """Status values for an Airbyte Cloud job."""
 
     PENDING = "pending"
+    QUEUED = "queued"
     RUNNING = "running"
     INCOMPLETE = "incomplete"
     FAILED = "failed"

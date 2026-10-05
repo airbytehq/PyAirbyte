@@ -411,7 +411,7 @@ class SyncJobResult(BaseModel):
     job_id: int
     """The job ID."""
     status: str
-    """The job status (e.g., 'succeeded', 'failed', 'running', 'pending')."""
+    """The job status (e.g., 'succeeded', 'failed', 'running', 'queued', 'pending')."""
     bytes_synced: int
     """Number of bytes synced in this job."""
     records_synced: int
