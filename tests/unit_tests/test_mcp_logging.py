@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from airbyte.mcp import _http_entrypoint, _logging, http_main
+from airbyte.mcp import _logging, http_main
 from airbyte.mcp._logging import (
     LOG_FORMAT_ENV,
     _build_json_formatter,
@@ -170,21 +170,3 @@ def test_main_fails_fast_on_invalid_format(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(ValueError, match="AIRBYTE_MCP_LOG_FORMAT"):
         http_main.main()
-
-
-def test_entrypoint_configures_logging_before_main(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The console script configures logging before `http_main.main()` runs."""
-    calls: list[str] = []
-    monkeypatch.setattr(
-        _http_entrypoint,
-        "configure_logging",
-        lambda log_format: calls.append(log_format),
-    )
-    monkeypatch.setattr(http_main, "main", lambda: calls.append("main"))
-    monkeypatch.setenv(LOG_FORMAT_ENV, "json")
-
-    _http_entrypoint.main()
-
-    assert calls == ["json", "main"]

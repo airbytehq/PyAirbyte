@@ -52,7 +52,9 @@ Environment variables:
     enabled under `ddtrace-run`, it also includes `dd.trace_id`, `dd.span_id`,
     `dd.service`, `dd.env`, and `dd.version`, which Datadog uses to link logs
     to traces. `severity` uses the stdlib level names, which both Datadog and
-    Cloud Logging accept.
+    Cloud Logging accept. Lines logged while `airbyte.mcp.server` is imported
+    (such as the auth provider's setup messages) come before this is applied
+    and keep the default format.
 
   Any other value fails startup.
 - `KAPA_API_KEY`: optional secret for Kapa's Retrieval API.
