@@ -524,7 +524,7 @@ async def _mcp_mode_lifespan(  # noqa: RUF029
 
 
 app = mcp_server(
-    name="airbyte-mcp",
+    display_name="airbyte-mcp",
     package_name="airbyte",
     instructions=MCP_SERVER_INSTRUCTIONS,
     include_standard_tool_filters=True,

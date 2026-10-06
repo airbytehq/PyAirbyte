@@ -145,7 +145,7 @@ def _probe_app(sinks: TelemetrySinks, *, tool_telemetry: bool = False) -> FastMC
             },
         )
     app = mcp_server(
-        name="probe",
+        display_name="probe",
         server_config_args=[
             WORKSPACE_ID_CONFIG_ARG,
             ORGANIZATION_ID_CONFIG_ARG,
