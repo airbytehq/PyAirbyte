@@ -8,7 +8,6 @@ authors = [
 requires-python = ">=3.11,<3.13"
 dynamic = ["version"]
 dependencies = [
-    "airbyte-api>=0.53.0,<1.0",
     "airbyte-cdk>=7.28.3,<8.0.0",
     "airbyte-protocol-models-pdv2>=0.13.0,<1.0",
     "airbyte-server-models",
@@ -120,7 +119,7 @@ allow-direct-references = true
 # unreleased. Pin this to a published PyPI version (and remove this source entry)
 # before the next PyAirbyte release.
 # CI authenticates to the private repo via .github/actions/private-git-deps-auth (Octavia bot app).
-airbyte-server-models = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git", branch = "devin/1788977312-server-models", subdirectory = "airbyte-server-models" }
+airbyte-server-models = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git", rev = "9a6e0ec03a96d3ac4d7bd83550ddad19da3fe96b", subdirectory = "airbyte-server-models" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["airbyte"]

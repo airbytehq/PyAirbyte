@@ -8,12 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from airbyte_api.models import (
-    DestinationBigquery,
-    DestinationDuckdb,
-    DestinationPostgres,
-    DestinationSnowflake,
-)
+from pydantic import BaseModel
 
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
@@ -29,7 +24,6 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte._util import api_util
     from airbyte.caches.base import CacheBase
 
 
@@ -50,40 +44,60 @@ def get_supported_destination_types() -> set[str]:
     return _SUPPORTED_DESTINATION_TYPES
 
 
+def _required_key(
+    destination_configuration: dict[str, Any],
+    key: str,
+) -> Any:  # noqa: ANN401
+    """Read a required key from a destination configuration dict."""
+    value = destination_configuration.get(key)
+    if value is None:
+        raise AirbyteLibInputError(
+            message=f"Destination configuration is missing required key '{key}'.",
+            context={"destination_configuration": destination_configuration},
+        )
+    return value
+
+
 def destination_to_cache(
-    destination_configuration: api_util.DestinationConfiguration | dict[str, Any],
+    destination_configuration: dict[str, Any] | BaseModel,
     *,
     schema_name: str | None = None,
 ) -> CacheBase:
     """Get the destination configuration from the cache."""
-    conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {
+    conversion_fn_map: dict[str, Callable[[dict[str, Any]], CacheBase]] = {
         "bigquery": bigquery_destination_to_cache,
         "duckdb": duckdb_destination_to_cache,
         "motherduck": motherduck_destination_to_cache,
         "postgres": postgres_destination_to_cache,
         "snowflake": snowflake_destination_to_cache,
     }
+    if isinstance(destination_configuration, BaseModel):
+        destination_configuration = destination_configuration.model_dump(mode="json", by_alias=True)
+
     if isinstance(destination_configuration, dict):
-        try:
-            destination_type = (
-                destination_configuration.get("DESTINATION_TYPE")
-                or destination_configuration["destinationType"]
-            )
-            if hasattr(destination_type, "value"):
-                destination_type = destination_type.value
-            elif hasattr(destination_type, "_value_"):
-                destination_type = destination_type._value_
-            else:
-                destination_type = str(destination_type)
-        except KeyError as ex:
+        destination_type = destination_configuration.get(
+            "DESTINATION_TYPE"
+        ) or destination_configuration.get("destinationType")
+        if destination_type is None:
             raise AirbyteLibInputError(
                 message=(
                     "Missing 'destinationType' in keys "
                     f"{list(destination_configuration.keys())}."
                 ),
-            ) from ex
+            ) from None
+        if hasattr(destination_type, "value"):
+            destination_type = destination_type.value
+        elif hasattr(destination_type, "_value_"):
+            destination_type = destination_type._value_
+        else:
+            destination_type = str(destination_type)
     else:
-        destination_type = destination_configuration.DESTINATION_TYPE.value
+        raise AirbyteLibInputError(
+            message=(
+                "Destination configuration must be a dict or a model, "
+                f"got {type(destination_configuration).__name__}."
+            ),
+        )
 
     if destination_type not in conversion_fn_map:
         raise AirbyteLibInputError(
@@ -106,7 +120,7 @@ def destination_to_cache(
 
 
 def bigquery_destination_to_cache(
-    destination_configuration: DestinationBigquery | dict[str, Any],
+    destination_configuration: dict[str, Any],
 ) -> BigQueryCache:
     """Create a new BigQuery cache from the destination configuration.
 
@@ -118,19 +132,7 @@ def bigquery_destination_to_cache(
     temporary file and used directly.  Otherwise we fall back to the
     `BIGQUERY_CREDENTIALS_PATH` secret/env-var (the cloud API path).
     """
-    # Extract credentials_json before converting to the Pydantic model,
-    # because DestinationBigquery may strip or obfuscate the field.
-    raw_credentials_json: str | None = None
-    if isinstance(destination_configuration, dict):
-        raw_credentials_json = destination_configuration.get("credentials_json")
-        filtered = {
-            k: v
-            for k, v in destination_configuration.items()
-            if k not in {"destinationType", "DESTINATION_TYPE"}
-        }
-        destination_configuration = DestinationBigquery(**filtered)
-    elif hasattr(destination_configuration, "credentials_json"):
-        raw_credentials_json = destination_configuration.credentials_json
+    raw_credentials_json: str | None = destination_configuration.get("credentials_json")
 
     if raw_credentials_json and "****" not in raw_credentials_json:
         # Plaintext credentials from a local destination config — write to
@@ -146,26 +148,18 @@ def bigquery_destination_to_cache(
         credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
 
     return BigQueryCache(
-        project_name=destination_configuration.project_id,
-        dataset_name=destination_configuration.dataset_id,
+        project_name=_required_key(destination_configuration, "project_id"),
+        dataset_name=_required_key(destination_configuration, "dataset_id"),
         credentials_path=credentials_path,
-        dataset_location=destination_configuration.dataset_location,
+        dataset_location=destination_configuration.get("dataset_location"),
     )
 
 
 def duckdb_destination_to_cache(
-    destination_configuration: DestinationDuckdb | dict[str, Any],
+    destination_configuration: dict[str, Any],
 ) -> DuckDBCache:
     """Create a new DuckDB cache from the destination configuration."""
-    if isinstance(destination_configuration, dict):
-        filtered = {
-            k: v
-            for k, v in destination_configuration.items()
-            if k not in {"destinationType", "DESTINATION_TYPE"}
-        }
-        destination_configuration = DestinationDuckdb(**filtered)
-
-    db_path = destination_configuration.destination_path
+    db_path = _required_key(destination_configuration, "destination_path")
 
     # The DuckDB destination Docker container mounts a host directory to
     # `/local` inside the container.  Paths written as `/local/foo.duckdb`
@@ -179,61 +173,44 @@ def duckdb_destination_to_cache(
 
     return DuckDBCache(
         db_path=db_path,
-        schema_name=destination_configuration.schema or "main",
+        schema_name=destination_configuration.get("schema") or "main",
     )
 
 
 def motherduck_destination_to_cache(
-    destination_configuration: DestinationDuckdb | dict[str, Any],
+    destination_configuration: dict[str, Any],
 ) -> MotherDuckCache:
     """Create a new MotherDuck cache from the destination configuration."""
-    if isinstance(destination_configuration, dict):
-        filtered = {
-            k: v
-            for k, v in destination_configuration.items()
-            if k not in {"destinationType", "DESTINATION_TYPE"}
-        }
-        destination_configuration = DestinationDuckdb(**filtered)
-
-    if not destination_configuration.motherduck_api_key:
+    if not destination_configuration.get("motherduck_api_key"):
         raise AirbyteLibInputError(message="MotherDuck API key is required for MotherDuck cache.")
 
     return MotherDuckCache(
-        database=destination_configuration.destination_path,
-        schema_name=destination_configuration.schema or "main",
-        api_key=SecretString(destination_configuration.motherduck_api_key),
+        database=_required_key(destination_configuration, "destination_path"),
+        schema_name=destination_configuration.get("schema") or "main",
+        api_key=SecretString(destination_configuration["motherduck_api_key"]),
     )
 
 
 def postgres_destination_to_cache(
-    destination_configuration: DestinationPostgres | dict[str, Any],
+    destination_configuration: dict[str, Any],
 ) -> PostgresCache:
     """Create a new Postgres cache from the destination configuration."""
-    if isinstance(destination_configuration, dict):
-        # Strip dispatch keys before constructing the model object.
-        filtered = {
-            k: v
-            for k, v in destination_configuration.items()
-            if k not in {"destinationType", "DESTINATION_TYPE"}
-        }
-        destination_configuration = DestinationPostgres(**filtered)
-
-    port: int = int(destination_configuration.port) if destination_configuration.port else 5432
-    if not destination_configuration.password:
+    port: int = int(destination_configuration.get("port") or 5432)
+    if not destination_configuration.get("password"):
         raise AirbyteLibInputError(message="Password is required for Postgres cache.")
 
     return PostgresCache(
-        database=destination_configuration.database,
-        host=destination_configuration.host,
-        password=destination_configuration.password,
+        database=_required_key(destination_configuration, "database"),
+        host=_required_key(destination_configuration, "host"),
+        password=destination_configuration["password"],
         port=port,
-        schema_name=destination_configuration.schema or "public",
-        username=destination_configuration.username,
+        schema_name=destination_configuration.get("schema") or "public",
+        username=_required_key(destination_configuration, "username"),
     )
 
 
 def snowflake_destination_to_cache(
-    destination_configuration: DestinationSnowflake | dict[str, Any],
+    destination_configuration: dict[str, Any],
     password_secret_name: str = SNOWFLAKE_PASSWORD_SECRET_NAME,
 ) -> SnowflakeCache:
     """Create a new Snowflake cache from the destination configuration.
@@ -241,21 +218,10 @@ def snowflake_destination_to_cache(
     We may have to inject credentials, because they are obfuscated when config
     is returned from the REST API.
     """
-    if isinstance(destination_configuration, dict):
-        filtered = {
-            k: v
-            for k, v in destination_configuration.items()
-            if k not in {"destinationType", "DESTINATION_TYPE"}
-        }
-        destination_configuration = DestinationSnowflake(**filtered)
-
     snowflake_password: str | None = None
-    if (
-        destination_configuration.credentials
-        and hasattr(destination_configuration.credentials, "password")
-        and isinstance(destination_configuration.credentials.password, str)
-    ):
-        destination_password = str(destination_configuration.credentials.password)
+    credentials = destination_configuration.get("credentials") or {}
+    if isinstance(credentials, dict) and isinstance(credentials.get("password"), str):
+        destination_password = str(credentials["password"])
         if "****" in destination_password:
             try:
                 snowflake_password = get_secret(password_secret_name)
@@ -272,11 +238,11 @@ def snowflake_destination_to_cache(
         snowflake_password = get_secret(password_secret_name)
 
     return SnowflakeCache(
-        account=destination_configuration.host.split(".snowflakecomputing")[0],
-        database=destination_configuration.database,
-        schema_name=destination_configuration.schema,
-        warehouse=destination_configuration.warehouse,
-        role=destination_configuration.role,
-        username=destination_configuration.username,
+        account=_required_key(destination_configuration, "host").split(".snowflakecomputing")[0],
+        database=_required_key(destination_configuration, "database"),
+        schema_name=_required_key(destination_configuration, "schema"),
+        warehouse=_required_key(destination_configuration, "warehouse"),
+        role=_required_key(destination_configuration, "role"),
+        username=_required_key(destination_configuration, "username"),
         password=snowflake_password,
     )

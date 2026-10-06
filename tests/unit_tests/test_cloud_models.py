@@ -15,10 +15,8 @@ from airbyte.cloud.models import (
     ConnectionSchedule,
     ConnectionStatus,
 )
-from airbyte_api.models import (
-    DestinationDuckdb,
+from airbyte_server_models.public_api.models import (
     DestinationResponse,
-    SourceFaker,
     SourceResponse,
 )
 
@@ -28,7 +26,7 @@ from airbyte_api.models import (
     [
         pytest.param(
             SourceResponse(
-                configuration=SourceFaker(),
+                configuration={},
                 created_at=1,
                 definition_id="source-faker-definition",
                 name="Test source",
@@ -42,7 +40,7 @@ from airbyte_api.models import (
             id="source",
         ),
         pytest.param(
-            SourceResponse(
+            SourceResponse.model_construct(
                 configuration=None,
                 created_at=1,
                 definition_id="source-empty-definition",
@@ -58,7 +56,7 @@ from airbyte_api.models import (
         ),
         pytest.param(
             DestinationResponse(
-                configuration=DestinationDuckdb(destination_path="/tmp/test.duckdb"),
+                configuration={"destination_path": "/tmp/test.duckdb"},
                 created_at=1,
                 definition_id="destination-duckdb-definition",
                 destination_id="destination-id",
@@ -193,7 +191,7 @@ def test_connection_schedule_friendly_description(
         pytest.param(
             CloudSource._from_source_response,
             SourceResponse(
-                configuration=SourceFaker(),
+                configuration={},
                 created_at=1,
                 definition_id="source-faker-definition",
                 name="Test source",
@@ -207,7 +205,7 @@ def test_connection_schedule_friendly_description(
         pytest.param(
             CloudDestination._from_destination_response,
             DestinationResponse(
-                configuration=DestinationDuckdb(destination_path="/tmp/test.duckdb"),
+                configuration={"destination_path": "/tmp/test.duckdb"},
                 created_at=1,
                 definition_id="destination-duckdb-definition",
                 destination_id="destination-id",

@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
-from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.logs import _warn_once

@@ -6,16 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from airbyte_api.models import (
-    BatchedStandardInserts,
-    DatasetLocation,
-    DestinationBigquery,
-    DestinationDuckdb,
-    DestinationPostgres,
-    DestinationSnowflake,
-    UsernameAndPassword,
-)
-
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.secrets.base import SecretString
 
@@ -23,7 +13,6 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte._util import api_util
     from airbyte.caches.base import CacheBase
     from airbyte.caches.bigquery import BigQueryCache
     from airbyte.caches.duckdb import DuckDBCache
@@ -37,9 +26,9 @@ SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 def cache_to_destination_configuration(
     cache: CacheBase,
-) -> api_util.DestinationConfiguration:
+) -> dict[str, Any]:
     """Get the destination configuration from the cache."""
-    conversion_fn_map: dict[str, Callable[[Any], api_util.DestinationConfiguration]] = {
+    conversion_fn_map: dict[str, Callable[[Any], dict[str, Any]]] = {
         "BigQueryCache": bigquery_cache_to_destination_configuration,
         "bigquery": bigquery_cache_to_destination_configuration,
         "DuckDBCache": duckdb_cache_to_destination_configuration,
@@ -67,59 +56,71 @@ def cache_to_destination_configuration(
 
 def duckdb_cache_to_destination_configuration(
     cache: DuckDBCache,
-) -> DestinationDuckdb:
+) -> dict[str, Any]:
     """Get the destination configuration from the DuckDB cache."""
-    return DestinationDuckdb(
-        destination_path=str(cache.db_path),
-        schema=cache.schema_name,
-    )
+    return {
+        "destination_path": str(cache.db_path),
+        "destinationType": "duckdb",
+        "schema": cache.schema_name,
+    }
 
 
 def motherduck_cache_to_destination_configuration(
     cache: MotherDuckCache,
-) -> DestinationDuckdb:
+) -> dict[str, Any]:
     """Get the destination configuration from the DuckDB cache."""
-    return DestinationDuckdb(
-        destination_path=cache.db_path,
-        schema=cache.schema_name,
-        motherduck_api_key=cache.api_key,
-    )
+    return {
+        "destination_path": cache.db_path,
+        "destinationType": "duckdb",
+        "motherduck_api_key": cache.api_key,
+        "schema": cache.schema_name,
+    }
 
 
 def postgres_cache_to_destination_configuration(
     cache: PostgresCache,
-) -> DestinationPostgres:
+) -> dict[str, Any]:
     """Get the destination configuration from the Postgres cache."""
-    return DestinationPostgres(
-        database=cache.database,
-        host=cache.host,
-        password=cache.password,
-        port=cache.port,
-        schema=cache.schema_name,
-        username=cache.username,
-    )
+    return {
+        "database": cache.database,
+        "host": cache.host,
+        "username": cache.username,
+        "destinationType": "postgres",
+        "disable_type_dedupe": False,
+        "drop_cascade": False,
+        "password": cache.password,
+        "port": cache.port,
+        "schema": cache.schema_name,
+        "ssl": False,
+        "unconstrained_number": False,
+    }
 
 
 def snowflake_cache_to_destination_configuration(
     cache: SnowflakeCache,
-) -> DestinationSnowflake:
+) -> dict[str, Any]:
     """Get the destination configuration from the Snowflake cache."""
-    return DestinationSnowflake(
-        host=f"{cache.account}.snowflakecomputing.com",
-        database=cache.get_database_name().upper(),
-        schema=cache.schema_name.upper(),
-        warehouse=cache.warehouse,
-        role=cache.role,
-        username=cache.username,
-        credentials=UsernameAndPassword(
-            password=cache.password,  # pyrefly: ignore[bad-argument-type]
-        ),
-    )
+    return {
+        "host": f"{cache.account}.snowflakecomputing.com",
+        "database": cache.get_database_name().upper(),
+        "schema": cache.schema_name.upper(),
+        "warehouse": cache.warehouse,
+        "role": cache.role,
+        "username": cache.username,
+        "credentials": {
+            "password": cache.password,
+            "auth_type": "Username and Password",
+        },
+        "destinationType": "snowflake",
+        "disable_type_dedupe": False,
+        "retention_period_days": 1,
+        "use_merge_for_upsert": False,
+    }
 
 
 def bigquery_cache_to_destination_configuration(
     cache: BigQueryCache,
-) -> DestinationBigquery:
+) -> dict[str, Any]:
     """Get the destination configuration from the BigQuery cache."""
     credentials_json: str | None = (
         SecretString(Path(cache.credentials_path).read_text(encoding="utf-8"))
@@ -127,10 +128,13 @@ def bigquery_cache_to_destination_configuration(
         else None
     )
 
-    return DestinationBigquery(
-        project_id=cache.project_name,
-        dataset_id=cache.dataset_name,
-        dataset_location=DatasetLocation(cache.dataset_location),
-        credentials_json=credentials_json,
-        loading_method=BatchedStandardInserts(),
-    )
+    return {
+        "project_id": cache.project_name,
+        "dataset_id": cache.dataset_name,
+        "dataset_location": cache.dataset_location,
+        "cdc_deletion_mode": "Hard delete",
+        "credentials_json": credentials_json,
+        "destinationType": "bigquery",
+        "disable_type_dedupe": False,
+        "loading_method": {"method": "Standard"},
+    }

@@ -19,9 +19,7 @@ cache = PostgresCache(
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
-
-from airbyte_api.models import DestinationPostgres
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from airbyte._processors.sql.postgres import PostgresConfig, PostgresSqlProcessor
 from airbyte.caches._utils._cache_to_dest import (
@@ -43,22 +41,22 @@ class PostgresCache(PostgresConfig, CacheBase):
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = PostgresSqlProcessor
 
     paired_destination_name: ClassVar[str | None] = "destination-postgres"
-    paired_destination_config_class: ClassVar[type | None] = DestinationPostgres
 
     @property
-    def paired_destination_config(self) -> DestinationPostgres:
+    def paired_destination_config(self) -> dict[str, Any]:
         """Return a dictionary of destination configuration values."""
         return postgres_cache_to_destination_configuration(cache=self)
 
-    def clone_as_cloud_destination_config(self) -> DestinationPostgres:
-        """Return a DestinationPostgres instance with the same configuration."""
-        return DestinationPostgres(
-            host=self.host,
-            port=self.port,
-            username=self.username,
-            password=self.password,
-            database=self.database,
-        )
+    def clone_as_cloud_destination_config(self) -> dict[str, Any]:
+        """Return a cloud Postgres destination configuration with the same configuration."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "username": self.username,
+            "password": self.password,
+            "database": self.database,
+            "destinationType": "postgres",
+        }
 
 
 # Expose the Cache class and also the Config class.

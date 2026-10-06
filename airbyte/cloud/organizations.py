@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import requests
 
@@ -124,7 +124,12 @@ class CloudOrganization:
                 message="Failed to retrieve organization billing information.",
                 context={"organization_id": self.organization_id},
             ) from ex
-        billing = info.get("billing")
+        info_record = (
+            info
+            if isinstance(info, dict)
+            else info.model_dump(mode="json", by_alias=True, exclude_none=True)
+        )
+        billing = info_record.get("billing")
         if not isinstance(billing, dict):
             raise AirbyteCloudError(
                 message="Organization info did not include billing details.",

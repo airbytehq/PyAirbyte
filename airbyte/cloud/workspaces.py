@@ -75,8 +75,9 @@ from airbyte.secrets.hydration import detect_hardcoded_secrets
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte.cloud.organizations import CloudOrganization
     from airbyte_server_models._config_api import OrganizationInfoRead
+
+    from airbyte.cloud.organizations import CloudOrganization
     from airbyte.sources.base import Source
 
 

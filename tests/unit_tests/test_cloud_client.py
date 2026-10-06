@@ -8,7 +8,7 @@ import pytest
 from airbyte import exceptions as exc
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.models import WorkspacePrivilegeScope
-from airbyte_api import models
+from airbyte_server_models.public_api import models
 
 
 def _api_patches(
@@ -123,7 +123,7 @@ def test_resolve_default_workspace_id_uses_exactly_one_direct_grant(
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
-            return_value=models.WorkspaceResponse(
+            return_value=models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Workspace",
                 notifications=models.NotificationsConfig(),
@@ -153,7 +153,7 @@ def test_resolve_default_workspace_id_skips_stale_grants() -> None:
         **kwargs: object,
     ) -> models.WorkspaceResponse:
         if workspace_id == "live-workspace":
-            return models.WorkspaceResponse(
+            return models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Live Workspace",
                 notifications=models.NotificationsConfig(),
@@ -215,7 +215,7 @@ def test_direct_workspace_validation_is_capped() -> None:
         patch(
             "airbyte._util.api_util.get_workspace",
             side_effect=[
-                models.WorkspaceResponse(
+                models.WorkspaceResponse.model_construct(
                     data_residency="auto",
                     name=f"Workspace {index}",
                     notifications=models.NotificationsConfig(),
@@ -283,7 +283,7 @@ def test_default_context_resolves_workspace_when_organization_lookup_fails() -> 
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
-            return_value=models.WorkspaceResponse(
+            return_value=models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Workspace 1",
                 notifications=models.NotificationsConfig(),
@@ -322,7 +322,7 @@ def test_default_context_enriches_configured_workspace() -> None:
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
-            return_value=models.WorkspaceResponse(
+            return_value=models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Configured",
                 notifications=models.NotificationsConfig(),
@@ -464,7 +464,7 @@ def test_list_workspaces_skips_stale_grant_before_valid_grant_with_limit() -> No
         resource_type="workspace",
         resource_name_or_id="stale-workspace",
     )
-    valid_workspace = models.WorkspaceResponse(
+    valid_workspace = models.WorkspaceResponse.model_construct(
         data_residency="auto",
         name="Valid workspace",
         notifications=models.NotificationsConfig(),
@@ -528,7 +528,7 @@ def test_list_workspaces_defaults_to_direct_memberships() -> None:
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
-            return_value=models.WorkspaceResponse(
+            return_value=models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Workspace 1",
                 notifications=models.NotificationsConfig(),
@@ -953,13 +953,13 @@ def test_list_workspaces_uses_direct_grants_when_memberships_are_ambiguous() -> 
         patch(
             "airbyte._util.api_util.get_workspace",
             side_effect=[
-                models.WorkspaceResponse(
+                models.WorkspaceResponse.model_construct(
                     data_residency="auto",
                     name="Workspace 1",
                     notifications=models.NotificationsConfig(),
                     workspace_id="workspace-1",
                 ),
-                models.WorkspaceResponse(
+                models.WorkspaceResponse.model_construct(
                     data_residency="auto",
                     name="Workspace 2",
                     notifications=models.NotificationsConfig(),
@@ -1012,7 +1012,7 @@ def test_get_default_context_for_user_is_bounded_to_permission_derived_scope() -
         patch(
             "airbyte._util.api_util.get_workspace",
             side_effect=[
-                models.WorkspaceResponse(
+                models.WorkspaceResponse.model_construct(
                     data_residency="auto",
                     name=f"Workspace {index}",
                     notifications=models.NotificationsConfig(),
@@ -1085,7 +1085,7 @@ def test_get_default_context_for_user_truncates_workspace_memberships() -> None:
         patch(
             "airbyte._util.api_util.get_workspace",
             side_effect=[
-                models.WorkspaceResponse(
+                models.WorkspaceResponse.model_construct(
                     data_residency="auto",
                     name=f"Workspace {index}",
                     notifications=models.NotificationsConfig(),
@@ -1139,7 +1139,7 @@ def test_get_default_context_for_user_hints_setter_when_stored_default_missing()
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
-            return_value=models.WorkspaceResponse(
+            return_value=models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Workspace 1",
                 notifications=models.NotificationsConfig(),
@@ -1173,7 +1173,7 @@ def test_get_default_context_for_user_omits_setter_hint_when_default_stored() ->
         patches[4],
         patch(
             "airbyte._util.api_util.get_workspace",
-            return_value=models.WorkspaceResponse(
+            return_value=models.WorkspaceResponse.model_construct(
                 data_residency="auto",
                 name="Workspace 1",
                 notifications=models.NotificationsConfig(),

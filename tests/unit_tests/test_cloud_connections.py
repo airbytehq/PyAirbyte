@@ -24,8 +24,7 @@ from airbyte.exceptions import (
     AirbyteMissingResourceError,
     AirbyteLibInputError,
 )
-from airbyte_api import models
-from airbyte_api.errors import SDKError
+from airbyte_server_models.public_api import models
 
 
 def _job_response(
@@ -35,7 +34,7 @@ def _job_response(
     connection_id: str = "connection-id",
 ) -> models.JobResponse:
     """Create a minimal job response."""
-    return models.JobResponse(
+    return models.JobResponse.model_construct(
         connection_id=connection_id,
         job_id=job_id,
         job_type=models.JobTypeEnum.SYNC,
@@ -570,7 +569,7 @@ def test_set_schedule_accepts_quartz_cron(
 ) -> None:
     """Verify Quartz cron expressions are passed through to the API."""
     connection = _connection()
-    captured: list[models.AirbyteAPIConnectionSchedule] = []
+    captured: list[models.AirbyteApiConnectionSchedule] = []
 
     def patch_connection(
         *,
@@ -579,11 +578,11 @@ def test_set_schedule_accepts_quartz_cron(
         client_id: object,
         client_secret: object,
         bearer_token: object,
-        schedule: models.AirbyteAPIConnectionSchedule,
+        schedule: models.AirbyteApiConnectionSchedule,
     ) -> models.ConnectionResponse:
         _ = (connection_id, api_root, client_id, client_secret, bearer_token)
         captured.append(schedule)
-        return models.ConnectionResponse(
+        return models.ConnectionResponse.model_construct(
             connection_id="connection-id",
             created_at=0,
             destination_id="destination-id",
@@ -715,21 +714,19 @@ def test_run_sync_non_conflict_error_reraises_without_checking_enabled(
     fetch_mock.assert_not_called()
 
 
-def test_run_connection_wraps_sdk_error(
+def test_run_connection_wraps_api_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `run_connection` wraps a create_job SDKError in AirbyteConnectionSyncError."""
-    airbyte_instance = MagicMock()
-    airbyte_instance.jobs.create_job.side_effect = SDKError(
-        message="Status 409",
-        status_code=409,
-        body="...",
-        raw_response=MagicMock(),
-    )
+    """Verify `run_connection` wraps a create_job API error in AirbyteConnectionSyncError."""
     monkeypatch.setattr(
         api_util,
-        "get_airbyte_server_instance",
-        MagicMock(return_value=airbyte_instance),
+        "_make_public_api_request",
+        MagicMock(
+            side_effect=AirbyteCloudError(
+                message="API error occurred: Status 409",
+                context={"status_code": 409},
+            )
+        ),
     )
 
     with pytest.raises(AirbyteConnectionSyncError) as exc_info:

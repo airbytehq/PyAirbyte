@@ -115,6 +115,13 @@ def _organization_has_feature(
     return organization.is_feature_enabled(feature)
 
 
+def _api_record_to_dict(record: Any) -> dict[str, Any]:  # noqa: ANN401
+    """Dump a typed API read model to its JSON-mapped dict, passing dicts through."""
+    if isinstance(record, dict):
+        return record
+    return record.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
 @dataclass(init=False, kw_only=True)
 class CloudClient:
     """Authenticated client for Airbyte Cloud and self-managed Airbyte APIs."""
@@ -512,9 +519,7 @@ class CloudClient:
             page_size=page_size,
         )
         return [
-            CloudWorkspaceInfo.from_mapping(
-                workspace.model_dump(mode="json", by_alias=True, exclude_none=True)
-            )
+            CloudWorkspaceInfo.from_mapping(_api_record_to_dict(workspace))
             for workspace in workspaces
         ]
 
@@ -537,16 +542,14 @@ class CloudClient:
                 organization_id=organization_id,
                 api_root=self.public_api_root,
                 config_api_root=self.config_api_root,
-                client_id=client_id,
+                client_id=self.client_id,
                 client_secret=self.client_secret,
                 bearer_token=self._get_config_api_bearer_token(),
                 name_contains=name_contains or name,
                 limit=None if name is not None or name_filter is not None else remaining_limit,
             )
             organization_workspaces = [
-                CloudWorkspaceInfo.from_mapping(
-                    workspace.model_dump(mode="json", by_alias=True, exclude_none=True)
-                )
+                CloudWorkspaceInfo.from_mapping(_api_record_to_dict(workspace))
                 for workspace in workspaces
             ]
             if name is not None:
@@ -631,7 +634,8 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self._get_config_api_bearer_token(),
         )
-        resolved_organization_id = str(organization.organizationId)
+        organization_record = _api_record_to_dict(organization)
+        resolved_organization_id = str(organization_record.get("organizationId"))
         if resolved_organization_id:
             return resolved_organization_id
         raise exc.AirbyteCloudError(
@@ -658,14 +662,15 @@ class CloudClient:
                 guidance="Provide either client credentials or a bearer token.",
             )
         auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
-        self._authenticated_user_info = api_util.get_user_by_auth_id(
+        user_info = api_util.get_user_by_auth_id(
             auth_user_id,
             api_root=self.public_api_root,
             config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=bearer_token,
-        ).model_dump(mode="json", by_alias=True, exclude_none=True)
+        )
+        self._authenticated_user_info = _api_record_to_dict(user_info)
         return self._authenticated_user_info
 
     def _get_authenticated_user_id(self) -> str:
@@ -733,7 +738,7 @@ class CloudClient:
         """Get and cache permissions for the authenticated user."""
         if self._user_permissions is None:
             self._user_permissions = tuple(
-                permission
+                _api_record_to_dict(permission)
                 for permission in api_util.list_permissions_for_user(
                     self._get_authenticated_user_id(),
                     api_root=self.public_api_root,
@@ -742,7 +747,7 @@ class CloudClient:
                     client_secret=self.client_secret,
                     bearer_token=self._get_config_api_bearer_token(),
                 )
-                if isinstance(permission, dict)
+                if isinstance(permission, dict) or hasattr(permission, "model_dump")
             )
         return self._user_permissions
 
@@ -754,9 +759,7 @@ class CloudClient:
         permissions = self._get_user_permissions()
         organization_ids: list[str] = []
         for permission in permissions:
-            permission_organization_id = (
-                str(permission.organizationId) if permission.organizationId is not None else None
-            )
+            permission_organization_id = permission.get("organizationId")
             if permission_organization_id and permission_organization_id not in organization_ids:
                 organization_ids.append(permission_organization_id)
         self._membership_organization_ids = tuple(organization_ids)
@@ -810,15 +813,16 @@ class CloudClient:
             # organization unknown.
             self._workspace_organizations[workspace_id] = None
             return None
-        organization_id = organization.get("organizationId")
+        organization_record = _api_record_to_dict(organization)
+        organization_id = organization_record.get("organizationId")
         if not isinstance(organization_id, str) or not organization_id:
             self._workspace_organizations[workspace_id] = None
             return None
         organization_info = CloudOrganizationInfo(  # pyrefly: ignore[missing-argument]
             organization_id=organization_id,
             organization_name=(
-                organization.get("organizationName")
-                if isinstance(organization.get("organizationName"), str)
+                organization_record.get("organizationName")
+                if isinstance(organization_record.get("organizationName"), str)
                 else None
             ),
         )
@@ -1136,7 +1140,7 @@ class CloudClient:
             except AirbyteCloudError:
                 pass
             else:
-                organization_name = organization_info.organizationName
+                organization_name = _api_record_to_dict(organization_info).get("organizationName")
             candidates.append(
                 {
                     "organization_id": organization_id,
@@ -1269,7 +1273,7 @@ class CloudClient:
         """Fetch all organizations available to this client."""
         return [
             CloudOrganization(
-                organization_id=organization.organization_id,
+                organization_id=str(organization.organization_id),
                 organization_name=organization.organization_name,
                 email=organization.email,
                 client_id=self.client_id,

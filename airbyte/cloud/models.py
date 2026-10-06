@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,8 +28,7 @@ class _WorkspaceResponseLike(Protocol):
     workspace_id: str
     name: str
     data_residency: str
-    organization_id: str | None
-    notifications: object
+    notifications: Any
 
 
 class _ScheduleResponseLike(Protocol):
@@ -46,18 +45,33 @@ class _ConnectionResponseLike(Protocol):
     name: str
     configurations: Any
     prefix: str | None
-    namespace_definition: object | None
+    namespace_definition: Any
     namespace_format: str | None
-    schedule: _ScheduleResponseLike | None
-    status: object
+    schedule: Any
+    status: Any
 
 
 class _JobResponseLike(Protocol):
     job_id: int
-    status: object
+    status: Any
     bytes_synced: int | None
     rows_synced: int | None
     start_time: str
+
+
+def _missing_str_enum_member(cls: type, value: object) -> object | None:
+    """`Enum._missing_` factory: accept unknown string values as pseudo-members.
+
+    API-fed enums must tolerate values newer than this library's build, so an
+    unrecognized status decodes into a pseudo-member holding the raw value
+    instead of raising `ValueError`.
+    """
+    if not isinstance(value, str):
+        return None
+    member = cast(Any, str.__new__(cls, value))
+    member._name_ = value.upper()
+    member._value_ = value
+    return member
 
 
 class ConnectionStatus(StrEnum):
@@ -66,6 +80,9 @@ class ConnectionStatus(StrEnum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     DEPRECATED = "deprecated"
+    LOCKED = "locked"
+
+    _missing_ = classmethod(_missing_str_enum_member)
 
 
 class ConnectorFeature(StrEnum):
@@ -131,8 +148,8 @@ class _DestinationResponseLike(Protocol):
 class _DeclarativeSourceDefinitionResponseLike(Protocol):
     id: str
     name: str
-    manifest: dict[str, Any] | None
-    version: object
+    manifest: Any
+    version: Any
 
 
 @dataclass
@@ -173,6 +190,9 @@ class JobStatusEnum(str, Enum):
     FAILED = "failed"
     SUCCEEDED = "succeeded"
     CANCELLED = "cancelled"
+    QUEUED = "queued"
+
+    _missing_ = classmethod(_missing_str_enum_member)
 
 
 class JobTypeEnum(StrEnum):
@@ -182,6 +202,8 @@ class JobTypeEnum(StrEnum):
     RESET = "reset"
     REFRESH = "refresh"
     CLEAR = "clear"
+
+    _missing_ = classmethod(_missing_str_enum_member)
 
 
 class WorkspacePrivilegeScope(str, Enum):
@@ -571,6 +593,13 @@ def _configuration_dict(configuration: object) -> dict[str, Any] | None:
         return {str(key): value for key, value in asdict(configuration).items()}
     if isinstance(configuration, Mapping):
         return {str(key): value for key, value in configuration.items()}
+    if isinstance(configuration, BaseModel):
+        root_value = getattr(configuration, "root", configuration)
+        if isinstance(root_value, Mapping):
+            return {str(key): value for key, value in root_value.items()}
+        dumped = configuration.model_dump(mode="json")
+        if isinstance(dumped, Mapping):
+            return {str(key): value for key, value in dumped.items()}
     return None
 
 

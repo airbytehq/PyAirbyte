@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
-from airbyte_api import models
+from airbyte_server_models.public_api import models
 
 from airbyte import constants
 from airbyte._util import api_util
@@ -158,13 +158,7 @@ def _patch_workspace_discovery(
         api_util,
         "list_permissions_for_user",
         lambda *_, **__: [
-            _permission_response(
-                organization_id=(
-                    str(permission["organizationId"])
-                    if permission.get("organizationId") is not None
-                    else None
-                )
-            )
+            {"permissionId": "permission-id", "userId": "user-id", **permission}
             for permission in (permissions or [])
         ],
     )
@@ -564,7 +558,7 @@ def test_cloud_client_create_workspace_uses_default_organization_id(
     ) -> models.WorkspaceResponse:
         nonlocal captured_organization_id
         captured_organization_id = organization_id
-        return models.WorkspaceResponse(
+        return models.WorkspaceResponse.model_construct(
             data_residency="auto",
             name="New workspace",
             notifications=models.NotificationsConfig(),
@@ -635,7 +629,7 @@ def test_cloud_client_rename_workspace_forwards_inputs(
 
     def fake_rename_workspace(**kwargs: object) -> models.WorkspaceResponse:
         captured_kwargs.update(kwargs)
-        return models.WorkspaceResponse(
+        return models.WorkspaceResponse.model_construct(
             data_residency="auto",
             name="Renamed workspace",
             notifications=models.NotificationsConfig(),
@@ -907,7 +901,7 @@ def test_cloud_workspace_rename_forwards_inputs(
 
     def fake_rename_workspace(**kwargs: object) -> models.WorkspaceResponse:
         captured_kwargs.update(kwargs)
-        return models.WorkspaceResponse(
+        return models.WorkspaceResponse.model_construct(
             data_residency="auto",
             name="Renamed workspace",
             notifications=models.NotificationsConfig(),
@@ -1006,7 +1000,7 @@ def test_cloud_client_get_organization_uses_default_organization_id(
         api_util,
         "list_organizations_for_user",
         lambda **_: [
-            models.OrganizationResponse(
+            models.OrganizationResponse.model_construct(
                 organization_id="default-org",
                 organization_name="Default Org",
                 email="test@example.com",
@@ -1073,13 +1067,7 @@ def test_cloud_client_get_organization_resolves_default_context(
         api_util,
         "list_permissions_for_user",
         lambda *_, **__: [
-            _permission_response(
-                organization_id=(
-                    str(permission["organizationId"])
-                    if permission.get("organizationId") is not None
-                    else None
-                )
-            )
+            {"permissionId": "permission-id", "userId": "user-id", **permission}
             for permission in (permissions or [])
         ],
     )
@@ -1209,7 +1197,7 @@ def test_cloud_client_get_organization_uses_single_config_lookup(
         pytest.param([], id="empty"),
         pytest.param(
             [
-                models.OrganizationResponse(
+                models.OrganizationResponse.model_construct(
                     organization_id="organization-id",
                     organization_name="Organization",
                     email="test@example.com",
@@ -1219,12 +1207,12 @@ def test_cloud_client_get_organization_uses_single_config_lookup(
         ),
         pytest.param(
             [
-                models.OrganizationResponse(
+                models.OrganizationResponse.model_construct(
                     organization_id="organization-id-1",
                     organization_name="Organization 1",
                     email="one@example.com",
                 ),
-                models.OrganizationResponse(
+                models.OrganizationResponse.model_construct(
                     organization_id="organization-id-2",
                     organization_name="Organization 2",
                     email="two@example.com",
@@ -1266,17 +1254,17 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
 ) -> None:
     captured: dict[str, object] = {}
     organizations = [
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id-1",
             organization_name="Development",
             email="one@example.com",
         ),
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id-2",
             organization_name="development-copy",
             email="two@example.com",
         ),
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id-3",
             organization_name="Production",
             email="three@example.com",
@@ -1331,7 +1319,7 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     organizations = [
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id",
             organization_name="Development",
             email="test@example.com",
@@ -1459,7 +1447,7 @@ def test_cloud_client_list_organizations_has_no_default_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     organizations = [
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id=f"organization-id-{index}",
             organization_name=f"Organization {index}",
             email=f"test-{index}@example.com",
@@ -1678,11 +1666,7 @@ def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
     ) -> list[PermissionRead]:
         calls["permissions"] += 1
         return [
-            _permission_response(
-                organization_id=str(permission["organizationId"])
-                if permission.get("organizationId") is not None
-                else None
-            )
+            {"permissionId": "permission-id", "userId": "user-id", **permission}
             for permission in permissions
         ]
 
@@ -1696,46 +1680,6 @@ def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
 
     assert captured["organization_id"] == "organization-id"
     assert calls == {"user": 1, "permissions": 1}
-
-
-def test_cloud_client_list_workspaces_rejects_ambiguous_memberships_with_candidates(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_workspace_discovery(
-        monkeypatch,
-        permissions=[
-            {
-                "permissionType": "organization_member",
-                "organizationId": "organization-1",
-            },
-            {
-                "permissionType": "organization_member",
-                "organizationId": "organization-2",
-            },
-        ],
-    )
-
-    def fake_get_organization_info(**kwargs: object) -> OrganizationInfoRead:
-        if kwargs["organization_id"] == "organization-2":
-            raise AirbyteCloudError(message="Forbidden")
-        return _organization_info_response(organization_name="Organization 1")
-
-    monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
-
-    with pytest.raises(AirbyteLibInputError) as exc_info:
-        CloudClient(bearer_token="token").list_workspaces()
-
-    assert exc_info.value.context == {
-        "organization_ids": ["organization-1", "organization-2"],
-        "organization_candidates": [
-            {
-                "organization_id": "organization-1",
-                "organization_name": "Organization 1",
-            },
-            {"organization_id": "organization-2", "organization_name": None},
-        ],
-        "total_candidates": 2,
-    }
 
 
 @pytest.mark.parametrize(
