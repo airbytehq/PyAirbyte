@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -10,18 +11,18 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 import requests
 import yaml
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
+from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
-from airbyte.logs import warn_once
+from airbyte.logs import _warn_once
 from airbyte.version import get_version
 
 
@@ -74,6 +75,24 @@ class Language(str, Enum):
     MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
+class ConnectorType(StrEnum):
+    """Connector type: `source` or `destination`."""
+
+    SOURCE = "source"
+    DESTINATION = "destination"
+
+    @classmethod
+    def parse(cls, value: str) -> ConnectorType:
+        """Parse a connector type value, with a descriptive error on unknown input."""
+        try:
+            return cls(value)
+        except ValueError:
+            valid = ", ".join(f"`{member.value}`" for member in cls)
+            raise exc.AirbyteLibInputError(
+                message=f"Unrecognized connector type: {value!r}. Expected one of: {valid}."
+            ) from None
+
+
 class ConnectorMetadata(BaseModel):
     """Metadata for a connector."""
 
@@ -83,7 +102,7 @@ class ConnectorMetadata(BaseModel):
     display_name: str | None = None
     """Human-readable connector name."""
 
-    connector_type: str | None = None
+    connector_type: ConnectorType | None = None
     """Connector type: `source` or `destination`."""
 
     definition_id: str | None = None
@@ -152,7 +171,9 @@ def _is_registry_disabled(url: str) -> bool:
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
     latest_version: str | None = entry.get("dockerImageTag")
-    connector_type = "source" if name.startswith("source-") else "destination"
+    connector_type = (
+        ConnectorType.SOURCE if name.startswith("source-") else ConnectorType.DESTINATION
+    )
     definition_id = entry.get("sourceDefinitionId") or entry.get("destinationDefinitionId")
     tags = entry.get("tags", [])
     language: Language | None = None
@@ -250,13 +271,41 @@ def _get_registry_cache(
     if len(new_cache) == 0:
         # This isn't necessarily fatal, since users can bring their own
         # connector definitions.
-        warn_once(
+        _warn_once(
             message=f"Connector registry is empty: {registry_url}",
             with_stack=False,
         )
 
     __cache = new_cache
     return __cache
+
+
+def _get_connector_name_by_definition_id(definition_id: str) -> str | None:
+    """Look up a connector name by its definition ID, or None if not found/registry disabled."""
+    if _is_registry_disabled(_get_registry_url()):
+        return None
+    with contextlib.suppress(Exception):
+        for connector_name, metadata in _get_registry_cache().items():
+            if metadata.definition_id == definition_id:
+                return connector_name
+    return None
+
+
+def get_connector_metadata_by_definition_id(
+    definition_id: str,
+) -> ConnectorMetadata | None:
+    """Look up connector metadata by the connector's definition ID.
+
+    Returns None if the connector registry is disabled, cannot be loaded, or the
+    definition ID does not belong to a registered connector (e.g. custom or
+    deprecated connectors).
+    """
+    connector_name = _get_connector_name_by_definition_id(definition_id)
+    if connector_name is None:
+        return None
+    with contextlib.suppress(Exception):
+        return get_connector_metadata(connector_name)
+    return None
 
 
 def get_connector_metadata(name: str) -> ConnectorMetadata | None:
@@ -272,7 +321,7 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     cache = copy(_get_registry_cache())
 
     if not cache:
-        raise exc.PyAirbyteInternalError(
+        raise exc.AirbyteLibInternalError(
             message="Connector registry could not be loaded.",
             context={
                 "registry_url": _get_registry_url(),
@@ -347,7 +396,7 @@ def get_available_connectors(
         )
 
     # pragma: no cover  # Should never be reached.
-    raise exc.PyAirbyteInputError(
+    raise exc.AirbyteLibInputError(
         message="Invalid install type.",
         context={
             "install_type": install_type,
@@ -568,9 +617,11 @@ def get_connector_version_history(
         AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
 
     Example:
-        >>> versions = get_connector_version_history("source-faker", num_versions_to_validate=3)
-        >>> for v in versions[:5]:
-        ...     print(f"{v.version}: {v.release_date}")
+        ```python
+        versions = get_connector_version_history("source-faker", num_versions_to_validate=3)
+        for v in versions[:5]:
+            print(f"{v.version}: {v.release_date}")
+        ```
     """
     if connector_name not in get_available_connectors(InstallType.ANY):
         raise exc.AirbyteConnectorNotRegisteredError(

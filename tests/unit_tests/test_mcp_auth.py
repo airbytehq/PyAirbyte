@@ -1,0 +1,709 @@
+# Copyright (c) 2025 Airbyte, Inc., all rights reserved.
+"""Unit tests for branded transport-auth resolution in `airbyte.mcp.server`.
+
+These cover what this server owns: mapping its branded `AIRBYTE_MCP_*` env vars
+into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects it hands to
+`fastmcp_extensions.build_mcp_auth`, activation of the headless and interactive
+paths from env, blank-as-unset handling, and the durable-storage factory
+injection on the interactive path. This server declares only env var names and
+maps their values — it embeds no provider-specific configuration values; those
+are supplied at deploy time by the deployment's own repo. The generic verifier
+assembly lives in `fastmcp-extensions` and is tested there.
+"""
+
+from __future__ import annotations
+
+import functools
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
+
+import pytest
+from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
+
+from airbyte.mcp import _client_credentials as client_credentials
+from airbyte.mcp import _otel
+from airbyte.mcp import http_main
+from airbyte.mcp import server
+from airbyte.mcp._sso_auth import (
+    AirbyteSsoOidcProxy,
+    InvalidRealmIdentifierError,
+    SsoRealmConfig,
+    validate_realm_identifier,
+)
+from airbyte.mcp._transport_security import HostOriginGuardMiddleware
+
+
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
+
+
+_ALL_AUTH_ENV = (
+    server.MCP_SERVER_URL_ENV,
+    server.OIDC_CLIENT_ID_ENV,
+    server.OIDC_CLIENT_SECRET_ENV,
+    server.OIDC_CONFIG_URL_ENV,
+    server.OIDC_CLIENT_STORAGE_FACTORY_ENV,
+    server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV,
+    server.SSO_IDP_HINT_ENV,
+    server.JWKS_URI_ENV,
+    server.JWT_PUBLIC_KEY_ENV,
+    server.JWT_ISSUER_ENV,
+    server.JWT_AUDIENCE_ENV,
+    server.JWT_ALGORITHM_ENV,
+    server.USER_JWKS_URI_ENV,
+    server.USER_ISSUER_ENV,
+    server.USER_ALGORITHM_ENV,
+    server.USER_TOKEN_CLIENT_IDS_ENV,
+    client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV,
+    client_credentials.TOKEN_URL_ENV,
+)
+
+
+def _clear_all_auth_env(monkeypatch: MonkeyPatch) -> None:
+    for name in _ALL_AUTH_ENV:
+        monkeypatch.delenv(name, raising=False)
+
+
+def _capture_build_mcp_auth(monkeypatch: MonkeyPatch) -> dict[str, Any]:
+    """Patch `build_mcp_auth` with a spy and return the dict it records into."""
+    captured: dict[str, Any] = {}
+
+    def _capture(**kwargs: Any) -> None:
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(server, "build_mcp_auth", _capture)
+    return captured
+
+
+def test_auth_env_names_are_branded() -> None:
+    """The transport-auth env vars all use this server's `AIRBYTE_MCP_*` namespace."""
+    assert server.OIDC_CLIENT_ID_ENV == "AIRBYTE_MCP_OIDC_CLIENT_ID"
+    assert server.OIDC_CLIENT_SECRET_ENV == "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
+    assert server.OIDC_CONFIG_URL_ENV == "AIRBYTE_MCP_OIDC_CONFIG_URL"
+    assert (
+        server.OIDC_CLIENT_STORAGE_FACTORY_ENV
+        == "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
+    )
+    assert (
+        server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV
+        == "AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE"
+    )
+    assert server.SSO_IDP_HINT_ENV == "AIRBYTE_MCP_SSO_IDP_HINT"
+    assert server.JWKS_URI_ENV == "AIRBYTE_MCP_AUTH_JWKS_URI"
+    assert server.JWT_PUBLIC_KEY_ENV == "AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY"
+    assert server.JWT_ISSUER_ENV == "AIRBYTE_MCP_AUTH_ISSUER"
+    assert server.JWT_AUDIENCE_ENV == "AIRBYTE_MCP_AUTH_AUDIENCE"
+    assert server.JWT_ALGORITHM_ENV == "AIRBYTE_MCP_AUTH_ALGORITHM"
+    assert server.USER_JWKS_URI_ENV == "AIRBYTE_MCP_AUTH_USER_JWKS_URI"
+    assert server.USER_ISSUER_ENV == "AIRBYTE_MCP_AUTH_USER_ISSUER"
+    assert server.USER_ALGORITHM_ENV == "AIRBYTE_MCP_AUTH_USER_ALGORITHM"
+    assert server.USER_TOKEN_CLIENT_IDS_ENV == "AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS"
+    assert (
+        client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV
+        == "AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS"
+    )
+    assert (
+        client_credentials.TOKEN_URL_ENV
+        == "AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL"
+    )
+
+
+def test_client_credentials_disabled_leaves_app_unwrapped(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV, raising=False)
+    app = object()
+    assert client_credentials.wrap_if_enabled(app) is app
+
+
+def test_client_credentials_enabled_wraps_app(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV, "true")
+    monkeypatch.setenv(client_credentials.TOKEN_URL_ENV, "https://idp.example/token")
+    app = object()
+    assert client_credentials.wrap_if_enabled(app) is not app
+
+
+@pytest.mark.parametrize(
+    "auth, expected_warning",
+    [
+        pytest.param(
+            None,
+            "without bearer-token verification",
+            id="enabled-without-verifier",
+        ),
+        pytest.param(
+            object(),
+            None,
+            id="enabled-with-verifier",
+        ),
+    ],
+)
+def test_client_credentials_auth_status_warning(
+    auth: object | None,
+    expected_warning: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(http_main, "app", SimpleNamespace(auth=auth))
+    monkeypatch.setattr(http_main, "client_credentials_enabled", lambda: True)
+    warnings: list[str] = []
+    monkeypatch.setattr(http_main.logger, "warning", warnings.append)
+
+    http_main._log_auth_status()
+
+    if expected_warning is None:
+        assert not warnings
+    else:
+        assert any(expected_warning in warning for warning in warnings)
+
+
+def test_http_main_delegates_http_serving_to_fastmcp_extensions(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    config: dict[str, object] = {}
+    middleware: list[object] = []
+    from fastmcp.server.low_level import FastMCPServerMiddleware
+
+    fake_app = SimpleNamespace(
+        auth=object(),
+        http_app=lambda **kwargs: object(),
+        add_middleware=middleware.append,
+        _mcp_server=SimpleNamespace(
+            middleware=[FastMCPServerMiddleware.__new__(FastMCPServerMiddleware)]
+        ),
+    )
+
+    monkeypatch.setattr(http_main, "app", fake_app)
+    monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
+    # Hosted startup installs OpenTelemetry; keep it inert beyond the middleware.
+    monkeypatch.setattr(_otel, "_INSTALLED", False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.setattr(
+        http_main, "register_landing_page", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        http_main,
+        "assert_http_trusted_execution_disabled",
+        lambda app: None,
+    )
+    monkeypatch.setattr(http_main, "wrap_if_enabled", lambda app: app)
+    monkeypatch.delenv(http_main.MCP_SERVER_URL_ENV, raising=False)
+
+    def capture_run(app: object, **kwargs: object) -> None:
+        assert app is fake_app
+        config.update(kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(http_main, "run_mcp_http_server", capture_run)
+
+    http_main.main()
+
+    assert config["path"] == "/mcp"
+    assert config["transport"] == "streamable-http"
+    assert config["stateless_http"] is True
+    assert config["host"] == http_main.DEFAULT_HTTP_HOST
+    assert config["port"] == http_main.DEFAULT_HTTP_PORT
+    assert isinstance(config["wrapper"](object()), HostOriginGuardMiddleware)
+    assert [type(item) for item in middleware] == [_otel.IntentCaptureMiddleware]
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(
+            None,
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="unset-uses-default",
+        ),
+        pytest.param(
+            "",
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="empty-uses-default",
+        ),
+        pytest.param(
+            "   ",
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="whitespace-uses-default",
+        ),
+        pytest.param(
+            "  https://idp.example/token  ",
+            "https://idp.example/token",
+            id="override",
+        ),
+    ],
+)
+def test_client_credentials_token_url(
+    value: str | None,
+    expected: str,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    if value is None:
+        monkeypatch.delenv(client_credentials.TOKEN_URL_ENV, raising=False)
+    else:
+        monkeypatch.setenv(client_credentials.TOKEN_URL_ENV, value)
+    assert client_credentials._token_url() == expected
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(None, "fallback", id="unset"),
+        pytest.param("", "fallback", id="empty"),
+        pytest.param("   ", "fallback", id="spaces"),
+        pytest.param("\t", "fallback", id="tab"),
+        pytest.param("  actual  ", "actual", id="strips-and-returns"),
+    ],
+)
+def test_env_or_default(
+    value: str | None,
+    expected: str,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Blank/unset values fall back to the default; real values are stripped.
+
+    The default (`"fallback"`) is deliberately distinct from the stripped value
+    (`"actual"`), so the `strips-and-returns` case fails if the env value is
+    ignored and the default is returned instead.
+    """
+    if value is None:
+        monkeypatch.delenv("SOME_VAR", raising=False)
+    else:
+        monkeypatch.setenv("SOME_VAR", value)
+    assert server._env_or_default("SOME_VAR", "fallback") == expected
+
+
+def test_create_auth_no_env_yields_no_provider(monkeypatch: MonkeyPatch) -> None:
+    """With zero auth env, neither path is configured (no embedded defaults)."""
+    _clear_all_auth_env(monkeypatch)
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    assert captured["oidc"] is None
+    assert captured["jwt"] is None
+
+
+def test_create_auth_no_env_returns_none(monkeypatch: MonkeyPatch) -> None:
+    """The real `build_mcp_auth` yields no provider when nothing is configured."""
+    _clear_all_auth_env(monkeypatch)
+    assert server._create_auth() is None
+
+
+def test_create_auth_maps_jwt_env_when_jwks_set(monkeypatch: MonkeyPatch) -> None:
+    """A JWKS URI activates the headless verifier; issuer/audience/algorithm map through."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    monkeypatch.setenv(server.JWT_ISSUER_ENV, "https://idp.example/")
+    monkeypatch.setenv(server.JWT_AUDIENCE_ENV, "mcp-api")
+    monkeypatch.setenv(server.JWT_ALGORITHM_ENV, "RS256")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 1
+    jwt = jwt_configs[0]
+    assert isinstance(jwt, JWTAuthConfig)
+    assert jwt.jwks_uri == "https://idp.example/jwks"
+    assert jwt.public_key is None
+    assert jwt.issuer == "https://idp.example/"
+    assert jwt.audience == "mcp-api"
+    assert jwt.algorithm == "RS256"
+
+
+def test_create_auth_activates_jwt_with_static_public_key(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A static public key activates the verifier without a JWKS URI."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWT_PUBLIC_KEY_ENV, "-----BEGIN PUBLIC KEY-----")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 1
+    jwt = jwt_configs[0]
+    assert isinstance(jwt, JWTAuthConfig)
+    assert jwt.jwks_uri is None
+    assert jwt.public_key == "-----BEGIN PUBLIC KEY-----"
+
+
+def test_create_auth_returns_verifier_when_jwks_set(monkeypatch: MonkeyPatch) -> None:
+    """The real `build_mcp_auth` yields a bearer-token verifier when a JWKS URI is set."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    auth = server._create_auth()
+    assert isinstance(auth, JWTVerifier)
+
+
+def test_create_auth_blank_jwt_env_yields_no_verifier(monkeypatch: MonkeyPatch) -> None:
+    """Blank/whitespace signing-key vars are treated as unset (no verifier)."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "   ")
+    monkeypatch.setenv(server.JWT_PUBLIC_KEY_ENV, "  ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["jwt"] is None
+
+
+def test_create_auth_user_jwks_adds_azp_allowlisted_config(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI appends a second config pinned by the `azp` allowlist."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    monkeypatch.setenv(server.USER_ISSUER_ENV, "https://idp.example/user-realm")
+    monkeypatch.setenv(server.USER_ALGORITHM_ENV, "RS256")
+    monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, " web-client , other-client ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 2
+    user_jwt = jwt_configs[1]
+    assert isinstance(user_jwt, JWTAuthConfig)
+    assert user_jwt.jwks_uri == "https://idp.example/user-jwks"
+    assert user_jwt.issuer == "https://idp.example/user-realm"
+    assert user_jwt.algorithm == "RS256"
+    assert user_jwt.audience is None
+    assert user_jwt.allowed_client_ids == frozenset({"web-client", "other-client"})
+    # The app-realm config is unchanged and carries no allowlist.
+    assert jwt_configs[0].jwks_uri == "https://idp.example/jwks"
+    assert jwt_configs[0].allowed_client_ids is None
+
+
+@pytest.mark.parametrize(
+    "client_ids_value",
+    [
+        pytest.param(None, id="unset"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param(" , ,", id="only-commas"),
+    ],
+)
+def test_create_auth_user_jwks_without_client_ids_raises(
+    client_ids_value: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI without an `azp` allowlist fails closed, naming both vars."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    if client_ids_value is not None:
+        monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, client_ids_value)
+    with pytest.raises(ValueError, match=server.USER_TOKEN_CLIENT_IDS_ENV) as excinfo:
+        server._create_auth()
+    assert server.USER_JWKS_URI_ENV in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "issuer_value",
+    [pytest.param(None, id="unset"), pytest.param("  ", id="whitespace")],
+)
+def test_create_auth_user_jwks_without_issuer_raises(
+    issuer_value: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A user JWKS URI without a pinned issuer fails closed, naming both vars."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.USER_JWKS_URI_ENV, "https://idp.example/user-jwks")
+    monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, "web-client")
+    if issuer_value is not None:
+        monkeypatch.setenv(server.USER_ISSUER_ENV, issuer_value)
+    with pytest.raises(ValueError, match=server.USER_ISSUER_ENV) as excinfo:
+        server._create_auth()
+    assert server.USER_JWKS_URI_ENV in str(excinfo.value)
+
+
+def test_create_auth_without_user_jwks_yields_single_config(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """No user JWKS URI means the jwt list holds only the app-realm config."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt_configs = captured["jwt"]
+    assert isinstance(jwt_configs, list)
+    assert len(jwt_configs) == 1
+    assert jwt_configs[0].jwks_uri == "https://idp.example/jwks"
+
+
+def test_create_auth_activates_oidc_when_credentials_present(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """OIDC client id + secret + discovery URL activate the interactive path."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    assert oidc.client_id == "cid"
+    assert oidc.client_secret == "csecret"
+    assert oidc.config_url == "https://idp.example/.well-known"
+    # `openid` must be requested upstream, else the IdP may issue an
+    # identity-only token that downstream APIs reject.
+    assert oidc.required_scopes == ["openid", "email", "profile"]
+    # No storage factory configured -> in-memory default.
+    assert oidc.client_storage is None
+
+
+def test_create_auth_oidc_defers_consent_to_the_idp(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The interactive path skips `OIDCProxy`'s consent screen for the IdP's own.
+
+    `OIDCProxy`'s built-in page is generic FastMCP chrome, so leaving it on
+    shows an unbranded prompt ahead of the branded Keycloak login. `"external"`
+    (rather than `False`) skips it without logging a "consent disabled" warning
+    on every startup, and `prompt=consent` stops the IdP from silently reusing
+    an existing browser session and skipping its page too.
+    """
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    assert oidc.require_authorization_consent == "external"
+    assert oidc.extra_authorize_params == {"prompt": "consent"}
+
+
+def test_create_auth_oidc_without_config_url_raises(monkeypatch: MonkeyPatch) -> None:
+    """OIDC credentials without a discovery URL fail clearly, naming the env var."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    with pytest.raises(ValueError, match=server.OIDC_CONFIG_URL_ENV):
+        server._create_auth()
+
+
+def test_create_auth_partial_oidc_id_only_raises(monkeypatch: MonkeyPatch) -> None:
+    """A client id alone (no secret) fails closed rather than starting unauthenticated."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    with pytest.raises(ValueError, match=server.OIDC_CLIENT_SECRET_ENV):
+        server._create_auth()
+
+
+def test_create_auth_partial_oidc_secret_only_raises(monkeypatch: MonkeyPatch) -> None:
+    """A client secret alone (no id) fails closed rather than starting unauthenticated."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    with pytest.raises(ValueError, match=server.OIDC_CLIENT_ID_ENV):
+        server._create_auth()
+
+
+def test_resolve_client_storage_returns_none_when_unset(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """No factory env var means the interactive proxy keeps its in-memory default."""
+    monkeypatch.delenv(server.OIDC_CLIENT_STORAGE_FACTORY_ENV, raising=False)
+    assert server._resolve_client_storage(encryption_source_material="s") is None
+
+
+_STORAGE_FACTORY_CALLS: list[str] = []
+_SENTINEL_STORE = object()
+
+
+def _fake_store_factory(*, encryption_source_material: str) -> object:
+    """Test factory recording its `encryption_source_material` and returning a sentinel."""
+    _STORAGE_FACTORY_CALLS.append(encryption_source_material)
+    return _SENTINEL_STORE
+
+
+def test_resolve_client_storage_imports_and_calls_factory(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The factory env var is resolved to a callable and invoked with the secret."""
+    _STORAGE_FACTORY_CALLS.clear()
+    monkeypatch.setenv(
+        server.OIDC_CLIENT_STORAGE_FACTORY_ENV,
+        f"{__name__}:_fake_store_factory",
+    )
+    store = server._resolve_client_storage(encryption_source_material="the-secret")
+    assert store is _SENTINEL_STORE
+    assert _STORAGE_FACTORY_CALLS == ["the-secret"]
+
+
+@pytest.mark.parametrize(
+    "factory_spec",
+    [
+        pytest.param("not-a-valid-reference", id="malformed_reference"),
+        pytest.param(f"{__name__}:_does_not_exist", id="missing_symbol"),
+    ],
+)
+def test_resolve_client_storage_raises_clear_error_on_bad_factory(
+    monkeypatch: MonkeyPatch,
+    factory_spec: str,
+) -> None:
+    """A malformed/unresolvable factory reference fails with the env var named."""
+    monkeypatch.setenv(server.OIDC_CLIENT_STORAGE_FACTORY_ENV, factory_spec)
+    with pytest.raises(ValueError, match=server.OIDC_CLIENT_STORAGE_FACTORY_ENV):
+        server._resolve_client_storage(encryption_source_material="s")
+
+
+def test_create_auth_injects_resolved_storage_on_oidc(monkeypatch: MonkeyPatch) -> None:
+    """The resolved storage object is passed through to `OIDCAuthConfig.client_storage`."""
+    _STORAGE_FACTORY_CALLS.clear()
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+    monkeypatch.setenv(
+        server.OIDC_CLIENT_STORAGE_FACTORY_ENV,
+        f"{__name__}:_fake_store_factory",
+    )
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    assert oidc.client_storage is _SENTINEL_STORE
+    # The OIDC client secret is the encryption source material.
+    assert _STORAGE_FACTORY_CALLS == ["csecret"]
+
+
+_SSO_TEMPLATE = (
+    "https://kc.example/auth/realms/{realm}/.well-known/openid-configuration"
+)
+
+
+def _set_interactive_oidc_env(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+
+
+def test_create_auth_without_sso_template_builds_stock_proxy(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """No template means no `proxy_factory`, so `build_mcp_auth` uses `OIDCProxy` itself."""
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["oidc"].proxy_factory is None
+
+
+def test_create_auth_blank_sso_template_is_unset(monkeypatch: MonkeyPatch) -> None:
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, "   ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["oidc"].proxy_factory is None
+
+
+def test_create_auth_sso_template_installs_realm_proxy_factory(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The template swaps in `AirbyteSsoOidcProxy` with the env-derived realm config."""
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, f"  {_SSO_TEMPLATE}  ")
+    monkeypatch.setenv(server.SSO_IDP_HINT_ENV, " default ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    factory = oidc.proxy_factory
+    assert isinstance(factory, functools.partial)
+    assert factory.func is AirbyteSsoOidcProxy
+    config = factory.keywords["sso_config"]
+    assert isinstance(config, SsoRealmConfig)
+    assert config.discovery_url_template == _SSO_TEMPLATE
+    assert config.idp_hint == "default"
+    assert config.reserved_realms == server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS
+    # Everything else on the interactive path is unchanged by SSO.
+    assert oidc.client_id == "cid"
+    assert oidc.require_authorization_consent == "external"
+    assert oidc.extra_authorize_params == {"prompt": "consent"}
+
+
+def test_create_auth_sso_idp_hint_is_optional(monkeypatch: MonkeyPatch) -> None:
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, _SSO_TEMPLATE)
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["oidc"].proxy_factory.keywords["sso_config"].idp_hint is None
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        pytest.param(
+            "https://kc.example/auth/realms/acme/.well-known/openid-configuration",
+            id="no-placeholder",
+        ),
+        pytest.param(
+            "https://kc.example/auth/realms/{realm}/{realm}/.well-known/openid-configuration",
+            id="two-placeholders",
+        ),
+        pytest.param(
+            "https://kc.example/auth/realms/x-{realm}/.well-known/openid-configuration",
+            id="partial-segment",
+        ),
+        pytest.param("https://kc.example/auth/realms/{realm}", id="missing-suffix"),
+        pytest.param(
+            "http://kc.example/auth/realms/{realm}/.well-known/openid-configuration",
+            id="plain-http",
+        ),
+    ],
+)
+def test_create_auth_rejects_malformed_sso_template(
+    monkeypatch: MonkeyPatch, template: str
+) -> None:
+    """A malformed template fails at startup, naming the env var."""
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, template)
+    with pytest.raises(ValueError, match=server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV):
+        server._create_auth()
+
+
+def test_create_auth_sso_template_requires_interactive_oidc(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """SSO extends the interactive path; a template alone is a misconfiguration."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, _SSO_TEMPLATE)
+    with pytest.raises(ValueError, match=server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV):
+        server._create_auth()
+
+
+def test_reserved_sso_realms_exclude_airbyte() -> None:
+    """`airbyte` is an ordinary customer realm; only internal realms and `master` are reserved."""
+    assert "airbyte" not in server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS
+    assert server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS == {"master"}
+    config = SsoRealmConfig(
+        discovery_url_template=_SSO_TEMPLATE,
+        reserved_realms=server.AIRBYTE_CLOUD_RESERVED_SSO_REALMS,
+    )
+    default_issuer = "https://kc.example/auth/realms/_airbyte-cloud-users"
+    assert (
+        validate_realm_identifier(
+            "airbyte", config=config, default_issuer=default_issuer
+        )
+        == "airbyte"
+    )
+    # Internal realms are excluded by their `_` prefix, not by the reserved list.
+    with pytest.raises(InvalidRealmIdentifierError):
+        validate_realm_identifier(
+            "_airbyte-internal", config=config, default_issuer=default_issuer
+        )

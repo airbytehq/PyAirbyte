@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import logging
+from functools import cached_property
 from typing import Any
 
-from airbyte._util import api_util
+import requests
+
+from airbyte._util import api_util, deployment
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.models import CloudOrganizationBillingInfo, OrganizationFeature
+from airbyte.exceptions import AirbyteCloudError
 from airbyte.secrets.base import SecretString
 
 
@@ -98,6 +103,38 @@ class CloudOrganization:
         info = self._fetch_organization_info()
         return info.get("email")
 
+    def get_billing_status(self) -> CloudOrganizationBillingInfo:
+        """Fetch billing status for the organization or raise on failure."""
+        try:
+            info = api_util.get_organization_info(
+                organization_id=self.organization_id,
+                api_root=self._credentials.public_api_root,
+                config_api_root=self._credentials.config_api_root,
+                client_id=self._credentials.client_id,
+                client_secret=self._credentials.client_secret,
+                bearer_token=self._credentials.bearer_token,
+            )
+        except (requests.RequestException, ValueError) as ex:
+            raise AirbyteCloudError(
+                message="Failed to retrieve organization billing information.",
+                context={"organization_id": self.organization_id},
+            ) from ex
+        billing = info.get("billing")
+        if not isinstance(billing, dict):
+            raise AirbyteCloudError(
+                message="Organization info did not include billing details.",
+                context={"organization_id": self.organization_id},
+            )
+        payment_status = billing.get("paymentStatus")
+        subscription_status = billing.get("subscriptionStatus")
+        return CloudOrganizationBillingInfo(
+            payment_status=payment_status if isinstance(payment_status, str) else None,
+            subscription_status=(
+                subscription_status if isinstance(subscription_status, str) else None
+            ),
+            is_account_locked=api_util.is_account_locked(payment_status, subscription_status),
+        )
+
     @property
     def payment_status(self) -> str | None:
         """Payment status of the organization."""
@@ -114,3 +151,32 @@ class CloudOrganization:
     def is_account_locked(self) -> bool:
         """Whether the account is locked due to billing issues."""
         return api_util.is_account_locked(self.payment_status, self.subscription_status)
+
+    @cached_property
+    def enabled_features(self) -> frozenset[OrganizationFeature]:
+        """The features enabled for this organization. Resolved on first access and cached.
+
+        `DIRECT_ACCESS` is reported when AI agents can access this organization's connectors
+        through the Airbyte Context layer. Cloud enforces organization and workspace
+        enrollment on every Context layer request, so the flag reflects Context layer API
+        availability for the deployment roots without any API call; per-connector
+        enablement is reported by connector features.
+        """
+        if not deployment.is_agents_api_available(
+            public_api_root=self._credentials.public_api_root,
+            config_api_root=self._credentials.config_api_root,
+        ):
+            return frozenset()
+
+        return frozenset({OrganizationFeature.DIRECT_ACCESS})
+
+    def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
+        """Whether `feature` is enabled for this organization.
+
+        Uses the cached feature set when available. There is no organization-level search
+        indexing signal yet, so `SEARCH_INDEXING` always returns `False` without an API
+        call; check it per connector instead.
+        """
+        if feature == OrganizationFeature.SEARCH_INDEXING:
+            return False
+        return feature in self.enabled_features

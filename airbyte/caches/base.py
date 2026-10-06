@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
+from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, Self, final
 
 import pandas as pd
 import pyarrow as pa
@@ -13,7 +13,6 @@ import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
-from typing_extensions import Self
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
@@ -24,7 +23,7 @@ from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
 from airbyte.shared.catalog_providers import CatalogProvider
-from airbyte.shared.sql_processor import SqlConfig, TableStatistics
+from airbyte.shared.sql_processor import SqlConfig, SQLRuntimeError, TableStatistics
 from airbyte.shared.state_writers import StdOutStateWriter
 
 
@@ -222,7 +221,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
                 sqlalchemy_exc.SQLAlchemyError,
             ) as ex:
                 msg = f"Error when executing SQL:\n{sql_query}\n{type(ex).__name__}{ex!s}"
-                raise RuntimeError(msg) from ex
+                raise SQLRuntimeError(message=msg) from ex
 
             # Convert the result to a list of dictionaries while connection is still open
             if result.returns_rows:
@@ -324,7 +323,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     @final
     @property
     def streams(self) -> dict[str, CachedDataset]:
-        """Return a temporary table name."""
+        """Return a mapping of stream names to cached datasets."""
         result = {}
         stream_names = set(self._catalog_backend.stream_names)
 

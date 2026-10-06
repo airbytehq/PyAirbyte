@@ -36,7 +36,7 @@ from prefab_ui.components import (
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.interactive._shared_models import (
     ConnectorType,
     PublicConnectorFilters,
@@ -81,9 +81,6 @@ def _json_dumps(value: JsonValue) -> str:
     read_only=True,
     idempotent=True,
     open_world=True,
-    annotations={
-        INTERACTIVE_UI_ANNOTATION: True,
-    },
     app=PrefabAppConfig(),
 )
 def show_connectors_list(
@@ -142,7 +139,7 @@ def show_connectors_list(
 ) -> ToolResult:
     """Show an interactive public connector catalog from the OSS registry."""
     if limit < 0:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Limit parameter must be non-negative.",
             context={"limit": limit},
         )
@@ -150,16 +147,20 @@ def show_connectors_list(
     eff_support_level = SupportLevel.CERTIFIED if certified else None
     if support_level:
         if certified:
-            raise ValueError(
-                "Cannot specify both `certified` and `support_level`. "
-                "Use `certified=True` as shorthand or `support_level` for explicit control."
+            raise exc.AirbyteLibInputError(
+                message=(
+                    "Cannot specify both `certified` and `support_level`. "
+                    "Use `certified=True` as shorthand or `support_level` for explicit control."
+                ),
             )
         eff_support_level = SupportLevel.parse(support_level)
     eff_min_support_level = SupportLevel.parse(min_support_level) if min_support_level else None
     if eff_support_level and eff_min_support_level:
-        raise ValueError(
-            "Cannot specify both `certified` or `support_level` and `min_support_level`. "
-            "Use an exact match or a threshold."
+        raise exc.AirbyteLibInputError(
+            message=(
+                "Cannot specify both `certified` or `support_level` and `min_support_level`. "
+                "Use an exact match or a threshold."
+            ),
         )
     eff_connector_type = ConnectorType.parse(connector_type) if connector_type else None
     filters = PublicConnectorFilters(
@@ -476,7 +477,9 @@ def _public_connector_summary_to_payload(
 ) -> dict[str, JsonValue]:
     jsonable = _jsonable(connector)
     if not isinstance(jsonable, dict):
-        raise TypeError(f"Expected connector summary payload to be a dict: {jsonable!r}")
+        raise exc.AirbyteLibInternalError(
+            message=f"Expected connector summary payload to be a dict: {jsonable!r}"
+        )
     return jsonable
 
 
@@ -485,7 +488,9 @@ def _public_connector_filters_to_payload(
 ) -> dict[str, JsonValue]:
     jsonable = _jsonable(filters)
     if not isinstance(jsonable, dict):
-        raise TypeError(f"Expected connector filters payload to be a dict: {jsonable!r}")
+        raise exc.AirbyteLibInternalError(
+            message=f"Expected connector filters payload to be a dict: {jsonable!r}"
+        )
     return jsonable
 
 
@@ -544,7 +549,9 @@ def _connector_type_from_name(name: str) -> str:
         return ConnectorType.SOURCE.value
     if name.startswith("destination-"):
         return ConnectorType.DESTINATION.value
-    raise ValueError(
-        f"Cannot determine connector type from connector name: {name!r}. "
-        "Expected a name prefixed with `source-` or `destination-`."
+    raise exc.AirbyteLibInputError(
+        message=(
+            f"Cannot determine connector type from connector name: {name!r}. "
+            "Expected a name prefixed with `source-` or `destination-`."
+        ),
     )

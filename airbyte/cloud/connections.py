@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import logging
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
-
-from typing_extensions import deprecated
 
 from airbyte._util import api_util
 from airbyte.cloud._connection_catalog import (
@@ -23,17 +22,53 @@ from airbyte.cloud._connection_state import (
     _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
+    ConnectionSchedule,
+    ConnectionStatus,
     JobTypeEnum,
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteCloudError,
+    AirbyteConnectionSyncError,
+    AirbyteLibInputError,
+    AirbyteMissingResourceError,
+    AirbyteWorkspaceMismatchError,
+)
 
 
 logger = logging.getLogger(__name__)
+
+_QUARTZ_CRON_MIN_FIELDS = 6
+_QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
+
+
+def _validate_quartz_cron_expression(cron_expression: str) -> None:
+    """Raise `AirbyteLibInputError` if the expression is not a plausible Quartz cron.
+
+    This is a light client-side check so that 5-field Unix cron expressions fail
+    fast with actionable guidance instead of an opaque HTTP 400 from the API.
+    """
+    fields = cron_expression.split()
+    if not _QUARTZ_CRON_MIN_FIELDS <= len(fields) <= _QUARTZ_CRON_MAX_FIELDS:
+        raise AirbyteLibInputError(
+            message=(
+                "Cron schedules must use a Quartz expression with 6 or 7 space-separated "
+                "fields (seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are not accepted."
+            ),
+            guidance=(
+                "Prepend a seconds field and use '?' for the unused day field. For example, "
+                "use '0 0 0 * * ?' (daily at midnight UTC) instead of '0 0 * * *'. "
+                "Schedules may run at most once per hour."
+            ),
+            input_value=cron_expression,
+        )
 
 
 if TYPE_CHECKING:
@@ -259,6 +294,38 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.prefix or ""
 
     @property
+    def namespace_definition(self) -> str | None:
+        """How destination namespaces are chosen: `source`, `destination`, or `custom_format`."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.namespace_definition
+
+    @property
+    def namespace_format(self) -> str | None:
+        """The namespace format template, when `namespace_definition` is `custom_format`."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.namespace_format
+
+    @property
+    def schedule(self) -> ConnectionSchedule | None:
+        """The connection's sync schedule, or `None` if unknown."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.schedule
+
+    @property
+    def status(self) -> ConnectionStatus:
+        """The connection's status."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.status
+
+    @property
     def connection_url(self) -> str | None:
         """The web URL to the connection."""
         return f"{self.workspace.workspace_url}/connections/{self.connection_id}"
@@ -277,14 +344,34 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response = api_util.run_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            workspace_id=self.workspace.workspace_id,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-        )
+        try:
+            connection_response = api_util.run_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                workspace_id=self.workspace.workspace_id,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteConnectionSyncError as ex:
+            if (
+                ex.context
+                and ex.context.get("status_code") == HTTPStatus.CONFLICT
+                and not self.enabled
+            ):
+                raise AirbyteLibInputError(
+                    message=(
+                        f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
+                        "so a sync cannot be started."
+                    ),
+                    guidance=(
+                        "Re-enable the connection first (e.g. "
+                        "`connection.set_enabled(enabled=True)`, or the "
+                        "`update_cloud_connection` MCP tool with `enabled=True`), then retry."
+                    ),
+                    context={"connection_id": self.connection_id},
+                ) from ex
+            raise
         sync_result = SyncResult(
             workspace=self.workspace,
             connection=self,
@@ -299,6 +386,76 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
 
         return sync_result
+
+    def _get_latest_cancellable_sync_job_id(self) -> int:
+        """Get the latest cancellable sync job ID."""
+        sync_results = self.get_previous_sync_logs(
+            limit=1,
+            job_type=JobTypeEnum.SYNC,
+        )
+        sync_result = sync_results[0] if sync_results else None
+        if sync_result is None:
+            raise AirbyteLibInputError(
+                message="No sync jobs found for this connection.",
+            )
+        if sync_result.is_job_complete():
+            raise AirbyteLibInputError(
+                message=(
+                    f"The latest sync job is already finished with status "
+                    f"'{sync_result.get_job_status().value}'. "
+                    "Pass an explicit job_id to target a different job."
+                ),
+            )
+        return sync_result.job_id
+
+    def _validated_cancellable_job_id(self, job_id: int) -> int:
+        """Validate an explicit cancellable job ID."""
+        job_info = api_util.get_job_info(
+            job_id=job_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        if job_info.connection_id != self.connection_id:
+            raise AirbyteLibInputError(
+                message=(
+                    f"Job {job_id} belongs to connection '{job_info.connection_id}', "
+                    f"not '{self.connection_id}'."
+                ),
+            )
+        job_status = CloudJobInfo.from_api_response(job_info).status
+        if job_status in FINAL_STATUSES:
+            raise AirbyteLibInputError(
+                message=f"Job {job_id} is already finished with status " f"'{job_status.value}'.",
+            )
+        return job_id
+
+    def cancel_sync(self, job_id: int | None = None) -> SyncResult:
+        """Cancel a running sync job.
+
+        Defaults to the connection's most recent sync job. Other job types must be
+        targeted with an explicit `job_id`.
+        """
+        target_job_id: int = (
+            self._get_latest_cancellable_sync_job_id()
+            if job_id is None
+            else self._validated_cancellable_job_id(job_id)
+        )
+
+        job_response = api_util.cancel_job(
+            job_id=target_job_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return SyncResult(
+            workspace=self.workspace,
+            connection=self,
+            job_id=job_response.job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
+        )
 
     def __repr__(self) -> str:
         """String representation of the connection."""
@@ -369,6 +526,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Get the sync result for the connection.
 
         If `job_id` is not provided, the most recent sync job will be used.
+        A supplied `job_id` must belong to this connection.
 
         Returns `None` if job_id is omitted and no previous jobs are found.
         """
@@ -382,29 +540,52 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
             return None
 
-        # Get the sync job by ID (lazy loaded)
+        try:
+            job_response = api_util.get_job_info(
+                job_id=job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteCloudError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                raise AirbyteMissingResourceError(
+                    resource_type="sync job",
+                    resource_name_or_id=str(job_id),
+                    message=(
+                        f"Job {job_id} was not found on connection {self.connection_id}, "
+                        "or you don't have access to it."
+                    ),
+                    guidance=(
+                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                    ),
+                    context={"connection_id": self.connection_id, "job_id": job_id},
+                ) from ex
+            raise
+
+        if job_response.connection_id != self.connection_id:
+            raise AirbyteMissingResourceError(
+                resource_type="sync job",
+                resource_name_or_id=str(job_id),
+                message=(
+                    f"Job {job_id} belongs to a different connection, not {self.connection_id}."
+                ),
+                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                context={"connection_id": self.connection_id, "job_id": job_id},
+            )
+
         return SyncResult(
             workspace=self.workspace,
             connection=self,
             job_id=job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
         )
 
     # Artifacts
-
-    @deprecated("Use 'dump_raw_state()' instead.")
-    def get_state_artifacts(self) -> list[dict[str, Any]] | None:
-        """Deprecated. Use `dump_raw_state()` instead."""
-        state_response = api_util.get_connection_state(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
-        if state_response.get("stateType") == "not_set":
-            return None
-        return state_response.get("streamState", [])
 
     @overload
     def dump_raw_state(self, *, normalize: Literal[True] = True) -> list[dict[str, Any]]: ...
@@ -486,7 +667,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     "message dicts (each with a top-level `type` of STREAM, GLOBAL, "
                     "or LEGACY). Got a list that does not match protocol format."
                 )
-                raise ValueError(msg)
+                raise AirbyteLibInputError(message=msg)
             api_state = _denormalize_protocol_state_to_api(
                 protocol_messages=connection_state,
                 connection_id=self.connection_id,
@@ -501,7 +682,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 api_state = connection_state
         else:
             msg = f"Expected a dict or list, got {type(connection_state)}"
-            raise TypeError(msg)
+            raise AirbyteLibInputError(message=msg)
 
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
@@ -583,7 +764,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 namespace override set in connection advanced settings.
 
         Raises:
-            PyAirbyteInputError: If the connection state type is not supported for
+            AirbyteLibInputError: If the connection state type is not supported for
                 stream-level operations (not_set, legacy).
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
@@ -592,13 +773,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot set stream state: connection has no existing state.",
                 context={"connection_id": self.connection_id},
             )
 
         if current.state_type == "legacy":
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot set stream state on a legacy-type connection state.",
                 context={"connection_id": self.connection_id},
             )
@@ -652,20 +833,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             }
 
         self.import_raw_state(full_state)
-
-    @deprecated("Use 'dump_raw_catalog()' instead.")
-    def get_catalog_artifact(self) -> dict[str, Any] | None:
-        """Get the configured catalog for this connection.
-
-        Returns the full configured catalog (syncCatalog) for this connection,
-        including stream schemas, sync modes, cursor fields, and primary keys.
-
-        Uses the Config API endpoint: POST /v1/web_backend/connections/get
-
-        Returns:
-            Dictionary containing the configured catalog, or `None` if not found.
-        """
-        return self.dump_raw_catalog()
 
     def dump_raw_catalog(
         self,
@@ -790,14 +957,55 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """
         configurations = api_util.build_stream_configurations(stream_names)
 
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            configurations=configurations,
-        )
+        try:
+            updated_response = api_util.patch_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                configurations=configurations,
+            )
+        except AirbyteCloudError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code != HTTPStatus.BAD_REQUEST:
+                raise
+
+            try:
+                catalog = self.dump_raw_catalog()
+            except Exception:
+                catalog = None
+
+            if not isinstance(catalog, dict) or not isinstance(catalog.get("streams"), list):
+                raise
+
+            stream_entries = catalog["streams"]
+            available_streams = [
+                stream["stream"]["name"]
+                for stream in stream_entries
+                if isinstance(stream, dict)
+                and isinstance(stream.get("stream"), dict)
+                and isinstance(stream["stream"].get("name"), str)
+                and stream["stream"]["name"]
+            ]
+            if stream_entries and not available_streams:
+                raise
+
+            raise AirbyteLibInputError(
+                message=(
+                    f"Could not set selected streams for connection '{self.connection_id}': "
+                    f"{ex}"
+                ),
+                guidance="Use stream names from `available_streams`.",
+                context={
+                    "connection_id": self.connection_id,
+                    "requested_streams": stream_names,
+                    "available_streams": available_streams,
+                },
+            ) from ex
+
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
@@ -814,7 +1022,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             True if the connection status is 'active', False otherwise.
         """
         connection_info = self._fetch_connection_info(force_refresh=True)
-        return connection_info.status == "active"
+        return connection_info.status == ConnectionStatus.ACTIVE
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
@@ -838,24 +1046,26 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             enabled: True to enable (set status to 'active'), False to disable
                 (set status to 'inactive').
             ignore_noop: If True (default), silently return if the connection is already
-                in the requested state. If False, raise ValueError when the requested
+                in the requested state. If False, raise `AirbyteLibInputError` when the requested
                 state matches the current state.
 
         Raises:
-            ValueError: If ignore_noop is False and the connection is already in the
+            AirbyteLibInputError: If ignore_noop is False and the connection is already in the
                 requested state.
         """
         # Always fetch fresh data to check current status
         connection_info = self._fetch_connection_info(force_refresh=True)
         current_status = connection_info.status
-        desired_status = "active" if enabled else "inactive"
+        desired_status = ConnectionStatus.ACTIVE if enabled else ConnectionStatus.INACTIVE
 
         if current_status == desired_status:
             if ignore_noop:
                 return
-            raise ValueError(
-                f"Connection is already {'enabled' if enabled else 'disabled'}. "
-                f"Current status: {current_status}"
+            raise AirbyteLibInputError(
+                message=(
+                    f"Connection is already {'enabled' if enabled else 'disabled'}. "
+                    f"Current status: {current_status}"
+                ),
             )
 
         updated_response = api_util.patch_connection(
@@ -877,13 +1087,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Set a cron schedule for the connection.
 
         Args:
-            cron_expression: A cron expression defining when syncs should run.
+            cron_expression: A Quartz cron expression defining when syncs should run.
+                Quartz expressions have 6 or 7 space-separated fields
+                (seconds, minutes, hours, day-of-month, month, day-of-week[, year]),
+                optionally followed by a timezone ID. The Airbyte API rejects standard
+                5-field Unix cron expressions and schedules that run more often than
+                once per hour.
 
         Examples:
-                - "0 0 * * *" - Daily at midnight UTC
-                - "0 */6 * * *" - Every 6 hours
-                - "0 0 * * 0" - Weekly on Sunday at midnight UTC
+            - "0 0 0 * * ?"  # Daily at midnight UTC
+            - "0 0 */6 * * ?"  # Every 6 hours
+            - "0 0 0 ? * SUN"  # Weekly on Sunday at midnight UTC
+            - "0 0 9 ? * MON-FRI US/Pacific"  # Weekdays at 9am Pacific
         """
+        _validate_quartz_cron_expression(cron_expression)
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,

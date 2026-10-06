@@ -115,7 +115,7 @@ def _to_time_str(timestamp: float) -> str:
     For now, we'll just use UTC to avoid breaking tests. In the future, we should
     return a local time string.
     """
-    datetime_obj = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+    datetime_obj = datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC)
     datetime_obj = datetime_obj.astimezone()
     return datetime_obj.strftime("%H:%M:%S")
 
@@ -714,7 +714,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 )
                 self._rich_view.start()
             except Exception:
-                logs.warn_once(
+                logs._warn_once(  # noqa: SLF001  # non-public API
                     "Failed to start Rich live view. Falling back to plain text progress.",
                     with_stack=False,
                 )

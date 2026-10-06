@@ -38,7 +38,7 @@ jobs:
         uses: chuhlomin/render-template@807354a04d9300c9c2ac177c0aa41556c92b3f75 # v1.10
         with:
           # Use a different template for internal vs forks (community)
-          template: ${{ steps.vars.outputs.pr-source-is-fork == 'true' && '.github/pr-welcome-community.md' || '.github/pr-welcome-internal.md' }}
+          template: ${{ steps.vars.outputs.pr-source-repo-is-fork == 'true' && '.github/pr-welcome-community.md' || '.github/pr-welcome-internal.md' }}
           vars: |
             repo_name: ${{ steps.vars.outputs.pr-source-repo-name-full }}
             branch_name: ${{ steps.vars.outputs.pr-source-git-branch }}

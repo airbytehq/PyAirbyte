@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import overload
 
 
 logger = logging.getLogger("airbyte")
@@ -115,9 +116,34 @@ DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
 
 
-def _str_to_bool(value: str) -> bool:
-    """Convert a string value of an environment values to a boolean value."""
-    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+_TRUE_STR_VALUES: frozenset[str] = frozenset({"1", "true", "t", "yes", "y", "on"})
+"""String values that mean `True` in environment variables and config values."""
+
+_FALSE_STR_VALUES: frozenset[str] = frozenset({"0", "false", "f", "no", "n", "off"})
+"""String values that mean `False` in environment variables and config values."""
+
+
+@overload
+def _str_to_bool(value: str | None, *, default: bool) -> bool: ...
+
+
+@overload
+def _str_to_bool(value: str | None, *, default: None = None) -> bool | None: ...
+
+
+def _str_to_bool(value: str | None, *, default: bool | None = None) -> bool | None:
+    """Convert an environment variable or config value to a boolean.
+
+    Matching is case-insensitive and ignores surrounding whitespace. A value that is
+    unset, blank, or unrecognized yields `default`, which is `None` unless the caller
+    says otherwise, so "no value" stays distinguishable from `False`.
+    """
+    normalized = (value or "").strip().lower()
+    if normalized in _TRUE_STR_VALUES:
+        return True
+    if normalized in _FALSE_STR_VALUES:
+        return False
+    return default
 
 
 TEMP_DIR_OVERRIDE: Path | None = (
@@ -134,10 +160,8 @@ directories for permissions reasons.
 """
 
 TEMP_FILE_CLEANUP = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_TEMP_FILE_CLEANUP",
-        default="true",
-    )
+    os.getenv(key="AIRBYTE_TEMP_FILE_CLEANUP"),
+    default=True,
 )
 """Whether to clean up temporary files after use.
 
@@ -146,10 +170,8 @@ not set, the default value is `True`.
 """
 
 AIRBYTE_OFFLINE_MODE = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_OFFLINE_MODE",
-        default="false",
-    )
+    os.getenv(key="AIRBYTE_OFFLINE_MODE"),
+    default=False,
 )
 """Enable or disable offline mode.
 
@@ -166,10 +188,8 @@ air-gapped environments.
 """
 
 AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_PRINT_FULL_ERROR_LOGS",
-        default=os.getenv("CI", "false"),
-    )
+    os.getenv(key="AIRBYTE_PRINT_FULL_ERROR_LOGS", default=os.getenv("CI")),
+    default=False,
 )
 """Whether to print full error logs when an error occurs.
 This setting helps in debugging by providing detailed logs when errors occur. This is especially
@@ -180,15 +200,14 @@ If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
 
-NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
-"""Whether to use uv for Python package management.
+NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() in {"1", "true", "yes"}
+"""Whether to disable uv and use pip for Python package management.
 
 This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
-is set to "1", "true", or "yes", uv will be disabled and pip will be used instead.
+is set to "1", "true", or "yes", pip will be used instead of uv.
 
-If the variable is not set or set to any other value, uv will be used by default.
-This provides a safe fallback mechanism for environments where uv is not available
-or causes issues.
+If the variable is not set or set to any other value, uv will be used by default. Set this
+variable to opt out of uv and use pip instead.
 """
 
 SECRETS_HYDRATION_PREFIX = "secret_reference::"
@@ -207,6 +226,7 @@ secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment va
 
 For more information, see the `airbyte.secrets` module documentation.
 """
+
 
 # Cloud Constants
 
@@ -228,6 +248,7 @@ variable allows overriding the default Config API URL, which is useful when
 the public API URL has been overridden and the Config API cannot be derived
 from it automatically.
 """
+
 
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
@@ -261,11 +282,32 @@ Documentation:
 
 # MCP (Model Context Protocol) Constants
 
-MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
-"""Environment variable to enable read-only mode for the MCP server.
+_HOSTED_MCP_MODE_ENABLED: bool = False
+"""Whether the process is serving MCP over hosted HTTP transport."""
 
-When set to "1" or "true", only tools with readOnlyHint=True will be available.
-"""
+
+def set_hosted_mcp_mode() -> None:
+    """Set the flag indicating the process serves MCP over hosted HTTP transport."""
+    global _HOSTED_MCP_MODE_ENABLED
+    _HOSTED_MCP_MODE_ENABLED = True
+
+
+def is_hosted_mcp_mode() -> bool:
+    """Return True if the process serves MCP over hosted HTTP transport."""
+    return _HOSTED_MCP_MODE_ENABLED
+
+
+MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
+"""Legacy environment variable that disables pipeline-changing MCP tools when truthy."""
+
+MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES"
+"""Environment variable controlling access to Cloud pipeline-changing tools."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS"
+"""Environment variable controlling access to external-access Cloud tools."""
+
+CLOUD_MCP_SAFE_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_SAFE_MODE"
+"""Environment variable controlling safe mode for destructive Cloud operations."""
 
 MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
 """Environment variable to disable specific MCP tool domains.
@@ -281,16 +323,65 @@ Accepts a comma-separated list of domain names (e.g., "cloud,registry").
 If set, only tools from these domains will be advertised by the MCP server.
 """
 
+MCP_TRUSTED_EXECUTION_ENV_VAR: str = "AIRBYTE_MCP_TRUSTED_EXECUTION"
+"""Environment variable that enables trusted (local) execution for the MCP server.
+
+When set to `1`/`true`/`yes`, the server may use its trusted-machine capabilities: local
+filesystem access, local connector installation/execution, and server-side secret
+resolution. It defaults to *off* on every transport and is permanently unavailable over
+the HTTP transport (a hosted deployment can never enable it). This gate is server-owned
+and is deliberately never read from a request header, because it *widens* the surface and
+so must never be caller-controllable.
+"""
+
 MCP_WORKSPACE_ID_HEADER: str = "X-Airbyte-Workspace-Id"
 """HTTP header key for passing workspace ID to the MCP server.
 
 This allows per-request workspace ID configuration when using HTTP transport.
 """
 
+MCP_ORGANIZATION_ID_HEADER: str = "X-Airbyte-Organization-Id"
+"""HTTP header key for passing organization ID to the MCP server.
+
+This allows per-request organization ID configuration when using HTTP transport, for the
+tools that scope a listing to an organization rather than a workspace.
+"""
+
+MCP_INSIDERS_MODULES: frozenset[str] = frozenset()
+"""MCP tool modules that are hidden unless insiders mode is enabled.
+
+Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the module in
+the include list.
+"""
+
+MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
+"""Environment variable that advertises insiders MCP tools. Off by default.
+
+Set to `1`/`true`/`yes` to advertise the tools in `MCP_INSIDERS_MODULES` to every
+caller, or to `0`/`false`/`no` to hide them from every caller. Either value overrides
+`MCP_INSIDERS_HEADER`; any other value, including an empty string, leaves the decision
+to that header.
+"""
+
+MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
+"""HTTP header key that advertises insiders MCP tools, per request.
+
+Set to `1`/`true`/`yes` to add the tools in `MCP_INSIDERS_MODULES` to the advertised
+tool surface. This selects which tools are advertised and is not an access-control
+boundary: every insiders tool authorizes each call against the Airbyte API.
+`MCP_INSIDERS_ENV_VAR` overrides this header when explicitly set.
+"""
+
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
 """Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+
+MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
+"""Config arg name for the Cloud pipeline-change permission."""
+
+MCP_CONFIG_ALLOW_EXTERNAL_ACCESS: str = "allow_external_access"
+"""Config arg name for external-access permission."""
 
 MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
 """Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
@@ -300,6 +391,12 @@ MCP_CONFIG_INCLUDE_MODULES: str = "airbyte_include_modules"
 
 MCP_CONFIG_WORKSPACE_ID: str = "workspace_id"
 """Config arg name for the workspace ID setting."""
+
+MCP_CONFIG_ORGANIZATION_ID: str = "organization_id"
+"""Config arg name for the organization ID setting."""
+
+MCP_CONFIG_INSIDERS: str = "insiders"
+"""Config arg name for the insiders tools gate."""
 
 MCP_CONFIG_BEARER_TOKEN: str = "bearer_token"
 """Config arg name for the bearer token setting."""
@@ -321,14 +418,17 @@ MCP_CONFIG_CONFIG_API_URL: str = "config_api_url"
 MCP_BEARER_TOKEN_HEADER: str = "Authorization"
 """HTTP header key for bearer token (standard Authorization header)."""
 
-MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
-"""HTTP header key for client ID."""
+MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
+"""HTTP header key for client-declared MCP extension IDs."""
 
-MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
-"""HTTP header key for client secret."""
+MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
+"""HTTP header key for narrowing Cloud pipeline-change permission."""
 
-MCP_API_URL_HEADER: str = "X-Airbyte-Cloud-Api-Url"
-"""HTTP header key for API URL."""
+MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
+"""HTTP header key for narrowing external-access permission."""
 
-MCP_CONFIG_API_URL_HEADER: str = "X-Airbyte-Cloud-Config-Api-Url"
-"""HTTP header key for Config API URL."""
+# Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
+# headers. Each hosted MCP deployment is paired to a single backend, so allowing
+# a caller to override these URLs per-request would let them redirect the
+# server's credentialed requests to an arbitrary host and exfiltrate secrets.
+# These base URLs remain configurable via env var for local (stdio) use only.

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from mcp.types import TextContent
@@ -17,7 +17,8 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls
+from airbyte.mcp.guidance import get_api_docs_urls, get_connector_info
+from airbyte.mcp.registry import get_available_connectors
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -212,7 +213,7 @@ class TestGetApiDocsUrls:
 
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
                 connector_name="nonexistent-connector",
                 context={},
@@ -223,7 +224,7 @@ class TestGetApiDocsUrls:
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.return_value = [
                 ApiDocsUrl(
                     title="Airbyte Documentation",
@@ -401,7 +402,7 @@ def test_list_public_registry_connectors_applies_filters(
 def test_show_connectors_list_rejects_negative_limit() -> None:
     """Test that negative connector limits fail clearly."""
     with pytest.raises(
-        exc.PyAirbyteInputError, match="Limit parameter must be non-negative."
+        exc.AirbyteLibInputError, match="Limit parameter must be non-negative."
     ):
         show_connectors_list(limit=-1)
 
@@ -452,17 +453,16 @@ def test_interactive_tools_are_filtered_by_ui_support(
 ) -> None:
     """Test that interactive tools are filtered by MCP Apps UI support."""
     from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
     from fastmcp_extensions import mcp_server
 
     app = mcp_server(
         name="test",
-        tool_filters=[airbyte_ui_support_filter],
+        include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
 
     with patch(
-        "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
+        "fastmcp_extensions.tool_filters.client_supports_extension",
         return_value=supports_ui,
     ):
         tools = asyncio.run(app.list_tools())
@@ -477,11 +477,10 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
     from fastmcp_extensions import mcp_server
 
     from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
 
     app = mcp_server(
         name="test",
-        tool_filters=[airbyte_ui_support_filter],
+        include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
 
@@ -509,63 +508,141 @@ def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
     assert _mcp_module_for_tool(show_connectors_list) == "interactive"
     assert _mcp_module_for_tool(show_workspace_sync_status) == "interactive"
-    assert _mcp_module_for_tool(get_api_docs_urls) == "registry"
+    assert _mcp_module_for_tool(get_api_docs_urls) == "guidance"
 
 
-def test_prefab_generative_provider_registers_tools_and_renderer() -> None:
-    """Test that the FastMCP Prefab generative provider is registered."""
-    from fastmcp_extensions import mcp_server
+def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None:
+    """`get_connector_info` must resolve the config spec over HTTP, never via install.
 
-    from airbyte.mcp import interactive
+    The spec is fetched from the public connector registry keyed by version, so it
+    works in a hosted, no-Docker runtime without the unbounded `connector.install()`
+    fallback that previously hung requests for minutes.
+    """
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
 
-    app = mcp_server(name="test")
-    interactive.register_interactive_tools(app)
+    cloud_spec = {"type": "object", "properties": {"count": {"type": "integer"}}}
 
-    tool_names = {tool.name for tool in asyncio.run(app.list_tools())}
-    resource_uris = {
-        str(resource.uri) for resource in asyncio.run(app.list_resources())
-    }
-
-    assert {"generate_prefab_ui", "search_prefab_components"} <= tool_names
-    assert "ui://prefab/generative.html" in resource_uris
-
-
-def test_prefab_generative_tools_are_filtered_by_ui_support() -> None:
-    """Test that Prefab generative tools require MCP Apps UI support."""
-    from fastmcp_extensions import mcp_server
-
-    from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
-
-    app = mcp_server(
-        name="test",
-        tool_filters=[airbyte_ui_support_filter],
-    )
-    interactive.register_interactive_tools(app)
-
-    with patch(
-        "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
-        return_value=False,
+    with (
+        patch(
+            "airbyte.mcp.guidance.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
+            return_value=cloud_spec,
+        ) as mock_get_spec,
     ):
-        tools = asyncio.run(app.list_tools())
+        result = get_connector_info("source-faker")
 
-    assert "generate_prefab_ui" not in {tool.name for tool in tools}
+    assert not isinstance(result, str)
+    assert result.config_spec_jsonschema == cloud_spec
+    assert result.manifest_url is not None
+    connector.install.assert_not_called()
+    mock_get_spec.assert_called_once_with(
+        "source-faker", version=None, platform="cloud"
+    )
 
 
-def test_prefab_generative_tools_include_airbyte_annotations() -> None:
-    """Test that Airbyte annotations are applied to FastMCP provider tools."""
-    from fastmcp_extensions import mcp_server
+def test_get_connector_info_finds_java_connector_without_docker() -> None:
+    """A Java registry connector is discoverable when Docker is unavailable."""
+    connector_metadata = ConnectorMetadata(
+        name="source-postgres",
+        display_name="Postgres",
+        connector_type="source",
+        definition_id="source-postgres-definition",
+        docker_repository="airbyte/source-postgres",
+        latest_available_version="3.0.0",
+        pypi_package_name=None,
+        language="java",
+        install_types=set(),
+        support_level="certified",
+        release_stage="generally_available",
+        source_type="database",
+        documentation_url="https://docs.airbyte.com/integrations/sources/postgres",
+    )
+    connector = MagicMock()
+    connector.name = "source-postgres"
+    connector.docs_url = connector_metadata.documentation_url
 
-    from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION
+    with (
+        patch("airbyte.registry.is_docker_installed", return_value=False),
+        patch(
+            "airbyte.registry._get_registry_cache",
+            return_value={"source-postgres": connector_metadata},
+        ),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch(
+            "airbyte.mcp.guidance.get_connector_metadata",
+            return_value=connector_metadata,
+        ),
+        patch(
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
+            return_value=None,
+        ),
+    ):
+        assert get_available_connectors() == []
+        result = get_connector_info("source-postgres")
 
-    app = mcp_server(name="test")
-    interactive.register_interactive_tools(app)
+    assert not isinstance(result, str)
+    assert result.connector_name == "source-postgres"
 
-    fastmcp_tool = asyncio.run(app.get_tool("generate_prefab_ui"))
-    assert fastmcp_tool is not None
-    tool = fastmcp_tool.to_mcp_tool()
 
-    assert tool.annotations is not None
-    assert getattr(tool.annotations, "mcp_module") == "interactive"
-    assert getattr(tool.annotations, INTERACTIVE_UI_ANNOTATION) is True
+def test_get_connector_info_falls_back_to_oss_spec() -> None:
+    """When the `cloud` spec is unavailable, `get_connector_info` uses the `oss` spec."""
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
+
+    oss_spec = {"type": "object", "properties": {"seed": {"type": "integer"}}}
+
+    with (
+        patch(
+            "airbyte.mcp.guidance.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
+            side_effect=[None, oss_spec],
+        ) as mock_get_spec,
+    ):
+        result = get_connector_info("source-faker")
+
+    assert not isinstance(result, str)
+    assert result.config_spec_jsonschema == oss_spec
+    connector.install.assert_not_called()
+    assert mock_get_spec.call_args_list == [
+        call("source-faker", version=None, platform="cloud"),
+        call("source-faker", version=None, platform="oss"),
+    ]
+
+
+def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
+    """`config_spec_jsonschema` is `None` when the registry has no spec for either platform."""
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
+
+    with (
+        patch(
+            "airbyte.mcp.guidance.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
+            return_value=None,
+        ),
+    ):
+        result = get_connector_info("source-faker")
+
+    assert not isinstance(result, str)
+    assert result.config_spec_jsonschema is None
+    assert result.manifest_url is not None
+    connector.install.assert_not_called()

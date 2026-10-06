@@ -743,7 +743,7 @@ def test_lazy_dataset_from_source(
     ) == pop_internal_columns_from_dataset(list_from_iter_b)
 
     # Make sure that we get a key error if we try to access a stream that doesn't exist
-    with pytest.raises(exc.PyAirbyteInputError):
+    with pytest.raises(exc.AirbyteLibInputError):
         source.get_records(not_a_stream_name)
 
     # Make sure we can iterate on all available streams
@@ -806,11 +806,15 @@ def test_sync_with_merge_to_postgres(
 
 
 def test_airbyte_version() -> None:
-    assert get_version()
-    assert isinstance(get_version(), str)
+    version = get_version()
+    assert version
+    assert isinstance(version, str)
 
-    # Ensure the version is a valid semantic version (x.y.z or x.y.z.alpha0)
-    assert 3 <= len(get_version().split(".")) <= 4
+    # A numeric `x.y.z` release segment, optionally followed by PEP 440 post/dev
+    # suffixes and a commit local segment (e.g. "0.54.0.post5.dev0+1b1637b4").
+    release = version.partition("+")[0].split(".")
+    assert len(release) >= 3
+    assert all(part.isdigit() for part in release[:3])
 
 
 def test_sync_to_postgres(

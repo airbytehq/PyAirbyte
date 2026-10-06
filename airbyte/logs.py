@@ -25,17 +25,12 @@ import ulid
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
-
-def _str_to_bool(value: str) -> bool:
-    """Convert a string value of an environment values to a boolean value."""
-    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+from airbyte.constants import _str_to_bool
 
 
 AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_STRUCTURED_LOGGING",
-        default="false",
-    )
+    os.getenv(key="AIRBYTE_STRUCTURED_LOGGING"),
+    default=False,
 )
 """Whether to enable structured logging.
 
@@ -46,7 +41,7 @@ not set, the default value is `False`.
 _warned_messages: set[str] = set()
 
 
-def warn_once(
+def _warn_once(
     message: str,
     logger: logging.Logger | None = None,
     *,
@@ -101,7 +96,7 @@ def _get_logging_root() -> Path | None:
         log_root.mkdir(parents=True, exist_ok=True)
     except OSError:
         # Handle the error by returning None
-        warn_once(
+        _warn_once(
             (
                 f"Failed to create PyAirbyte logging directory at `{log_root}`. "
                 "You can override the default path by setting the `AIRBYTE_LOGGING_ROOT` "
@@ -150,7 +145,7 @@ def get_global_file_logger() -> logging.Logger | None:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warn_once(
+        _warn_once(
             f"Failed to create logging directory at '{folder!s}'.",
             with_stack=False,
         )
@@ -212,7 +207,7 @@ def get_global_stats_log_path() -> Path | None:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warn_once(
+        _warn_once(
             f"Failed to create logging directory at '{folder!s}'.",
             with_stack=False,
         )
@@ -256,7 +251,7 @@ def get_global_stats_logger() -> structlog.BoundLogger:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warn_once(
+        _warn_once(
             f"Failed to create logging directory at '{folder!s}'.",
             with_stack=False,
         )
