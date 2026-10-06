@@ -65,6 +65,8 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 
 DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
 """Connect and read timeouts for a deferred-credential create on the Config API."""
+PUBLIC_API_FALLBACK_TIMEOUT_SECS: tuple[float, float] = (5.0, 60.0)
+"""Connect and read timeouts for the raw Public API fallback GET."""
 
 logger = logging.getLogger(__name__)
 
@@ -2209,8 +2211,10 @@ def _get_public_api_json(
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
+            timeout=PUBLIC_API_FALLBACK_TIMEOUT_SECS,
         ),
         params=params,
+        timeout=PUBLIC_API_FALLBACK_TIMEOUT_SECS,
     )
     if not status_ok(response.status_code):
         try:

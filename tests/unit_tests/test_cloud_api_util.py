@@ -1130,6 +1130,10 @@ def test_get_connection_retries_without_undecodable_stream_mappers() -> None:
     assert connection.configurations.streams[0].name == "leads"
     assert len(responses.calls) == 2
     assert [call.request.url for call in responses.calls] == [url, url]
+    assert (
+        responses.calls[1].request.req_kwargs["timeout"]
+        == api_util.PUBLIC_API_FALLBACK_TIMEOUT_SECS
+    )
 
 
 @responses.activate
