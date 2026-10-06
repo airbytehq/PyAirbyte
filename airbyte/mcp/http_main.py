@@ -111,9 +111,9 @@ Tracing backend selection:
   with `otel` as the default.
 - OTel tracing uses `fastmcp-extensions` tool-call spans and stays dormant until
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
-- Hosted OTel export requires a global tracer provider created by
-  `fastmcp-extensions`; startup also refuses pre-instrumented `requests`, whose
-  spans exclude `api.segment.io`.
+- Hosted OTel startup refuses an existing global tracer provider or pre-instrumented
+  `requests`; active export also requires a provider created by `fastmcp-extensions`.
+  Segment requests are excluded.
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS` (or `OTEL_EXPORTER_OTLP_HEADERS`) supplies
   exporter credentials; `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` and
   `OTEL_TRACES_SAMPLER` control standard OpenTelemetry resource and sampling settings.

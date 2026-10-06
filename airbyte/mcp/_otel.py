@@ -282,6 +282,8 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
         install_datadog(app, environ=environ)
         _INSTALLED = True
         return
+    if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004
     if RequestsInstrumentor().is_instrumented_by_opentelemetry:  # type: ignore[missing-attribute]
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
 

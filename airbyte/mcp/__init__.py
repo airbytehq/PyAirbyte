@@ -324,8 +324,9 @@ record validated `agent.action` and bounded `agent.entity_type` metadata.
 Datadog tool Input; raw arguments/results remain excluded. Native `datadog`
 continues to use deployment LLM Observability configuration.
 
-Hosted OTel export requires a global provider created by `fastmcp-extensions`;
-startup refuses pre-instrumented `requests`, and Segment requests are excluded.
+Hosted OTel startup refuses an existing global tracer provider or pre-instrumented
+`requests`; active export also requires a provider created by `fastmcp-extensions`.
+Segment requests are excluded.
 URL queries and unrecognized outbound routes are redacted. Session identifiers
 remain digests, and exporter retention and deployment-owned HTTP/log tracing
 follow their existing policies.
