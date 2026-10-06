@@ -1096,8 +1096,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.33.0.post18.dev0+75c52c9"
-source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=caleb%2Fmcp-otel-tracing#75c52c958b89179b24edf91717be6f77969895ad" }
+version = "0.33.0.post19.dev0+8fc74eb"
+source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=caleb%2Fmcp-otel-tracing#8fc74eb8e3bf2d6624c2dfa834a269e824b4b9f2" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
