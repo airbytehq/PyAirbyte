@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
 import requests
+import responses
 from airbyte import constants
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
@@ -67,6 +69,40 @@ def _connection_response(name: str, index: int) -> models.ConnectionResponse:
         tags=[],
         workspace_id="workspace-id",
     )
+
+
+def _connection_with_field_filtering_mapper(
+    connection_id: str,
+) -> dict[str, Any]:
+    return {
+        "connectionId": connection_id,
+        "name": "test connection",
+        "sourceId": "source-id",
+        "destinationId": "destination-id",
+        "workspaceId": "workspace-id",
+        "status": "active",
+        "schedule": {"scheduleType": "manual"},
+        "dataResidency": "auto",
+        "nonBreakingSchemaUpdatesBehavior": "ignore",
+        "namespaceDefinition": "destination",
+        "createdAt": 1,
+        "tags": [],
+        "configurations": {
+            "streams": [
+                {
+                    "name": "leads",
+                    "syncMode": "full_refresh_overwrite",
+                    "mappers": [
+                        {
+                            "id": "00000000-0000-0000-0000-000000000000",
+                            "type": "field-filtering",
+                            "mapperConfiguration": {"targetField": "foo"},
+                        }
+                    ],
+                }
+            ]
+        },
+    }
 
 
 def _workspace_response(name: str, index: int) -> models.WorkspaceResponse:
@@ -1071,6 +1107,78 @@ def test_list_connections_paginates_resources(
     assert [
         (request.limit, request.offset) for request in captured_requests
     ] == expected_requests
+
+
+@responses.activate
+def test_get_connection_retries_without_undecodable_stream_mappers() -> None:
+    """A mapper the SDK cannot decode is omitted from the returned connection."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert isinstance(connection, models.ConnectionResponse)
+    assert connection.configurations.streams[0].name == "leads"
+    assert len(responses.calls) == 2
+    assert [call.request.url for call in responses.calls] == [url, url]
+
+
+@responses.activate
+def test_list_connections_retries_page_without_undecodable_stream_mappers() -> None:
+    """Connection listing falls back to raw JSON when a page has unknown mappers."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.get(
+        f"{api_root}/connections",
+        json={
+            "data": [_connection_with_field_filtering_mapper("connection-id")],
+            "next": None,
+        },
+    )
+
+    connections = api_util.list_connections(
+        workspace_id="workspace-id",
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert [
+        connection.configurations.streams[0].name for connection in connections
+    ] == ["leads"]
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_connection_without_mappers_uses_sdk_response_once() -> None:
+    """Connections without mappers keep using the typed SDK response."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    body = _connection_with_field_filtering_mapper(connection_id)
+    body["configurations"]["streams"][0].pop("mappers")
+    responses.get(url, json=body)
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert connection.configurations.streams[0].name == "leads"
+    assert len(responses.calls) == 1
 
 
 def test_list_workspaces_does_not_filter_by_workspace_id(

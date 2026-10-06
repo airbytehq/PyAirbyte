@@ -14,7 +14,9 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import base64
+import copy
 import json
+import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -63,6 +65,8 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 
 DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
 """Connect and read timeouts for a deferred-credential create on the Config API."""
+
+logger = logging.getLogger(__name__)
 
 
 def status_ok(status_code: int) -> bool:
@@ -549,17 +553,44 @@ def list_connections(
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            raise AirbyteCloudError(
-                context={
-                    "workspace_id": workspace_id,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
+        except ValueError as e:
+            logger.warning(
+                "Could not decode connections for workspace %s at offset %s: %s. "
+                "Retrying without stream mappers.",
+                workspace_id,
+                current_offset,
+                e,
             )
-        assert response.connections_response is not None
-        page_data = response.connections_response.data
+            raw_response = _get_public_api_json(
+                api_root=api_root,
+                path="/connections",
+                params={
+                    "workspaceIds": workspace_id,
+                    "offset": current_offset,
+                    "limit": PAGE_SIZE,
+                },
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            page_data = [
+                _decode_connection_without_mappers(connection)
+                for connection in raw_response["data"]
+            ]
+            next_page = raw_response.get("next")
+        else:
+            if not status_ok(response.status_code):
+                raise AirbyteCloudError(
+                    context={
+                        "workspace_id": workspace_id,
+                        "request_url": response.raw_response.url,
+                        "status_code": response.status_code,
+                    },
+                )
+            assert response.connections_response is not None
+            page_data = response.connections_response.data
+            next_page = response.connections_response.next
+
         if not page_data:
             break
 
@@ -573,7 +604,7 @@ def list_connections(
         if remaining is not None:
             remaining -= len(page_results)
 
-        if not response.connections_response.next:
+        if not next_page:
             break
 
         current_offset += len(page_data)
@@ -830,6 +861,22 @@ def get_connection(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except ValueError as e:
+        logger.warning(
+            "Could not decode connection %s: %s. Retrying without stream mappers.",
+            connection_id,
+            e,
+        )
+        return _decode_connection_without_mappers(
+            _get_public_api_json(
+                api_root=api_root,
+                path=f"/connections/{connection_id}",
+                params=None,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+        )
 
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
@@ -2142,6 +2189,74 @@ def _config_api_headers(
         "User-Agent": "PyAirbyte Client",
         AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
     }
+
+
+def _get_public_api_json(
+    *,
+    api_root: str,
+    path: str,
+    params: dict[str, Any] | None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get raw JSON from the Public API."""
+    full_url = api_root.rstrip("/") + path
+    response = requests.get(
+        full_url,
+        headers=_config_api_headers(
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        ),
+        params=params,
+    )
+    if not status_ok(response.status_code):
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as ex:
+            error_message = f"API request failed with status {response.status_code}"
+            error_context = {
+                "full_url": full_url,
+                "path": path,
+                "status_code": response.status_code,
+                "url": response.request.url,
+                "body": response.request.body,
+                "response": response.__dict__,
+            }
+            if response.status_code == HTTPStatus.FORBIDDEN:
+                raise AirbyteMissingResourceError(
+                    message=(
+                        "The requested resource was not found, or these credentials can't "
+                        "access it (HTTP 403)."
+                    ),
+                    guidance=FORBIDDEN_RESOURCE_GUIDANCE,
+                    context=error_context,
+                ) from ex
+            raise AirbyteCloudError(
+                message=error_message,
+                context=error_context,
+            ) from ex
+
+    return response.json()
+
+
+def _decode_connection_without_mappers(
+    raw: dict[str, Any],
+) -> models.ConnectionResponse:
+    """Decode a connection after dropping stream mappers unknown to the SDK."""
+    cleaned = copy.deepcopy(raw)
+    configurations = cleaned.get("configurations")
+    if configurations is not None:
+        for stream in configurations.get("streams") or []:
+            if isinstance(stream, dict):
+                stream.pop("mappers", None)
+
+    return airbyte_api.utils.unmarshal_json(
+        json.dumps(cleaned),
+        models.ConnectionResponse,
+    )
 
 
 def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.
