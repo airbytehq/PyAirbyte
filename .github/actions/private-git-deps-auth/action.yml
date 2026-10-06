@@ -1,4 +1,4 @@
-# TK-TODO: Temporary. `airbyte-server-models` is consumed from the private airbyte-ops-mcp repo  # IGNORE:TK
+# TK-TODO: Temporary. `airbyte-server-models` is consumed from the private airbyte-ops-mcp repo
 # until it is published to PyPI (airbytehq/airbyte-ops-mcp#1326). Remove this action and its
 # call sites once pyproject.toml pins a released version.
 name: Authenticate git for private dependency repos
