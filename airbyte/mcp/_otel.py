@@ -261,8 +261,17 @@ class _DatadogMetadataExporter(SpanExporter):
             return False
 
 
+def _session_id() -> str | None:
+    from fastmcp.server.dependencies import get_http_request  # noqa: PLC0415
+
+    from airbyte.mcp._telemetry import _SESSION_ID_STATE_KEY  # noqa: PLC0415
+
+    value = get_http_request().scope.get("state", {}).get(_SESSION_ID_STATE_KEY)
+    return value if isinstance(value, str) else None
+
+
 def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-    """Install hosted OpenTelemetry tracing after checking provider ownership."""
+    """Install hosted OpenTelemetry tracing with provider ownership enforcement."""
     global _INSTALLED
     if _INSTALLED:
         return
@@ -273,8 +282,6 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
         install_datadog(app, environ=environ)
         _INSTALLED = True
         return
-    if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
-        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004
     if RequestsInstrumentor().is_instrumented_by_opentelemetry:  # type: ignore[missing-attribute]
         raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
 
@@ -300,6 +307,8 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
                 capture_intent=_flag(environ, "AIRBYTE_MCP_INTENT_CAPTURE"),
                 other_spans=_http_client_span_attributes,
                 arg_key=_arg_key,
+                session_id=_session_id,
+                require_own_provider=True,
                 exporter=_exporter(backend, environ),
             ),
         ),
