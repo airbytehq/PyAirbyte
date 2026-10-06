@@ -17,9 +17,8 @@ cache = MotherDuckCache(
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from airbyte_api.models import DestinationDuckdb
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
@@ -74,10 +73,9 @@ class MotherDuckCache(MotherDuckConfig, DuckDBCache):
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = MotherDuckSqlProcessor
 
     paired_destination_name: ClassVar[str | None] = "destination-motherduck"
-    paired_destination_config_class: ClassVar[type | None] = DestinationDuckdb
 
     @property
-    def paired_destination_config(self) -> DestinationDuckdb:
+    def paired_destination_config(self) -> dict[str, Any]:
         """Return a dictionary of destination configuration values."""
         return motherduck_cache_to_destination_configuration(cache=self)
 

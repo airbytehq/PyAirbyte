@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
-from airbyte_api import models
+from airbyte_server_models.public_api import models
 
 from airbyte import constants
 from airbyte._util import api_util
@@ -45,6 +45,16 @@ from airbyte.exceptions import (
 )
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
+from airbyte_server_models._config_api import (
+    Notification,
+    NotificationType,
+    OrganizationInfoRead,
+    OrganizationRead,
+    PermissionRead,
+    PermissionType,
+    UserRead,
+    WorkspaceRead,
+)
 
 
 def _raise(error: Exception) -> Callable[..., NoReturn]:
@@ -52,6 +62,70 @@ def _raise(error: Exception) -> Callable[..., NoReturn]:
         raise error
 
     return _raiser
+
+
+def _user_response(user_id: str = "user-id") -> UserRead:
+    return UserRead.model_construct(
+        userId=user_id,
+        email="user@example.com",
+        metadata={},
+    )
+
+
+def _organization_info_response(
+    *,
+    organization_id: str = "organization-id",
+    organization_name: str = "Organization",
+) -> OrganizationInfoRead:
+    return OrganizationInfoRead.model_construct(
+        organizationId=organization_id,
+        organizationName=organization_name,
+        sso=False,
+        scim=False,
+    )
+
+
+def _permission_response(
+    *,
+    organization_id: str | None = "organization-id",
+) -> PermissionRead:
+    return PermissionRead.model_construct(
+        permissionId="permission-id",
+        permissionType=PermissionType.organization_member,
+        userId="user-id",
+        organizationId=organization_id,
+    )
+
+
+def _organization_response(
+    *,
+    organization_id: str = "organization-id",
+    organization_name: str = "Organization",
+    email: str = "test@example.com",
+) -> OrganizationRead:
+    return OrganizationRead.model_construct(
+        organizationId=organization_id,
+        organizationName=organization_name,
+        email=email,
+    )
+
+
+def _workspace_config_response(
+    *,
+    workspace_id: str,
+    name: str,
+    organization_id: str = "organization-id",
+    notifications: list[Notification] | None = None,
+) -> WorkspaceRead:
+    return WorkspaceRead.model_construct(
+        workspaceId=workspace_id,
+        customerId="customer-id",
+        name=name,
+        slug=name.casefold().replace(" ", "-"),
+        initialSetupComplete=False,
+        organizationId=organization_id,
+        notifications=notifications,
+    )
 
 
 def _stub_organization_features(
@@ -78,20 +152,21 @@ def _patch_workspace_discovery(
         lambda _: "auth-user-id",
     )
     monkeypatch.setattr(
-        api_util,
-        "get_user_by_auth_id",
-        lambda *_, **__: {"userId": "user-id"},
+        api_util, "get_user_by_auth_id", lambda *_, **__: _user_response()
     )
     monkeypatch.setattr(
         api_util,
         "list_permissions_for_user",
-        lambda *_, **__: permissions or [],
+        lambda *_, **__: [
+            {"permissionId": "permission-id", "userId": "user-id", **permission}
+            for permission in (permissions or [])
+        ],
     )
 
-    def fake_get_workspace_organization_info(**_: object) -> dict[str, object]:
+    def fake_get_workspace_organization_info(**_: object) -> OrganizationInfoRead:
         if parent_organization_id is None:
             pytest.fail("workspace parent lookup should not be called")
-        return {"organizationId": parent_organization_id}
+        return _organization_info_response(organization_id=parent_organization_id)
 
     monkeypatch.setattr(
         api_util,
@@ -106,9 +181,15 @@ def _patch_workspace_discovery(
 
     def fake_list_workspaces_in_organization(
         **kwargs: object,
-    ) -> list[dict[str, object]]:
+    ) -> list[WorkspaceRead]:
         captured.update(kwargs)
-        return org_scoped_result if org_scoped_result is not None else []
+        return [
+            _workspace_config_response(
+                workspace_id=str(workspace["workspaceId"]),
+                name=str(workspace["name"]),
+            )
+            for workspace in (org_scoped_result or [])
+        ]
 
     monkeypatch.setattr(
         api_util,
@@ -395,13 +476,17 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
         *,
         limit: int | None = None,
         **_: object,
-    ) -> list[dict[str, object]]:
+    ) -> list[WorkspaceRead]:
         nonlocal captured_limit
         captured_limit = limit
         return [
-            {"name": "miss", "workspaceId": "workspace-miss"},
-            {"name": "target-one", "workspaceId": "workspace-target-one"},
-            {"name": "target-two", "workspaceId": "workspace-target-two"},
+            _workspace_config_response(workspace_id="workspace-miss", name="miss"),
+            _workspace_config_response(
+                workspace_id="workspace-target-one", name="target-one"
+            ),
+            _workspace_config_response(
+                workspace_id="workspace-target-two", name="target-two"
+            ),
         ]
 
     monkeypatch.setattr(
@@ -432,11 +517,13 @@ def test_cloud_client_list_workspaces_matches_exact_name_after_server_filter(
 
     def fake_list_workspaces_in_organization(
         **kwargs: object,
-    ) -> list[dict[str, object]]:
+    ) -> list[WorkspaceRead]:
         captured.update(kwargs)
         return [
-            {"name": "Production-old", "workspaceId": "workspace-production-old"},
-            {"name": "Prod", "workspaceId": "workspace-prod"},
+            _workspace_config_response(
+                workspace_id="workspace-production-old", name="Production-old"
+            ),
+            _workspace_config_response(workspace_id="workspace-prod", name="Prod"),
         ]
 
     monkeypatch.setattr(
@@ -471,7 +558,7 @@ def test_cloud_client_create_workspace_uses_default_organization_id(
     ) -> models.WorkspaceResponse:
         nonlocal captured_organization_id
         captured_organization_id = organization_id
-        return models.WorkspaceResponse(
+        return models.WorkspaceResponse.model_construct(
             data_residency="auto",
             name="New workspace",
             notifications=models.NotificationsConfig(),
@@ -495,13 +582,19 @@ def test_cloud_client_list_workspaces_accepts_api_notification_list(
 ) -> None:
     def fake_list_workspaces_in_organization(
         **_: object,
-    ) -> list[dict[str, object]]:
+    ) -> list[WorkspaceRead]:
         return [
-            {
-                "workspaceId": "workspace-id",
-                "name": "Workspace",
-                "notifications": [{"sendOnSuccess": True}],
-            }
+            _workspace_config_response(
+                workspace_id="workspace-id",
+                name="Workspace",
+                notifications=[
+                    Notification.model_construct(
+                        notificationType=NotificationType.slack,
+                        sendOnSuccess=True,
+                        sendOnFailure=False,
+                    )
+                ],
+            )
         ]
 
     monkeypatch.setattr(
@@ -516,7 +609,7 @@ def test_cloud_client_list_workspaces_accepts_api_notification_list(
     ).list_workspaces(organization_id="organization-id")
 
     assert len(workspaces) == 1
-    assert workspaces[0].notifications == [{"sendOnSuccess": True}]
+    assert workspaces[0].notifications[0]["sendOnSuccess"] is True
 
 
 def test_cloud_workspace_info_accepts_api_notification_mapping() -> None:
@@ -536,7 +629,7 @@ def test_cloud_client_rename_workspace_forwards_inputs(
 
     def fake_rename_workspace(**kwargs: object) -> models.WorkspaceResponse:
         captured_kwargs.update(kwargs)
-        return models.WorkspaceResponse(
+        return models.WorkspaceResponse.model_construct(
             data_residency="auto",
             name="Renamed workspace",
             notifications=models.NotificationsConfig(),
@@ -808,7 +901,7 @@ def test_cloud_workspace_rename_forwards_inputs(
 
     def fake_rename_workspace(**kwargs: object) -> models.WorkspaceResponse:
         captured_kwargs.update(kwargs)
-        return models.WorkspaceResponse(
+        return models.WorkspaceResponse.model_construct(
             data_residency="auto",
             name="Renamed workspace",
             notifications=models.NotificationsConfig(),
@@ -907,7 +1000,7 @@ def test_cloud_client_get_organization_uses_default_organization_id(
         api_util,
         "list_organizations_for_user",
         lambda **_: [
-            models.OrganizationResponse(
+            models.OrganizationResponse.model_construct(
                 organization_id="default-org",
                 organization_name="Default Org",
                 email="test@example.com",
@@ -917,11 +1010,10 @@ def test_cloud_client_get_organization_uses_default_organization_id(
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: {
-            "organizationId": "default-org",
-            "organizationName": "Default Org",
-            "email": "test@example.com",
-        },
+        lambda **_: _organization_info_response(
+            organization_id="default-org",
+            organization_name="Default Org",
+        ),
     )
 
     organization = CloudClient(
@@ -969,27 +1061,29 @@ def test_cloud_client_get_organization_resolves_default_context(
         api_util, "get_user_id_from_bearer_token", lambda _: "auth-user-id"
     )
     monkeypatch.setattr(
-        api_util, "get_user_by_auth_id", lambda *_, **__: {"userId": "user-id"}
+        api_util, "get_user_by_auth_id", lambda *_, **__: _user_response()
     )
     monkeypatch.setattr(
         api_util,
         "list_permissions_for_user",
-        lambda *_, **__: permissions or [],
+        lambda *_, **__: [
+            {"permissionId": "permission-id", "userId": "user-id", **permission}
+            for permission in (permissions or [])
+        ],
     )
     monkeypatch.setattr(
         api_util,
         "get_workspace_organization_info",
-        lambda **_: {"organizationId": parent_organization_id}
+        lambda **_: _organization_info_response(organization_id=parent_organization_id)
         if parent_organization_id is not None
         else pytest.fail("workspace parent lookup should not be called"),
     )
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **kwargs: {
-            "organizationId": kwargs["organization_id"],
-            "organizationName": "Organization",
-        },
+        lambda **kwargs: _organization_info_response(
+            organization_id=str(kwargs["organization_id"]),
+        ),
     )
 
     organization = CloudClient(bearer_token="token", **client_kwargs).get_organization()
@@ -1009,9 +1103,9 @@ def test_cloud_client_get_organization_rejects_ambiguous_default_context(
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **kwargs: {
-            "organizationName": f"Organization {kwargs['organization_id']}"
-        },
+        lambda **kwargs: _organization_info_response(
+            organization_name=f"Organization {kwargs['organization_id']}",
+        ),
     )
 
     with pytest.raises(AirbyteLibInputError) as exc_info:
@@ -1078,13 +1172,9 @@ def test_cloud_client_get_organization_uses_single_config_lookup(
 ) -> None:
     calls: list[dict[str, object]] = []
 
-    def fake_get_organization_info(**kwargs: object) -> dict[str, object]:
+    def fake_get_organization_info(**kwargs: object) -> OrganizationInfoRead:
         calls.append(kwargs)
-        return {
-            "organizationId": "organization-id",
-            "organizationName": "Organization",
-            "email": "test@example.com",
-        }
+        return _organization_info_response()
 
     monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
     monkeypatch.setattr(
@@ -1107,7 +1197,7 @@ def test_cloud_client_get_organization_uses_single_config_lookup(
         pytest.param([], id="empty"),
         pytest.param(
             [
-                models.OrganizationResponse(
+                models.OrganizationResponse.model_construct(
                     organization_id="organization-id",
                     organization_name="Organization",
                     email="test@example.com",
@@ -1117,12 +1207,12 @@ def test_cloud_client_get_organization_uses_single_config_lookup(
         ),
         pytest.param(
             [
-                models.OrganizationResponse(
+                models.OrganizationResponse.model_construct(
                     organization_id="organization-id-1",
                     organization_name="Organization 1",
                     email="one@example.com",
                 ),
-                models.OrganizationResponse(
+                models.OrganizationResponse.model_construct(
                     organization_id="organization-id-2",
                     organization_name="Organization 2",
                     email="two@example.com",
@@ -1164,17 +1254,17 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
 ) -> None:
     captured: dict[str, object] = {}
     organizations = [
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id-1",
             organization_name="Development",
             email="one@example.com",
         ),
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id-2",
             organization_name="development-copy",
             email="two@example.com",
         ),
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id-3",
             organization_name="Production",
             email="three@example.com",
@@ -1183,7 +1273,7 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
 
     def fake_list_organizations_for_user_id(
         **kwargs: object,
-    ) -> list[dict[str, object]]:
+    ) -> list[OrganizationRead]:
         captured.update(kwargs)
         filtered = organizations
         if kwargs["name_contains"] is not None:
@@ -1195,11 +1285,11 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
             ]
         limit = kwargs["limit"]
         return [
-            {
-                "organizationId": organization.organization_id,
-                "organizationName": organization.organization_name,
-                "email": organization.email,
-            }
+            _organization_response(
+                organization_id=organization.organization_id,
+                organization_name=organization.organization_name,
+                email=organization.email,
+            )
             for organization in filtered[: limit if isinstance(limit, int) else None]
         ]
 
@@ -1212,7 +1302,7 @@ def test_cloud_client_list_organizations_uses_config_api_for_filter_or_limit(
         api_util, "get_user_id_from_bearer_token", lambda _: "auth-user-id"
     )
     monkeypatch.setattr(
-        api_util, "get_user_by_auth_id", lambda *_, **__: {"userId": "user-id"}
+        api_util, "get_user_by_auth_id", lambda *_, **__: _user_response()
     )
 
     result = CloudClient(bearer_token="token").list_organizations(
@@ -1229,7 +1319,7 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     organizations = [
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id="organization-id",
             organization_name="Development",
             email="test@example.com",
@@ -1243,7 +1333,7 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     monkeypatch.setattr(
         api_util,
         "get_user_by_auth_id",
-        lambda *_, **__: {"userId": "user-id"},
+        lambda *_, **__: _user_response(),
     )
     monkeypatch.setattr(
         api_util,
@@ -1280,10 +1370,10 @@ def test_cloud_client_config_org_listing_reuses_authenticated_bearer_token(
 
     def fake_list_organizations_for_user_id(
         **kwargs: object,
-    ) -> list[dict[str, object]]:
+    ) -> list[OrganizationRead]:
         nonlocal captured_bearer_token
         captured_bearer_token = kwargs["bearer_token"]
-        return [{"organizationId": "organization-id"}]
+        return [_organization_response(organization_id="organization-id")]
 
     monkeypatch.setattr(api_util, "get_bearer_token", fake_get_bearer_token)
     monkeypatch.setattr(
@@ -1294,7 +1384,7 @@ def test_cloud_client_config_org_listing_reuses_authenticated_bearer_token(
     monkeypatch.setattr(
         api_util,
         "get_user_by_auth_id",
-        lambda *_, **__: {"userId": "user-id"},
+        lambda *_, **__: _user_response(),
     )
     monkeypatch.setattr(
         api_util,
@@ -1326,12 +1416,9 @@ def test_cloud_client_config_lookups_reuse_authenticated_bearer_token(
         token_calls += 1
         return issued_token
 
-    def fake_get_organization_info(**kwargs: object) -> dict[str, object]:
+    def fake_get_organization_info(**kwargs: object) -> OrganizationInfoRead:
         captured_bearer_tokens.append(kwargs["bearer_token"])
-        return {
-            "organizationId": "organization-id",
-            "organizationName": "Organization",
-        }
+        return _organization_info_response()
 
     monkeypatch.setattr(api_util, "get_bearer_token", fake_get_bearer_token)
     monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
@@ -1360,7 +1447,7 @@ def test_cloud_client_list_organizations_has_no_default_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     organizations = [
-        models.OrganizationResponse(
+        models.OrganizationResponse.model_construct(
             organization_id=f"organization-id-{index}",
             organization_name=f"Organization {index}",
             email=f"test-{index}@example.com",
@@ -1397,7 +1484,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     monkeypatch.setattr(
         api_util,
         "get_user_by_auth_id",
-        lambda *_, **__: {"userId": "user-id"},
+        lambda *_, **__: _user_response(),
     )
     monkeypatch.setattr(
         api_util,
@@ -1570,15 +1657,18 @@ def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
     captured = _patch_workspace_discovery(monkeypatch, permissions=permissions)
     calls = {"user": 0, "permissions": 0}
 
-    def fake_get_user_by_auth_id(*_: object, **__: object) -> dict[str, object]:
+    def fake_get_user_by_auth_id(*_: object, **__: object) -> UserRead:
         calls["user"] += 1
-        return {"userId": "user-id"}
+        return _user_response()
 
     def fake_list_permissions_for_user(
         *_: object, **__: object
-    ) -> list[dict[str, object]]:
+    ) -> list[PermissionRead]:
         calls["permissions"] += 1
-        return permissions
+        return [
+            {"permissionId": "permission-id", "userId": "user-id", **permission}
+            for permission in permissions
+        ]
 
     monkeypatch.setattr(api_util, "get_user_by_auth_id", fake_get_user_by_auth_id)
     monkeypatch.setattr(
@@ -3117,6 +3207,24 @@ def test_cloud_organization_get_billing_status_requires_billing(
     organization = CloudOrganization(organization_id="organization-id")
     with pytest.raises(AirbyteCloudError, match="billing details"):
         organization.get_billing_status()
+
+
+def test_cloud_organization_payment_status_none_when_billing_status_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing paymentStatus yields None instead of an AttributeError."""
+    monkeypatch.setattr(
+        api_util,
+        "get_organization_info",
+        lambda **_: SimpleNamespace(
+            billing=SimpleNamespace(
+                paymentStatus=None,
+                subscriptionStatus="subscribed",
+            )
+        ),
+    )
+    organization = CloudOrganization(organization_id="organization-id")
+    assert organization.payment_status is None
 
 
 def test_cloud_organization_get_billing_status_wraps_transport_error(

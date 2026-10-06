@@ -59,9 +59,7 @@ cache = SnowflakeCache(
 
 from __future__ import annotations
 
-from typing import ClassVar
-
-from airbyte_api.models import DestinationSnowflake
+from typing import Any, ClassVar
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
 from airbyte.caches._utils._cache_to_dest import (
@@ -79,10 +77,9 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = SnowflakeSqlProcessor
 
     paired_destination_name: ClassVar[str | None] = "destination-snowflake"
-    paired_destination_config_class: ClassVar[type | None] = DestinationSnowflake
 
     @property
-    def paired_destination_config(self) -> DestinationSnowflake:
+    def paired_destination_config(self) -> dict[str, Any]:
         """Return a dictionary of destination configuration values."""
         return snowflake_cache_to_destination_configuration(cache=self)
 

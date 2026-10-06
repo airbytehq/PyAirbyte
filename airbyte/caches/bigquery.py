@@ -17,9 +17,7 @@ cache = BigQueryCache(
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, NoReturn
-
-from airbyte_api.models import DestinationBigquery
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
 from airbyte.caches._utils._cache_to_dest import (
@@ -41,10 +39,9 @@ class BigQueryCache(BigQueryConfig, CacheBase):
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = BigQuerySqlProcessor
 
     paired_destination_name: ClassVar[str | None] = "destination-bigquery"
-    paired_destination_config_class: ClassVar[type | None] = DestinationBigquery
 
     @property
-    def paired_destination_config(self) -> DestinationBigquery:
+    def paired_destination_config(self) -> dict[str, Any]:
         """Return a dictionary of destination configuration values."""
         return bigquery_cache_to_destination_configuration(cache=self)
 

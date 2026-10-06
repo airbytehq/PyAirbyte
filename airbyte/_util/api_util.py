@@ -6,22 +6,61 @@ and design inconsistencies, we do not expose these functions or other Airbyte AP
 PyAirbyte. Classes and functions from the Airbyte API external library should always be wrapped in
 PyAirbyte classes - unless there's a very compelling reason to surface these models intentionally.
 
-Similarly, modules outside of this file should try to avoid interfacing with `airbyte_api` library
-directly. This will ensure a single source of truth when mapping between the `airbyte` and
-`airbyte_api` libraries.
+Similarly, modules outside of this file should try to avoid interfacing with
+`airbyte_server_models` directly. This will ensure a single source of truth when mapping
+between the `airbyte` and `airbyte_server_models` libraries.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import logging
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast, overload
 
-import airbyte_api
 import requests
-from airbyte_api import api, models
-from airbyte_api.errors import SDKError
+from airbyte_server_models import public_api as models
+
+# The Config API models live in an underscore-prefixed module on purpose: the Config API is
+# Airbyte-internal and may change without notice, so the private name is a deliberate signal
+# to consumers. PyAirbyte accepts that contract, hence the `PLC2701` (import-private-name)
+# suppressions below.
+from airbyte_server_models._config_api import (
+    AirbyteCatalog,  # noqa: PLC2701
+    BuilderProjectForDefinitionRequestBody,  # noqa: PLC2701
+    BuilderProjectForDefinitionResponse,  # noqa: PLC2701
+    CheckConnectionRead,  # noqa: PLC2701
+    ConnectionIdRequestBody,  # noqa: PLC2701
+    ConnectionState,  # noqa: PLC2701
+    ConnectionStateCreateOrUpdate,  # noqa: PLC2701
+    ConnectorBuilderProjectIdWithWorkspaceId,  # noqa: PLC2701
+    ConnectorBuilderProjectRead,  # noqa: PLC2701
+    ConnectorBuilderProjectTestingValues,  # noqa: PLC2701
+    ConnectorBuilderProjectTestingValuesUpdate,  # noqa: PLC2701
+    DestinationIdRequestBody,  # noqa: PLC2701
+    ListOrganizationsByUserRequestBody,  # noqa: PLC2701
+    ListWorkspacesInOrganizationRequestBody,  # noqa: PLC2701
+    OrganizationIdRequestBody,  # noqa: PLC2701
+    OrganizationInfoRead,  # noqa: PLC2701
+    OrganizationRead,
+    OrganizationReadList,  # noqa: PLC2701
+    Pagination,  # noqa: PLC2701
+    PermissionRead,
+    PermissionReadList,  # noqa: PLC2701
+    SourceDefinitionSpecification,  # noqa: PLC2701
+    SourceIdRequestBody,  # noqa: PLC2701
+    UserAuthIdRequestBody,  # noqa: PLC2701
+    UserIdRequestBody,  # noqa: PLC2701
+    UserRead,  # noqa: PLC2701
+    WebBackendConnectionRead,  # noqa: PLC2701
+    WebBackendConnectionRequestBody,  # noqa: PLC2701
+    WebBackendConnectionUpdate,  # noqa: PLC2701
+    WorkspaceIdRequestBody,  # noqa: PLC2701
+    WorkspaceRead,
+    WorkspaceReadList,  # noqa: PLC2701
+)
+from pydantic import BaseModel, ValidationError
 
 from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
@@ -43,15 +82,15 @@ from airbyte.secrets.util import try_get_secret
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte_api.models import (
-        DestinationConfiguration,
-    )
+
+logger = logging.getLogger(__name__)
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
 JWT_PART_COUNT = 3
+_T = TypeVar("_T", bound=BaseModel)
 FORBIDDEN_RESOURCE_GUIDANCE = (
     "Airbyte Cloud returns 403 both for IDs that don't exist and for resources outside your "
     "access. Check the ID, and that it belongs to the workspace you passed."
@@ -86,39 +125,34 @@ def _get_page_limit(remaining: int | None) -> int:
     return min(remaining, PAGE_SIZE)
 
 
-def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
-    """Extract context information from an SDKError for debugging.
+def _get_api_error_context(response: requests.Response) -> dict[str, Any]:
+    """Extract request and response details from a failed API call for debugging.
 
-    This helper extracts the actual request URL and other useful debugging
-    information from the Speakeasy SDK's SDKError exception. The SDK stores
-    the raw response object which contains the request details.
+    Produces the same context keys the Speakeasy SDK error wrapper used to surface.
     """
     context: dict[str, Any] = {
-        "status_code": error.status_code,
-        "error_message": error.message,
+        "status_code": response.status_code,
+        "error_message": response.text,
     }
-
-    if error.raw_response is not None:
-        request = error.raw_response.request
-        if request is not None:
-            context["request_url"] = str(request.url)
-            context["request_method"] = request.method
-        context["response_content_type"] = error.raw_response.headers.get("content-type")
-
+    if response.request is not None:
+        context["request_url"] = str(response.request.url)
+        context["request_method"] = response.request.method
+    context["response_content_type"] = response.headers.get("content-type")
     return context
 
 
-def _wrap_sdk_error(
-    error: SDKError, base_context: dict[str, Any] | None = None
+def _wrap_api_error(
+    response: requests.Response, base_context: dict[str, Any] | None = None
 ) -> AirbyteCloudError:
-    """Wrap an SDKError with additional context for debugging.
+    """Wrap a failed API response with additional context for debugging.
 
-    This function converts a Speakeasy SDK error into an AirbyteCloudError with
-    full URL context, making it easier to debug API issues like 403 and 404 errors.
+    Mirrors the former SDK error-wrapping semantics: 403 and 404 become
+    `AirbyteMissingResourceError` (403 with extra guidance), everything else
+    becomes `AirbyteCloudError`.
     """
-    sdk_context = _get_sdk_error_context(error)
-    merged_context = {**(base_context or {}), **sdk_context}
-    status_code = sdk_context.get("status_code")
+    api_context = _get_api_error_context(response)
+    merged_context = {**(base_context or {}), **api_context}
+    status_code = api_context.get("status_code")
     is_forbidden = status_code == HTTPStatus.FORBIDDEN
     error_type = (
         AirbyteMissingResourceError
@@ -130,7 +164,7 @@ def _wrap_sdk_error(
             "The requested resource was not found, or these credentials can't access it "
             "(HTTP 403)."
             if is_forbidden
-            else f"API error occurred: {error.message}"
+            else f"API error occurred: {response.text}"
         ),
         guidance=FORBIDDEN_RESOURCE_GUIDANCE if is_forbidden else None,
         context=merged_context,
@@ -212,30 +246,19 @@ def get_web_url_root(api_root: str) -> str:
     return api_root
 
 
-def get_airbyte_server_instance(
+def _resolve_bearer_token(
     *,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> airbyte_api.AirbyteAPI:
-    """Get an Airbyte API instance.
+    timeout: tuple[float, float] | None = None,
+) -> SecretString:
+    """Resolve the bearer token to use, minting one from client credentials if needed.
 
     Supports two authentication methods (mutually exclusive):
     1. OAuth2 client credentials (client_id + client_secret)
     2. Bearer token authentication
-
-    Args:
-        api_root: The API root URL.
-        client_id: OAuth2 client ID (required if not using bearer_token).
-        client_secret: OAuth2 client secret (required if not using bearer_token).
-        bearer_token: Pre-generated bearer token (alternative to client credentials).
-
-    Returns:
-        An authenticated AirbyteAPI instance.
-
-    Raises:
-        AirbyteLibInputError: If authentication parameters are invalid.
     """
     # Guard: must provide either bearer token OR both client credentials
     if bearer_token is None and (client_id is None or client_secret is None):
@@ -251,33 +274,176 @@ def get_airbyte_server_instance(
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
 
-    client = requests.Session()
-    client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
-
-    # Option 1: Bearer token authentication
-    if bearer_token is not None:
-        return airbyte_api.AirbyteAPI(
-            security=models.Security(
-                bearer_auth=bearer_token,
-            ),
-            server_url=api_root,
-            client=client,
+    if bearer_token is None:
+        # Client credentials flow (guaranteed non-None by first guard)
+        bearer_token = get_bearer_token(
+            client_id=cast(SecretString, client_id),
+            client_secret=cast(SecretString, client_secret),
+            api_root=api_root,
+            timeout=timeout,
         )
+    return bearer_token
 
-    # Option 2: Client credentials flow (guaranteed non-None by first guard)
 
-    return airbyte_api.AirbyteAPI(
-        security=models.Security(
-            client_credentials=models.SchemeClientCredentials(
-                client_id=client_id,
-                client_secret=client_secret,
-                token_url=api_root + "/applications/token",
-                # e.g. https://api.airbyte.com/v1/applications/token
-            ),
-        ),
-        server_url=api_root,
-        client=client,
+def _api_headers(
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, str]:
+    """Build Public API headers, minting a bearer token from client credentials if needed."""
+    resolved_token = _resolve_bearer_token(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {resolved_token}",
+        "User-Agent": "PyAirbyte Client",
+        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
+    }
+
+
+def _serialize_public_api_request(request: BaseModel) -> dict[str, Any]:
+    body = request.model_dump(mode="json", by_alias=True, exclude_none=True)
+    # Free-form connector configuration is sent verbatim (nulls included):
+    # exclude_none only applies to the request's own top-level fields.
+    configuration = getattr(request, "configuration", None)
+    if isinstance(configuration, BaseModel):
+        body["configuration"] = configuration.model_dump(mode="json", by_alias=True)
+    return body
+
+
+@overload
+def _make_public_api_request(  # Mirrors the API surface.
+    *,
+    method: Literal["GET", "POST", "PATCH", "PUT", "DELETE"],
+    api_root: str,
+    path: str,
+    response_model: type[_T],
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    request: BaseModel | None = None,
+    params: dict[str, Any] | None = None,
+    error_context: dict[str, Any] | None = None,
+) -> _T | None: ...
+
+
+@overload
+def _make_public_api_request(  # Mirrors the API surface.
+    *,
+    method: Literal["GET", "POST", "PATCH", "PUT", "DELETE"],
+    api_root: str,
+    path: str,
+    response_model: None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    request: BaseModel | None = None,
+    params: dict[str, Any] | None = None,
+    error_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None: ...
+
+
+def _make_public_api_request(  # noqa: PLR0913  # Mirrors the API surface.
+    *,
+    method: Literal["GET", "POST", "PATCH", "PUT", "DELETE"],
+    api_root: str,
+    path: str,
+    response_model: type[_T] | None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    request: BaseModel | None = None,
+    params: dict[str, Any] | None = None,
+    error_context: dict[str, Any] | None = None,
+) -> _T | None:
+    """Make a Public API request and decode the response into `response_model`.
+
+    Raises `AirbyteMissingResourceError` on 403/404 and `AirbyteCloudError` on
+    other non-2xx responses, matching the former Speakeasy SDK error wrapping.
+    Returns `None` when the response has no content.
+    """
+    headers = _api_headers(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    full_url = api_root.rstrip("/") + path
+    response = requests.request(
+        method=method,
+        url=full_url,
+        headers=headers,
+        params=params,
+        json=(_serialize_public_api_request(request) if request is not None else None),
+        # No timeout, matching the former SDK behavior.
+    )
+    if not status_ok(response.status_code):
+        raise _wrap_api_error(response, error_context)
+
+    if response.status_code == HTTPStatus.NO_CONTENT or not response.content:
+        return None
+
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError as ex:
+        raise AirbyteCloudError(
+            message=f"Public API response for {path} did not match the expected schema.",
+            context={
+                **(error_context or {}),
+                "full_url": full_url,
+                "path": path,
+                "response": response.text,
+            },
+        ) from ex
+
+    if response_model is None:
+        return body
+
+    try:
+        return response_model.model_validate(body)
+    except ValidationError as ex:
+        raise AirbyteCloudError(
+            message=f"Public API response for {path} did not match the expected schema.",
+            context={
+                **(error_context or {}),
+                "full_url": full_url,
+                "path": path,
+                "response": response.text,
+            },
+        ) from ex
+
+
+def _decode_list_items(
+    body: Any,  # noqa: ANN401  # Raw JSON payload
+    *,
+    item_model: type[_T],
+    list_path: str,
+) -> list[_T]:
+    """Decode each item in a list endpoint's `data` payload individually.
+
+    A single malformed item is skipped with a warning instead of failing the
+    whole page, so one bad record can't take down a listing.
+    """
+    items: list[_T] = []
+    for item in (body or {}).get("data") or []:
+        try:
+            items.append(item_model.model_validate(item))
+        except ValidationError:
+            item_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+            logger.warning(
+                "Skipping %s item that failed schema validation on %s (id=%s).",
+                getattr(item_model, "__name__", str(item_model)),
+                list_path,
+                item_id,
+            )
+    return items
 
 
 # Get workspace
@@ -292,32 +458,24 @@ def get_workspace(
     bearer_token: SecretString | None,
 ) -> models.WorkspaceResponse:
     """Get a workspace object."""
-    airbyte_instance = get_airbyte_server_instance(
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
+    workspace = _make_public_api_request(
+        method="GET",
         api_root=api_root,
+        path=f"/workspaces/{workspace_id}",
+        response_model=models.WorkspaceResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        error_context=base_context,
     )
-    base_context = {"workspace_id": workspace_id, "api_root": api_root}
-    try:
-        response = airbyte_instance.workspaces.get_workspace(
-            api.GetWorkspaceRequest(
-                workspace_id=workspace_id,
-            ),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
 
-    if status_ok(response.status_code) and response.workspace_response:
-        return response.workspace_response
+    if workspace:
+        return workspace
 
     raise AirbyteMissingResourceError(
         resource_type="workspace",
-        context={
-            "workspace_id": workspace_id,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
+        context=base_context,
     )
 
 
@@ -332,40 +490,34 @@ def create_workspace(
     region_id: str | None = None,
 ) -> models.WorkspaceResponse:
     """Create a workspace."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
     base_context = {
         "name": name,
         "organization_id": organization_id,
         "region_id": region_id,
         "api_root": api_root,
     }
-    try:
-        response = airbyte_instance.workspaces.create_workspace(
-            request=models.WorkspaceCreateRequest(
-                name=name,
-                organization_id=organization_id,
-                region_id=region_id,
-            )
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
+    workspace = _make_public_api_request(
+        method="POST",
+        api_root=api_root,
+        path="/workspaces",
+        request=models.WorkspaceCreateRequest(
+            name=name,
+            organization_id=organization_id,
+            region_id=region_id,
+        ),
+        response_model=models.WorkspaceResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        error_context=base_context,
+    )
 
-    if status_ok(response.status_code) and response.workspace_response:
-        return response.workspace_response
+    if workspace:
+        return workspace
 
     raise AirbyteCloudError(
         message="Could not create workspace.",
-        context={
-            **base_context,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
-        response=response,
+        context=base_context,
     )
 
 
@@ -379,38 +531,29 @@ def rename_workspace(
     bearer_token: SecretString | None,
 ) -> models.WorkspaceResponse:
     """Rename a workspace."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
     base_context = {
         "workspace_id": workspace_id,
         "name": name,
         "api_root": api_root,
     }
-    try:
-        response = airbyte_instance.workspaces.update_workspace(
-            api.UpdateWorkspaceRequest(
-                workspace_id=workspace_id,
-                workspace_update_request=models.WorkspaceUpdateRequest(name=name),
-            )
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
+    workspace = _make_public_api_request(
+        method="PATCH",
+        api_root=api_root,
+        path=f"/workspaces/{workspace_id}",
+        request=models.WorkspaceUpdateRequest(name=name),
+        response_model=models.WorkspaceResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        error_context=base_context,
+    )
 
-    if status_ok(response.status_code) and response.workspace_response:
-        return response.workspace_response
+    if workspace:
+        return workspace
 
     raise AirbyteCloudError(
         message="Could not rename workspace.",
-        context={
-            **base_context,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
-        response=response,
+        context=base_context,
     )
 
 
@@ -480,32 +623,19 @@ def permanently_delete_workspace(
             connection_ids=[connection.connection_id for connection in connections],
         )
 
-    airbyte_instance = get_airbyte_server_instance(
+    _make_public_api_request(
+        method="DELETE",
+        api_root=api_root,
+        path=f"/workspaces/{workspace_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={
+            "workspace_id": workspace_id,
+            "api_root": api_root,
+        },
     )
-    base_context = {
-        "workspace_id": workspace_id,
-        "api_root": api_root,
-    }
-    try:
-        response = airbyte_instance.workspaces.delete_workspace(
-            api.DeleteWorkspaceRequest(workspace_id=workspace_id),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
-
-    if not status_ok(response.status_code):
-        raise AirbyteCloudError(
-            context={
-                **base_context,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
-            },
-            response=response,
-        )
 
 
 # List resources
@@ -528,41 +658,32 @@ def list_connections(
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     result: list[models.ConnectionResponse] = []
     current_offset = 0
     remaining = limit
-    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        try:
-            response = airbyte_instance.connections.list_connections(
-                api.ListConnectionsRequest(
-                    workspace_ids=[workspace_id],
-                    offset=current_offset,
-                    limit=PAGE_SIZE,
-                ),
-            )
-        except SDKError as e:
-            raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            raise AirbyteCloudError(
-                context={
-                    "workspace_id": workspace_id,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-        assert response.connections_response is not None
-        page_data = response.connections_response.data
-        if not page_data:
+        body = _make_public_api_request(
+            method="GET",
+            api_root=api_root,
+            path="/connections",
+            params={
+                "workspaceIds": [workspace_id],
+                "offset": current_offset,
+                "limit": PAGE_SIZE,
+            },
+            response_model=None,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            error_context={"workspace_id": workspace_id, "api_root": api_root},
+        )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(
+            body, item_model=models.ConnectionResponse, list_path="/connections"
+        )
         matching_connections = [
             connection for connection in page_data if name_filter(connection.name)
         ]
@@ -573,10 +694,10 @@ def list_connections(
         if remaining is not None:
             remaining -= len(page_results)
 
-        if not response.connections_response.next:
+        if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
     return result
 
 
@@ -609,52 +730,42 @@ def list_workspaces(
     has_name_filter = name is not None or name_filter is not None
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     result: list[models.WorkspaceResponse] = []
     current_offset = 0
     remaining = limit
-    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
         page_limit = PAGE_SIZE if has_name_filter else _get_page_limit(remaining)
-        try:
-            response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-                api.ListWorkspacesRequest(
-                    offset=current_offset,
-                    limit=page_limit,
-                ),
-            )
-        except SDKError as e:
-            raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            raise AirbyteCloudError(
-                context={
-                    "workspace_id": workspace_id,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-
-        assert response.workspaces_response is not None
-        page_data = response.workspaces_response.data
-        if not page_data:
+        body = _make_public_api_request(
+            method="GET",
+            api_root=api_root,
+            path="/workspaces",
+            params={
+                "offset": current_offset,
+                "limit": page_limit,
+            },
+            response_model=None,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            error_context={"workspace_id": workspace_id, "api_root": api_root},
+        )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(
+            body, item_model=models.WorkspaceResponse, list_path="/workspaces"
+        )
         matching_workspaces = [workspace for workspace in page_data if name_filter(workspace.name)]
         page_results = matching_workspaces if remaining is None else matching_workspaces[:remaining]
         result += page_results
         if remaining is not None:
             remaining -= len(page_results)
 
-        if not response.workspaces_response.next:
+        if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
     return result
 
@@ -676,52 +787,40 @@ def list_sources(
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    _ = workspace_id  # Not used (yet)
-    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     result: list[models.SourceResponse] = []
     current_offset = 0
     remaining = limit
-    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        try:
-            response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
-                api.ListSourcesRequest(
-                    workspace_ids=[workspace_id],
-                    offset=current_offset,
-                    limit=PAGE_SIZE,
-                ),
-            )
-        except SDKError as e:
-            raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            raise AirbyteCloudError(
-                context={
-                    "workspace_id": workspace_id,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-        assert response.sources_response is not None
-        page_data = response.sources_response.data
-        if not page_data:
+        body = _make_public_api_request(
+            method="GET",
+            api_root=api_root,
+            path="/sources",
+            params={
+                "workspaceIds": [workspace_id],
+                "offset": current_offset,
+                "limit": PAGE_SIZE,
+            },
+            response_model=None,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            error_context={"workspace_id": workspace_id, "api_root": api_root},
+        )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(body, item_model=models.SourceResponse, list_path="/sources")
         matching_sources = [source for source in page_data if name_filter(source.name)]
         page_results = matching_sources if remaining is None else matching_sources[:remaining]
         result += page_results
         if remaining is not None:
             remaining -= len(page_results)
 
-        if not response.sources_response.next:
+        if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
     return result
 
@@ -743,42 +842,32 @@ def list_destinations(
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     result: list[models.DestinationResponse] = []
     current_offset = 0
     remaining = limit
-    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        try:
-            response = airbyte_instance.destinations.list_destinations(
-                api.ListDestinationsRequest(
-                    workspace_ids=[workspace_id],
-                    offset=current_offset,
-                    limit=PAGE_SIZE,
-                ),
-            )
-        except SDKError as e:
-            raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            raise AirbyteCloudError(
-                context={
-                    "workspace_id": workspace_id,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-        assert response.destinations_response is not None
-        page_data = response.destinations_response.data
-        if not page_data:
+        body = _make_public_api_request(
+            method="GET",
+            api_root=api_root,
+            path="/destinations",
+            params={
+                "workspaceIds": [workspace_id],
+                "offset": current_offset,
+                "limit": PAGE_SIZE,
+            },
+            response_model=None,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            error_context={"workspace_id": workspace_id, "api_root": api_root},
+        )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(
+            body, item_model=models.DestinationResponse, list_path="/destinations"
+        )
         matching_destinations = [
             destination for destination in page_data if name_filter(destination.name)
         ]
@@ -789,10 +878,10 @@ def list_destinations(
         if remaining is not None:
             remaining -= len(page_results)
 
-        if not response.destinations_response.next:
+        if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
     return result
 
@@ -811,37 +900,29 @@ def get_connection(
 ) -> models.ConnectionResponse:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     base_context = {
         "workspace_id": workspace_id,
         "connection_id": connection_id,
         "api_root": api_root,
     }
-    try:
-        response = airbyte_instance.connections.get_connection(
-            api.GetConnectionRequest(
-                connection_id=connection_id,
-            ),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
+    connection = _make_public_api_request(
+        method="GET",
+        api_root=api_root,
+        path=f"/connections/{connection_id}",
+        response_model=models.ConnectionResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        error_context=base_context,
+    )
 
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
+    if connection:
+        return connection
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=connection_id,
         resource_type="connection",
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
+        context=base_context,
     )
 
 
@@ -861,37 +942,36 @@ def run_connection(
     If raise_on_failure is True, this will raise an exception if the connection fails.
     """
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     try:
-        response = airbyte_instance.jobs.create_job(
-            models.JobCreateRequest(
+        job = _make_public_api_request(
+            method="POST",
+            api_root=api_root,
+            path="/jobs",
+            request=models.JobCreateRequest(
                 connection_id=connection_id,
                 job_type=models.JobTypeEnum.SYNC,
             ),
+            response_model=models.JobResponse,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            error_context={"workspace_id": workspace_id, "connection_id": connection_id},
         )
-    except SDKError as e:
+    except AirbyteCloudError as e:
         raise AirbyteConnectionSyncError(
             connection_id=connection_id,
-            message=f"API error occurred: {e.message}",
-            context={"workspace_id": workspace_id, **_get_sdk_error_context(e)},
+            message=e.message,
+            context={"workspace_id": workspace_id, **(e.context or {})},
         ) from e
 
-    if status_ok(response.status_code) and response.job_response:
-        return response.job_response
+    if job:
+        return job
 
     raise AirbyteConnectionSyncError(
         connection_id=connection_id,
         context={
             "workspace_id": workspace_id,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
         },
-        response=response,
     )
 
 
@@ -933,12 +1013,6 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         A list of JobResponse objects.
     """
     _validate_pagination_params(limit=limit)
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     result: list[models.JobResponse] = []
     current_offset = offset or 0
     remaining = limit
@@ -961,61 +1035,36 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
 
     while remaining is None or remaining > 0:
         page_limit = _get_page_limit(remaining)
-        try:
-            response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
-                api.ListJobsRequest(
-                    workspace_ids=[workspace_id],
-                    connection_id=connection_id,
-                    limit=page_limit,
-                    offset=current_offset,
-                    order_by=order_by,
-                    job_type=job_type_value,
-                ),
-            )
-        except SDKError as e:
-            raise _wrap_sdk_error(e, base_context) from e
+        body = _make_public_api_request(
+            method="GET",
+            api_root=api_root,
+            path="/jobs",
+            params={
+                "workspaceIds": [workspace_id],
+                "connectionId": connection_id,
+                "limit": page_limit,
+                "offset": current_offset,
+                "orderBy": order_by,
+                "jobType": job_type_value,
+            },
+            response_model=None,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            error_context=base_context,
+        )
 
-        if not status_ok(response.status_code):
-            if response.status_code == HTTPStatus.NOT_FOUND:
-                raise AirbyteMissingResourceError(
-                    response=response,
-                    resource_type="job",
-                    context={
-                        **base_context,
-                        "request_url": response.raw_response.url,
-                        "status_code": response.status_code,
-                    },
-                )
-            raise AirbyteCloudError(
-                message="Failed to list jobs.",
-                response=response,
-                context={
-                    **base_context,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-        if not response.jobs_response:
-            raise AirbyteCloudError(
-                message="Jobs response payload was empty.",
-                response=response,
-                context={
-                    **base_context,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-
-        page_data: list[models.JobResponse] = list(response.jobs_response.data)
-        if not page_data:
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(body, item_model=models.JobResponse, list_path="/jobs")
         result += page_data
         if remaining is not None:
             remaining -= len(page_data)
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
-        if not response.jobs_response.next or len(page_data) < page_limit:
+        if not (body or {}).get("next") or len(raw_items) < page_limit:
             break
 
     return result if limit is None else result[:limit]
@@ -1030,32 +1079,23 @@ def get_job_info(
     bearer_token: SecretString | None,
 ) -> models.JobResponse:
     """Get a job."""
-    airbyte_instance = get_airbyte_server_instance(
+    job = _make_public_api_request(
+        method="GET",
+        api_root=api_root,
+        path=f"/jobs/{job_id}",
+        response_model=models.JobResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"job_id": job_id},
     )
-    try:
-        response = airbyte_instance.jobs.get_job(
-            api.GetJobRequest(
-                job_id=job_id,
-            ),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, {"job_id": job_id}) from e
 
-    if status_ok(response.status_code) and response.job_response:
-        return response.job_response
+    if job:
+        return job
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=str(job_id),
         resource_type="job",
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
     )
 
 
@@ -1068,49 +1108,22 @@ def cancel_job(
     bearer_token: SecretString | None,
 ) -> models.JobResponse:
     """Cancel a running job."""
-    airbyte_instance = get_airbyte_server_instance(
+    job = _make_public_api_request(
+        method="DELETE",
+        api_root=api_root,
+        path=f"/jobs/{job_id}",
+        response_model=models.JobResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"job_id": job_id},
     )
-    response = airbyte_instance.jobs.cancel_job(
-        api.CancelJobRequest(
-            job_id=job_id,
-        ),
-    )
-    if status_ok(response.status_code):
-        if response.job_response:
-            return response.job_response
-        raise AirbyteCloudError(
-            message="Job cancellation response payload was empty.",
-            response=response,
-            context={
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
-            },
-        )
-
-    if response.status_code == HTTPStatus.NOT_FOUND:
-        raise AirbyteMissingResourceError(
-            resource_name_or_id=str(job_id),
-            resource_type="job",
-            response=response,
-            log_text=response.raw_response.text,
-            context={
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
-            },
-        )
+    if job:
+        return job
 
     raise AirbyteCloudError(
-        message="Could not cancel job.",
-        response=response,
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
+        message="Job cancellation response payload was empty.",
+        context={"job_id": job_id},
     )
 
 
@@ -1132,31 +1145,27 @@ def create_source(
 
     Either `definition_id` or `config[sourceType]` must be provided.
     """
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
+    source = _make_public_api_request(
+        method="POST",
         api_root=api_root,
-    )
-    response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
-        models.SourceCreateRequest(
+        path="/sources",
+        request=models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
+            configuration=config,
             definition_id=definition_id or None,  # Only used for custom sources
             secret_id=None,  # For OAuth, not yet supported
         ),
+        response_model=models.SourceResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
-    if status_ok(response.status_code) and response.source_response:
-        return response.source_response
+    if source:
+        return source
 
     raise AirbyteCloudError(
         message="Could not create source.",
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
-        response=response,
     )
 
 
@@ -1172,37 +1181,27 @@ def get_source(
 
     Secrets in the returned configuration are redacted by the API.
     """
-    airbyte_instance = get_airbyte_server_instance(
+    base_context = {"source_id": source_id, "api_root": api_root}
+    body = _make_public_api_request(
+        method="GET",
+        api_root=api_root,
+        path=f"/sources/{source_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context=base_context,
     )
-    base_context = {"source_id": source_id, "api_root": api_root}
-    try:
-        response = airbyte_instance.sources.get_source(
-            api.GetSourceRequest(
-                source_id=source_id,
-            ),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
 
-    if status_ok(response.status_code) and response.source_response:
-        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
-        source = response.source_response
-        config = raw_response.get("configuration") or {}
-        source.configuration = config  # pyrefly: ignore[bad-assignment]  # Raw config.
+    if body:
+        source = models.SourceResponse.model_validate(body)
+        source.configuration = body.get("configuration") or {}  # pyrefly: ignore[bad-assignment]
         return source
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=source_id,
         resource_type="source",
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
+        context=base_context,
     )
 
 
@@ -1263,25 +1262,16 @@ def delete_source(
                 },
             )
 
-    airbyte_instance = get_airbyte_server_instance(
+    _make_public_api_request(
+        method="DELETE",
+        api_root=api_root,
+        path=f"/sources/{source_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"source_id": source_id},
     )
-    response = airbyte_instance.sources.delete_source(
-        api.DeleteSourceRequest(
-            source_id=source_id,
-        ),
-    )
-    if not status_ok(response.status_code):
-        raise AirbyteCloudError(
-            context={
-                "source_id": source_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
-            },
-        )
 
 
 def patch_source(
@@ -1311,32 +1301,28 @@ def patch_source(
     Returns:
         Updated SourceResponse object
     """
-    airbyte_instance = get_airbyte_server_instance(
+    source = _make_public_api_request(
+        method="PATCH",
+        api_root=api_root,
+        path=f"/sources/{source_id}",
+        request=models.SourcePatchRequest(
+            name=name,
+            configuration=config,
+        ),
+        response_model=models.SourceResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"source_id": source_id},
     )
-    response = airbyte_instance.sources.patch_source(
-        api.PatchSourceRequest(
-            source_id=source_id,
-            source_patch_request=models.SourcePatchRequest(
-                name=name,
-                configuration=config,
-            ),
-        ),
-    )
-    if status_ok(response.status_code) and response.source_response:
-        return response.source_response
+    if source:
+        return source
 
     raise AirbyteCloudError(
         message="Could not update source.",
         context={
             "source_id": source_id,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
         },
-        response=response,
     )
 
 
@@ -1344,12 +1330,9 @@ def patch_source(
 
 
 def _get_destination_type_str(
-    destination: DestinationConfiguration | dict[str, Any],
+    destination: dict[str, Any],
 ) -> str:
-    if isinstance(destination, dict):
-        destination_type = destination.get("destinationType")
-    else:
-        destination_type = getattr(destination, "DESTINATION_TYPE", None)
+    destination_type = destination.get("destinationType")
 
     if not destination_type or not isinstance(destination_type, str):
         raise AirbyteLibInputError(
@@ -1369,42 +1352,38 @@ def create_destination(
     name: str,
     *,
     workspace_id: str,
-    config: DestinationConfiguration | dict[str, Any],
+    config: dict[str, Any],
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DestinationResponse:
     """Get a connection."""
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     definition_id_override: str | None = None
     if _get_destination_type_str(config) == "dev-null":
         # TODO: We have to hard-code the definition ID for dev-null destination.
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
-    response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
-        models.DestinationCreateRequest(
+    destination = _make_public_api_request(
+        method="POST",
+        api_root=api_root,
+        path="/destinations",
+        request=models.DestinationCreateRequest(
             definition_id=definition_id_override,
             name=name,
             workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
+            configuration=config,
         ),
+        response_model=models.DestinationResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
-    if status_ok(response.status_code) and response.destination_response:
-        return response.destination_response
+    if destination:
+        return destination
 
     raise AirbyteCloudError(
         message="Could not create destination.",
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
-        response=response,
     )
 
 
@@ -1420,37 +1399,29 @@ def get_destination(
 
     Secrets in the returned configuration are redacted by the API.
     """
-    airbyte_instance = get_airbyte_server_instance(
+    base_context = {"destination_id": destination_id, "api_root": api_root}
+    body = _make_public_api_request(
+        method="GET",
+        api_root=api_root,
+        path=f"/destinations/{destination_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context=base_context,
     )
-    base_context = {"destination_id": destination_id, "api_root": api_root}
-    try:
-        response = airbyte_instance.destinations.get_destination(
-            api.GetDestinationRequest(
-                destination_id=destination_id,
-            ),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, base_context) from e
 
-    if status_ok(response.status_code) and response.destination_response:
-        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
-        response.destination_response.configuration = (
-            raw_response.get("configuration") or {}  # pyrefly: ignore[bad-assignment]
+    if body:
+        destination = models.DestinationResponse.model_validate(body)
+        destination.configuration = (
+            body.get("configuration") or {}  # pyrefly: ignore[bad-assignment]
         )
-        return response.destination_response
+        return destination
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=destination_id,
         resource_type="destination",
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
+        context=base_context,
     )
 
 
@@ -1532,29 +1503,22 @@ def get_source_definition(
     bearer_token: SecretString | None,
 ) -> models.DefinitionResponse:
     """Get a source connector definition, including its `docker_repository` name."""
-    airbyte_instance = get_airbyte_server_instance(
+    definition = _make_public_api_request(
+        method="GET",
+        api_root=api_root,
+        path=f"/workspaces/{workspace_id}/definitions/sources/{definition_id}",
+        response_model=models.DefinitionResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"definition_id": definition_id, "workspace_id": workspace_id},
     )
-    response = airbyte_instance.source_definitions.get_source_definition(
-        api.GetSourceDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.definition_response:
-        return response.definition_response
+    if definition:
+        return definition
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=definition_id,
         resource_type="source definition",
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
     )
 
 
@@ -1568,29 +1532,22 @@ def get_destination_definition(
     bearer_token: SecretString | None,
 ) -> models.DefinitionResponse:
     """Get a destination connector definition, including its `docker_repository` name."""
-    airbyte_instance = get_airbyte_server_instance(
+    definition = _make_public_api_request(
+        method="GET",
+        api_root=api_root,
+        path=f"/workspaces/{workspace_id}/definitions/destinations/{definition_id}",
+        response_model=models.DefinitionResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"definition_id": definition_id, "workspace_id": workspace_id},
     )
-    response = airbyte_instance.destination_definitions.get_destination_definition(
-        api.GetDestinationDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.definition_response:
-        return response.definition_response
+    if definition:
+        return definition
 
     raise AirbyteMissingResourceError(
         resource_name_or_id=definition_id,
         resource_type="destination definition",
-        log_text=response.raw_response.text,
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
     )
 
 
@@ -1652,25 +1609,16 @@ def delete_destination(
                 },
             )
 
-    airbyte_instance = get_airbyte_server_instance(
+    _make_public_api_request(
+        method="DELETE",
+        api_root=api_root,
+        path=f"/destinations/{destination_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"destination_id": destination_id},
     )
-    response = airbyte_instance.destinations.delete_destination(
-        api.DeleteDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
-    if not status_ok(response.status_code):
-        raise AirbyteCloudError(
-            context={
-                "destination_id": destination_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
-            },
-        )
 
 
 def patch_destination(
@@ -1681,7 +1629,7 @@ def patch_destination(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     name: str | None = None,
-    config: DestinationConfiguration | dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> models.DestinationResponse:
     """Update/patch a destination configuration.
 
@@ -1700,32 +1648,28 @@ def patch_destination(
     Returns:
         Updated DestinationResponse object
     """
-    airbyte_instance = get_airbyte_server_instance(
+    destination = _make_public_api_request(
+        method="PATCH",
+        api_root=api_root,
+        path=f"/destinations/{destination_id}",
+        request=models.DestinationPatchRequest(
+            name=name,
+            configuration=config,
+        ),
+        response_model=models.DestinationResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"destination_id": destination_id},
     )
-    response = airbyte_instance.destinations.patch_destination(
-        api.PatchDestinationRequest(
-            destination_id=destination_id,
-            destination_patch_request=models.DestinationPatchRequest(
-                name=name,
-                configuration=config,
-            ),
-        ),
-    )
-    if status_ok(response.status_code) and response.destination_response:
-        return response.destination_response
+    if destination:
+        return destination
 
     raise AirbyteCloudError(
         message="Could not update destination.",
         context={
             "destination_id": destination_id,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
         },
-        response=response,
     )
 
 
@@ -1755,9 +1699,9 @@ def build_stream_configurations(
 def build_connection_schedule(
     schedule_type: str,
     cron_expression: str | None = None,
-) -> models.AirbyteAPIConnectionSchedule:
+) -> models.AirbyteApiConnectionSchedule:
     """Build a connection schedule object."""
-    return models.AirbyteAPIConnectionSchedule(
+    return models.AirbyteApiConnectionSchedule(
         schedule_type=models.ScheduleTypeEnum(schedule_type),
         cron_expression=cron_expression,
     )
@@ -1777,33 +1721,33 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     selected_stream_names: list[str],
 ) -> models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     stream_configurations_obj = build_stream_configurations(selected_stream_names)
-    response = airbyte_instance.connections.create_connection(
-        models.ConnectionCreateRequest(
+    connection = _make_public_api_request(
+        method="POST",
+        api_root=api_root,
+        path="/connections",
+        request=models.ConnectionCreateRequest(
             name=name,
             source_id=source_id,
             destination_id=destination_id,
             configurations=stream_configurations_obj,
             prefix=prefix,
         ),
+        response_model=models.ConnectionResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        error_context={"source_id": source_id, "destination_id": destination_id},
     )
-    if not status_ok(response.status_code) or response.connection_response is None:
+    if connection is None:
         raise AirbyteCloudError(
             context={
                 "source_id": source_id,
                 "destination_id": destination_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
             },
         )
 
-    return response.connection_response
+    return connection
 
 
 def get_connection_by_name(
@@ -1916,25 +1860,16 @@ def delete_connection(
             )
 
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
+    _make_public_api_request(
+        method="DELETE",
+        api_root=api_root,
+        path=f"/connections/{connection_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-        api_root=api_root,
+        error_context={"connection_id": connection_id},
     )
-    response = airbyte_instance.connections.delete_connection(
-        api.DeleteConnectionRequest(
-            connection_id=connection_id,
-        ),
-    )
-    if not status_ok(response.status_code):
-        raise AirbyteCloudError(
-            context={
-                "connection_id": connection_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
-            },
-        )
 
 
 def patch_connection(  # noqa: PLR0913  # Too many arguments
@@ -1945,8 +1880,8 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     name: str | None = None,
-    configurations: models.StreamConfigurationsInput | None = None,
-    schedule: models.AirbyteAPIConnectionSchedule | None = None,
+    configurations: models.StreamConfigurations | None = None,
+    schedule: models.AirbyteApiConnectionSchedule | None = None,
     prefix: str | None = None,
     status: str | models.ConnectionStatusEnum | None = None,
 ) -> models.ConnectionResponse:
@@ -1970,53 +1905,45 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     Returns:
         Updated ConnectionResponse object
     """
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        api_root=api_root,
-    )
     if isinstance(status, str):
-        try:
-            status_value = models.ConnectionStatusEnum(status)
-        except ValueError:
-            valid_statuses = ", ".join(
-                connection_status.value for connection_status in models.ConnectionStatusEnum
-            )
+        valid_statuses = ", ".join(
+            connection_status.value for connection_status in models.ConnectionStatusEnum
+        )
+        if status not in {m.value for m in models.ConnectionStatusEnum}:
             raise AirbyteLibInputError(
                 message=f"`status` must be one of: {valid_statuses}.",
                 input_value=status,
-            ) from None
+            )
+        status_value = models.ConnectionStatusEnum(status)
     else:
         status_value = status
 
-    try:
-        response = airbyte_instance.connections.patch_connection(
-            api.PatchConnectionRequest(
-                connection_id=connection_id,
-                connection_patch_request=models.ConnectionPatchRequest(
-                    name=name,
-                    configurations=configurations,
-                    schedule=schedule,
-                    prefix=prefix,
-                    status=status_value,
-                ),
-            ),
-        )
-    except SDKError as e:
-        raise _wrap_sdk_error(e, {"connection_id": connection_id}) from e
+    connection = _make_public_api_request(
+        method="PATCH",
+        api_root=api_root,
+        path=f"/connections/{connection_id}",
+        request=models.ConnectionPatchRequest(
+            name=name,
+            configurations=configurations,
+            schedule=schedule,
+            prefix=prefix,
+            status=status_value,
+        ),
+        response_model=models.ConnectionResponse,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        error_context={"connection_id": connection_id},
+    )
 
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
+    if connection:
+        return connection
 
     raise AirbyteCloudError(
         message="Could not update connection.",
         context={
             "connection_id": connection_id,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
         },
-        response=response,
     )
 
 
@@ -2054,17 +1981,48 @@ def get_bearer_token(
     return SecretString(response.json()["access_token"])
 
 
-def _make_config_api_request(
+@overload
+def _make_config_api_request(  # Mirrors the API surface.
     *,
     api_root: str,
     path: str,
-    json: dict[str, Any],
+    request: BaseModel | dict[str, Any],
+    response_model: type[_T],
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
     timeout: tuple[float, float] | None = None,
-) -> dict[str, Any]:
+) -> _T: ...
+
+
+@overload
+def _make_config_api_request(  # Mirrors the API surface.
+    *,
+    api_root: str,
+    path: str,
+    request: BaseModel | dict[str, Any],
+    response_model: None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
+) -> dict[str, Any]: ...
+
+
+def _make_config_api_request(  # noqa: PLR0913  # Mirrors the API surface.
+    *,
+    api_root: str,
+    path: str,
+    request: BaseModel | dict[str, Any],
+    response_model: type[_T] | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    timeout: tuple[float, float] | None = None,
+) -> _T | dict[str, Any]:
     config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
     headers = _config_api_headers(
         api_root=api_root,
@@ -2078,7 +2036,11 @@ def _make_config_api_request(
         method="POST",
         url=full_url,
         headers=headers,
-        json=json,
+        json=(
+            request.model_dump(mode="json", exclude_none=True)
+            if isinstance(request, BaseModel)
+            else request
+        ),
         timeout=timeout,
     )
     if not status_ok(response.status_code):
@@ -2112,7 +2074,34 @@ def _make_config_api_request(
     if response.status_code == HTTPStatus.NO_CONTENT:
         return {}
 
-    return response.json()
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError as ex:
+        if response_model is None:
+            raise
+        raise AirbyteCloudError(
+            message=f"Config API response for {path} did not match the expected schema.",
+            context={
+                "full_url": full_url,
+                "path": path,
+                "response": response.text,
+            },
+        ) from ex
+
+    if response_model is None:
+        return body
+
+    try:
+        return response_model.model_validate(body)
+    except ValidationError as ex:
+        raise AirbyteCloudError(
+            message=f"Config API response for {path} did not match the expected schema.",
+            context={
+                "full_url": full_url,
+                "path": path,
+                "response": response.text,
+            },
+        ) from ex
 
 
 def _config_api_headers(
@@ -2241,12 +2230,17 @@ def check_connector(
     """
     _ = workspace_id  # Not used (yet)
 
+    request: BaseModel
+    if connector_type == "source":
+        request = SourceIdRequestBody(sourceId=actor_id)
+    else:
+        request = DestinationIdRequestBody(destinationId=actor_id)
+
     try:
         json_result = _make_config_api_request(
             path=f"/{connector_type}s/check_connection",
-            json={
-                f"{connector_type}Id": actor_id,
-            },
+            request=request,
+            response_model=CheckConnectionRead,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
@@ -2263,7 +2257,10 @@ def check_connector(
                 "finish setup in Airbyte Cloud.",
             )
         raise
-    result, message = json_result.get("status"), json_result.get("message")
+    result, message = (
+        json_result.status.value if json_result.status is not None else None,
+        json_result.message,
+    )
 
     if result == "succeeded":
         return True, None
@@ -2275,7 +2272,7 @@ def check_connector(
         context={
             "actor_id": actor_id,
             "connector_type": str(connector_type),
-            "response": json_result,
+            "response": json_result.model_dump(mode="json", by_alias=True, exclude_none=True),
         },
     )
 
@@ -2330,30 +2327,26 @@ def create_custom_yaml_source_definition(
     bearer_token: SecretString | None,
 ) -> models.DeclarativeSourceDefinitionResponse:
     """Create a custom YAML source definition."""
-    airbyte_instance = get_airbyte_server_instance(
+    definition = _make_public_api_request(
+        method="POST",
         api_root=api_root,
+        path=f"/workspaces/{workspace_id}/definitions/declarative_sources",
+        request=models.CreateDeclarativeSourceDefinitionRequest(
+            name=name,
+            manifest=manifest,
+        ),
+        response_model=models.DeclarativeSourceDefinitionResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        error_context={"name": name, "workspace_id": workspace_id},
     )
-
-    request_body = models.CreateDeclarativeSourceDefinitionRequest(
-        name=name,
-        manifest=manifest,
-    )
-    request = api.CreateDeclarativeSourceDefinitionRequest(
-        workspace_id=workspace_id,
-        create_declarative_source_definition_request=request_body,
-    )
-    response = airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
-        request
-    )
-    if response.declarative_source_definition_response is None:
+    if definition is None:
         raise AirbyteCloudError(
             message="Failed to create custom YAML source definition",
             context={"name": name, "workspace_id": workspace_id},
         )
-    return response.declarative_source_definition_response
+    return definition
 
 
 def list_custom_yaml_source_definitions(
@@ -2365,32 +2358,27 @@ def list_custom_yaml_source_definitions(
     bearer_token: SecretString | None,
 ) -> list[models.DeclarativeSourceDefinitionResponse]:
     """List all custom YAML source definitions in a workspace."""
-    airbyte_instance = get_airbyte_server_instance(
+    path = f"/workspaces/{workspace_id}/definitions/declarative_sources"
+    body = _make_public_api_request(
+        method="GET",
         api_root=api_root,
+        path=path,
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        error_context={"workspace_id": workspace_id},
     )
-
-    request = api.ListDeclarativeSourceDefinitionsRequest(
-        workspace_id=workspace_id,
-    )
-    response = airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
-        request
-    )
-    if (
-        not status_ok(response.status_code)
-        or response.declarative_source_definitions_response is None
-    ):
+    if body is None:
         raise AirbyteCloudError(
             message="Failed to list custom YAML source definitions",
             context={
                 "workspace_id": workspace_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
             },
         )
-    return response.declarative_source_definitions_response.data
+    return _decode_list_items(
+        body, item_model=models.DeclarativeSourceDefinitionResponse, list_path=path
+    )
 
 
 def get_custom_yaml_source_definition(
@@ -2403,34 +2391,28 @@ def get_custom_yaml_source_definition(
     bearer_token: SecretString | None,
 ) -> models.DeclarativeSourceDefinitionResponse:
     """Get a specific custom YAML source definition."""
-    airbyte_instance = get_airbyte_server_instance(
+    definition = _make_public_api_request(
+        method="GET",
         api_root=api_root,
+        path=f"/workspaces/{workspace_id}/definitions/declarative_sources/{definition_id}",
+        response_model=models.DeclarativeSourceDefinitionResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        error_context={
+            "workspace_id": workspace_id,
+            "definition_id": definition_id,
+        },
     )
-
-    request = api.GetDeclarativeSourceDefinitionRequest(
-        workspace_id=workspace_id,
-        definition_id=definition_id,
-    )
-    response = airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
-        request
-    )
-    if (
-        not status_ok(response.status_code)
-        or response.declarative_source_definition_response is None
-    ):
+    if definition is None:
         raise AirbyteCloudError(
             message="Failed to get custom YAML source definition",
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
             },
         )
-    return response.declarative_source_definition_response
+    return definition
 
 
 def update_custom_yaml_source_definition(
@@ -2444,38 +2426,31 @@ def update_custom_yaml_source_definition(
     bearer_token: SecretString | None,
 ) -> models.DeclarativeSourceDefinitionResponse:
     """Update a custom YAML source definition."""
-    airbyte_instance = get_airbyte_server_instance(
+    definition = _make_public_api_request(
+        method="PUT",
         api_root=api_root,
+        path=f"/workspaces/{workspace_id}/definitions/declarative_sources/{definition_id}",
+        request=models.UpdateDeclarativeSourceDefinitionRequest(
+            manifest=manifest,
+        ),
+        response_model=models.DeclarativeSourceDefinitionResponse,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        error_context={
+            "workspace_id": workspace_id,
+            "definition_id": definition_id,
+        },
     )
-
-    request_body = models.UpdateDeclarativeSourceDefinitionRequest(
-        manifest=manifest,
-    )
-    request = api.UpdateDeclarativeSourceDefinitionRequest(
-        workspace_id=workspace_id,
-        definition_id=definition_id,
-        update_declarative_source_definition_request=request_body,
-    )
-    response = airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
-        request
-    )
-    if (
-        not status_ok(response.status_code)
-        or response.declarative_source_definition_response is None
-    ):
+    if definition is None:
         raise AirbyteCloudError(
             message="Failed to update custom YAML source definition",
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
-                "request_url": response.raw_response.url,
-                "status_code": response.status_code,
             },
         )
-    return response.declarative_source_definition_response
+    return definition
 
 
 def delete_custom_yaml_source_definition(
@@ -2534,28 +2509,19 @@ def delete_custom_yaml_source_definition(
 
     # Else proceed with deletion
 
-    airbyte_instance = get_airbyte_server_instance(
+    _make_public_api_request(
+        method="DELETE",
         api_root=api_root,
+        path=f"/workspaces/{workspace_id}/definitions/declarative_sources/{definition_id}",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        error_context={
+            "workspace_id": workspace_id,
+            "definition_id": definition_id,
+        },
     )
-
-    request = api.DeleteDeclarativeSourceDefinitionRequest(
-        workspace_id=workspace_id,
-        definition_id=definition_id,
-    )
-    response = airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
-        request
-    )
-    if not status_ok(response.status_code):
-        raise AirbyteCloudError(
-            context={
-                "workspace_id": workspace_id,
-                "definition_id": definition_id,
-                "response": response,
-            },
-        )
 
 
 def get_connector_builder_project_for_definition_id(
@@ -2567,7 +2533,7 @@ def get_connector_builder_project_for_definition_id(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> BuilderProjectForDefinitionResponse:
     """Get the connector builder project info for a declarative source definition.
 
     Uses the Config API endpoint:
@@ -2585,15 +2551,16 @@ def get_connector_builder_project_for_definition_id(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        A dict containing 'builderProjectId' and 'workspaceId' (the workspace that
+        A response containing 'builderProjectId' and 'workspaceId' (the workspace that
         owns the builder project, which may differ from the caller's workspace).
     """
     return _make_config_api_request(
         path="/connector_builder_projects/get_for_definition_id",
-        json={
-            "actorDefinitionId": definition_id,
-            "workspaceId": workspace_id,
-        },
+        request=BuilderProjectForDefinitionRequestBody(
+            actorDefinitionId=definition_id,
+            workspaceId=workspace_id,
+        ),
+        response_model=BuilderProjectForDefinitionResponse,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2617,7 +2584,7 @@ def list_connector_builder_projects(
     """
     response = _make_config_api_request(
         path="/connector_builder_projects/list",
-        json={"workspaceId": workspace_id},
+        request={"workspaceId": workspace_id},
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2636,7 +2603,7 @@ def get_connector_builder_project(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> ConnectorBuilderProjectRead:
     """Get a connector builder project, including the draft manifest if one exists.
 
     Uses the Config API endpoint:
@@ -2654,17 +2621,18 @@ def get_connector_builder_project(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        A dictionary containing the builder project details. Key fields include:
+        A generated response containing the builder project details. Key fields include:
         - builderProject: The project metadata (name, hasDraft, etc.)
         - declarativeManifest: The draft manifest data (if hasDraft is True),
           which contains a 'manifest' field with the actual YAML manifest dict.
     """
     return _make_config_api_request(
         path="/connector_builder_projects/get_with_manifest",
-        json={
-            "workspaceId": workspace_id,
-            "builderProjectId": builder_project_id,
-        },
+        request=ConnectorBuilderProjectIdWithWorkspaceId(
+            workspaceId=workspace_id,
+            builderProjectId=builder_project_id,
+        ),
+        response_model=ConnectorBuilderProjectRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2700,7 +2668,7 @@ def update_connector_builder_project(  # noqa: PLR0913
 
     _make_config_api_request(
         path="/connector_builder_projects/update",
-        json={
+        request={
             "workspaceId": workspace_id,
             "builderProjectId": builder_project_id,
             "builderProject": builder_project,
@@ -2724,7 +2692,7 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
-) -> dict[str, Any]:
+) -> ConnectorBuilderProjectTestingValues:
     """Update the testing values for a connector builder project.
 
     This call replaces the entire testing values object stored for the project.
@@ -2750,12 +2718,13 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
     """
     return _make_config_api_request(
         path="/connector_builder_projects/update_testing_values",
-        json={
-            "workspaceId": workspace_id,
-            "builderProjectId": builder_project_id,
-            "testingValues": testing_values,
-            "spec": spec,
-        },
+        request=ConnectorBuilderProjectTestingValuesUpdate(
+            workspaceId=workspace_id,
+            builderProjectId=builder_project_id,
+            testingValues=ConnectorBuilderProjectTestingValues.model_validate(testing_values),
+            spec=SourceDefinitionSpecification.model_validate(spec),
+        ),
+        response_model=ConnectorBuilderProjectTestingValues,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
@@ -2787,23 +2756,23 @@ def list_organizations_for_user(
     Returns:
         List of OrganizationResponse objects containing organization_id, organization_name, email
     """
-    airbyte_instance = get_airbyte_server_instance(
+    body = _make_public_api_request(
+        method="GET",
         api_root=api_root,
+        path="/organizations",
+        response_model=None,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.organizations.list_organizations_for_user()
 
-    if status_ok(response.status_code) and response.organizations_response:
-        return response.organizations_response.data
+    if body is not None:
+        return _decode_list_items(
+            body, item_model=models.OrganizationResponse, list_path="/organizations"
+        )
 
     raise AirbyteCloudError(
         message="Failed to list organizations for user.",
-        context={
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
     )
 
 
@@ -2817,7 +2786,7 @@ def list_organizations_for_user_id(
     config_api_root: str | None = None,
     name_contains: str | None = None,
     limit: int | None = None,
-) -> list[dict[str, Any]]:
+) -> list[OrganizationRead]:
     """List organizations the given user is a member of.
 
     Uses the Config API endpoint: POST /v1/organizations/list_by_user_id
@@ -2836,29 +2805,23 @@ def list_organizations_for_user_id(
         limit: Optional maximum number of organizations to return
 
     Returns:
-        List of organization dictionaries containing organizationId, organizationName, email, etc.
+        List of organization models containing organizationId, organizationName, email, etc.
     """
     _validate_pagination_params(limit=limit)
-    result: list[dict[str, Any]] = []
+    result: list[OrganizationRead] = []
     page_size = PAGE_SIZE
 
-    payload: dict[str, Any] = {
-        "userId": user_id,
-        "pagination": {
-            "pageSize": page_size,
-            "rowOffset": 0,
-        },
-    }
-    if name_contains is not None:
-        payload["nameContains"] = name_contains
+    row_offset = 0
 
     while True:
         json_result = _make_config_api_request(
             path="/organizations/list_by_user_id",
-            json={
-                **payload,
-                "pagination": payload["pagination"].copy(),
-            },
+            request=ListOrganizationsByUserRequestBody(
+                userId=user_id,
+                pagination=Pagination(pageSize=page_size, rowOffset=row_offset),
+                nameContains=name_contains,
+            ),
+            response_model=OrganizationReadList,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
@@ -2866,17 +2829,7 @@ def list_organizations_for_user_id(
             bearer_token=bearer_token,
         )
 
-        if not isinstance(json_result, dict):
-            raise AirbyteCloudError(
-                message="The organizations API returned an unexpected response.",
-                context={"response": json_result},
-            )
-        organizations = json_result.get("organizations", [])
-        if not isinstance(organizations, list):
-            raise AirbyteCloudError(
-                message="The organizations API returned an unexpected response.",
-                context={"response": json_result},
-            )
+        organizations = json_result.organizations
 
         if not organizations:
             break
@@ -2889,7 +2842,7 @@ def list_organizations_for_user_id(
         if len(organizations) < page_size:
             break
 
-        payload["pagination"]["rowOffset"] += page_size
+        row_offset += page_size
 
     return result
 
@@ -2904,7 +2857,7 @@ def list_workspaces_in_organization(
     config_api_root: str | None = None,
     name_contains: str | None = None,
     limit: int | None = None,
-) -> list[dict[str, Any]]:
+) -> list[WorkspaceRead]:
     """List workspaces within a specific organization.
 
     Uses the Config API endpoint: POST /v1/workspaces/list_by_organization_id
@@ -2920,28 +2873,24 @@ def list_workspaces_in_organization(
         limit: Optional maximum number of workspaces to return
 
     Returns:
-        List of workspace dictionaries containing workspaceId, organizationId, name, slug, etc.
+        List of workspace models containing workspaceId, organizationId, name, slug, etc.
     """
     _validate_pagination_params(limit=limit)
-    result: list[dict[str, Any]] = []
+    result: list[WorkspaceRead] = []
     page_size = 100
 
-    # Build base payload
-    payload: dict[str, Any] = {
-        "organizationId": organization_id,
-        "pagination": {
-            "pageSize": page_size,
-            "rowOffset": 0,
-        },
-    }
-    if name_contains:
-        payload["nameContains"] = name_contains
+    row_offset = 0
 
     # Fetch pages until we have all results or reach the limit
     while True:
         json_result = _make_config_api_request(
             path="/workspaces/list_by_organization_id",
-            json=payload,
+            request=ListWorkspacesInOrganizationRequestBody(
+                organizationId=organization_id,
+                pagination=Pagination(pageSize=page_size, rowOffset=row_offset),
+                nameContains=name_contains,
+            ),
+            response_model=WorkspaceReadList,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
@@ -2949,7 +2898,7 @@ def list_workspaces_in_organization(
             bearer_token=bearer_token,
         )
 
-        workspaces = json_result.get("workspaces", [])
+        workspaces = json_result.workspaces
 
         # If no results returned, we've exhausted all pages
         if not workspaces:
@@ -2966,7 +2915,7 @@ def list_workspaces_in_organization(
             break
 
         # Bump offset for next iteration
-        payload["pagination"]["rowOffset"] += page_size
+        row_offset += page_size
 
     return result
 
@@ -3019,7 +2968,7 @@ def list_workspaces_by_user(  # noqa: PLR0913  # Mirrors list_workspaces_in_orga
     while True:
         json_result = _make_config_api_request(
             path="/workspaces/list_by_user_id",
-            json={
+            request={
                 **payload,
                 "pagination": payload["pagination"].copy(),
             },
@@ -3062,7 +3011,7 @@ def get_workspace_organization_info(
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
     timeout: tuple[float, float] | None = None,
-) -> dict[str, Any]:
+) -> OrganizationInfoRead:
     """Get organization info for a workspace.
 
     Uses the Config API endpoint: POST /v1/workspaces/get_organization_info
@@ -3080,27 +3029,22 @@ def get_workspace_organization_info(
         timeout: Optional connect and read timeout for the request.
 
     Returns:
-        Dictionary containing organization info:
+        Generated organization info response:
         - organizationId: The organization ID
         - organizationName: The organization name
         - sso: Whether SSO is enabled
         - billing: Billing information (optional)
     """
-    result = _make_config_api_request(
+    return _make_config_api_request(
         path="/workspaces/get_organization_info",
-        json={"workspaceId": workspace_id},
+        request=WorkspaceIdRequestBody(workspaceId=workspace_id),
+        response_model=OrganizationInfoRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         timeout=timeout,
-    )
-    if isinstance(result, dict):
-        return result
-    raise AirbyteCloudError(
-        message="The workspace API returned an unexpected response.",
-        context={"response": result},
     )
 
 
@@ -3128,15 +3072,17 @@ def get_connection_state(
     Returns:
         Dictionary containing the connection state.
     """
-    return _make_config_api_request(
+    response = _make_config_api_request(
         path="/state/get",
-        json={"connectionId": connection_id},
+        request=ConnectionIdRequestBody(connectionId=connection_id),
+        response_model=ConnectionState,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def replace_connection_state(
@@ -3181,21 +3127,25 @@ def replace_connection_state(
         Dictionary containing the updated ConnectionState object.
     """
     try:
-        return _make_config_api_request(
+        response = _make_config_api_request(
             path="/state/create_or_update_safe",
-            json={
-                "connectionId": connection_id,
-                "connectionState": {
-                    **connection_state_dict,
-                    "connectionId": connection_id,
-                },
-            },
+            request=ConnectionStateCreateOrUpdate(
+                connectionId=connection_id,
+                connectionState=ConnectionState.model_validate(
+                    {
+                        **connection_state_dict,
+                        "connectionId": connection_id,
+                    }
+                ),
+            ),
+            response_model=ConnectionState,
             api_root=api_root,
             config_api_root=config_api_root,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
+        return response.model_dump(mode="json", by_alias=True, exclude_none=True)
     except AirbyteCloudError as ex:
         if ex.context and ex.context.get("status_code") == HTTPStatus.LOCKED:
             raise AirbyteConnectionSyncActiveError(
@@ -3233,15 +3183,20 @@ def get_connection_catalog(
     Returns:
         Dictionary containing the connection info with syncCatalog.
     """
-    return _make_config_api_request(
+    response = _make_config_api_request(
         path="/web_backend/connections/get",
-        json={"connectionId": connection_id, "withRefreshedCatalog": False},
+        request=WebBackendConnectionRequestBody(
+            connectionId=connection_id,
+            withRefreshedCatalog=False,
+        ),
+        response_model=WebBackendConnectionRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def replace_connection_catalog(
@@ -3273,21 +3228,23 @@ def replace_connection_catalog(
     Returns:
         Dictionary containing the updated WebBackendConnectionRead response.
     """
-    return _make_config_api_request(
+    response = _make_config_api_request(
         path="/web_backend/connections/update",
-        json={
-            "connectionId": connection_id,
-            "syncCatalog": configured_catalog_dict,
+        request=WebBackendConnectionUpdate(
+            connectionId=connection_id,
+            syncCatalog=AirbyteCatalog.model_validate(configured_catalog_dict),
             # Resets are destructive and cause customer-side data outage.
             # If a reset is desired, caller will need to decide & manage.
-            "skipReset": True,
-        },
+            skipReset=True,
+        ),
+        response_model=WebBackendConnectionRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def get_organization_info(
@@ -3298,7 +3255,7 @@ def get_organization_info(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> dict[str, Any]:
+) -> OrganizationInfoRead:
     """Get organization info including billing status.
 
     Uses the Config API endpoint: POST /v1/organizations/get_organization_info
@@ -3312,26 +3269,21 @@ def get_organization_info(
         config_api_root: Optional explicit Config API root URL.
 
     Returns:
-        Dictionary containing organization info:
+        Generated organization info response:
         - organizationId: The organization ID
         - organizationName: The organization name
         - sso: Whether SSO is enabled
         - billing: Billing information (optional, contains paymentStatus, subscriptionStatus, etc.)
     """
-    result = _make_config_api_request(
+    return _make_config_api_request(
         path="/organizations/get_organization_info",
-        json={"organizationId": organization_id},
+        request=OrganizationIdRequestBody(organizationId=organization_id),
+        response_model=OrganizationInfoRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-    )
-    if isinstance(result, dict):
-        return result
-    raise AirbyteCloudError(
-        message="The organization API returned an unexpected response.",
-        context={"response": result},
     )
 
 
@@ -3376,27 +3328,18 @@ def get_user_by_auth_id(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     timeout: tuple[float, float] | None = None,
-) -> dict[str, Any]:
+) -> UserRead:
     """Get an Airbyte user by the authentication provider user ID."""
-    result = _make_config_api_request(
+    return _make_config_api_request(
         path="/users/get_by_auth_id",
-        json={
-            "authUserId": auth_user_id,
-            "authProvider": "keycloak",
-        },
+        request=UserAuthIdRequestBody(authUserId=auth_user_id),
+        response_model=UserRead,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         timeout=timeout,
-    )
-    if isinstance(result, dict):
-        return result
-
-    raise AirbyteCloudError(
-        message="The user API returned an unexpected response.",
-        context={"response": result},
     )
 
 
@@ -3416,7 +3359,7 @@ def update_user_default_workspace(
     """
     result = _make_config_api_request(
         path="/users/update",
-        json={
+        request={
             "userId": user_id,
             "defaultWorkspaceId": workspace_id,
         },
@@ -3453,7 +3396,7 @@ def get_workspace_config_api(
     """
     result = _make_config_api_request(
         path="/workspaces/get",
-        json={
+        request={
             "workspaceId": workspace_id,
             "includeTombstone": True,
         },
@@ -3480,28 +3423,19 @@ def list_permissions_for_user(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> list[dict[str, Any]]:
+) -> list[PermissionRead]:
     """List permissions granted to an Airbyte user."""
     result = _make_config_api_request(
         path="/permissions/list_by_user",
-        json={"userId": user_id},
+        request=UserIdRequestBody(userId=user_id),
+        response_model=PermissionReadList,
         api_root=api_root,
         config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    if isinstance(result, list):
-        return result
-
-    permissions = result.get("permissions") if isinstance(result, dict) else None
-    if isinstance(permissions, list):
-        return permissions
-
-    raise AirbyteCloudError(
-        message="The permissions API returned an unexpected response.",
-        context={"response": result},
-    )
+    return result.permissions
 
 
 # Billing status constants (using tuples for safe `in` checks with unhashable types)

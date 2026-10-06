@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
@@ -11,7 +11,7 @@ from airbyte.exceptions import AirbyteLibInputError
 from airbyte.registry import ConnectorType
 
 
-class SupportLevel(str, Enum):
+class SupportLevel(StrEnum):
     """Connector support levels ordered by precedence."""
 
     ARCHIVED = "archived"

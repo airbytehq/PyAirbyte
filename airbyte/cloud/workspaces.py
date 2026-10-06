@@ -75,6 +75,8 @@ from airbyte.secrets.hydration import detect_hardcoded_secrets
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte_server_models._config_api import OrganizationInfoRead
+
     from airbyte.cloud.organizations import CloudOrganization
     from airbyte.sources.base import Source
 
@@ -298,7 +300,7 @@ class CloudWorkspace:
         return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
 
     @cached_property
-    def _organization_info(self) -> dict[str, Any]:
+    def _organization_info(self) -> OrganizationInfoRead:
         """Fetch and cache organization info for this workspace.
 
         Uses the Config API endpoint for an efficient O(1) lookup.
@@ -359,8 +361,8 @@ class CloudWorkspace:
                 raise
             return None
 
-        organization_id = info.get("organizationId")
-        organization_name = info.get("organizationName")
+        organization_id = str(info.organizationId)
+        organization_name = info.organizationName
 
         # Validate that both organization_id and organization_name are non-null and non-empty
         if not organization_id or not organization_name:

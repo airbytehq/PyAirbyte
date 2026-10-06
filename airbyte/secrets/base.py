@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic_core import CoreSchema, core_schema
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from pydantic.json_schema import JsonSchemaValue
 
 
-class SecretSourceEnum(str, Enum):
+class SecretSourceEnum(StrEnum):
     """Enumeration of secret sources supported by PyAirbyte."""
 
     ENV = "env"

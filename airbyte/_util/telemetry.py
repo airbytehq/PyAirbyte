@@ -35,7 +35,7 @@ import datetime
 import os
 import sys
 from contextlib import suppress
-from enum import Enum
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -175,14 +175,14 @@ def _get_analytics_id() -> str | None:
 _ANALYTICS_ID = _get_analytics_id()
 
 
-class EventState(str, Enum):
+class EventState(StrEnum):
     STARTED = "started"
     FAILED = "failed"
     SUCCEEDED = "succeeded"
     CANCELED = "canceled"
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     INSTALL = "install"
     SYNC = "sync"
     VALIDATE = "validate"

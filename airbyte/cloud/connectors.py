@@ -57,7 +57,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, cast
 
 import requests
 import yaml
@@ -237,9 +237,9 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     bearer_token=self.workspace.bearer_token,
                 )
                 self._connector_info = (
-                    CloudSourceInfo.from_api_response(response)
+                    CloudSourceInfo.from_api_response(cast(Any, response))
                     if self._connector_type is ConnectorType.SOURCE
-                    else CloudDestinationInfo.from_api_response(response)
+                    else CloudDestinationInfo.from_api_response(cast(Any, response))
                 )
         return self._connector_type
 
@@ -1344,11 +1344,17 @@ class CustomCloudSourceDefinition:
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
         )
-        self._connector_builder_project_id = result.get("builderProjectId")
+        builder_project_id = (
+            result.get("builderProjectId") if isinstance(result, dict) else result.builderProjectId
+        )
+        workspace_id = result.get("workspaceId") if isinstance(result, dict) else result.workspaceId
+        self._connector_builder_project_id = (
+            str(builder_project_id) if builder_project_id is not None else None
+        )
         self._connector_builder_project_id_fetched = True
         # The builder project may live in a different workspace than the caller's.
         # We must use the project's owning workspace ID when fetching its data.
-        self._builder_project_workspace_id = result.get("workspaceId")
+        self._builder_project_workspace_id = str(workspace_id) if workspace_id is not None else None
 
         return self._connector_builder_project_id
 
@@ -1412,7 +1418,7 @@ class CustomCloudSourceDefinition:
                 },
             )
 
-        self._builder_project_data = api_util.get_connector_builder_project(
+        project = api_util.get_connector_builder_project(
             workspace_id=self._builder_project_workspace_id or self.workspace.workspace_id,
             builder_project_id=builder_project_id,
             api_root=self.workspace.api_root,
@@ -1420,6 +1426,11 @@ class CustomCloudSourceDefinition:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
+        )
+        self._builder_project_data = (
+            project
+            if isinstance(project, dict)
+            else project.model_dump(mode="json", by_alias=True, exclude_none=True)
         )
         return self._builder_project_data
 

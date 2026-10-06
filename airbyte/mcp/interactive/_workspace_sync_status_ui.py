@@ -646,14 +646,14 @@ def _status_pie_section(
         with Div(style=_status_pie_chart_style(status_pie_rows)):
             PieChart(  # pyrefly: ignore[missing-argument]
                 data=status_pie_rows,
-                data_key="connections",
-                name_key="status",
+                dataKey="connections",
+                nameKey="status",
                 height=360,
-                inner_radius=87,
+                innerRadius=87,
                 padding_angle=2,
-                show_label=True,
-                show_legend=True,
-                show_tooltip=True,
+                showLabel=True,
+                showLegend=True,
+                showTooltip=True,
             )
         with Row(gap=3, css_class="flex-wrap"):
             for status_row in status_pie_rows:

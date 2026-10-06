@@ -19,12 +19,6 @@ from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
 from airbyte.sources.util import get_source
-from airbyte_api.models import (
-    DestinationBigquery,
-    DestinationDuckdb,
-    DestinationPostgres,
-    DestinationSnowflake,
-)
 
 
 AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
@@ -135,9 +129,7 @@ def deployable_dummy_destination(
 @pytest.fixture(scope="function")
 def new_deployable_destination(
     request,
-) -> (
-    DestinationDuckdb | DestinationPostgres | DestinationBigquery | DestinationSnowflake
-):
+) -> dict:
     """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
     return request.getfixturevalue(request.param)
 

@@ -86,6 +86,11 @@ jobs:
       with:
         version: "latest"
         python-version: ${{ matrix.python-version }}
+    - name: Authenticate git for private dependencies
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev

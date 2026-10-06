@@ -41,6 +41,11 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
+    - name: Authenticate git for private dependencies
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Install dev dependencies
       # We only need helper libraries
       run: uv sync --group dev

@@ -11,9 +11,18 @@ import pytest
 
 REPO_ROOT = Path(__file__).parents[2]
 PUBLIC_MODULE_RESTRICTED_IMPORTS = {
-    Path("airbyte/cli"): ("airbyte_api", "airbyte._util.api_imports"),
-    Path("airbyte/mcp"): ("airbyte_api", "airbyte._util.api_imports"),
-    Path("airbyte/cloud"): ("airbyte_api", "airbyte._util.api_imports"),
+    Path("airbyte/cli"): (
+        "airbyte_server_models.public_api",
+        "airbyte._util.api_imports",
+    ),
+    Path("airbyte/mcp"): (
+        "airbyte_server_models.public_api",
+        "airbyte._util.api_imports",
+    ),
+    Path("airbyte/cloud"): (
+        "airbyte_server_models.public_api",
+        "airbyte._util.api_imports",
+    ),
 }
 PUBLIC_MODULE_RESTRICTED_REFERENCES = {
     Path("airbyte/cli"): ("api_util.models",),
