@@ -1560,6 +1560,137 @@ def test_refresh_token_exchange_fails_closed_when_realm_discovery_is_down(
     assert fake.refresh_calls == []
 
 
+def _store_refreshable_grant(
+    proxy: sso.AirbyteSsoOidcProxy,
+) -> Callable[[], Awaitable[Any]]:
+    """Register a client and store an expired upstream grant; return its refresh coroutine."""
+
+    async def refresh() -> Any:  # noqa: ANN401
+        await proxy.register_client(
+            OAuthClientInformationFull(
+                client_id=MCP_CLIENT_ID, redirect_uris=[AnyUrl(MCP_REDIRECT_URI)]
+            )
+        )
+        client = await proxy.get_client(MCP_CLIENT_ID)
+        assert client is not None
+        await proxy._upstream_token_store.put(  # noqa: SLF001
+            key="upstream-1", value=_upstream_token_set(_issuer("acme")), ttl=3600
+        )
+        await proxy._jti_mapping_store.put(  # noqa: SLF001
+            key="refresh-jti",
+            value=JTIMapping(
+                jti="refresh-jti",
+                upstream_token_id="upstream-1",
+                created_at=time.time(),
+            ),
+            ttl=3600,
+        )
+        proxy_refresh = proxy.jwt_issuer.issue_refresh_token(
+            client_id=MCP_CLIENT_ID, scopes=SCOPES, jti="refresh-jti", expires_in=3600
+        )
+        return await proxy.exchange_refresh_token(
+            client,
+            RefreshToken(
+                token=proxy_refresh,
+                client_id=MCP_CLIENT_ID,
+                scopes=SCOPES,
+                expires_at=None,
+            ),
+            SCOPES,
+        )
+
+    return refresh
+
+
+def _reject_user_lookup(monkeypatch: MonkeyPatch, error: Exception) -> None:
+    def reject_lookup(_auth_user_id: str, **_kwargs: Any) -> dict[str, Any]:
+        raise error
+
+    monkeypatch.setattr(sso.api_util, "get_user_by_auth_id", reject_lookup)
+
+
+def test_refresh_checks_the_refreshed_token_for_a_linked_user(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    lookups: list[dict[str, Any]] = []
+    proxy = _make_proxy(monkeypatch, user_lookup_calls=lookups)
+    proxy.get_routes("/mcp")
+    fake = _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+
+    result = asyncio.run(_store_refreshable_grant(proxy)())
+    asyncio.run(proxy._try_transparent_refresh(_upstream_token_set(_issuer("acme"))))  # noqa: SLF001
+
+    assert result.access_token
+    assert [str(call["bearer_token"]) for call in lookups] == [fake.access_token] * 2
+
+
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        AirbyteMissingResourceError(message="not linked"),
+        AirbyteCloudError(context={"status_code": 401}),
+    ],
+    ids=["missing-resource", "unauthorized"],
+)
+def test_refresh_token_exchange_rejects_unlinked_airbyte_user(
+    monkeypatch: MonkeyPatch, lookup_error: Exception
+) -> None:
+    proxy = _make_proxy(monkeypatch)
+    proxy.get_routes("/mcp")
+    fake = _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    _reject_user_lookup(monkeypatch, lookup_error)
+
+    with pytest.raises(TokenError) as excinfo:
+        asyncio.run(_store_refreshable_grant(proxy)())
+
+    assert excinfo.value.error == "invalid_grant"
+    assert excinfo.value.error_description == sso.UNLINKED_LOGIN_ERROR_DESCRIPTION
+    assert len(fake.refresh_calls) == 1
+    stored = asyncio.run(proxy._upstream_token_store.get(key="upstream-1"))  # noqa: SLF001
+    assert stored is None
+
+
+def test_transparent_refresh_rejects_unlinked_airbyte_user(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    proxy = _make_proxy(monkeypatch)
+    _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    _reject_user_lookup(monkeypatch, AirbyteMissingResourceError(message="not linked"))
+
+    with pytest.raises(TokenError) as excinfo:
+        asyncio.run(
+            proxy._try_transparent_refresh(_upstream_token_set(_issuer("acme")))
+        )  # noqa: SLF001
+
+    assert excinfo.value.error == "invalid_grant"
+    stored = asyncio.run(proxy._upstream_token_store.get(key="upstream-1"))  # noqa: SLF001
+    assert stored is None
+
+
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        AirbyteCloudError(context={"status_code": 503}),
+        requests.ConnectionError("down"),
+    ],
+    ids=["server-error", "connection-error"],
+)
+def test_refresh_keeps_the_session_when_linked_user_lookup_is_unavailable(
+    monkeypatch: MonkeyPatch, lookup_error: Exception
+) -> None:
+    proxy = _make_proxy(monkeypatch)
+    proxy.get_routes("/mcp")
+    fake = _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+    _reject_user_lookup(monkeypatch, lookup_error)
+
+    result = asyncio.run(_store_refreshable_grant(proxy)())
+
+    assert result.access_token
+    stored = asyncio.run(proxy._upstream_token_store.get(key="upstream-1"))  # noqa: SLF001
+    assert stored is not None
+    assert stored.access_token == fake.access_token
+
+
 def _capture_upstream_posts(monkeypatch: MonkeyPatch) -> list[str]:
     """Replace `httpx2.AsyncClient` inside FastMCP's proxy with a stub that records POST URLs."""
     posts: list[str] = []
