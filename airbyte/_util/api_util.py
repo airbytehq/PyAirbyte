@@ -2023,6 +2023,53 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
 # Functions for leveraging the Airbyte Config API (may not be supported or stable)
 
 
+def validate_interval_hours(interval_hours: int) -> None:
+    """Require a positive whole number of hours, without coercing other types."""
+    if (
+        isinstance(interval_hours, bool)
+        or not isinstance(interval_hours, int)
+        or interval_hours <= 0
+    ):
+        raise AirbyteLibInputError(
+            message="`interval_hours` must be a positive whole number of hours.",
+            input_value=str(interval_hours),
+        )
+
+
+def set_connection_interval_schedule(
+    connection_id: str,
+    *,
+    interval_hours: int,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Set a basic interval schedule without changing other connection settings.
+
+    Uses the Config API because the public API only accepts manual and cron schedules.
+    Resets are disabled, as for catalog updates through the same endpoint.
+    """
+    validate_interval_hours(interval_hours)
+    return _make_config_api_request(
+        path="/web_backend/connections/update",
+        json={
+            "connectionId": connection_id,
+            "scheduleType": models.ScheduleTypeWithBasicEnum.BASIC,
+            "scheduleData": {
+                "basicSchedule": {"timeUnit": "hours", "units": interval_hours},
+            },
+            "skipReset": True,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def get_bearer_token(
     *,
     client_id: SecretString,

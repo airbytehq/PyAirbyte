@@ -6,8 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from urllib.parse import urlsplit
 
 import pytest
+import responses
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import (
@@ -69,6 +71,155 @@ def _connection() -> CloudConnection:
         api_root="https://api.airbyte.com/v1",
     )
     return CloudConnection(workspace=workspace, connection_id="connection-id")
+
+
+def _scheduled_connection_response(*, basic: bool = False) -> models.ConnectionResponse:
+    """Create a response with a real public API schedule model."""
+    return models.ConnectionResponse(
+        connection_id="connection-id",
+        created_at=0,
+        destination_id="destination-id",
+        name="name",
+        source_id="source-id",
+        status=models.ConnectionStatusEnum.ACTIVE,
+        workspace_id="workspace-id",
+        configurations=models.StreamConfigurations(streams=[]),
+        schedule=models.ConnectionScheduleResponse(
+            schedule_type=(
+                models.ScheduleTypeWithBasicEnum.BASIC
+                if basic
+                else models.ScheduleTypeWithBasicEnum.MANUAL
+            ),
+            basic_timing="Every 24 HOURS" if basic else None,
+        ),
+        tags=[],
+    )
+
+
+def test_set_schedule_interval_invalidates_cached_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forward workspace settings and lazily reload the schedule after success."""
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        client_id="client-id",
+        client_secret="client-secret",
+        api_root="https://public.example/custom",
+        config_api_root="https://config.example/custom",
+    )
+    connection = CloudConnection(workspace=workspace, connection_id="connection-id")
+    update = MagicMock(return_value={"scheduleType": "basic"})
+    monkeypatch.setattr(api_util, "set_connection_interval_schedule", update)
+    read = MagicMock(
+        side_effect=[
+            _scheduled_connection_response(),
+            _scheduled_connection_response(basic=True),
+        ]
+    )
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.reset_mock()
+
+    connection.set_schedule(interval_hours=24)
+
+    update.assert_called_once_with(
+        connection_id="connection-id",
+        interval_hours=24,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    read.assert_not_called()
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "basic"
+    assert connection.schedule.schedule_expression == "Every 24 HOURS"
+    assert connection.name == "name"
+    read.assert_called_once()
+
+
+@pytest.mark.parametrize("interval_hours", [0, -1, True, False, 1.0, 1.5, "24"])
+def test_set_schedule_interval_rejects_invalid_hours(
+    monkeypatch: pytest.MonkeyPatch,
+    interval_hours: object,
+) -> None:
+    """Invalid intervals cause no writes and leave the cached schedule intact."""
+    connection = _connection()
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+
+    with responses.RequestsMock() as http:
+        with pytest.raises(AirbyteLibInputError, match="positive whole number"):
+            connection.set_schedule(interval_hours=interval_hours)
+        assert [
+            call
+            for call in http.calls
+            if urlsplit(call.request.url or "").hostname != "api.segment.io"
+        ] == []
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "schedule_arguments",
+    [
+        {},
+        {"cron_expression": None, "interval_hours": None},
+        {"cron_expression": "0 0 0 * * ?", "interval_hours": 24},
+        {"cron_expression": "", "interval_hours": 24},
+        {"cron_expression": "0 0 0 * * ?", "interval_hours": 0},
+    ],
+)
+def test_set_schedule_requires_exactly_one_option(
+    monkeypatch: pytest.MonkeyPatch,
+    schedule_arguments: dict[str, object],
+) -> None:
+    """Reject absent or conflicting schedule options before writes or cache changes."""
+    connection = _connection()
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+
+    with responses.RequestsMock() as http:
+        with pytest.raises(AirbyteLibInputError, match="exactly one"):
+            connection.set_schedule(**schedule_arguments)
+        assert [
+            call
+            for call in http.calls
+            if urlsplit(call.request.url or "").hostname != "api.segment.io"
+        ] == []
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
+
+
+def test_set_schedule_interval_preserves_cache_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed update raises and leaves the last known schedule intact."""
+    connection = _connection()
+    update = MagicMock(side_effect=AirbyteCloudError(message="schedule rejected"))
+    monkeypatch.setattr(api_util, "set_connection_interval_schedule", update)
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+    read.side_effect = AssertionError("No refresh needed after failure")
+
+    with pytest.raises(AirbyteCloudError, match="schedule rejected"):
+        connection.set_schedule(interval_hours=24)
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -564,9 +715,12 @@ def test_cancel_sync_rejects_explicit_completed_job(
         pytest.param("0 0 9 ? * MON-FRI US/Pacific", id="with_timezone"),
     ],
 )
+@pytest.mark.parametrize("positional", [False, True], ids=["keyword", "positional"])
 def test_set_schedule_accepts_quartz_cron(
     monkeypatch: pytest.MonkeyPatch,
     cron_expression: str,
+    *,
+    positional: bool,
 ) -> None:
     """Verify Quartz cron expressions are passed through to the API."""
     connection = _connection()
@@ -598,11 +752,18 @@ def test_set_schedule_accepts_quartz_cron(
 
     monkeypatch.setattr(api_util, "patch_connection", patch_connection)
 
-    connection.set_schedule(cron_expression=cron_expression)
+    if positional:
+        connection.set_schedule(cron_expression)
+    else:
+        connection.set_schedule(cron_expression=cron_expression)
 
     assert len(captured) == 1
     assert captured[0].cron_expression == cron_expression
     assert captured[0].schedule_type == models.ScheduleTypeEnum.CRON
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "cron"
+    assert connection.schedule.schedule_expression == cron_expression
+    assert connection.name == "name"
 
 
 @pytest.mark.parametrize(
