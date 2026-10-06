@@ -17,8 +17,9 @@ import base64
 import copy
 import json
 import logging
+from dataclasses import replace
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import airbyte_api
 import requests
@@ -44,6 +45,7 @@ from airbyte.secrets.util import try_get_secret
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from enum import Enum
 
     from airbyte_api.models import (
         DestinationConfiguration,
@@ -69,6 +71,7 @@ PUBLIC_API_FALLBACK_TIMEOUT_SECS: tuple[float, float] = (5.0, 60.0)
 """Connect and read timeouts for the raw Public API fallback GET."""
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 def status_ok(status_code: int) -> bool:
@@ -558,7 +561,7 @@ def list_connections(
         except ValueError as e:
             logger.warning(
                 "Could not decode connections for workspace %s at offset %s: %s. "
-                "Retrying without stream mappers.",
+                "Retrying with lenient decoding.",
                 workspace_id,
                 current_offset,
                 e,
@@ -576,8 +579,7 @@ def list_connections(
                 bearer_token=bearer_token,
             )
             page_data = [
-                _decode_connection_without_mappers(connection)
-                for connection in raw_response["data"]
+                _lenient_decode_connection(connection) for connection in raw_response["data"]
             ]
             next_page = raw_response.get("next")
         else:
@@ -865,11 +867,11 @@ def get_connection(
         raise _wrap_sdk_error(e, base_context) from e
     except ValueError as e:
         logger.warning(
-            "Could not decode connection %s: %s. Retrying without stream mappers.",
+            "Could not decode connection %s: %s. Retrying with lenient decoding.",
             connection_id,
             e,
         )
-        return _decode_connection_without_mappers(
+        return _lenient_decode_connection(
             _get_public_api_json(
                 api_root=api_root,
                 path=f"/connections/{connection_id}",
@@ -1023,39 +1025,69 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            if response.status_code == HTTPStatus.NOT_FOUND:
-                raise AirbyteMissingResourceError(
+        except ValueError as e:
+            logger.warning(
+                "Could not decode jobs for connection %s at offset %s: %s. "
+                "Retrying with lenient decoding.",
+                connection_id,
+                current_offset,
+                e,
+            )
+            params: dict[str, Any] = {
+                "workspaceIds": workspace_id,
+                "connectionId": connection_id,
+                "limit": page_limit,
+                "offset": current_offset,
+            }
+            if order_by is not None:
+                params["orderBy"] = order_by
+            if job_type_value is not None:
+                params["jobType"] = job_type_value.value
+            raw_response = _get_public_api_json(
+                api_root=api_root,
+                path="/jobs",
+                params=params,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            page_data = [_lenient_decode_job(job) for job in raw_response["data"]]
+            next_page = raw_response.get("next")
+        else:
+            if not status_ok(response.status_code):
+                if response.status_code == HTTPStatus.NOT_FOUND:
+                    raise AirbyteMissingResourceError(
+                        response=response,
+                        resource_type="job",
+                        context={
+                            **base_context,
+                            "request_url": response.raw_response.url,
+                            "status_code": response.status_code,
+                        },
+                    )
+                raise AirbyteCloudError(
+                    message="Failed to list jobs.",
                     response=response,
-                    resource_type="job",
                     context={
                         **base_context,
                         "request_url": response.raw_response.url,
                         "status_code": response.status_code,
                     },
                 )
-            raise AirbyteCloudError(
-                message="Failed to list jobs.",
-                response=response,
-                context={
-                    **base_context,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-        if not response.jobs_response:
-            raise AirbyteCloudError(
-                message="Jobs response payload was empty.",
-                response=response,
-                context={
-                    **base_context,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
+            if not response.jobs_response:
+                raise AirbyteCloudError(
+                    message="Jobs response payload was empty.",
+                    response=response,
+                    context={
+                        **base_context,
+                        "request_url": response.raw_response.url,
+                        "status_code": response.status_code,
+                    },
+                )
 
-        page_data: list[models.JobResponse] = list(response.jobs_response.data)
+            page_data = list(response.jobs_response.data)
+            next_page = response.jobs_response.next
+
         if not page_data:
             break
 
@@ -1064,7 +1096,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             remaining -= len(page_data)
         current_offset += len(page_data)
 
-        if not response.jobs_response.next or len(page_data) < page_limit:
+        if not next_page or len(page_data) < page_limit:
             break
 
     return result if limit is None else result[:limit]
@@ -1093,6 +1125,22 @@ def get_job_info(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, {"job_id": job_id}) from e
+    except ValueError as e:
+        logger.warning(
+            "Could not decode job %s: %s. Retrying with lenient decoding.",
+            job_id,
+            e,
+        )
+        return _lenient_decode_job(
+            _get_public_api_json(
+                api_root=api_root,
+                path=f"/jobs/{job_id}",
+                params=None,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+        )
 
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
@@ -2246,10 +2294,33 @@ def _get_public_api_json(
     return response.json()
 
 
-def _decode_connection_without_mappers(
+def _decode_with_unknown_status(
+    raw: dict[str, Any],
+    model_cls: type[_T],
+    *,
+    status_enum: type[Enum],
+    placeholder: Enum,
+) -> _T:
+    """Decode an SDK model, preserving a `status` value the SDK enum doesn't define."""
+    raw_status = raw.get("status")
+    if isinstance(raw_status, str) and raw_status not in {status.value for status in status_enum}:
+        cleaned = {**raw, "status": placeholder.value}
+        decoded = airbyte_api.utils.unmarshal_json(
+            json.dumps(cleaned),
+            model_cls,
+        )
+        return replace(decoded, status=raw_status)
+
+    return airbyte_api.utils.unmarshal_json(
+        json.dumps(raw),
+        model_cls,
+    )
+
+
+def _lenient_decode_connection(
     raw: dict[str, Any],
 ) -> models.ConnectionResponse:
-    """Decode a connection after dropping stream mappers unknown to the SDK."""
+    """Decode a connection after dropping stream mappers and tolerating unknown status values."""
     cleaned = copy.deepcopy(raw)
     configurations = cleaned.get("configurations")
     if configurations is not None:
@@ -2257,9 +2328,21 @@ def _decode_connection_without_mappers(
             if isinstance(stream, dict):
                 stream.pop("mappers", None)
 
-    return airbyte_api.utils.unmarshal_json(
-        json.dumps(cleaned),
+    return _decode_with_unknown_status(
+        cleaned,
         models.ConnectionResponse,
+        status_enum=models.ConnectionStatusEnum,
+        placeholder=models.ConnectionStatusEnum.INACTIVE,
+    )
+
+
+def _lenient_decode_job(raw: dict[str, Any]) -> models.JobResponse:
+    """Decode a job while tolerating status values unknown to the SDK."""
+    return _decode_with_unknown_status(
+        raw,
+        models.JobResponse,
+        status_enum=models.JobStatusEnum,
+        placeholder=models.JobStatusEnum.RUNNING,
     )
 
 
