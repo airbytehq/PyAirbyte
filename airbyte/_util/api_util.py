@@ -2277,6 +2277,11 @@ def _get_public_api_json(
                 "body": response.request.body,
                 "response": response.__dict__,
             }
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise AirbyteMissingResourceError(
+                    message=error_message,
+                    context=error_context,
+                ) from ex
             if response.status_code == HTTPStatus.FORBIDDEN:
                 raise AirbyteMissingResourceError(
                     message=(
