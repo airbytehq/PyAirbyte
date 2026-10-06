@@ -1096,8 +1096,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.33.0.post20.dev0+44b144d"
-source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=devin%2F1791321365-tracing-session-provider-hooks#44b144d365ad0af7b9ce9bee959848f681b9e184" }
+version = "0.33.0.post22.dev0+ef8fcc8"
+source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=devin%2F1791321365-tracing-session-provider-hooks#ef8fcc86686d2d0c5d29d4cdd7f9da5ba713e5e8" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
