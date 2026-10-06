@@ -9,14 +9,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import pytest
-
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
     AirbyteTrustedExecutionRequiredError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.mcp import local
-from airbyte.mcp._arg_resolvers import resolve_connector_config
+from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
     raise_if_untrusted_execution_context,
@@ -165,6 +164,78 @@ def test_resolve_connector_config_allows_when_trusted(
     assert resolve_connector_config(**kwargs) == expected
 
 
+def test_resolve_manifest_yaml_rejects_path_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A `Path` manifest input requires trusted execution."""
+    _set_trusted(monkeypatch, enabled=False)
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
+        resolve_manifest_yaml(tmp_path / "manifest.yaml")
+
+
+@pytest.mark.parametrize(
+    "manifest_yaml",
+    [
+        pytest.param("manifest.yaml", id="single-line-text"),
+        pytest.param(
+            '{"version": "0.1.0", "type": "DeclarativeSource"}', id="inline-json"
+        ),
+        pytest.param("version: 0.1.0\ntype: DeclarativeSource", id="multiline-yaml"),
+    ],
+)
+def test_resolve_manifest_yaml_preserves_inline_values_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    manifest_yaml: str,
+) -> None:
+    """Untrusted execution preserves manifest strings as inline YAML."""
+    _set_trusted(monkeypatch, enabled=False)
+    resolved = resolve_manifest_yaml(manifest_yaml)
+    assert isinstance(resolved, str)
+    assert resolved == manifest_yaml
+
+
+def test_resolve_manifest_yaml_preserves_existing_path_when_trusted(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A `Path` manifest input is returned when trusted execution is enabled."""
+    _set_trusted(monkeypatch, enabled=True)
+    manifest_path = tmp_path / "manifest.yaml"
+    assert resolve_manifest_yaml(manifest_path) is manifest_path
+
+
+def test_resolve_manifest_yaml_converts_single_line_string_when_trusted(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A single-line manifest string is treated as a file path when trusted."""
+    _set_trusted(monkeypatch, enabled=True)
+    assert resolve_manifest_yaml("manifest.yaml") == Path("manifest.yaml")
+
+
+@pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])
+def test_resolve_manifest_yaml_preserves_none(
+    monkeypatch: MonkeyPatch,
+    enabled: bool,
+) -> None:
+    """A missing manifest stays missing in either execution mode."""
+    _set_trusted(monkeypatch, enabled=enabled)
+    assert resolve_manifest_yaml(None) is None
+
+
+def test_resolve_manifest_yaml_does_not_read_file_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A path string remains inline YAML when trusted execution is disabled."""
+    _set_trusted(monkeypatch, enabled=False)
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text("version: 0.1.0\ntype: DeclarativeSource\n")
+    resolved = resolve_manifest_yaml(str(manifest_path))
+    assert isinstance(resolved, str)
+    assert resolved == str(manifest_path)
+
+
 _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
     pytest.param(
         lambda: local._get_mcp_source("source-faker", manifest_path=None),
@@ -266,7 +337,7 @@ def test_validate_airbyte_domains_rejects_include_and_exclude(
 
     monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, "cloud")
     monkeypatch.setenv(TRUSTED_DOMAINS_EXCLUDE_ENV, "local")
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         validate_airbyte_domains(app)
     rendered = str(exc_info.value)
     assert "mutually exclusive" in rendered
@@ -282,18 +353,32 @@ def test_validate_airbyte_domains_rejects_unknown_domain(
 
     monkeypatch.delenv(TRUSTED_DOMAINS_EXCLUDE_ENV, raising=False)
     monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, "not_a_real_domain")
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         validate_airbyte_domains(app)
     assert "not_a_real_domain" in exc_info.value.context["unknown_domains"]
 
 
+@pytest.mark.parametrize(
+    ("include_domains", "disabled_domains"),
+    [
+        pytest.param("cloud", None, id="include-cloud"),
+        pytest.param("cloud,guidance", None, id="include-cloud-and-guidance"),
+        pytest.param(None, "guidance", id="disable-guidance"),
+    ],
+)
 def test_validate_airbyte_domains_allows_known_single_domain(
     monkeypatch: MonkeyPatch,
+    include_domains: str | None,
+    disabled_domains: str | None,
 ) -> None:
-    """A single valid include domain passes validation."""
+    """Known domains pass validation when included or disabled."""
     from airbyte.mcp._tool_utils import validate_airbyte_domains
     from airbyte.mcp.server import app
 
     monkeypatch.delenv(TRUSTED_DOMAINS_EXCLUDE_ENV, raising=False)
-    monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, "cloud")
+    monkeypatch.delenv(TRUSTED_DOMAINS_INCLUDE_ENV, raising=False)
+    if include_domains is not None:
+        monkeypatch.setenv(TRUSTED_DOMAINS_INCLUDE_ENV, include_domains)
+    if disabled_domains is not None:
+        monkeypatch.setenv(TRUSTED_DOMAINS_EXCLUDE_ENV, disabled_domains)
     validate_airbyte_domains(app)

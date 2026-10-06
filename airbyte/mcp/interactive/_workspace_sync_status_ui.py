@@ -38,8 +38,8 @@ from prefab_ui.components.charts import PieChart
 from pydantic import Field
 
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
-from airbyte.mcp.cloud import CLOUD_AUTH_TIP_TEXT, WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
+from airbyte.mcp._tool_utils import mcp_tool
+from airbyte.mcp.cloud import WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
 from airbyte.mcp.interactive._sync_history_ui import (
     _format_bytes,
     _format_records,
@@ -117,11 +117,7 @@ class WorkspaceConnectionSyncStatus:
     read_only=True,
     idempotent=True,
     open_world=True,
-    annotations={
-        INTERACTIVE_UI_ANNOTATION: True,
-    },
     app=PrefabAppConfig(),
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def show_workspace_sync_status(
     ctx: Context,
@@ -648,7 +644,7 @@ def _status_pie_section(
     """Render status pie chart and table filters."""
     with Column(gap=3):
         with Div(style=_status_pie_chart_style(status_pie_rows)):
-            PieChart(
+            PieChart(  # pyrefly: ignore[missing-argument]
                 data=status_pie_rows,
                 dataKey="connections",
                 nameKey="status",

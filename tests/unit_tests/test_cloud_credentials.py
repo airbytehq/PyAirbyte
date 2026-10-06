@@ -3,22 +3,45 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import NoReturn
+from unittest.mock import MagicMock
 
 import pytest
+import requests
 from airbyte_api import models
 
 from airbyte import constants
 from airbyte._util import api_util
 from airbyte.cloud import _credentials as cloud_credentials
 from airbyte.cloud.client import CloudClient
-from airbyte.cloud.models import CloudWorkspaceInfo
+from airbyte.cloud.connectors import (
+    CloudDestination,
+    CloudSource,
+    ConnectorFeature,
+    ConnectorType,
+    CustomCloudSourceDefinition,
+)
+from airbyte._direct_connectors.models import (
+    ConnectorEnablement,
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+)
+from airbyte.cloud.models import (
+    CloudDestinationInfo,
+    OrganizationFeature,
+    CloudSourceInfo,
+    CloudWorkspaceInfo,
+    WorkspacePrivilegeScope,
+)
+from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud.organizations import CloudOrganization
+from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
-    AirbyteError,
+    AirbyteCloudApiError,
+    AirbyteCloudError,
     AirbyteMissingResourceError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
@@ -102,6 +125,15 @@ def _workspace_config_response(
         initialSetupComplete=False,
         organizationId=organization_id,
         notifications=notifications,
+    )
+
+
+def _stub_organization_features(
+    monkeypatch: pytest.MonkeyPatch, *, enabled: bool = False
+) -> None:
+    """Answer organization feature flags without touching the Context layer API."""
+    monkeypatch.setattr(
+        cloud_organizations.deployment, "is_agents_api_available", lambda **_: enabled
     )
 
 
@@ -302,14 +334,14 @@ def test_airbyte_credentials_missing_credentials_guidance_matches_resolution_mod
 ) -> None:
     monkeypatch.setattr(cloud_credentials, "try_get_secret", lambda *_, **__: None)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         cloud_credentials._AirbyteCredentials.from_auth(env_vars=env_vars)
 
     assert exc_info.value.guidance == expected_guidance
 
 
 def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
-    with pytest.raises(PyAirbyteInputError, match="Cannot use both"):
+    with pytest.raises(AirbyteLibInputError, match="Cannot use both"):
         cloud_credentials._AirbyteCredentials.from_auth(
             bearer_token="token",
             client_id="client-id",
@@ -343,7 +375,7 @@ def test_cloud_client_init_validates_auth_inputs(
     bearer_token: str | None,
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         CloudClient(
             client_id=client_id,
             client_secret=client_secret,
@@ -354,99 +386,31 @@ def test_cloud_client_init_validates_auth_inputs(
 def test_cloud_client_list_workspaces_forwards_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_limit = None
-
-    def fake_list_workspaces(
-        *,
-        limit: int | None = None,
-        **_: object,
-    ) -> list[object]:
-        nonlocal captured_limit
-        captured_limit = limit
-        return []
-
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
-
-    CloudClient(bearer_token="token").list_workspaces(
-        limit=3,
-        all_organizations=True,
-    )
-
-    assert captured_limit == 3
-
-
-@pytest.mark.parametrize(
-    ("client_kwargs", "request_kwargs", "failure", "expected_message"),
-    [
-        pytest.param(
-            {},
-            {},
-            "membership",
-            None,
-            id="membership-failure-falls-back",
-        ),
-        pytest.param(
-            {"workspace_id": "configured-workspace-id"},
-            {},
-            "workspace-parent",
-            None,
-            id="configured-workspace-parent-failure-falls-back",
-        ),
-        pytest.param(
-            {},
-            {"workspace_id": "explicit-workspace-id"},
-            "workspace-parent",
-            "workspace lookup failed",
-            id="explicit-workspace-failure-propagates",
-        ),
-    ],
-)
-def test_cloud_client_list_workspaces_handles_ambient_resolution_failures(
-    monkeypatch: pytest.MonkeyPatch,
-    client_kwargs: dict[str, str],
-    request_kwargs: dict[str, str],
-    failure: str,
-    expected_message: str | None,
-) -> None:
     captured: dict[str, object] = {}
 
-    def fake_list_workspaces(**kwargs: object) -> list[object]:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
         captured.update(kwargs)
         return []
 
-    client = CloudClient(bearer_token="token", **client_kwargs)
-    if failure == "membership":
-        monkeypatch.setattr(
-            client,
-            "_get_membership_organization_ids",
-            _raise(AirbyteError(message="membership failed")),
-        )
-    else:
-        monkeypatch.setattr(
-            client,
-            "_get_workspace_parent_organization_id",
-            _raise(PyAirbyteInputError(message="workspace lookup failed")),
-        )
-        monkeypatch.setattr(client, "_get_membership_organization_ids", lambda: ())
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+    monkeypatch.setattr(
+        api_util, "list_workspaces_by_user", fake_list_workspaces_by_user
+    )
 
-    if expected_message is None:
-        assert client.list_workspaces(**request_kwargs) == []
-        assert captured["workspace_id"] == ""
-    else:
-        with pytest.raises(PyAirbyteInputError, match=expected_message):
-            client.list_workspaces(**request_kwargs)
-        assert captured == {}
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "_is_instance_admin", lambda: True)
+    monkeypatch.setattr(client, "_get_authenticated_user_id", lambda: "user-1")
+    client.list_workspaces(
+        limit=3,
+        privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
+    )
+
+    assert captured["user_id"] == "user-1"
+    assert captured["limit"] == 3
 
 
 @pytest.mark.parametrize(
     ("request_kwargs", "expected_message"),
     [
-        pytest.param(
-            {"all_organizations": True, "organization_id": "organization-id"},
-            "all_organizations option cannot be combined",
-            id="all-organizations-with-organization",
-        ),
         pytest.param(
             {"name_contains": "target", "name_filter": lambda _: True},
             "provide name_contains or name_filter, but not both",
@@ -463,58 +427,48 @@ def test_cloud_client_list_workspaces_rejects_invalid_argument_combinations(
     request_kwargs: dict[str, object],
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         CloudClient(bearer_token="token").list_workspaces(**request_kwargs)
 
 
-def test_cloud_client_list_workspaces_applies_name_contains_to_all_org_results(
+def test_cloud_client_list_workspaces_applies_name_contains_to_instance_admin_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_list_workspaces(
-        **kwargs: object,
-    ) -> list[models.WorkspaceResponse]:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
         captured.update(kwargs)
         workspaces = [
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="target-one",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-target-one",
-            ),
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="other",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-other",
-            ),
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="target-two",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-target-two",
-            ),
+            {"workspaceId": "workspace-target-one", "name": "target-one"},
+            {"workspaceId": "workspace-other", "name": "other"},
+            {"workspaceId": "workspace-target-two", "name": "target-two"},
         ]
-        workspace_filter = kwargs["name_filter"]
-        assert callable(workspace_filter)
+        name_contains = kwargs["name_contains"]
+        assert isinstance(name_contains, str)
         matching_workspaces = [
-            workspace for workspace in workspaces if workspace_filter(workspace.name)
+            workspace
+            for workspace in workspaces
+            if name_contains.casefold() in str(workspace["name"]).casefold()
         ]
         return matching_workspaces[
             : kwargs["limit"] if isinstance(kwargs["limit"], int) else None
         ]
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
-
-    result = CloudClient(bearer_token="token").list_workspaces(
-        name_contains="TARGET",
-        limit=1,
-        all_organizations=True,
+    monkeypatch.setattr(
+        api_util, "list_workspaces_by_user", fake_list_workspaces_by_user
     )
 
-    assert captured.get("name") is None
-    assert callable(captured["name_filter"])
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "_is_instance_admin", lambda: True)
+    monkeypatch.setattr(client, "_get_authenticated_user_id", lambda: "user-1")
+    result = client.list_workspaces(
+        name_contains="TARGET",
+        limit=1,
+        privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
+    )
+
+    assert captured["user_id"] == "user-1"
+    assert captured["name_contains"] == "TARGET"
     assert captured["limit"] == 1
     assert [workspace.name for workspace in result] == ["target-one"]
 
@@ -551,6 +505,7 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
         bearer_token="token",
         organization_id="organization-id",
     ).list_workspaces(
+        organization_id="organization-id",
         name_filter=lambda name: name.startswith("target"),
         limit=1,
     )
@@ -587,6 +542,7 @@ def test_cloud_client_list_workspaces_matches_exact_name_after_server_filter(
         bearer_token="token",
         organization_id="organization-id",
     ).list_workspaces(
+        organization_id="organization-id",
         name="Prod",
         limit=1,
     )
@@ -656,7 +612,7 @@ def test_cloud_client_list_workspaces_accepts_api_notification_list(
     workspaces = CloudClient(
         bearer_token="token",
         organization_id="organization-id",
-    ).list_workspaces()
+    ).list_workspaces(organization_id="organization-id")
 
     assert len(workspaces) == 1
     assert workspaces[0].notifications[0]["sendOnSuccess"] is True
@@ -724,27 +680,224 @@ def test_cloud_client_permanently_delete_workspace_forwards_inputs(
     assert captured_kwargs["safe_mode"] is True
 
 
-def test_cloud_workspace_list_workspaces_forwards_limit(
+def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_limit = None
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    definitions = [
+        SimpleNamespace(
+            id="workspace-owned",
+            name="Workspace-owned",
+            manifest={},
+            version="1.0.0",
+        ),
+        SimpleNamespace(
+            id="organization-shared",
+            name="Organization-shared",
+            manifest={},
+            version="1.0.0",
+        ),
+    ]
+    monkeypatch.setattr(
+        api_util,
+        "list_custom_yaml_source_definitions",
+        lambda **_: definitions,
+    )
+    project_calls: list[dict[str, object]] = []
 
-    def fake_list_workspaces(
-        *,
-        limit: int | None = None,
-        **_: object,
-    ) -> list[object]:
-        nonlocal captured_limit
-        captured_limit = limit
-        return []
+    def fake_list_connector_builder_projects(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        project_calls.append(kwargs)
+        return [
+            {
+                "sourceDefinitionId": "workspace-owned",
+                "builderProjectId": "builder-project-id",
+            }
+        ]
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
-
-    CloudWorkspace(workspace_id="workspace-id", bearer_token="token").list_workspaces(
-        limit=3
+    monkeypatch.setattr(
+        api_util,
+        "list_connector_builder_projects",
+        fake_list_connector_builder_projects,
+    )
+    builder_lookup = MagicMock(side_effect=AssertionError("unexpected Builder lookup"))
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
     )
 
-    assert captured_limit == 3
+    result = workspace.list_custom_source_definitions(
+        definition_type="yaml",
+    )
+
+    assert [definition.definition_id for definition in result] == ["workspace-owned"]
+    assert project_calls == [
+        {
+            "workspace_id": workspace.workspace_id,
+            "api_root": workspace.api_root,
+            "client_id": workspace.client_id,
+            "client_secret": workspace.client_secret,
+            "bearer_token": workspace.bearer_token,
+            "config_api_root": workspace.config_api_root,
+        }
+    ]
+    definition = result[0]
+    assert definition.connector_builder_project_id == "builder-project-id"
+    assert definition.connector_builder_project_url == (
+        "https://cloud.airbyte.com/workspaces/workspace-id/"
+        "connector-builder/edit/builder-project-id"
+    )
+    builder_lookup.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("project_response", "expected_url"),
+    [
+        pytest.param(
+            {
+                "builderProjectId": "builder-project-id",
+                "workspaceId": "caller-workspace",
+            },
+            "https://cloud.airbyte.com/workspaces/caller-workspace/"
+            "connector-builder/edit/builder-project-id",
+            id="owned-by-caller-workspace",
+        ),
+        pytest.param(
+            {
+                "builderProjectId": "builder-project-id",
+                "workspaceId": "owner-workspace",
+            },
+            "https://cloud.airbyte.com/workspaces/owner-workspace/"
+            "connector-builder/edit/builder-project-id",
+            id="owned-by-another-workspace",
+        ),
+        pytest.param({}, None, id="no-project"),
+    ],
+)
+def test_custom_cloud_source_definition_builder_url_uses_owner_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    project_response: dict[str, object],
+    expected_url: str | None,
+) -> None:
+    workspace = CloudWorkspace(
+        workspace_id="caller-workspace",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    builder_lookup = MagicMock(return_value=project_response)
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
+    )
+    definition = CustomCloudSourceDefinition(
+        workspace=workspace,
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+
+    assert definition.connector_builder_project_url == expected_url
+    builder_lookup.assert_called_once_with(
+        workspace_id="caller-workspace",
+        definition_id="definition-id",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+
+
+@pytest.mark.parametrize(
+    ("has_draft", "expected_draft_manifest"),
+    [
+        pytest.param(True, {"version": "0.1.0"}, id="preserves-draft"),
+        pytest.param(False, None, id="no-draft"),
+    ],
+)
+def test_custom_cloud_source_definition_rename_preserves_builder_data(
+    monkeypatch: pytest.MonkeyPatch,
+    has_draft: bool,
+    expected_draft_manifest: dict[str, object] | None,
+) -> None:
+    workspace = CloudWorkspace(
+        workspace_id="caller-workspace",
+        api_root=constants.CLOUD_API_ROOT,
+        bearer_token="token",
+    )
+    project_data = {
+        "builderProject": {
+            "hasDraft": has_draft,
+            "componentsFileContent": "components: []",
+        },
+        "declarativeManifest": {"manifest": {"version": "0.1.0"}},
+    }
+    builder_lookup = MagicMock(
+        return_value={
+            "builderProjectId": "builder-project-id",
+            "workspaceId": "owner-workspace",
+        }
+    )
+    get_project = MagicMock(return_value=project_data)
+    update_project = MagicMock()
+    monkeypatch.setattr(
+        api_util,
+        "get_connector_builder_project_for_definition_id",
+        builder_lookup,
+    )
+    monkeypatch.setattr(api_util, "get_connector_builder_project", get_project)
+    monkeypatch.setattr(api_util, "update_connector_builder_project", update_project)
+    definition = CustomCloudSourceDefinition(
+        workspace=workspace,
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+    definition._definition_info = object()  # type: ignore[assignment]
+    definition._builder_project_data = {"cached": True}
+
+    result = definition.rename(name="Renamed definition")
+
+    assert result is definition
+    get_project.assert_called_once_with(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+    update_project.assert_called_once_with(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        name="Renamed definition",
+        draft_manifest=expected_draft_manifest,
+        components_file_content="components: []",
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+        config_api_root=workspace.config_api_root,
+    )
+    assert definition._definition_info is None
+    assert definition._builder_project_data is None
+
+
+def test_custom_cloud_source_definition_docker_rename_is_not_implemented() -> None:
+    definition = CustomCloudSourceDefinition(
+        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
+        definition_id="definition-id",
+        definition_type="docker",
+    )
+
+    with pytest.raises(NotImplementedError, match="Docker custom source definitions"):
+        definition.rename(name="Renamed definition")
 
 
 def test_cloud_workspace_rename_forwards_inputs(
@@ -834,7 +987,7 @@ def test_cloud_client_get_organization_adds_missing_lookup_context(
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(api_util, "list_organizations_for_user", lambda **_: [])
 
@@ -967,7 +1120,7 @@ def test_cloud_client_get_organization_rejects_ambiguous_default_context(
         ),
     )
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         CloudClient(bearer_token="token").get_organization()
 
     error = exc_info.value
@@ -1009,7 +1162,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_workspace_parent_organization_id",
-            _raise(PyAirbyteInputError(message="workspace lookup failed")),
+            _raise(AirbyteLibInputError(message="workspace lookup failed")),
         )
         monkeypatch.setattr(
             client,
@@ -1020,7 +1173,7 @@ def test_cloud_client_default_organization_handles_resolution_failures(
         monkeypatch.setattr(
             client,
             "_get_membership_organization_ids",
-            _raise(AirbyteError(message="membership failed")),
+            _raise(AirbyteCloudError(message="membership failed")),
         )
 
     assert client._resolve_default_organization_id() == expected_id
@@ -1197,7 +1350,7 @@ def test_cloud_client_list_organizations_falls_back_to_public_listing(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(
         api_util,
@@ -1296,7 +1449,7 @@ def test_cloud_client_get_organization_requires_context_without_defaults(
     monkeypatch.setattr(CloudClient, "_get_membership_organization_ids", lambda _: ())
 
     with pytest.raises(
-        PyAirbyteInputError,
+        AirbyteLibInputError,
         match="Organization ID or organization name is required.",
     ):
         CloudClient(bearer_token="token").get_organization()
@@ -1348,11 +1501,11 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         client.get_organization(organization_name="Duplicate")
 
     error = exc_info.value
@@ -1398,7 +1551,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
         ),
         pytest.param(
             {"organization_id": "configured-organization-id"},
-            {"limit": 3},
+            {"organization_id": "configured-organization-id", "limit": 3},
             None,
             None,
             "configured-organization-id",
@@ -1409,7 +1562,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
         ),
         pytest.param(
             {"workspace_id": "configured-workspace-id"},
-            {"limit": 3},
+            {"workspace_id": "configured-workspace-id", "limit": 3},
             None,
             "parent-organization-id",
             "parent-organization-id",
@@ -1423,7 +1576,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
                 "organization_id": "configured-organization-id",
                 "workspace_id": "configured-workspace-id",
             },
-            {"limit": 3},
+            {"organization_id": "configured-organization-id", "limit": 3},
             None,
             None,
             "configured-organization-id",
@@ -1434,7 +1587,10 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
         ),
         pytest.param(
             {},
-            {"limit": 3},
+            {
+                "limit": 3,
+                "privilege_scope": WorkspacePrivilegeScope.ORGANIZATION_ADMIN,
+            },
             [
                 {"permissionType": "instance_admin"},
                 {
@@ -1451,7 +1607,10 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
         ),
         pytest.param(
             {},
-            {"name_filter": lambda _: True},
+            {
+                "name_filter": lambda _: True,
+                "privilege_scope": WorkspacePrivilegeScope.ORGANIZATION_ADMIN,
+            },
             [
                 {
                     "permissionType": "organization_member",
@@ -1532,8 +1691,8 @@ def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
         api_util, "list_permissions_for_user", fake_list_permissions_for_user
     )
     client = CloudClient(bearer_token="token")
-    client.list_workspaces()
-    client.list_workspaces()
+    client.list_workspaces(privilege_scope=WorkspacePrivilegeScope.ORGANIZATION_ADMIN)
+    client.list_workspaces(privilege_scope=WorkspacePrivilegeScope.ORGANIZATION_ADMIN)
 
     assert captured["organization_id"] == "organization-id"
     assert calls == {"user": 1, "permissions": 1}
@@ -1558,12 +1717,12 @@ def test_cloud_client_list_workspaces_rejects_ambiguous_memberships_with_candida
 
     def fake_get_organization_info(**kwargs: object) -> OrganizationInfoRead:
         if kwargs["organization_id"] == "organization-2":
-            raise AirbyteError(message="Forbidden")
+            raise AirbyteCloudError(message="Forbidden")
         return _organization_info_response(organization_name="Organization 1")
 
     monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         CloudClient(bearer_token="token").list_workspaces()
 
     assert exc_info.value.context == {
@@ -1580,16 +1739,24 @@ def test_cloud_client_list_workspaces_rejects_ambiguous_memberships_with_candida
 
 
 @pytest.mark.parametrize(
-    ("permissions", "all_organizations"),
+    ("permissions", "privilege_scope"),
     [
-        pytest.param([], False, id="zero_memberships"),
-        pytest.param(None, True, id="explicit_opt_in"),
+        pytest.param(
+            [{"permissionType": "instance_admin"}],
+            WorkspacePrivilegeScope.INSTANCE_ADMIN,
+            id="instance-admin-scope",
+        ),
+        pytest.param(
+            [{"permissionType": "instance_admin"}],
+            WorkspacePrivilegeScope.ANY,
+            id="any-scope-for-instance-admin",
+        ),
     ],
 )
 def test_cloud_client_list_workspaces_uses_cross_organization_listing(
     monkeypatch: pytest.MonkeyPatch,
-    permissions: list[dict[str, object]] | None,
-    all_organizations: bool,
+    permissions: list[dict[str, object]],
+    privilege_scope: WorkspacePrivilegeScope,
 ) -> None:
     captured: dict[str, object] = {}
 
@@ -1598,101 +1765,23 @@ def test_cloud_client_list_workspaces_uses_cross_organization_listing(
         permissions=permissions,
     )
 
-    def fake_list_workspaces(**kwargs: object) -> list[models.WorkspaceResponse]:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
         captured.update(kwargs)
-        return [
-            models.WorkspaceResponse(
-                data_residency="auto",
-                name="Workspace",
-                notifications=models.NotificationsConfig(),
-                workspace_id="workspace-id",
-            )
-        ]
+        return [{"workspaceId": "workspace-id", "name": "Workspace"}]
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
-
-    result = CloudClient(bearer_token="token").list_workspaces(
-        all_organizations=all_organizations,
+    monkeypatch.setattr(
+        api_util, "list_workspaces_by_user", fake_list_workspaces_by_user
     )
 
-    assert captured["workspace_id"] == ""
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "_get_authenticated_user_id", lambda: "user-1")
+    result = client.list_workspaces(
+        privilege_scope=privilege_scope,
+    )
+
+    assert captured["user_id"] == "user-1"
     assert captured["limit"] is None
     assert [workspace.workspace_id for workspace in result] == ["workspace-id"]
-
-
-@pytest.mark.parametrize(
-    ("candidates", "expected_ids", "expected_names", "has_retry_guidance"),
-    [
-        pytest.param(
-            [
-                {
-                    "organization_id": "organization-1",
-                    "organization_name": None,
-                },
-                {
-                    "organization_id": "organization-2",
-                    "organization_name": "Organization 2",
-                },
-            ],
-            ["organization-1", "organization-2"],
-            [None, "Organization 2"],
-            True,
-            id="with_available_organizations",
-        ),
-        pytest.param([], [], [], False, id="without_available_organizations"),
-    ],
-)
-def test_mcp_list_cloud_workspaces_reports_available_organizations(
-    monkeypatch: pytest.MonkeyPatch,
-    candidates: list[dict[str, str | None]],
-    expected_ids: list[str],
-    expected_names: list[str | None],
-    has_retry_guidance: bool,
-) -> None:
-    class DiscoveryClient:
-        def list_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
-            message = (
-                "Multiple organization memberships were found."
-                if candidates
-                else "No organization membership was found."
-            )
-            raise PyAirbyteInputError(
-                message=message,
-                context={
-                    "organization_candidates": candidates,
-                },
-            )
-
-    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
-
-    result = mcp_cloud.list_cloud_workspaces(
-        None,
-        organization_id=None,
-        organization_name=None,
-        name_contains=None,
-        limit=None,
-    )
-
-    assert result.workspaces == []
-    assert result.available_organizations is not None
-    assert all(
-        isinstance(candidate, mcp_cloud.CloudOrganizationResult)
-        for candidate in result.available_organizations
-    )
-    assert [
-        candidate.id for candidate in result.available_organizations
-    ] == expected_ids
-    assert [
-        candidate.name for candidate in result.available_organizations
-    ] == expected_names
-    retry_guidance = (
-        "Retry with an explicit organization ID from the provided list of the "
-        "available organizations."
-    )
-    if has_retry_guidance:
-        assert retry_guidance in (result.message or "")
-    else:
-        assert result.message == "No organization membership was found."
 
 
 def test_mcp_get_cloud_client_uses_configured_workspace(
@@ -1716,6 +1805,8 @@ def test_mcp_get_cloud_client_uses_configured_workspace(
 def test_mcp_describe_cloud_organization_resolves_without_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _stub_organization_features(monkeypatch)
+
     class DiscoveryClient:
         def get_organization(
             self,
@@ -1757,12 +1848,12 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch.setattr(
         api_util,
         "list_organizations_for_user_id",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(
         api_util,
         "get_organization_info",
-        lambda **_: (_ for _ in ()).throw(AirbyteError(message="Unavailable")),
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudError(message="Unavailable")),
     )
     monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
@@ -1805,13 +1896,13 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
             id="multiple-organizations",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 401}),
+            AirbyteCloudError(context={"status_code": 401}),
             0,
             "permission",
             id="unauthorized",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
+            AirbyteCloudError(context={"status_code": 403}),
             0,
             "permission",
             id="forbidden",
@@ -1820,13 +1911,15 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
 )
 def test_mcp_list_cloud_organizations_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    organizations_or_error: list[CloudOrganization] | AirbyteError,
+    organizations_or_error: list[CloudOrganization] | AirbyteCloudError,
     expected_count: int,
     expected_message: str | None,
 ) -> None:
+    _stub_organization_features(monkeypatch)
+
     class DiscoveryClient:
         def list_organizations(self, **_: object) -> list[CloudOrganization]:
-            if isinstance(organizations_or_error, AirbyteError):
+            if isinstance(organizations_or_error, AirbyteCloudError):
                 raise organizations_or_error
             return organizations_or_error
 
@@ -1844,6 +1937,8 @@ def test_mcp_list_cloud_organizations_discovery(
 def test_mcp_list_cloud_organizations_preserves_missing_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _stub_organization_features(monkeypatch)
+
     class DiscoveryClient:
         def list_organizations(self, **_: object) -> list[CloudOrganization]:
             return [CloudOrganization(organization_id="organization-id")]
@@ -1857,8 +1952,1007 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
             id="organization-id",
             name=None,
             email=None,
+            enabled_features=[],
         )
     ]
+
+
+def test_organization_feature_values() -> None:
+    """`OrganizationFeature` exposes the org-level feature names."""
+    assert OrganizationFeature.DIRECT_ACCESS == "direct_access"
+    assert OrganizationFeature.SEARCH_INDEXING == "search_indexing"
+
+
+def _seed_source(workspace: CloudWorkspace, source_id: str, name: str) -> CloudSource:
+    source = CloudSource(workspace=workspace, connector_id=source_id)
+    source._connector_info = CloudSourceInfo(  # noqa: SLF001
+        source_id=source_id, name=name, definition_id="source-definition"
+    )
+    return source
+
+
+def _seed_destination(
+    workspace: CloudWorkspace, destination_id: str, definition_id: str
+) -> CloudDestination:
+    destination = CloudDestination(workspace=workspace, connector_id=destination_id)
+    destination._connector_info = CloudDestinationInfo(  # noqa: SLF001
+        destination_id=destination_id, name=destination_id, definition_id=definition_id
+    )
+    return destination
+
+
+SNOWFLAKE_DEFINITION_ID = next(iter(_SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS))
+
+
+def _patch_workspace_connectors(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace: CloudWorkspace,
+    *,
+    context_layer: bool = True,
+    external_access_source_ids: list[str] | None = None,
+    enabled_destination_ids: list[str] | None = None,
+    search_indexed_ids: list[str] | None = None,
+) -> dict[str, int]:
+    """Stub the Cloud listings, Context layer docs, and Fusion enablement for `workspace`.
+
+    Sources in `external_access_source_ids` and destinations in
+    `enabled_destination_ids` have agent access enabled (and a docs skill; other
+    connectors' docs reads get a 404). Connectors in `search_indexed_ids` have
+    indexing enabled. Returns counters of docs (`list`) and enablement
+    (`enablement`) calls so tests can assert on lookups.
+    """
+    calls = {"list": 0, "enablement": 0}
+    enabled_ids = set(external_access_source_ids or []) | (
+        {"snowflake"}
+        if enabled_destination_ids is None
+        else set(enabled_destination_ids)
+    )
+
+    monkeypatch.setattr(
+        workspace,
+        "list_sources",
+        lambda **_: [
+            _seed_source(workspace, "source-1", "GitHub Issues"),
+            _seed_source(workspace, "source-2", "Salesforce"),
+            _seed_source(workspace, "source-3", "Jira"),
+        ],
+    )
+    monkeypatch.setattr(
+        workspace,
+        "list_destinations",
+        lambda **_: [
+            _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID),
+            _seed_destination(workspace, "postgres", "not-a-passthrough-definition"),
+        ],
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.deployment,
+        "is_agents_api_available",
+        lambda **_: context_layer,
+    )
+
+    def fake_read_cloud_skill_docs(**kwargs: object) -> dict[str, object]:
+        calls["list"] += 1
+        skill_id = str(kwargs["skill_id"])
+        connector_id = skill_id.rsplit(":", 1)[-1]
+        if connector_id not in enabled_ids:
+            raise AirbyteCloudApiError(status_code=404)
+        return {
+            "metadata": {
+                "id": skill_id,
+                "kind": "connector_source",
+                "title": connector_id,
+                "warnings": [],
+            },
+            "outline": [],
+            "section_id": None,
+            "content": [],
+        }
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "read_cloud_skill_docs",
+        fake_read_cloud_skill_docs,
+    )
+
+    def fake_get_enablement(**kwargs: object) -> ConnectorEnablement:
+        calls["enablement"] += 1
+        connector_id = str(kwargs["connector_id"])
+        return ConnectorEnablement(
+            enable_agent_access=connector_id in enabled_ids,
+            enable_indexing=connector_id in set(search_indexed_ids or []),
+        )
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_enablement",
+        fake_get_enablement,
+    )
+    return calls
+
+
+@pytest.mark.parametrize(
+    ("connector_type", "feature_filter", "name_contains", "limit", "expected"),
+    [
+        pytest.param(
+            None,
+            None,
+            None,
+            None,
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                ("source-3", frozenset()),
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                ),
+                ("postgres", frozenset()),
+            ],
+            id="all",
+        ),
+        pytest.param(
+            ConnectorType.SOURCE,
+            None,
+            None,
+            None,
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                ("source-3", frozenset()),
+            ],
+            id="sources",
+        ),
+        pytest.param(
+            ConnectorType.DESTINATION,
+            None,
+            None,
+            None,
+            [
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                ),
+                ("postgres", frozenset()),
+            ],
+            id="destinations",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.DIRECT_ACCESS,
+            None,
+            None,
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                ),
+            ],
+            id="direct_access",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.DIRECT_API_QUERY,
+            None,
+            None,
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+            ],
+            id="direct_api_query",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.DIRECT_SQL_QUERY,
+            None,
+            None,
+            [
+                (
+                    "snowflake",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+                )
+            ],
+            id="direct_sql_query",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.SEARCH_INDEXING,
+            None,
+            None,
+            [],
+            id="search_indexing",
+        ),
+        pytest.param(
+            None,
+            ConnectorFeature.DIRECT_ACCESS,
+            None,
+            2,
+            [
+                (
+                    "source-1",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                ),
+            ],
+            id="limit_applies_after_feature_filter",
+        ),
+        pytest.param(
+            None,
+            None,
+            "SALES",
+            None,
+            [
+                (
+                    "source-2",
+                    {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+                )
+            ],
+            id="name_contains_is_case_insensitive",
+        ),
+    ],
+)
+def test_cloud_workspace_list_connectors(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType | None,
+    feature_filter: ConnectorFeature | None,
+    name_contains: str | None,
+    limit: int | None,
+    expected: list[tuple[str, set[ConnectorFeature]]],
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1", "source-2"]
+    )
+
+    connectors = workspace.list_connectors(
+        connector_type=connector_type,
+        feature_filter=feature_filter,
+        name_contains=name_contains,
+        limit=limit,
+    )
+
+    assert [(c.connector_id, set(c.enabled_features)) for c in connectors] == expected
+    assert all(
+        isinstance(c, CloudSource if c.connector_type == "source" else CloudDestination)
+        for c in connectors
+    )
+    # Features come from at most one enablement call per listed connector, never docs.
+    assert calls["list"] == 0
+    assert calls["enablement"] <= 5
+
+
+def test_cloud_workspace_list_connectors_stops_probing_at_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    connectors = [
+        _seed_source(workspace, "source-1", "GitHub Issues"),
+        _seed_source(workspace, "source-2", "Salesforce"),
+        _seed_source(workspace, "source-3", "Jira"),
+    ]
+    monkeypatch.setattr(workspace, "list_sources", lambda **_: connectors)
+    monkeypatch.setattr(workspace, "list_destinations", lambda **_: [])
+
+    get_features = MagicMock(return_value=frozenset())
+    monkeypatch.setattr(workspace, "_get_connector_features", get_features)
+
+    assert len(workspace.list_connectors(limit=1)) == 1
+    assert get_features.call_count == 0
+
+    get_features.reset_mock()
+    get_features.side_effect = [
+        frozenset(),
+        frozenset({ConnectorFeature.DIRECT_ACCESS}),
+        frozenset({ConnectorFeature.DIRECT_ACCESS}),
+    ]
+
+    results = workspace.list_connectors(
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
+        limit=1,
+    )
+
+    assert [connector.connector_id for connector in results] == ["source-2"]
+    assert get_features.call_count == 2
+
+
+def test_cloud_workspace_list_connectors_does_not_probe_without_feature_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without `feature_filter`, features stay lazy and no docs probe is issued."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    connectors = [
+        _seed_source(workspace, "source-1", "GitHub Issues"),
+        _seed_source(workspace, "source-2", "Salesforce"),
+    ]
+    monkeypatch.setattr(workspace, "list_sources", lambda **_: connectors)
+    monkeypatch.setattr(workspace, "list_destinations", lambda **_: [])
+
+    get_features = MagicMock()
+    monkeypatch.setattr(workspace, "_get_connector_features", get_features)
+
+    results = workspace.list_connectors()
+
+    get_features.assert_not_called()
+    assert all(connector._enabled_features is None for connector in results)  # noqa: SLF001
+
+
+def test_cloud_workspace_list_connectors_rejects_non_positive_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
+        workspace.list_connectors(limit=0)
+
+
+def test_cloud_workspace_features_false_without_context_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(
+        monkeypatch,
+        workspace,
+        context_layer=False,
+        external_access_source_ids=["source-1"],
+    )
+
+    connectors = workspace.list_connectors()
+
+    assert workspace.enabled_features == frozenset()
+    assert not workspace.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
+    assert len(connectors) == 5
+    assert not any(c.enabled_features for c in connectors)
+    assert (
+        workspace.list_connectors(feature_filter=ConnectorFeature.DIRECT_ACCESS) == []
+    )
+    assert calls == {"list": 0, "enablement": 0}
+
+
+def test_cloud_connector_features_resolve_lazily_and_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+
+    assert calls == {"list": 0, "enablement": 0}
+    assert source.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    })
+    assert not source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING)
+    assert calls == {"list": 0, "enablement": 1}
+    assert destination.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_SQL_QUERY,
+    })
+    # Every connector kind resolves features through one enablement call.
+    assert calls == {"list": 0, "enablement": 2}
+    # Checking more features reuses the cached result.
+    for feature in ConnectorFeature:
+        source.is_feature_enabled(feature)
+        destination.is_feature_enabled(feature)
+    assert calls == {"list": 0, "enablement": 2}
+
+
+@pytest.mark.parametrize(
+    ("kind", "agent_access", "indexing", "expected"),
+    [
+        pytest.param(
+            "source",
+            True,
+            True,
+            {
+                ConnectorFeature.DIRECT_ACCESS,
+                ConnectorFeature.DIRECT_API_QUERY,
+                ConnectorFeature.SEARCH_INDEXING,
+            },
+            id="source_all",
+        ),
+        pytest.param(
+            "source",
+            True,
+            False,
+            {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_API_QUERY},
+            id="source_agent_access_only",
+        ),
+        pytest.param("source", False, False, set(), id="source_none"),
+        pytest.param(
+            "sql_destination",
+            True,
+            True,
+            {
+                ConnectorFeature.DIRECT_ACCESS,
+                ConnectorFeature.DIRECT_SQL_QUERY,
+                ConnectorFeature.SEARCH_INDEXING,
+            },
+            id="sql_destination_all",
+        ),
+        pytest.param(
+            "sql_destination",
+            True,
+            False,
+            {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY},
+            id="sql_destination_agent_access_only",
+        ),
+        pytest.param(
+            "other_destination",
+            True,
+            True,
+            {ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.SEARCH_INDEXING},
+            id="non_sql_destination_all",
+        ),
+        pytest.param(
+            "other_destination",
+            True,
+            False,
+            {ConnectorFeature.DIRECT_ACCESS},
+            id="non_sql_destination_agent_access_only",
+        ),
+        pytest.param("other_destination", False, False, set(), id="destination_none"),
+    ],
+)
+def test_cloud_connector_features_map_from_enablement(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+    agent_access: bool,
+    indexing: bool,
+    expected: set[ConnectorFeature],
+) -> None:
+    """Enablement flags map to connector features; docs are never read for them."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(monkeypatch, workspace)
+    requests_seen: list[dict[str, object]] = []
+
+    def fake_get_enablement(**kwargs: object) -> ConnectorEnablement:
+        requests_seen.append(kwargs)
+        return ConnectorEnablement(
+            enable_agent_access=agent_access, enable_indexing=indexing
+        )
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_enablement",
+        fake_get_enablement,
+    )
+    connector = (
+        _seed_source(workspace, "connector-1", "GitHub Issues")
+        if kind == "source"
+        else _seed_destination(
+            workspace,
+            "connector-1",
+            SNOWFLAKE_DEFINITION_ID
+            if kind == "sql_destination"
+            else "not-a-passthrough-definition",
+        )
+    )
+
+    assert set(connector.enabled_features) == expected
+    assert len(requests_seen) == 1
+    assert requests_seen[0]["connector_id"] == "connector-1"
+    assert requests_seen[0]["connector_type"] == connector.connector_type
+    assert calls["list"] == 0
+
+
+@pytest.mark.parametrize("status_code", [404])
+def test_cloud_connector_features_empty_when_enablement_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
+    )
+
+    def fail(**_: object) -> ConnectorEnablement:
+        raise AirbyteCloudApiError(status_code=status_code)
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_enablement", fail
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+
+    assert source.enabled_features == frozenset()
+    assert not source.is_feature_enabled(ConnectorFeature.SEARCH_INDEXING)
+
+
+_ENABLEMENT_FAILURES = [
+    pytest.param(AirbyteCloudApiError(status_code=403), id="forbidden"),
+    pytest.param(AirbyteCloudApiError(status_code=500), id="server_error"),
+    pytest.param(AirbyteCloudApiError(status_code=503), id="service_unavailable"),
+    pytest.param(requests.ConnectionError("connection reset"), id="transport"),
+    pytest.param(AirbyteCloudError(message="Malformed enablement"), id="malformed"),
+]
+
+
+@pytest.mark.parametrize("error", _ENABLEMENT_FAILURES)
+def test_cloud_connector_features_raise_on_enablement_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace)
+
+    def fail(**_: object) -> ConnectorEnablement:
+        raise error
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_enablement", fail
+    )
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+
+    with pytest.raises(type(error)):
+        _ = destination.enabled_features
+
+
+def test_cloud_connector_enablement_rejects_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A response missing the enablement flags raises `AirbyteCloudError`, not "not enabled"."""
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "make_cloud_agent_request",
+        lambda **_: {"actorId": "source-1"},
+    )
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(  # noqa: SLF001
+        bearer_token="token", env_vars=False
+    )
+
+    with pytest.raises(
+        AirbyteCloudError, match="Malformed Airbyte Cloud enablement"
+    ) as exc_info:
+        cloud_workspaces.agents_api_util.get_cloud_connector_enablement(
+            connector_id="source-1",
+            connector_type=ConnectorType.SOURCE,
+            credentials=credentials,
+        )
+    assert (exc_info.value.context or {})["path"] == "/sources/source-1/enablement"
+
+
+def test_cloud_connector_enablement_parses_destination_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests_seen: list[dict[str, object]] = []
+
+    def fake_request(**kwargs: object) -> dict[str, object]:
+        requests_seen.append(kwargs)
+        return {
+            "organizationId": "organization-id",
+            "workspaceId": "workspace-id",
+            "actorId": "destination-1",
+            "actorType": "destination",
+            "enable_agent_access": True,
+            "enable_indexing": True,
+            "enable_backfill": True,
+            "backfill_start_time": "2026-09-01T00:00:00Z",
+        }
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "make_cloud_agent_request", fake_request
+    )
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(  # noqa: SLF001
+        bearer_token="token", env_vars=False
+    )
+
+    enablement = cloud_workspaces.agents_api_util.get_cloud_connector_enablement(
+        connector_id="destination-1",
+        connector_type=ConnectorType.DESTINATION,
+        credentials=credentials,
+    )
+
+    assert requests_seen[0]["method"] == "GET"
+    assert requests_seen[0]["path"] == "/destinations/destination-1/enablement"
+    assert enablement.enable_agent_access is True
+    assert enablement.enable_indexing is True
+    assert enablement.enable_backfill is True
+    assert enablement.workspace_id == "workspace-id"
+    assert enablement.actor_type == "destination"
+    assert enablement.backfill_start_time is not None
+
+
+def test_cloud_destination_external_access_requires_context_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(monkeypatch, workspace, context_layer=False)
+
+    assert workspace.enabled_features == frozenset()
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    assert not destination.is_feature_enabled(ConnectorFeature.DIRECT_ACCESS)
+    assert calls == {"list": 0, "enablement": 0}
+
+
+def test_cloud_destination_features_empty_when_agent_access_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace, enabled_destination_ids=[])
+
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    assert destination.enabled_features == frozenset()
+
+
+def test_cloud_connector_features_ignore_docs_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Docs failures no longer affect feature flags."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace)
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(
+            AirbyteCloudError(context={"status_code": 500})
+        ),
+    )
+
+    destination = _seed_destination(workspace, "snowflake", SNOWFLAKE_DEFINITION_ID)
+    assert destination.enabled_features == frozenset({
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_SQL_QUERY,
+    })
+
+
+@pytest.mark.parametrize("error", _ENABLEMENT_FAILURES)
+def test_mcp_list_cloud_connectors_enablement_failure_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    """Enablement failures degrade to `"unknown"` in `list_cloud_connectors`, never raise."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(
+        monkeypatch,
+        workspace,
+        external_access_source_ids=["source-1", "source-2", "source-3"],
+    )
+
+    def fail_for_source_2(**kwargs: object) -> ConnectorEnablement:
+        calls["enablement"] += 1
+        if kwargs["connector_id"] == "source-2":
+            raise error
+        return ConnectorEnablement(enable_agent_access=True, enable_indexing=False)
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "get_cloud_connector_enablement",
+        fail_for_source_2,
+    )
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    results = mcp_cloud.list_cloud_connectors(
+        None,
+        connector_type=ConnectorType.SOURCE,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=ConnectorFeature.DIRECT_ACCESS,
+    )
+
+    workspace_wide = isinstance(error, requests.RequestException) or (
+        isinstance(error, AirbyteCloudApiError) and error.status_code == 503
+    )
+    source_features = [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ]
+    assert [result.id for result in results] == ["source-1", "source-2", "source-3"]
+    assert [result.enabled_features for result in results] == [
+        source_features,
+        mcp_cloud.FEATURES_UNKNOWN,
+        mcp_cloud.FEATURES_UNKNOWN if workspace_wide else source_features,
+    ]
+    assert any("enabled features are unknown" in w for w in results[1].warnings)
+    is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
+    assert any("permission problem" in w for w in results[1].warnings) is is_forbidden
+    # A 502/503/504 or transport failure stops further enablement lookups; a 403 does not.
+    assert calls["enablement"] == (2 if workspace_wide else 3)
+
+
+@pytest.mark.parametrize("error", _ENABLEMENT_FAILURES)
+def test_mcp_describe_cloud_connector_enablement_failure_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    """Enablement failures degrade to `"unknown"` in `describe_cloud_connector`."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    calls = _patch_workspace_connectors(monkeypatch, workspace)
+
+    def fail(**_: object) -> ConnectorEnablement:
+        raise error
+
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util, "get_cloud_connector_enablement", fail
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    source._connector_definition = SimpleNamespace(  # noqa: SLF001
+        name="GitHub", docker_repository="airbyte/source-github"
+    )
+
+    result = mcp_cloud._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == mcp_cloud.FEATURES_UNKNOWN
+    assert result.integration_name == "GitHub"
+    assert any("enabled features are unknown" in w for w in result.warnings)
+    is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
+    assert any("permission problem" in w for w in result.warnings) is is_forbidden
+    assert calls["list"] == 0
+
+
+def test_mcp_describe_cloud_connector_docs_failure_keeps_features(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A docs lookup failure is a warning; features still come from enablement."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1"]
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: (_ for _ in ()).throw(AirbyteCloudApiError(status_code=500)),
+    )
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    source._connector_definition = SimpleNamespace(  # noqa: SLF001
+        name="GitHub", docker_repository="airbyte/source-github"
+    )
+
+    result = mcp_cloud._describe_cloud_connector(  # noqa: SLF001
+        source,
+        with_config=False,
+        with_replication_details=False,
+        with_direct_access_guidance=False,
+        with_data_replication_docs=False,
+    )
+
+    assert result.enabled_features == [
+        ConnectorFeature.DIRECT_ACCESS,
+        ConnectorFeature.DIRECT_API_QUERY,
+    ]
+    assert any("docs lookup failed" in w for w in result.warnings)
+
+
+@pytest.mark.parametrize(
+    ("feature_filter", "expected_ids", "expected_flags"),
+    [
+        pytest.param(
+            None,
+            ["source-1", "source-2", "source-3"],
+            [mcp_cloud.FEATURES_NOT_CHECKED] * 3,
+            id="no_filter",
+        ),
+        pytest.param(
+            ConnectorFeature.SEARCH_INDEXING,
+            [],
+            [],
+            id="search_indexing",
+        ),
+    ],
+)
+def test_mcp_list_cloud_connectors_source_features(
+    monkeypatch: pytest.MonkeyPatch,
+    feature_filter: ConnectorFeature | None,
+    expected_ids: list[str],
+    expected_flags: list[list[ConnectorFeature] | str],
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(
+        monkeypatch, workspace, external_access_source_ids=["source-1", "source-2"]
+    )
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    results = mcp_cloud.list_cloud_connectors(
+        None,
+        connector_type=ConnectorType.SOURCE,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=feature_filter,
+    )
+
+    assert [result.id for result in results] == expected_ids
+    assert [result.enabled_features for result in results] == expected_flags
+    assert all(result.url.endswith(f"/source/{result.id}") for result in results)
+
+
+@pytest.mark.parametrize(
+    ("feature_filter", "expected_ids", "expected_flags"),
+    [
+        pytest.param(
+            None,
+            ["snowflake", "postgres"],
+            [mcp_cloud.FEATURES_NOT_CHECKED] * 2,
+            id="no_filter",
+        ),
+        pytest.param(
+            ConnectorFeature.DIRECT_SQL_QUERY,
+            ["snowflake"],
+            [[ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY]],
+            id="direct_sql_query",
+        ),
+        pytest.param(
+            ConnectorFeature.DIRECT_ACCESS,
+            ["snowflake"],
+            [[ConnectorFeature.DIRECT_ACCESS, ConnectorFeature.DIRECT_SQL_QUERY]],
+            id="direct_access",
+        ),
+        pytest.param(ConnectorFeature.SEARCH_INDEXING, [], [], id="search_indexing"),
+    ],
+)
+def test_mcp_list_cloud_connectors_destination_features(
+    monkeypatch: pytest.MonkeyPatch,
+    feature_filter: ConnectorFeature | None,
+    expected_ids: list[str],
+    expected_flags: list[list[ConnectorFeature] | str],
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    _patch_workspace_connectors(monkeypatch, workspace)
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    results = mcp_cloud.list_cloud_connectors(
+        None,
+        connector_type=ConnectorType.DESTINATION,
+        workspace_id=None,
+        name_contains=None,
+        limit=None,
+        feature_filter=feature_filter,
+    )
+
+    assert [result.id for result in results] == expected_ids
+    assert [result.enabled_features for result in results] == expected_flags
+
+
+@pytest.mark.parametrize(
+    "connector_type",
+    [
+        pytest.param(ConnectorType.SOURCE, id="sources"),
+        pytest.param(ConnectorType.DESTINATION, id="destinations"),
+        pytest.param(None, id="all"),
+    ],
+)
+@pytest.mark.parametrize("limit", [0, -1])
+def test_mcp_list_cloud_connectors_rejects_non_positive_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: ConnectorType | None,
+    limit: int,
+) -> None:
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_workspace", lambda _ctx, _id: workspace)
+
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
+        mcp_cloud.list_cloud_connectors(
+            None,
+            connector_type=connector_type,
+            workspace_id=None,
+            name_contains=None,
+            limit=limit,
+        )
+
+
+def _make_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    organization_info: dict[str, object] | Exception,
+    configured_organization_id: str | None = None,
+) -> CloudWorkspace:
+    """Return a `CloudWorkspace` whose organization lookup is stubbed."""
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+        organization_id=configured_organization_id,
+    )
+
+    def fake_organization_info(self: CloudWorkspace) -> dict[str, object]:
+        if isinstance(organization_info, Exception):
+            raise organization_info
+        return organization_info
+
+    monkeypatch.setattr(
+        CloudWorkspace, "_organization_info", property(fake_organization_info)
+    )
+    return workspace
+
+
+@pytest.mark.parametrize(
+    ("available", "expected"),
+    [
+        pytest.param(True, True, id="enabled"),
+        pytest.param(False, False, id="unavailable"),
+    ],
+)
+def test_cloud_workspace_enabled_features(
+    monkeypatch: pytest.MonkeyPatch,
+    available: bool,
+    expected: bool,
+) -> None:
+    """`enabled_features` is answered from API roots alone, with zero HTTP calls."""
+    workspace = _make_workspace(
+        monkeypatch, organization_info={"organizationId": "organization-id"}
+    )
+    monkeypatch.setattr(
+        cloud_workspaces.deployment,
+        "is_agents_api_available",
+        lambda **_: available,
+    )
+    monkeypatch.setattr(
+        "requests.request",
+        lambda *_args, **_kwargs: pytest.fail("enabled_features must not call HTTP"),
+    )
+
+    assert (OrganizationFeature.DIRECT_ACCESS in workspace.enabled_features) is expected
+    assert not workspace.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
 
 
 @pytest.mark.parametrize(
@@ -1899,13 +2993,13 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
             id="org-less-public-api-without-organization-name",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 401}),
+            AirbyteCloudError(context={"status_code": 401}),
             True,
             None,
             id="unauthorized",
         ),
         pytest.param(
-            AirbyteError(context={"status_code": 403}),
+            AirbyteCloudError(context={"status_code": 403}),
             True,
             None,
             id="forbidden",
@@ -1914,7 +3008,7 @@ def test_mcp_list_cloud_organizations_preserves_missing_details(
 )
 def test_mcp_list_cloud_workspaces_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteError,
+    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteCloudError,
     expect_message: bool,
     organization_name: str | None,
 ) -> None:
@@ -1928,7 +3022,7 @@ def test_mcp_list_cloud_workspaces_discovery(
         ) -> list[CloudWorkspaceInfo]:
             nonlocal captured_organization_id
             captured_organization_id = organization_id
-            if isinstance(workspaces_or_error, AirbyteError):
+            if isinstance(workspaces_or_error, AirbyteCloudError):
                 raise workspaces_or_error
             return workspaces_or_error
 
@@ -1946,6 +3040,7 @@ def test_mcp_list_cloud_workspaces_discovery(
         organization_name=None,
         name_contains=None,
         limit=None,
+        privilege_scope=WorkspacePrivilegeScope.MEMBER_OF,
     )
 
     assert captured_organization_id is None
@@ -1967,6 +3062,7 @@ def test_mcp_list_cloud_workspaces_discovery(
 def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _stub_organization_features(monkeypatch)
     captured: dict[str, object] = {}
 
     class DiscoveryClient:
@@ -1988,12 +3084,133 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
         limit=1,
     )
 
-    assert captured == {"name_contains": "develop", "limit": 1}
+    assert captured == {"name_contains": "develop", "feature_filter": None, "limit": 1}
     assert len(result.organizations) == 1
     assert (
         result.message == "Showing the first 1 organizations; more may exist. "
         "Pass `name_contains` to narrow the search, or a larger `limit`."
     )
+
+
+@pytest.mark.parametrize(
+    ("feature_filter", "expected_fragment"),
+    [
+        pytest.param(None, "Verify the credentials", id="no_filter"),
+        pytest.param(
+            OrganizationFeature.DIRECT_ACCESS,
+            "have `direct_access` enabled",
+            id="feature_filter",
+        ),
+    ],
+)
+def test_mcp_list_cloud_organizations_empty_message(
+    monkeypatch: pytest.MonkeyPatch,
+    feature_filter: ConnectorFeature | None,
+    expected_fragment: str,
+) -> None:
+    class DiscoveryClient:
+        def list_organizations(self, **_: object) -> list[CloudOrganization]:
+            return []
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(None, feature_filter=feature_filter)
+
+    assert result.organizations == []
+    assert expected_fragment in (result.message or "")
+
+
+@pytest.mark.parametrize(
+    ("context_layer", "expected"),
+    [
+        pytest.param(False, False, id="no_context_layer"),
+        pytest.param(True, True, id="enabled"),
+    ],
+)
+def test_cloud_organization_feature_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    context_layer: bool,
+    expected: bool,
+) -> None:
+    """`enabled_features` reflects Context layer availability without any HTTP call."""
+    monkeypatch.setattr(
+        cloud_organizations.deployment,
+        "is_agents_api_available",
+        lambda **_: context_layer,
+    )
+    organization = CloudOrganization("organization-id", bearer_token="token")
+
+    assert (
+        OrganizationFeature.DIRECT_ACCESS in organization.enabled_features
+    ) is expected
+    assert not organization.is_feature_enabled(OrganizationFeature.SEARCH_INDEXING)
+
+
+@pytest.mark.parametrize(
+    ("feature_filter", "limit", "expected_ids"),
+    [
+        pytest.param(None, None, ["disabled", "enabled"], id="no_filter"),
+        pytest.param(
+            OrganizationFeature.DIRECT_ACCESS,
+            None,
+            ["disabled", "enabled"],
+            id="direct_access",
+        ),
+        pytest.param(
+            OrganizationFeature.SEARCH_INDEXING, None, [], id="search_indexing"
+        ),
+        pytest.param(
+            OrganizationFeature.DIRECT_ACCESS,
+            1,
+            ["disabled"],
+            id="limit_after_filter",
+        ),
+    ],
+)
+def test_cloud_client_list_organizations_feature_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    feature_filter: OrganizationFeature | None,
+    limit: int | None,
+    expected_ids: list[str],
+) -> None:
+    organizations = [
+        CloudOrganization("disabled", bearer_token="token"),
+        CloudOrganization("enabled", bearer_token="token"),
+    ]
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
+    monkeypatch.setattr(
+        cloud_organizations.deployment,
+        "is_agents_api_available",
+        lambda **_: True,
+    )
+
+    result = client.list_organizations(feature_filter=feature_filter, limit=limit)
+
+    assert [organization.organization_id for organization in result] == expected_ids
+
+
+def test_mcp_list_cloud_organizations_reports_feature_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_organization_features(monkeypatch, enabled=True)
+    captured: dict[str, object] = {}
+
+    class DiscoveryClient:
+        def list_organizations(self, **kwargs: object) -> list[CloudOrganization]:
+            captured.update(kwargs)
+            return [CloudOrganization("organization-id", bearer_token="token")]
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(
+        None, feature_filter=OrganizationFeature.DIRECT_ACCESS
+    )
+
+    assert captured["feature_filter"] is OrganizationFeature.DIRECT_ACCESS
+    assert result.organizations[0].enabled_features == [
+        OrganizationFeature.DIRECT_ACCESS
+    ]
 
 
 def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(
@@ -2017,3 +3234,46 @@ def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(
     assert organization._fetch_organization_info(force_refresh=True) == {  # noqa: SLF001
         "organizationName": "cached"
     }
+
+
+def test_cloud_organization_get_billing_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "get_organization_info",
+        lambda **_: {
+            "billing": {
+                "paymentStatus": "okay",
+                "subscriptionStatus": "subscribed",
+            }
+        },
+    )
+    organization = CloudOrganization(organization_id="organization-id")
+    result = organization.get_billing_status()
+    assert result.payment_status == "okay"
+    assert result.subscription_status == "subscribed"
+    assert result.is_account_locked is False
+
+
+def test_cloud_organization_get_billing_status_requires_billing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_util, "get_organization_info", lambda **_: {"organizationId": "org-1"}
+    )
+    organization = CloudOrganization(organization_id="organization-id")
+    with pytest.raises(AirbyteCloudError, match="billing details"):
+        organization.get_billing_status()
+
+
+def test_cloud_organization_get_billing_status_wraps_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get_organization_info(**_: object) -> None:
+        raise requests.ConnectionError("reset")
+
+    monkeypatch.setattr(api_util, "get_organization_info", get_organization_info)
+    organization = CloudOrganization(organization_id="organization-id")
+    with pytest.raises(
+        AirbyteCloudError, match="Failed to retrieve organization billing"
+    ):
+        organization.get_billing_status()

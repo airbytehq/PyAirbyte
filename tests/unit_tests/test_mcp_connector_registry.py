@@ -17,7 +17,8 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls, get_connector_info
+from airbyte.mcp.guidance import get_api_docs_urls, get_connector_info
+from airbyte.mcp.registry import get_available_connectors
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -212,7 +213,7 @@ class TestGetApiDocsUrls:
 
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
                 connector_name="nonexistent-connector",
                 context={},
@@ -223,7 +224,7 @@ class TestGetApiDocsUrls:
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.return_value = [
                 ApiDocsUrl(
                     title="Airbyte Documentation",
@@ -401,7 +402,7 @@ def test_list_public_registry_connectors_applies_filters(
 def test_show_connectors_list_rejects_negative_limit() -> None:
     """Test that negative connector limits fail clearly."""
     with pytest.raises(
-        exc.PyAirbyteInputError, match="Limit parameter must be non-negative."
+        exc.AirbyteLibInputError, match="Limit parameter must be non-negative."
     ):
         show_connectors_list(limit=-1)
 
@@ -507,7 +508,7 @@ def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
     assert _mcp_module_for_tool(show_connectors_list) == "interactive"
     assert _mcp_module_for_tool(show_workspace_sync_status) == "interactive"
-    assert _mcp_module_for_tool(get_api_docs_urls) == "registry"
+    assert _mcp_module_for_tool(get_api_docs_urls) == "guidance"
 
 
 def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None:
@@ -525,13 +526,13 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             return_value=cloud_spec,
         ) as mock_get_spec,
     ):
@@ -546,6 +547,50 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
     )
 
 
+def test_get_connector_info_finds_java_connector_without_docker() -> None:
+    """A Java registry connector is discoverable when Docker is unavailable."""
+    connector_metadata = ConnectorMetadata(
+        name="source-postgres",
+        display_name="Postgres",
+        connector_type="source",
+        definition_id="source-postgres-definition",
+        docker_repository="airbyte/source-postgres",
+        latest_available_version="3.0.0",
+        pypi_package_name=None,
+        language="java",
+        install_types=set(),
+        support_level="certified",
+        release_stage="generally_available",
+        source_type="database",
+        documentation_url="https://docs.airbyte.com/integrations/sources/postgres",
+    )
+    connector = MagicMock()
+    connector.name = "source-postgres"
+    connector.docs_url = connector_metadata.documentation_url
+
+    with (
+        patch("airbyte.registry.is_docker_installed", return_value=False),
+        patch(
+            "airbyte.registry._get_registry_cache",
+            return_value={"source-postgres": connector_metadata},
+        ),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch(
+            "airbyte.mcp.guidance.get_connector_metadata",
+            return_value=connector_metadata,
+        ),
+        patch(
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
+            return_value=None,
+        ),
+    ):
+        assert get_available_connectors() == []
+        result = get_connector_info("source-postgres")
+
+    assert not isinstance(result, str)
+    assert result.connector_name == "source-postgres"
+
+
 def test_get_connector_info_falls_back_to_oss_spec() -> None:
     """When the `cloud` spec is unavailable, `get_connector_info` uses the `oss` spec."""
     connector = MagicMock()
@@ -556,13 +601,13 @@ def test_get_connector_info_falls_back_to_oss_spec() -> None:
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             side_effect=[None, oss_spec],
         ) as mock_get_spec,
     ):
@@ -585,13 +630,13 @@ def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             return_value=None,
         ),
     ):

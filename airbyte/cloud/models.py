@@ -4,11 +4,24 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, is_dataclass
-from enum import Enum, StrEnum
-from typing import Any, Protocol
+from dataclasses import asdict, dataclass, is_dataclass
+from enum import Enum
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from airbyte._direct_connectors.models import (
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+    DirectAccessGuidanceSection,
+    ExternalApiConnectorMetadata,
+    ExternalApiExecuteResult,
+    ExternalApiExecutionMetadata,
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
+)
+from airbyte._util.compat import StrEnum
+from airbyte.registry import ConnectorType
 
 
 class _WorkspaceResponseLike(Protocol):
@@ -19,6 +32,12 @@ class _WorkspaceResponseLike(Protocol):
     notifications: object
 
 
+class _ScheduleResponseLike(Protocol):
+    schedule_type: object
+    cron_expression: str | None
+    basic_timing: str | None
+
+
 class _ConnectionResponseLike(Protocol):
     connection_id: str
     workspace_id: str
@@ -27,6 +46,9 @@ class _ConnectionResponseLike(Protocol):
     name: str
     configurations: Any
     prefix: str | None
+    namespace_definition: object | None
+    namespace_format: str | None
+    schedule: _ScheduleResponseLike | None
     status: object
 
 
@@ -38,16 +60,72 @@ class _JobResponseLike(Protocol):
     start_time: str
 
 
+class ConnectionStatus(StrEnum):
+    """Mirrors the API's connection status."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DEPRECATED = "deprecated"
+
+
+class ConnectorFeature(StrEnum):
+    """Optional capabilities a deployed Cloud connector may have enabled."""
+
+    DIRECT_ACCESS = "direct_access"
+    """AI agents can access this connector directly (a superset of the other features).
+
+    Reported when agent access is enabled for the connector in its organization's
+    Context Layer settings. Search indexing requires agent access.
+    """
+
+    DIRECT_API_QUERY = "direct_api_query"
+    """Read-only queries against the connector's upstream API (`execute_api_query`)."""
+
+    DIRECT_API_ACTION = "direct_api_action"
+    """Write actions against the connector's upstream API (`execute_api_action`).
+
+    No connector reports this yet.
+    """
+
+    DIRECT_SQL_QUERY = "direct_sql_query"
+    """SQL queries against the destination (`execute_sql_query`).
+
+    SQL passthrough destinations only.
+    """
+
+    SEARCH_INDEXING = "search_indexing"
+    """Airbyte indexes the connector's data for fast search (`execute_search_query`).
+
+    For a destination, the indexed data of the sources synced to it. Distinct from any
+    native search the connector itself offers.
+    """
+
+
+class OrganizationFeature(StrEnum):
+    """Optional capabilities an Airbyte Cloud organization (or workspace) may have enabled."""
+
+    DIRECT_ACCESS = "direct_access"
+    """AI agents can access the organization's connectors directly through the Context layer."""
+
+    SEARCH_INDEXING = "search_indexing"
+    """Airbyte indexes connector data for fast search.
+
+    Not reported at this level yet; check `ConnectorFeature.SEARCH_INDEXING` per connector.
+    """
+
+
 class _SourceResponseLike(Protocol):
     source_id: str
     name: str
     definition_id: str
+    configuration: Any
 
 
 class _DestinationResponseLike(Protocol):
     destination_id: str
     name: str
     definition_id: str
+    configuration: Any
 
 
 class _DeclarativeSourceDefinitionResponseLike(Protocol):
@@ -57,7 +135,36 @@ class _DeclarativeSourceDefinitionResponseLike(Protocol):
     version: object
 
 
-class JobStatusEnum(StrEnum):
+@dataclass
+class CheckResult:
+    """A cloud check result object."""
+
+    success: bool
+    """Whether the check result is valid."""
+
+    error_message: str | None = None
+    """None if the check was successful. Otherwise the failure message from the check result."""
+
+    internal_error: str | None = None
+    """None if the check was able to be run. Otherwise, this will describe the internal failure."""
+
+    def __bool__(self) -> bool:
+        """Truthy when check was successful."""
+        return self.success
+
+    def __str__(self) -> str:
+        """Get a string representation of the check result."""
+        return "Success" if self.success else f"Failed: {self.error_message}"
+
+    def __repr__(self) -> str:
+        """Get a string representation of the check result."""
+        return (
+            f"CheckResult(success={self.success}, "
+            f"error_message={self.error_message or self.internal_error})"
+        )
+
+
+class JobStatusEnum(str, Enum):
     """Status values for an Airbyte Cloud job."""
 
     PENDING = "pending"
@@ -77,6 +184,28 @@ class JobTypeEnum(StrEnum):
     CLEAR = "clear"
 
 
+class WorkspacePrivilegeScope(str, Enum):
+    """How broadly `list_workspaces` searches for workspaces."""
+
+    MEMBER_OF = "member_of"
+    ORGANIZATION_ADMIN = "organization_admin"
+    INSTANCE_ADMIN = "instance_admin"
+    ANY = "any"
+
+
+class CloudOrganizationBillingInfo(BaseModel):
+    """Billing status information for an Airbyte organization."""
+
+    payment_status: str | None = None
+    """Payment status of the organization."""
+
+    subscription_status: str | None = None
+    """Subscription status of the organization."""
+
+    is_account_locked: bool = False
+    """Whether the organization account is locked."""
+
+
 class CloudWorkspaceInfo(BaseModel):
     """Information about an Airbyte workspace."""
 
@@ -94,6 +223,9 @@ class CloudWorkspaceInfo(BaseModel):
     organization_id: str | None = Field(default=None, alias="organizationId")
     """The organization ID for the workspace, if available."""
 
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name for the workspace, if available."""
+
     notifications: dict[str, object | None] | list[dict[str, object | None]] = Field(
         default_factory=dict
     )
@@ -102,14 +234,12 @@ class CloudWorkspaceInfo(BaseModel):
     @classmethod
     def from_api_response(cls, workspace: _WorkspaceResponseLike) -> CloudWorkspaceInfo:
         """Create a public model from an internal API workspace response."""
-        return cls.model_validate(
-            {
-                "workspaceId": workspace.workspace_id,
-                "name": workspace.name,
-                "dataResidency": workspace.data_residency,
-                "organizationId": getattr(workspace, "organization_id", None),
-                "notifications": _notifications_to_dict(workspace.notifications),
-            }
+        return cls(  # pyrefly: ignore[missing-argument]
+            workspace_id=workspace.workspace_id,
+            name=workspace.name,
+            data_residency=workspace.data_residency,
+            organization_id=getattr(workspace, "organization_id", None),
+            notifications=_notifications_to_dict(workspace.notifications),
         )
 
     @classmethod
@@ -120,6 +250,139 @@ class CloudWorkspaceInfo(BaseModel):
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable dictionary."""
         return self.model_dump(mode="json")
+
+
+class CloudOrganizationInfo(BaseModel):
+    """Information about an Airbyte organization."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    organization_id: str = Field(alias="organizationId")
+    """The organization ID."""
+
+    organization_name: str | None = Field(default=None, alias="organizationName")
+    """The organization name, if available."""
+
+
+class CloudDefaultContextInfo(BaseModel):
+    """Explicit organization and workspace affinities for the authenticated user."""
+
+    user_id: str | None
+    """The Airbyte user ID, if available."""
+
+    user_name: str | None
+    """The authenticated user's name, if available."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    default_workspace_id: str | None
+    """The resolved default workspace ID, if available."""
+
+    default_workspace_name: str | None
+    """The resolved default workspace name, if available."""
+
+    default_workspace_verified: bool
+    """Whether the resolved default workspace was verified as accessible."""
+
+    unvalidated_workspace_count: int = 0
+    """Number of direct workspace grants not validated due to the validation cap."""
+
+    default_organization_id: str | None
+    """The organization containing the resolved default workspace, if available."""
+
+    default_organization_name: str | None
+    """The name of the organization containing the resolved default workspace, if available."""
+
+    configured_workspace_id: str | None
+    """The explicitly configured workspace ID, if available."""
+
+    configured_organization_id: str | None
+    """The configured organization ID, if available."""
+
+    member_organizations: list[CloudOrganizationInfo]
+    """Organizations identified by explicit organization membership grants."""
+
+    member_workspaces: list[CloudWorkspaceInfo]
+    """Workspaces identified by explicit workspace membership grants."""
+
+    member_organizations_truncated: bool
+    """True if organization memberships beyond the returned list were omitted."""
+
+    member_workspaces_truncated: bool
+    """True if workspace memberships beyond the returned list were omitted."""
+
+    discovery_hints: list[str]
+    """Hints for discovering additional organizations or workspaces."""
+
+
+class CloudDefaultWorkspaceUpdateInfo(BaseModel):
+    """Result of durably updating the authenticated user's default workspace."""
+
+    user_id: str
+    """The Airbyte user ID the update applied to."""
+
+    user_email: str | None
+    """The authenticated user's email, if available."""
+
+    previous_default_workspace_id: str | None
+    """The user's previous default workspace ID, if one was set."""
+
+    default_workspace_id: str
+    """The new default workspace ID."""
+
+    default_workspace_name: str | None
+    """The new default workspace name, if available."""
+
+    organization_id: str | None
+    """The ID of the organization containing the new default workspace, if available."""
+
+    organization_name: str | None
+    """The name of the organization containing the new default workspace, if available."""
+
+    membership_basis: Literal["workspace", "organization"]
+    """Whether access was established via a direct workspace grant or an organization grant."""
+
+
+class ConnectionSchedule(BaseModel):
+    """A connection's sync schedule."""
+
+    schedule_type: Literal["manual", "cron", "basic"]
+    """The schedule type."""
+
+    schedule_expression: str | None = None
+    """The cron expression (with timezone, e.g. `0 0 * * * ? UTC`) for `cron`; the
+    basic interval as returned by the API (e.g. `Every 24 HOURS`) for `basic`;
+    `None` for `manual`."""
+
+    @classmethod
+    def from_api_response(cls, schedule: _ScheduleResponseLike) -> ConnectionSchedule:
+        """Build a `ConnectionSchedule` from an API schedule object."""
+        schedule_type = _enum_value(schedule.schedule_type)
+        if schedule_type == "cron":
+            expression = schedule.cron_expression
+        elif schedule_type == "basic":
+            expression = schedule.basic_timing
+        else:
+            expression = None
+        return cls(schedule_type=schedule_type, schedule_expression=expression)
+
+    @property
+    def friendly_description(self) -> str:
+        """Human-readable schedule: `manual`, the cron expression, or `every 24 hours`."""
+        if self.schedule_type == "manual":
+            return "manual"
+        if self.schedule_type == "cron":
+            return self.schedule_expression or "cron"
+        expression = self.schedule_expression
+        if expression and expression.strip():
+            text = expression.replace("_", " ").strip()
+            return text if text.lower().startswith("every") else f"every {text}"
+        return "basic"
+
+    def __str__(self) -> str:
+        """Return the friendly description of the schedule."""
+        return self.friendly_description
 
 
 class CloudConnectionInfo(BaseModel):
@@ -146,7 +409,16 @@ class CloudConnectionInfo(BaseModel):
     prefix: str | None = None
     """The destination table prefix."""
 
-    status: str
+    namespace_definition: str | None = None
+    """How destination namespaces are chosen: `source`, `destination`, or `custom_format`."""
+
+    namespace_format: str | None = None
+    """The namespace format template, when `namespace_definition` is `custom_format`."""
+
+    schedule: ConnectionSchedule | None = None
+    """The connection's sync schedule, or `None` if unknown."""
+
+    status: ConnectionStatus
     """The connection status."""
 
     @classmethod
@@ -160,7 +432,18 @@ class CloudConnectionInfo(BaseModel):
             name=connection.name,
             configurations=connection.configurations,
             prefix=connection.prefix,
-            status=_enum_value(connection.status),
+            namespace_definition=(
+                _enum_value(connection.namespace_definition)
+                if connection.namespace_definition is not None
+                else None
+            ),
+            namespace_format=connection.namespace_format,
+            schedule=(
+                ConnectionSchedule.from_api_response(connection.schedule)
+                if connection.schedule is not None
+                else None
+            ),
+            status=ConnectionStatus(_enum_value(connection.status)),
         )
 
 
@@ -206,6 +489,10 @@ class CloudSourceInfo(BaseModel):
     definition_id: str
     """The connector definition ID (for example, the ID for `source-postgres`)."""
 
+    configuration: dict[str, Any] | None = None
+    """The source configuration as returned by the API; secret values are redacted by
+    the API."""
+
     @classmethod
     def from_api_response(cls, source: _SourceResponseLike) -> CloudSourceInfo:
         """Create a public model from an internal API source response."""
@@ -213,6 +500,7 @@ class CloudSourceInfo(BaseModel):
             source_id=source.source_id,
             name=source.name,
             definition_id=source.definition_id,
+            configuration=_configuration_dict(source.configuration),
         )
 
 
@@ -228,6 +516,10 @@ class CloudDestinationInfo(BaseModel):
     definition_id: str
     """The connector definition ID (for example, the ID for `destination-snowflake`)."""
 
+    configuration: dict[str, Any] | None = None
+    """The destination configuration as returned by the API; secret values are redacted by
+    the API."""
+
     @classmethod
     def from_api_response(
         cls,
@@ -238,6 +530,7 @@ class CloudDestinationInfo(BaseModel):
             destination_id=destination.destination_id,
             name=destination.name,
             definition_id=destination.definition_id,
+            configuration=_configuration_dict(destination.configuration),
         )
 
 
@@ -270,6 +563,17 @@ class CloudCustomSourceDefinitionInfo(BaseModel):
         )
 
 
+def _configuration_dict(configuration: object) -> dict[str, Any] | None:
+    """Convert an API connector configuration object into a dictionary."""
+    if configuration is None:
+        return None
+    if is_dataclass(configuration) and not isinstance(configuration, type):
+        return {str(key): value for key, value in asdict(configuration).items()}
+    if isinstance(configuration, Mapping):
+        return {str(key): value for key, value in configuration.items()}
+    return None
+
+
 def _notifications_to_dict(notifications: object) -> dict[str, object | None]:
     """Convert workspace notification settings into a dictionary."""
     if notifications is None:
@@ -286,3 +590,33 @@ def _enum_value(value: object) -> str:
     if isinstance(value, Enum):
         return str(value.value)
     return str(value)
+
+
+__all__ = [
+    "CloudConnectionInfo",
+    "ConnectionStatus",
+    "ConnectionSchedule",
+    "CloudCustomSourceDefinitionInfo",
+    "CloudDefaultContextInfo",
+    "CloudDefaultWorkspaceUpdateInfo",
+    "CloudDestinationInfo",
+    "CloudJobInfo",
+    "CloudOrganizationBillingInfo",
+    "CloudOrganizationInfo",
+    "DirectAccessGuidance",
+    "DirectAccessGuidanceIndexEntry",
+    "DirectAccessGuidanceSection",
+    "CloudSourceInfo",
+    "CloudWorkspaceInfo",
+    "ConnectorFeature",
+    "OrganizationFeature",
+    "ConnectorType",
+    "ExternalApiConnectorMetadata",
+    "ExternalApiExecuteResult",
+    "ExternalApiExecutionMetadata",
+    "ExternalApiReadOnlyAction",
+    "ExternalApiWriteAction",
+    "JobStatusEnum",
+    "JobTypeEnum",
+    "WorkspacePrivilegeScope",
+]

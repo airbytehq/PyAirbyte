@@ -8,6 +8,8 @@ from enum import StrEnum
 
 from airbyte_protocol.models import DestinationSyncMode
 
+from airbyte.exceptions import AirbyteLibInternalError
+
 
 _MERGE = "merge"
 _REPLACE = "replace"
@@ -89,4 +91,4 @@ class WriteMethod(StrEnum):
             return DestinationSyncMode.overwrite
 
         msg = f"Unknown write method: {self}"  # type: ignore [unreachable]
-        raise ValueError(msg)
+        raise AirbyteLibInternalError(message=msg)

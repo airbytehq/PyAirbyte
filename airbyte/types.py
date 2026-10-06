@@ -30,7 +30,7 @@ CONVERSION_MAP = {
 }
 
 
-class SQLTypeConversionError(Exception):
+class _SQLTypeConversionError(Exception):
     """An exception to be raised when a type conversion fails."""
 
 
@@ -81,7 +81,7 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
         if isinstance(items_def, dict):
             try:
                 subtype, _ = _get_airbyte_type(items_def)
-            except SQLTypeConversionError:
+            except _SQLTypeConversionError:
                 # We have enough information, so we can ignore parsing errors on subtype.
                 subtype = None
 
@@ -93,7 +93,7 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
         return "vector_array", "Float"
 
     err_msg = f"Could not determine airbyte type from JSON schema type: {json_schema_property_def}"
-    raise SQLTypeConversionError(err_msg)
+    raise _SQLTypeConversionError(err_msg)
 
 
 class SQLTypeConverter:
@@ -132,7 +132,7 @@ class SQLTypeConverter:
             if airbyte_type == "vector_array":
                 return sqlalchemy.types.ARRAY(sqlalchemy.types.Float())
             sql_type = self.conversion_map[airbyte_type]
-        except SQLTypeConversionError:
+        except _SQLTypeConversionError:
             print(f"Could not determine airbyte type from JSON schema: {json_schema_property_def}")
         except KeyError:
             # pyrefly: ignore[unbound-name]

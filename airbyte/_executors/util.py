@@ -52,12 +52,12 @@ def _try_get_manifest_connector_files(
     downloads and extracts `components.py` from the zip archive.
 
     Raises:
-        - `PyAirbyteInputError`: If `source_name` is `None`.
+        - `AirbyteLibInputError`: If `source_name` is `None`.
         - `AirbyteConnectorInstallationError`: If the manifest cannot be downloaded or parsed,
           or if components.zip cannot be downloaded or extracted (excluding 404 errors).
     """
     if source_name is None:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Param 'source_name' is required.",
         )
 
@@ -138,7 +138,7 @@ def _get_local_executor(
 ) -> Executor:
     """Get a local executor for a connector."""
     if version:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Param 'version' is not supported when 'local_executable' is set."
         )
 
@@ -207,7 +207,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         use_python = True
 
     if version and pip_url:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message=(
                 "Cannot specify both version and pip_url. "
                 "Make sure to specify the connector version directly in the pip_url."
@@ -219,7 +219,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         )
 
     if install_method_count > 1:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
                 "'source_manifest', 'pip_url', or 'no_executor'."
@@ -286,7 +286,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             docker_image = f"airbyte/{name}"
 
         if version is not None and ":" in docker_image:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="The 'version' parameter is not supported when a tag is already set in the "
                 "'docker_image' parameter.",
                 context={

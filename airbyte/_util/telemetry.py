@@ -64,6 +64,9 @@ PYAIRBYTE_APP_TRACKING_KEY = (
 )
 """This key corresponds globally to the "PyAirbyte" application."""
 
+PYAIRBYTE_MCP_TRACKING_KEY = "KUID2VHtcNVbjAN7RsZdg6ZKKeMHCWhZ"
+"""This key corresponds globally to the "PyAirbyte MCP" application."""
+
 
 PYAIRBYTE_SESSION_ID = str(ulid.ULID())
 """Unique identifier for the current invocation of PyAirbyte.
@@ -187,11 +190,10 @@ class EventType(StrEnum):
 
 
 @lru_cache
-def get_env_flags() -> dict[str, Any]:
+def _get_static_env_flags() -> dict[str, bool | str]:
     flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
         "LANGCHAIN": meta.is_langchain(),
-        "MCP": meta.is_mcp_mode(),
         "NOTEBOOK_RUNTIME": (
             "GOOGLE_COLAB"
             if meta.is_colab()
@@ -202,8 +204,22 @@ def get_env_flags() -> dict[str, Any]:
             else False
         ),
     }
+    return flags
+
+
+def get_env_flags() -> dict[str, Any]:
+    """Return the current environment flags used for telemetry."""
+    flags = {
+        **_get_static_env_flags(),
+        "MCP": meta.is_mcp_mode(),
+    }
     # Drop these flags if value is False or None
     return {k: v for k, v in flags.items() if v is not None and v is not False}
+
+
+def get_segment_write_key() -> str:
+    """Return the Segment key for the current runtime."""
+    return PYAIRBYTE_MCP_TRACKING_KEY if meta.is_mcp_mode() else PYAIRBYTE_APP_TRACKING_KEY
 
 
 def send_telemetry(
@@ -240,7 +256,7 @@ def send_telemetry(
         payload_props["cache"] = cache.to_dict()
 
     if exception:
-        if isinstance(exception, exc.AirbyteError):
+        if isinstance(exception, exc.AirbyteCloudError):
             payload_props["exception"] = exception.safe_logging_dict()
         else:
             payload_props["exception"] = {"class": type(exception).__name__}
@@ -253,7 +269,7 @@ def send_telemetry(
         # Do not handle the response, we don't want to block the execution
         _ = requests.post(
             "https://api.segment.io/v1/track",
-            auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
+            auth=(get_segment_write_key(), ""),
             json={
                 "anonymousId": _get_analytics_id(),
                 "event": event_type,

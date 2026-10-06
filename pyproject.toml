@@ -46,15 +46,25 @@ dependencies = [
     "sqlalchemy-bigquery==1.12.0",
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
-    "fastmcp>=3.0,<4.0",
-    "fastmcp-extensions>=0.22.0,<1.0.0",
+    "fastmcp>=4.0.9,<5.0",
+    "fastmcp-extensions>=0.33.0,<1.0.0",
     "starlette",  # Transitive dependency of fastmcp, imported directly
+    "httpx",  # Transitive dependency of fastmcp, imported directly
+    "mcp",  # Transitive dependency of fastmcp, imported directly
+    "jinja2",  # Transitive dependency of airbyte-cdk/starlette, imported directly for the SSO login template
     "uv>=0.5.0,<0.9.0",
     "prefab-ui>=0.20.1,<0.21",
+    "opentelemetry-sdk==1.39.1",
+    "opentelemetry-exporter-otlp-proto-http==1.39.1",
+    "opentelemetry-instrumentation-requests==0.60b1",
 ]
+
+[project.optional-dependencies]
+datadog = ["ddtrace>=4.15.2,<5.0"]
 
 [dependency-groups]
 dev = [
+    "ddtrace>=4.15.2,<5.0",
     "coverage>=7.5.1,<8.0",
     "deptry>=0.21.1,<1.0",
     "docker>=7.1.0,<8.0",
@@ -140,7 +150,6 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.
     "ignore::airbyte_cdk.sources.source.ExperimentalClassWarning",
-    "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
     # CDK has these refs:
     "ignore::pydantic.warnings.PydanticDeprecatedSince20",
 ]

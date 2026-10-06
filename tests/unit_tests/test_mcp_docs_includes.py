@@ -48,12 +48,11 @@ def test_validate_includes_passes_for_existing_target(tmp_path: Path) -> None:
 def test_existing_includes_name_generated_mcp_modules() -> None:
     repo_root = Path(__file__).parents[2]
     generated_modules = {
-        "agents",
         "cloud",
         "local",
         "interactive",
         "registry",
-        "prompts",
+        "guidance",
     }
     for source in (repo_root / "airbyte").rglob("*.py"):
         for line in source.read_text(encoding="utf-8").splitlines():

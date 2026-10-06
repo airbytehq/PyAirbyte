@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.callbacks import ConfigChangeCallback
     from airbyte.progress import ProgressTracker
+    from airbyte.registry import ConnectorType
 
 
 MAX_LOG_LINES = 20
@@ -54,7 +55,7 @@ MAX_LOG_LINES = 20
 class ConnectorBase(abc.ABC):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination", "source"]
+    connector_type: ConnectorType
 
     def __init__(
         self,
@@ -261,7 +262,7 @@ class ConnectorBase(abc.ABC):
                 want to print the spec to the console but not interfere with other output.
         """
         if output_file and stderr:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="You can set output_file or stderr but not both.",
                 context={
                     "output_file": output_file,
@@ -270,7 +271,7 @@ class ConnectorBase(abc.ABC):
             )
 
         if format not in {"yaml", "json"}:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,
             )

@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import mcp_types as types
 import pytest
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
@@ -24,6 +24,7 @@ from airbyte.constants import MCP_EXTENSIONS_HEADER
 from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
+from fastmcp_extensions.capability_tokens import decode_capability_token
 
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
@@ -33,6 +34,13 @@ UI_TOOL_NAMES = {
     "show_connection_sync_history",
 }
 REPO_ROOT = Path(__file__).parents[2]
+
+
+def test_mcp_types_aliases_mcp_types_package() -> None:
+    """`mcp.types` and `mcp_types` expose the same capability class in mcp 2."""
+    import mcp.types as shim_types
+
+    assert shim_types.ClientCapabilities is types.ClientCapabilities
 
 
 def test_mcp_extensions_header_matches_fastmcp_extensions() -> None:
@@ -51,9 +59,14 @@ def test_importing_airbyte_does_not_load_mcp_dependencies() -> None:
         capture_output=True,
         check=True,
         text=True,
+        # The dev-only logfire extra auto-loads an OTel SDK Pydantic plugin.
+        # Check PyAirbyte imports without this unrelated third-party hook.
+        env={**os.environ, "PYDANTIC_DISABLE_PLUGINS": "logfire-plugin"},
     )
     loaded_modules = set(result.stdout.splitlines())
     forbidden_modules = {
+        "opentelemetry.sdk",
+        "opentelemetry.exporter",
         "fastmcp",
         "fastmcp_extensions",
         "uvicorn",
@@ -158,7 +171,7 @@ async def _http_session(
             async with streamable_http_client(
                 "http://testserver/mcp",
                 http_client=http_client,
-            ) as (read_stream, write_stream, _):
+            ) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     yield session
 
@@ -206,10 +219,10 @@ def test_stateless_http_initialize_capabilities_survive_via_session_token(
     assert UI_TOOL_NAMES <= names
 
 
-def test_stateless_http_without_extensions_mints_no_session_token(
+def test_stateless_http_without_extensions_mints_extensionless_session_token(
     configure_client_capabilities: Any,
 ) -> None:
-    """Clients without extensions receive no session token or UI tools."""
+    """Clients without extensions get a session token that grants no UI tools."""
     response_headers: list[list[tuple[bytes, bytes]]] = []
     names = asyncio.run(
         _tool_names(
@@ -221,11 +234,14 @@ def test_stateless_http_without_extensions_mints_no_session_token(
         )
     )
     assert UI_TOOL_NAMES.isdisjoint(names)
-    assert all(
-        header_name.lower() != b"mcp-session-id"
+    tokens = [
+        value.decode("latin-1")
         for headers in response_headers
-        for header_name, _ in headers
-    )
+        for header_name, value in headers
+        if header_name.lower() == b"mcp-session-id"
+    ]
+    assert tokens
+    assert all(decode_capability_token(token) == set() for token in tokens)
 
 
 @pytest.mark.parametrize(
