@@ -246,7 +246,6 @@ def list_connector_config_secrets(
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def list_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
@@ -715,7 +714,6 @@ class CachedDatasetInfo(BaseModel):
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
@@ -737,7 +735,6 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
@@ -792,7 +789,6 @@ def _is_safe_sql(sql_query: str) -> bool:
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def run_sql_query(
     sql_query: Annotated[
