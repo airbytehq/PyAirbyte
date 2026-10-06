@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from types import SimpleNamespace
 
 import pytest
 from airbyte.cloud import CloudWorkspace
@@ -16,10 +15,15 @@ from airbyte.cloud.models import (
     ConnectionStatus,
 )
 from airbyte_api.models import (
+    ConnectionResponse,
+    ConnectionScheduleResponse,
+    ConnectionStatusEnum,
     DestinationDuckdb,
     DestinationResponse,
+    ScheduleTypeWithBasicEnum,
     SourceFaker,
     SourceResponse,
+    StreamConfigurations,
 )
 
 
@@ -42,7 +46,7 @@ from airbyte_api.models import (
             id="source",
         ),
         pytest.param(
-            SourceResponse(
+            SourceResponse.model_construct(
                 configuration=None,
                 created_at=1,
                 definition_id="source-empty-definition",
@@ -99,23 +103,24 @@ def test_cloud_connection_info_from_api_response_populates_schedule(
     expected_status: ConnectionStatus,
 ) -> None:
     """`CloudConnectionInfo` carries the schedule returned by the API."""
-    schedule = SimpleNamespace(schedule_type="manual")
     info = CloudConnectionInfo.from_api_response(
-        SimpleNamespace(
+        ConnectionResponse(
             connection_id="conn-1",
             workspace_id="workspace-id",
             source_id="source-1",
             destination_id="dest-1",
             name="sync",
-            configurations=None,
-            prefix=None,
-            namespace_definition=None,
-            namespace_format=None,
-            schedule=schedule,
-            status=api_status,
+            configurations=StreamConfigurations(streams=[]),
+            created_at=1,
+            schedule=ConnectionScheduleResponse(
+                schedule_type=ScheduleTypeWithBasicEnum.MANUAL,
+            ),
+            status=ConnectionStatusEnum(api_status),
+            tags=[],
         )
     )
 
+    assert info.schedule is not None
     assert info.schedule.schedule_type == "manual"
     assert info.status is expected_status
 
@@ -136,8 +141,8 @@ def test_connection_schedule_from_api_response(
 ) -> None:
     """`ConnectionSchedule.from_api_response` maps schedule fields by type."""
     schedule = ConnectionSchedule.from_api_response(
-        SimpleNamespace(
-            schedule_type=schedule_type,
+        ConnectionScheduleResponse(
+            schedule_type=ScheduleTypeWithBasicEnum(schedule_type),
             cron_expression=cron_expression,
             basic_timing=basic_timing,
         )

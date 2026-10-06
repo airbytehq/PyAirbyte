@@ -19,6 +19,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
+import httpx
 import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
@@ -251,7 +252,7 @@ def get_airbyte_server_instance(
             guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
         )
 
-    client = requests.Session()
+    client = httpx.Client()
     client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
 
     # Option 1: Bearer token authentication
@@ -1073,11 +1074,14 @@ def cancel_job(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.jobs.cancel_job(
-        api.CancelJobRequest(
-            job_id=job_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.jobs.cancel_job(
+            request=api.CancelJobRequest(
+                job_id=job_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"job_id": job_id}) from e
     if status_ok(response.status_code):
         if response.job_response:
             return response.job_response
@@ -1537,12 +1541,17 @@ def get_source_definition(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.source_definitions.get_source_definition(
-        api.GetSourceDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.source_definitions.get_source_definition(
+            request=api.GetSourceDefinitionRequest(
+                definition_id=definition_id,
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(
+            e, {"definition_id": definition_id, "workspace_id": workspace_id}
+        ) from e
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -1573,12 +1582,17 @@ def get_destination_definition(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destination_definitions.get_destination_definition(
-        api.GetDestinationDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.destination_definitions.get_destination_definition(
+            request=api.GetDestinationDefinitionRequest(
+                definition_id=definition_id,
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(
+            e, {"definition_id": definition_id, "workspace_id": workspace_id}
+        ) from e
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -2792,7 +2806,10 @@ def list_organizations_for_user(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.organizations.list_organizations_for_user()
+    try:
+        response = airbyte_instance.organizations.list_organizations_for_user()
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
 
     if status_ok(response.status_code) and response.organizations_response:
         return response.organizations_response.data

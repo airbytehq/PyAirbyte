@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
@@ -24,6 +25,7 @@ from airbyte.exceptions import (
     AirbyteMissingResourceError,
     AirbyteLibInputError,
 )
+from airbyte.secrets.base import SecretString
 from airbyte_api import models
 from airbyte_api.errors import SDKError
 
@@ -88,18 +90,19 @@ def test_connection_status_returns_connection_status_enum(
     connection = _connection()
     connection._connection_info = (  # noqa: SLF001  # Seed cache.
         CloudConnectionInfo.from_api_response(
-            SimpleNamespace(
+            models.ConnectionResponse(
                 connection_id="connection-id",
                 workspace_id="workspace-id",
                 source_id="source-id",
                 destination_id="destination-id",
                 name="sync",
-                configurations=None,
-                prefix=None,
-                namespace_definition=None,
-                namespace_format=None,
-                schedule=None,
-                status=api_status,
+                configurations={},
+                created_at=1,
+                schedule=models.ConnectionScheduleResponse(
+                    schedule_type=models.ScheduleTypeWithBasicEnum.MANUAL,
+                ),
+                status=models.ConnectionStatusEnum(api_status),
+                tags=[],
             )
         )
     )
@@ -253,7 +256,7 @@ def test_get_sync_result_validates_job_id(
             return_value=_job_response(
                 42,
                 models.JobStatusEnum.SUCCEEDED,
-                connection_id=job_connection_id,
+                connection_id=job_connection_id or "connection-id",
             )
         )
     monkeypatch.setattr(api_util, "get_job_info", get_job_info)
@@ -592,7 +595,10 @@ def test_set_schedule_accepts_quartz_cron(
             status=models.ConnectionStatusEnum.ACTIVE,
             workspace_id="workspace-id",
             configurations=models.StreamConfigurations(streams=[]),
-            schedule=schedule,
+            schedule=models.ConnectionScheduleResponse(
+                schedule_type=models.ScheduleTypeWithBasicEnum.CRON,
+                cron_expression=schedule.cron_expression,
+            ),
             tags=[],
         )
 
@@ -665,6 +671,8 @@ def test_run_sync_conflict_on_disabled_connection_raises_input_error(
     with pytest.raises(AirbyteLibInputError) as exc_info:
         connection.run_sync()
 
+    assert exc_info.value.message is not None
+    assert exc_info.value.guidance is not None
     assert "disabled" in exc_info.value.message
     assert "enabled=True" in exc_info.value.guidance
     fetch_mock.assert_called_once_with(force_refresh=True)
@@ -722,9 +730,11 @@ def test_run_connection_wraps_sdk_error(
     airbyte_instance = MagicMock()
     airbyte_instance.jobs.create_job.side_effect = SDKError(
         message="Status 409",
-        status_code=409,
+        raw_response=httpx.Response(
+            409,
+            request=httpx.Request("POST", "https://api.airbyte.com/v1/jobs"),
+        ),
         body="...",
-        raw_response=MagicMock(),
     )
     monkeypatch.setattr(
         api_util,
@@ -739,7 +749,8 @@ def test_run_connection_wraps_sdk_error(
             api_root="https://api.airbyte.com/v1",
             client_id=None,
             client_secret=None,
-            bearer_token="token",
+            bearer_token=SecretString("token"),
         )
 
+    assert exc_info.value.context is not None
     assert exc_info.value.context["status_code"] == 409

@@ -32,7 +32,9 @@ class _WorkspaceResponseLike(Protocol):
 
 
 class _ScheduleResponseLike(Protocol):
-    schedule_type: object
+    @property
+    def schedule_type(self) -> object: ...
+
     cron_expression: str | None
     basic_timing: str | None
 
@@ -45,10 +47,17 @@ class _ConnectionResponseLike(Protocol):
     name: str
     configurations: Any
     prefix: str | None
-    namespace_definition: object | None
+
+    @property
+    def namespace_definition(self) -> object | None: ...
+
     namespace_format: str | None
-    schedule: _ScheduleResponseLike | None
-    status: object
+
+    @property
+    def schedule(self) -> _ScheduleResponseLike | None: ...
+
+    @property
+    def status(self) -> object: ...
 
 
 class _JobResponseLike(Protocol):
@@ -568,6 +577,8 @@ def _configuration_dict(configuration: object) -> dict[str, Any] | None:
         return None
     if is_dataclass(configuration) and not isinstance(configuration, type):
         return {str(key): value for key, value in asdict(configuration).items()}
+    if isinstance(configuration, BaseModel):
+        return configuration.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(configuration, Mapping):
         return {str(key): value for key, value in configuration.items()}
     return None
@@ -579,6 +590,8 @@ def _notifications_to_dict(notifications: object) -> dict[str, object | None]:
         return {}
     if is_dataclass(notifications) and not isinstance(notifications, type):
         return {str(key): value for key, value in asdict(notifications).items()}
+    if isinstance(notifications, BaseModel):
+        return notifications.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(notifications, Mapping):
         return {str(key): value for key, value in notifications.items()}
     return {}

@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Literal, cast
 
+import httpx
 import pytest
 import requests
 import responses
@@ -59,6 +61,27 @@ def _actor_body(connector_type: str, *, draft: bool | None) -> dict[str, Any]:
     if draft is not None:
         body["isDraft"] = draft
     return body
+
+
+def _mock_httpx_get(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    url: str,
+    body: dict[str, Any],
+) -> None:
+    httpx_module = api_util.httpx
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert str(request.url) == url
+        return httpx_module.Response(200, json=body, request=request)
+
+    transport = httpx_module.MockTransport(handle)
+    monkeypatch.setattr(
+        api_util,
+        "httpx",
+        SimpleNamespace(Client=lambda: httpx_module.Client(transport=transport)),
+    )
 
 
 def _create_deferred(connector_type: Literal["source", "destination"]) -> str:
@@ -555,14 +578,15 @@ def test_connector_check_reports_draft_failures_and_raises_on_errors(
     assert result.success is expected
 
 
-@responses.activate
-def test_get_destination_tolerates_partial_draft_configuration() -> None:
+def test_get_destination_tolerates_partial_draft_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A draft destination's incomplete config must not crash typed deserialization."""
     partial_config = {"host": "localhost", "database": "example", "port": 5432}
-    responses.add(
-        responses.GET,
-        f"{PUBLIC_API_ROOT}/destinations/{ACTOR_ID}",
-        json={
+    _mock_httpx_get(
+        monkeypatch,
+        url=f"{PUBLIC_API_ROOT}/destinations/{ACTOR_ID}",
+        body={
             "destinationId": ACTOR_ID,
             "name": "My destination",
             "destinationType": "postgres",

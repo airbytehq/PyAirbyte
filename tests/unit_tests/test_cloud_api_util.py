@@ -3,26 +3,41 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock
 
-import pytest
 import httpx
+import pytest
 import requests
 from airbyte import constants
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
     AirbyteCloudError,
+    AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
-    AirbyteLibInputError,
-    PyAirbyteInputError,
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
-from airbyte_api import api, models
+from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
+from airbyte_api.models import StreamMapperType
+
+
+def _raw_httpx_response(
+    url: str,
+    *,
+    status_code: int = 200,
+    text: str = "",
+) -> httpx.Response:
+    return httpx.Response(
+        status_code,
+        text=text,
+        request=httpx.Request("GET", url),
+    )
 
 
 def _job_response(job_id: int) -> models.JobResponse:
@@ -71,6 +86,49 @@ def _connection_response(name: str, index: int) -> models.ConnectionResponse:
         status=models.ConnectionStatusEnum.ACTIVE,
         tags=[],
         workspace_id="workspace-id",
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="airbyte-api SDK: EncryptionMapperConfiguration discriminator raises on non-encryption mapper configs",
+)
+def test_connection_response_unmarshals_field_filtering_mapper() -> None:
+    body = {
+        "connectionId": "c",
+        "name": "n",
+        "sourceId": "s",
+        "destinationId": "d",
+        "workspaceId": "w",
+        "status": "active",
+        "schedule": {"scheduleType": "manual"},
+        "dataResidency": "auto",
+        "nonBreakingSchemaUpdatesBehavior": "ignore",
+        "namespaceDefinition": "destination",
+        "createdAt": 1,
+        "tags": [],
+        "configurations": {
+            "streams": [
+                {
+                    "name": "leads",
+                    "syncMode": "full_refresh_overwrite",
+                    "mappers": [
+                        {
+                            "id": "00000000-0000-0000-0000-000000000000",
+                            "type": "field-filtering",
+                            "mapperConfiguration": {"targetField": "foo"},
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    connection = utils.unmarshal_json(json.dumps(body), models.ConnectionResponse)
+
+    assert (
+        connection.configurations.streams[0].mappers[0].type
+        is StreamMapperType.FIELD_FILTERING
     )
 
 
@@ -157,18 +215,22 @@ def test_wrap_sdk_error_classifies_missing_or_forbidden(
     expected_message: str,
     expected_guidance: str | None,
 ) -> None:
-    raw_response = requests.Response()
-    raw_response.status_code = status_code
-    raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-id"
-    error = SDKError(
-        "Workspace lookup failed.", status_code, "response body", raw_response
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/workspaces/workspace-id",
+        status_code=status_code,
     )
+    error = SDKError("Workspace lookup failed.", raw_response, body="response body")
 
     wrapped = api_util._wrap_sdk_error(error, {"workspace_id": "workspace-id"})
 
     assert type(wrapped) is expected_error_type
-    assert wrapped.get_message() == expected_message
+    assert wrapped.get_message() == (
+        expected_message
+        if status_code == 403
+        else f"API error occurred: {error.message}"
+    )
     assert wrapped.guidance == expected_guidance
+    assert wrapped.context is not None
     assert wrapped.context["workspace_id"] == "workspace-id"
     assert wrapped.context["status_code"] == status_code
 
@@ -459,7 +521,7 @@ def test_list_organizations_for_user_id_paginates_and_forwards_filters(
     request_count: int,
 ) -> None:
     requests: list[dict[str, object]] = []
-    pages = [
+    pages: list[dict[str, Any]] = [
         {
             "organizations": [
                 {"organizationId": f"organization-{index}"} for index in range(100)
@@ -473,7 +535,7 @@ def test_list_organizations_for_user_id_paginates_and_forwards_filters(
         {"organizations": []},
     ]
 
-    def fake_config_request(**kwargs: object) -> dict[str, object]:
+    def fake_config_request(**kwargs: object) -> dict[str, Any]:
         request = kwargs["json"]
         assert isinstance(request, dict)
         requests.append(request)
@@ -624,7 +686,7 @@ def test_list_workspaces_by_user_filters_each_page_before_limit(
     expected_offsets: list[int],
 ) -> None:
     captured_requests: list[dict[str, object]] = []
-    pages = [
+    pages: list[dict[str, Any]] = [
         {
             "workspaces": [
                 {"workspaceId": f"workspace-{index}", "name": name}
@@ -634,7 +696,7 @@ def test_list_workspaces_by_user_filters_each_page_before_limit(
         for names in page_names
     ]
 
-    def fake_config_request(**kwargs: object) -> dict[str, object]:
+    def fake_config_request(**kwargs: object) -> dict[str, Any]:
         json_request = kwargs["json"]
         assert isinstance(json_request, dict)
         captured_requests.append({"path": kwargs["path"], "json": json_request})
@@ -654,9 +716,16 @@ def test_list_workspaces_by_user_filters_each_page_before_limit(
     )
 
     assert [workspace["name"] for workspace in result] == expected_names
-    assert [
-        request["json"]["pagination"]["rowOffset"] for request in captured_requests
-    ] == (expected_offsets)
+    actual_offsets: list[int] = []
+    for request in captured_requests:
+        json_request = request["json"]
+        assert isinstance(json_request, dict)
+        pagination = json_request["pagination"]
+        assert isinstance(pagination, dict)
+        offset = pagination["rowOffset"]
+        assert isinstance(offset, int)
+        actual_offsets.append(offset)
+    assert actual_offsets == expected_offsets
     assert [request["path"] for request in captured_requests] == [
         "/workspaces/list_by_user_id"
     ] * len(expected_offsets)
@@ -1303,8 +1372,7 @@ def test_cancel_job_forwards_request_and_returns_job_response(
     """Verify cancelling a job forwards its ID and returns the API job response."""
     captured_request: api.CancelJobRequest | None = None
     job_response = _job_response(42)
-    raw_response = requests.Response()
-    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+    raw_response = _raw_httpx_response("https://api.airbyte.com/v1/jobs/42")
 
     def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
         """Capture the cancellation request."""
@@ -1341,9 +1409,10 @@ def test_cancel_job_raises_for_non_ok_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify cancelling a job raises when the API response is not successful."""
-    raw_response = requests.Response()
-    raw_response.status_code = 404
-    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/jobs/42",
+        status_code=404,
+    )
 
     def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
         """Return a not-found cancellation response."""
@@ -1375,9 +1444,10 @@ def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify non-not-found cancellation failures use a general API error."""
-    raw_response = requests.Response()
-    raw_response.status_code = 409
-    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/jobs/42",
+        status_code=409,
+    )
 
     def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
         """Return a conflict cancellation response."""
@@ -1663,6 +1733,7 @@ def test_config_api_request_maps_forbidden_as_missing_resource(
     assert type(error) is expected_error_type
     assert error.get_message() == expected_message
     assert error.guidance == expected_guidance
+    assert error.context is not None
     assert error.context["status_code"] == status_code
     assert error.context["path"] == "/workspaces/get"
     assert error.context["full_url"] == "https://config.airbyte.com/v1/workspaces/get"
@@ -1692,6 +1763,7 @@ def test_public_api_client_sends_analytic_source_header(
     )
 
     session = airbyte_instance.sdk_configuration.client
+    assert isinstance(session, httpx.Client)
     assert session.headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-local"
 
 
@@ -1720,27 +1792,27 @@ def test_get_bearer_token_sends_analytic_source_header(
 
 def _sdk_404_error(resource_type: str) -> SDKError:
     """Create an SDKError like the Speakeasy SDK raises on a 404."""
-    raw_response = requests.Response()
-    raw_response.status_code = 404
-    raw_response.url = "https://api.airbyte.com/v1/connectors/connector-id"
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/connectors/connector-id",
+        status_code=404,
+    )
     return SDKError(
         "API error occurred: Status 404",
-        404,
-        f'{{"resourceType":"{resource_type}"}}',
         raw_response,
+        body=f'{{"resourceType":"{resource_type}"}}',
     )
 
 
 def _sdk_status_error(status_code: int) -> SDKError:
     """Create an SDKError like the Speakeasy SDK raises on a non-2xx status."""
-    raw_response = requests.Response()
-    raw_response.status_code = status_code
-    raw_response.url = "https://api.airbyte.com/v1/connectors/connector-id"
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/connectors/connector-id",
+        status_code=status_code,
+    )
     return SDKError(
         f"API error occurred: Status {status_code}",
-        status_code,
-        '{"message":"Caller does not have the required permissions"}',
         raw_response,
+        body='{"message":"Caller does not have the required permissions"}',
     )
 
 
@@ -1794,7 +1866,7 @@ def test_api_util_calls_wrap_sdk_errors_with_status_context(
     if operation == "get-job":
         assert isinstance(exc_info.value, AirbyteMissingResourceError)
         assert exc_info.value.context["job_id"] == 42
-        get_job.assert_called_once_with(api.GetJobRequest(job_id=42))
+        get_job.assert_called_once_with(request=api.GetJobRequest(job_id=42))
         patch_connection.assert_not_called()
     else:
         assert not isinstance(exc_info.value, AirbyteMissingResourceError)
@@ -1816,12 +1888,12 @@ def test_get_connector_falls_back_to_destination(
     source_status: int,
 ) -> None:
     """A bare destination ID must still resolve when the source lookup 404s or 403s."""
-    raw_response = requests.Response()
-    raw_response.status_code = 200
-    raw_response.url = "https://api.airbyte.com/v1/destinations/dest-id"
-    raw_response._content = (
-        b'{"destinationId":"dest-id","name":"dest",'
-        b'"destinationType":"duckdb","workspaceId":"ws"}'
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/destinations/dest-id",
+        text=(
+            '{"destinationId":"dest-id","name":"dest",'
+            '"destinationType":"duckdb","workspaceId":"ws"}'
+        ),
     )
     destination_response = models.DestinationResponse(
         configuration=models.DestinationDuckdb(destination_path="/tmp/test.duckdb"),
@@ -1960,7 +2032,11 @@ def test_get_connector_does_not_fall_back_on_non_raised_5xx_response(
                 return_value=SimpleNamespace(
                     status_code=500,
                     source_response=None,
-                    raw_response=SimpleNamespace(text="boom", url="https://api"),
+                    raw_response=_raw_httpx_response(
+                        "https://api",
+                        status_code=500,
+                        text="boom",
+                    ),
                 ),
             ),
         ),
@@ -1986,11 +2062,14 @@ def test_get_connector_does_not_fall_back_on_non_raised_5xx_response(
 def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    raw_response = requests.Response()
-    raw_response.status_code = 500
-    raw_response.url = "https://api.airbyte.com/v1/sources/source-id"
+    raw_response = _raw_httpx_response(
+        "https://api.airbyte.com/v1/sources/source-id",
+        status_code=500,
+    )
     error = SDKError(
-        "API error occurred: Status 500", 500, "response body", raw_response
+        "API error occurred: Status 500",
+        raw_response,
+        body="response body",
     )
     airbyte_instance = SimpleNamespace(
         sources=SimpleNamespace(get_source=Mock(side_effect=error)),

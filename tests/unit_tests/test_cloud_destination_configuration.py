@@ -7,8 +7,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock
 
+import httpx
 import pytest
-import responses
 from airbyte._util import api_util
 from airbyte.cloud import CloudWorkspace, sync_results
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -36,20 +36,16 @@ FULL_CONFIGURATION = {
 }
 
 
-def _register_destination_response(configuration: dict[str, Any]) -> None:
-    responses.add(
-        responses.GET,
-        f"{API_ROOT}/destinations/{DESTINATION_ID}",
-        json={
-            "destinationId": DESTINATION_ID,
-            "name": "BigQuery destination",
-            "destinationType": "bigquery",
-            "definitionId": DEFINITION_ID,
-            "workspaceId": WORKSPACE_ID,
-            "createdAt": 1700000000,
-            "configuration": configuration,
-        },
-    )
+def _destination_response(configuration: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "destinationId": DESTINATION_ID,
+        "name": "BigQuery destination",
+        "destinationType": "bigquery",
+        "definitionId": DEFINITION_ID,
+        "workspaceId": WORKSPACE_ID,
+        "createdAt": 1700000000,
+        "configuration": configuration,
+    }
 
 
 def _get_destination() -> Any:
@@ -62,19 +58,36 @@ def _get_destination() -> Any:
     )
 
 
-def _register_source_response(configuration: dict[str, Any]) -> None:
-    responses.add(
-        responses.GET,
-        f"{API_ROOT}/sources/{SOURCE_ID}",
-        json={
-            "sourceId": SOURCE_ID,
-            "name": "Faker source",
-            "sourceType": "faker",
-            "definitionId": DEFINITION_ID,
-            "workspaceId": WORKSPACE_ID,
-            "createdAt": 1700000000,
-            "configuration": configuration,
-        },
+def _source_response(configuration: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sourceId": SOURCE_ID,
+        "name": "Faker source",
+        "sourceType": "faker",
+        "definitionId": DEFINITION_ID,
+        "workspaceId": WORKSPACE_ID,
+        "createdAt": 1700000000,
+        "configuration": configuration,
+    }
+
+
+def _mock_httpx_get(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    url: str,
+    body: dict[str, Any],
+) -> None:
+    httpx_module = api_util.httpx
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert str(request.url) == url
+        return httpx_module.Response(200, json=body, request=request)
+
+    transport = httpx_module.MockTransport(handle)
+    monkeypatch.setattr(
+        api_util,
+        "httpx",
+        SimpleNamespace(Client=lambda: httpx_module.Client(transport=transport)),
     )
 
 
@@ -102,17 +115,25 @@ def _get_source() -> Any:
         pytest.param(FULL_CONFIGURATION, id="full-with-unknown-key"),
     ],
 )
-@responses.activate
 def test_get_connector_returns_raw_configuration(
+    monkeypatch: pytest.MonkeyPatch,
     connector_type: str,
     configuration: dict[str, Any],
 ) -> None:
     """Source and destination responses preserve the raw API configuration."""
     if connector_type == "source":
-        _register_source_response(configuration)
+        _mock_httpx_get(
+            monkeypatch,
+            url=f"{API_ROOT}/sources/{SOURCE_ID}",
+            body=_source_response(configuration),
+        )
         result = _get_source()
     else:
-        _register_destination_response(configuration)
+        _mock_httpx_get(
+            monkeypatch,
+            url=f"{API_ROOT}/destinations/{DESTINATION_ID}",
+            body=_destination_response(configuration),
+        )
         result = _get_destination()
 
     assert result.configuration == configuration
@@ -125,16 +146,24 @@ def test_get_connector_returns_raw_configuration(
         pytest.param("destination", id="destination"),
     ],
 )
-@responses.activate
 def test_cloud_connector_info_preserves_raw_configuration(
+    monkeypatch: pytest.MonkeyPatch,
     connector_type: str,
 ) -> None:
     """Cloud source and destination info expose raw API configuration."""
     if connector_type == "source":
-        _register_source_response(PARTIAL_CONFIGURATION)
+        _mock_httpx_get(
+            monkeypatch,
+            url=f"{API_ROOT}/sources/{SOURCE_ID}",
+            body=_source_response(PARTIAL_CONFIGURATION),
+        )
         info = CloudSourceInfo.from_api_response(_get_source())
     else:
-        _register_destination_response(PARTIAL_CONFIGURATION)
+        _mock_httpx_get(
+            monkeypatch,
+            url=f"{API_ROOT}/destinations/{DESTINATION_ID}",
+            body=_destination_response(PARTIAL_CONFIGURATION),
+        )
         info = CloudDestinationInfo.from_api_response(_get_destination())
 
     assert info.configuration == PARTIAL_CONFIGURATION

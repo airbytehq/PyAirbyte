@@ -109,7 +109,7 @@ def snowflake_cache_to_destination_configuration(
     return DestinationSnowflake(
         host=f"{cache.account}.snowflakecomputing.com",
         database=cache.get_database_name().upper(),
-        schema=cache.schema_name.upper(),
+        schema_=cache.schema_name.upper(),
         warehouse=cache.warehouse,
         role=cache.role,
         username=cache.username,
