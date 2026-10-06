@@ -102,6 +102,7 @@ jobs:
         python-version: [
           '3.11',
           # '3.12', # Commented out: Certain tests don't work in Python 3.12, although PyAirbyte itself does work on 3.12
+          '3.13',
         ]
         os: [
           Ubuntu,
