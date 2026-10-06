@@ -443,6 +443,7 @@ def test_argument_hmac_key_validation_is_private_and_warns_once(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    monkeypatch.setattr(logging.getLogger("airbyte"), "propagate", True)
     monkeypatch.setenv(
         "AIRBYTE_MCP_TELEMETRY_HMAC_KEY",
         base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("="),
