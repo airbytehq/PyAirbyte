@@ -1650,6 +1650,24 @@ def test_refresh_token_exchange_rejects_unlinked_airbyte_user(
     assert stored is None
 
 
+def test_refresh_token_exchange_rejects_unresolvable_refreshed_token(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    proxy = _make_proxy(monkeypatch)
+    proxy.get_routes("/mcp")
+    _install_fake_upstream(monkeypatch, proxy, _issuer("acme"))
+
+    async def unresolvable(_token: str, *, token_use: str) -> None:
+        return None
+
+    monkeypatch.setattr(proxy, "_upstream_for_proxy_token", unresolvable)
+
+    with pytest.raises(TokenError) as excinfo:
+        asyncio.run(_store_refreshable_grant(proxy)())
+
+    assert excinfo.value.error == "invalid_grant"
+
+
 def test_transparent_refresh_rejects_unlinked_airbyte_user(
     monkeypatch: MonkeyPatch,
 ) -> None:

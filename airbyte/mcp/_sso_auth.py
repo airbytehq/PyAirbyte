@@ -1292,8 +1292,10 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         with realm_context(endpoints):
             tokens = await super().exchange_refresh_token(client, refresh_token, scopes)
         upstream = await self._upstream_for_proxy_token(tokens.access_token, token_use="access")
-        if upstream is not None:
-            await self._reject_unlinked_refresh(upstream)
+        if upstream is None:
+            logger.warning("Refusing token refresh: refreshed upstream token could not be resolved")
+            raise TokenError("invalid_grant", "Upstream refresh could not be verified")
+        await self._reject_unlinked_refresh(upstream)
         return tokens
 
     async def revoke_token(self, token: SdkAccessToken | RefreshToken) -> None:
