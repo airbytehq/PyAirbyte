@@ -404,6 +404,7 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     extra_help_text: str | None = None,
     pipeline_change: bool | None = None,
     external_access: bool = False,
+    tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata."""
     base_decorator = _mcp_tool(
@@ -418,6 +419,7 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
         app=app,
         required_capabilities=required_capabilities,
         extra_help_text=extra_help_text,
+        tracing=tracing,
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:

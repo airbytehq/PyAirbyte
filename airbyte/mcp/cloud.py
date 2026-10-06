@@ -93,6 +93,7 @@ from airbyte.mcp._tool_utils import (
     mcp_tool,
     register_guid_created_in_session,
 )
+from airbyte.mcp._trace_attributes import agent_action_attributes
 from airbyte.mcp._user_identity import forget_cached_airbyte_user
 from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
@@ -1520,6 +1521,7 @@ def describe_cloud_connector(
     open_world=True,
     extra_help_text=SKILL_DOCS_SECTION_HINT,
     external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_api_query", args),
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1719,6 +1721,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     idempotent=True,
     open_world=True,
     external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_sql_query", args),
 )
 def execute_external_sql_query(
     ctx: Context,
@@ -1800,6 +1803,7 @@ def execute_external_sql_query(
     idempotent=True,
     open_world=True,
     external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_search_query", args),
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
