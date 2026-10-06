@@ -188,7 +188,7 @@ dev = [
 requires-dist = [
     { name = "airbyte-cdk", specifier = ">=7.28.3,<8.0.0" },
     { name = "airbyte-protocol-models-pdv2", specifier = ">=0.13.0,<1.0" },
-    { name = "airbyte-server-models", git = "https://github.com/airbytehq/airbyte-ops-mcp.git?subdirectory=airbyte-server-models&rev=9a6e0ec03a96d3ac4d7bd83550ddad19da3fe96b" },
+    { name = "airbyte-server-models", git = "https://github.com/airbytehq/airbyte-ops-mcp.git?subdirectory=airbyte-server-models&rev=b314c99aaa0ddc0e53ce79f94c1d82d26f94a5f0" },
     { name = "cryptography", specifier = ">=44.0.0,!=45.0.0,!=45.0.1,<47.0.0" },
     { name = "cyclopts", specifier = ">=4.0,<5.0" },
     { name = "ddtrace", marker = "extra == 'datadog'", specifier = ">=4.15.2,<5.0" },
@@ -335,8 +335,8 @@ wheels = [
 
 [[package]]
 name = "airbyte-server-models"
-version = "0.0.0.post868.dev0+9a6e0ec"
-source = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git?subdirectory=airbyte-server-models&rev=9a6e0ec03a96d3ac4d7bd83550ddad19da3fe96b#9a6e0ec03a96d3ac4d7bd83550ddad19da3fe96b" }
+version = "0.0.0.post872.dev0+b314c99"
+source = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git?subdirectory=airbyte-server-models&rev=b314c99aaa0ddc0e53ce79f94c1d82d26f94a5f0#b314c99aaa0ddc0e53ce79f94c1d82d26f94a5f0" }
 dependencies = [
     { name = "pydantic", extra = ["email"] },
 ]

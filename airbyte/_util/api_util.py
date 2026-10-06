@@ -308,6 +308,16 @@ def _api_headers(
     }
 
 
+def _serialize_public_api_request(request: BaseModel) -> dict[str, Any]:
+    body = request.model_dump(mode="json", by_alias=True, exclude_none=True)
+    # Free-form connector configuration is sent verbatim (nulls included):
+    # exclude_none only applies to the request's own top-level fields.
+    configuration = getattr(request, "configuration", None)
+    if isinstance(configuration, BaseModel):
+        body["configuration"] = configuration.model_dump(mode="json", by_alias=True)
+    return body
+
+
 @overload
 def _make_public_api_request(  # Mirrors the API surface.
     *,
@@ -371,11 +381,7 @@ def _make_public_api_request(  # noqa: PLR0913  # Mirrors the API surface.
         url=full_url,
         headers=headers,
         params=params,
-        json=(
-            request.model_dump(mode="json", by_alias=True, exclude_none=True)
-            if request is not None
-            else None
-        ),
+        json=(_serialize_public_api_request(request) if request is not None else None),
         # No timeout, matching the former SDK behavior.
     )
     if not status_ok(response.status_code):

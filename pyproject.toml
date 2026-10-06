@@ -119,7 +119,7 @@ allow-direct-references = true
 # unreleased. Pin this to a published PyPI version (and remove this source entry)
 # before the next PyAirbyte release.
 # CI authenticates to the private repo via .github/actions/private-git-deps-auth (Octavia bot app).
-airbyte-server-models = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git", rev = "9a6e0ec03a96d3ac4d7bd83550ddad19da3fe96b", subdirectory = "airbyte-server-models" }
+airbyte-server-models = { git = "https://github.com/airbytehq/airbyte-ops-mcp.git", rev = "b314c99aaa0ddc0e53ce79f94c1d82d26f94a5f0", subdirectory = "airbyte-server-models" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["airbyte"]

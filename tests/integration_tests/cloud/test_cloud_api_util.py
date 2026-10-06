@@ -110,7 +110,7 @@ def test_create_and_delete_source(
     airbyte_cloud_client_secret: SecretString,
 ) -> None:
     new_resource_name = "deleteme-source-faker" + text_util.generate_random_suffix()
-    source_config = {"seed": None}
+    source_config = {"sourceType": "faker"}
     source = api_util.create_source(
         name=new_resource_name,
         workspace_id=workspace_id,
@@ -145,6 +145,7 @@ def test_create_and_delete_destination(
         "deleteme-destination-faker" + text_util.generate_random_suffix()
     )
     destination_config = {
+        "destinationType": "duckdb",
         "destination_path": "temp_db",
         "motherduck_api_key": motherduck_api_key,
     }
@@ -190,7 +191,7 @@ def test_create_and_delete_connection(
         name=new_source_name,
         api_root=airbyte_cloud_api_root,
         workspace_id=workspace_id,
-        config={"seed": None},
+        config={"sourceType": "faker"},
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
         bearer_token=None,
@@ -204,6 +205,7 @@ def test_create_and_delete_connection(
         api_root=airbyte_cloud_api_root,
         workspace_id=workspace_id,
         config={
+            "destinationType": "duckdb",
             "destination_path": "temp_db",
             "motherduck_api_key": motherduck_api_key,
         },

@@ -580,7 +580,11 @@ class CloudCustomSourceDefinitionInfo(BaseModel):
         return cls(
             definition_id=definition.id,
             name=definition.name,
-            manifest=definition.manifest,
+            manifest=(
+                definition.manifest.model_dump(mode="json", by_alias=True)
+                if isinstance(definition.manifest, BaseModel)
+                else definition.manifest
+            ),
             version=str(definition.version),
         )
 

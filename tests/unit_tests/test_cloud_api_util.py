@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import UUID
@@ -764,6 +765,64 @@ def test_rename_workspace_forwards_request(
     assert captured[0]["method"] == "PATCH"
     assert captured[0]["path"] == "/workspaces/workspace-1"
     assert captured[0]["request"].name == "Renamed workspace"
+
+
+def test_public_api_request_sends_configuration_verbatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connector configuration nulls are kept; top-level None fields are dropped."""
+    captured_bodies: list[dict[str, object]] = []
+
+    def fake_request(**kwargs: object) -> SimpleNamespace:
+        captured_bodies.append(kwargs["json"])
+        kind = "destination" if "destinations" in kwargs["url"] else "source"
+        response_body = {
+            f"{kind}Id": f"{kind}-1",
+            "name": "n",
+            f"{kind}Type": "faker",
+            "definitionId": "def-1",
+            "workspaceId": str(_id_for_index(0)),
+            "configuration": {},
+            "createdAt": 1,
+        }
+        return SimpleNamespace(
+            status_code=200,
+            content=b"x",
+            json=lambda: response_body,
+            text=json.dumps(response_body),
+        )
+
+    monkeypatch.setattr(api_util.requests, "request", fake_request)
+    kwargs = {
+        "api_root": "https://api.airbyte.com/v1",
+        "client_id": None,
+        "client_secret": None,
+        "bearer_token": SecretString("token"),
+    }
+
+    api_util.create_source(
+        name="n",
+        workspace_id=str(_id_for_index(0)),
+        config={"seed": None, "sourceType": "faker", "count": 5},
+        **kwargs,
+    )
+    api_util.patch_destination(
+        destination_id="destination-1",
+        config={"seed": None, "destinationType": "motherduck"},
+        **kwargs,
+    )
+
+    assert captured_bodies[0]["configuration"] == {
+        "seed": None,
+        "sourceType": "faker",
+        "count": 5,
+    }
+    assert "definitionId" not in captured_bodies[0]
+    assert captured_bodies[1]["configuration"] == {
+        "seed": None,
+        "destinationType": "motherduck",
+    }
+    assert "name" not in captured_bodies[1]
 
 
 def test_patch_connection_normalizes_status_string(
