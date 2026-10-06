@@ -150,7 +150,11 @@ class CloudOrganization:
         """Payment status of the organization."""
         info = self._fetch_organization_info()
         billing = info.billing if info is not None else None
-        return billing.paymentStatus.value if billing is not None else None
+        return (
+            billing.paymentStatus.value
+            if billing is not None and billing.paymentStatus is not None
+            else None
+        )
 
     @property
     def subscription_status(self) -> str | None:

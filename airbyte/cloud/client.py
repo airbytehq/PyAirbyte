@@ -635,9 +635,9 @@ class CloudClient:
             bearer_token=self._get_config_api_bearer_token(),
         )
         organization_record = _api_record_to_dict(organization)
-        resolved_organization_id = str(organization_record.get("organizationId"))
-        if resolved_organization_id:
-            return resolved_organization_id
+        organization_id_value = organization_record.get("organizationId")
+        if organization_id_value:
+            return str(organization_id_value)
         raise exc.AirbyteCloudError(
             message="The workspace response did not include an organization ID.",
             context={"workspace_id": workspace_id, "response": organization},

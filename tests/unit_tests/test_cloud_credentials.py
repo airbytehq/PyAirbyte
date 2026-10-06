@@ -3209,6 +3209,24 @@ def test_cloud_organization_get_billing_status_requires_billing(
         organization.get_billing_status()
 
 
+def test_cloud_organization_payment_status_none_when_billing_status_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing paymentStatus yields None instead of an AttributeError."""
+    monkeypatch.setattr(
+        api_util,
+        "get_organization_info",
+        lambda **_: SimpleNamespace(
+            billing=SimpleNamespace(
+                paymentStatus=None,
+                subscriptionStatus="subscribed",
+            )
+        ),
+    )
+    organization = CloudOrganization(organization_id="organization-id")
+    assert organization.payment_status is None
+
+
 def test_cloud_organization_get_billing_status_wraps_transport_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

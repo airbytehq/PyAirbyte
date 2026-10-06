@@ -522,12 +522,30 @@ def test_get_connector_metadata_by_definition_id(
     )
 
 
+_CHECK_CONNECTION_JOB_INFO = {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "configType": "check_connection_source",
+    "status": "succeeded",
+    "createdAt": 0,
+    "endedAt": 1,
+    "succeeded": True,
+}
+
+
 @responses.activate
 @pytest.mark.parametrize(
     ("status_code", "body", "expected"),
     [
-        (200, {"status": "succeeded"}, True),
-        (200, {"status": "failed", "message": "Invalid credential abc123"}, False),
+        (200, {"status": "succeeded", "jobInfo": _CHECK_CONNECTION_JOB_INFO}, True),
+        (
+            200,
+            {
+                "status": "failed",
+                "message": "Invalid credential abc123",
+                "jobInfo": _CHECK_CONNECTION_JOB_INFO,
+            },
+            False,
+        ),
         (422, {"message": "Missing required settings abc123"}, False),
         (500, {"message": "Unexpected failure abc123"}, None),
     ],

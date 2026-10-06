@@ -252,6 +252,22 @@ def test_direct_workspace_validation_is_capped() -> None:
     assert get_workspace_organization_info.call_count == 25
 
 
+def test_workspace_parent_organization_id_missing_returns_none() -> None:
+    """An organization record without `organizationId` resolves to None, not 'None'."""
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3] as get_workspace_organization_info,
+        patches[4],
+    ):
+        get_workspace_organization_info.return_value = {"organizationName": "Org"}
+        client = CloudClient(bearer_token="token")
+
+        assert client.get_workspace_parent_organization_id("ws-1") is None
+
+
 def test_workspace_organization_failure_is_cached() -> None:
     patches = _api_patches(user={"userId": "user-id"})
     with (

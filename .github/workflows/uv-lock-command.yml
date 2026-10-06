@@ -92,6 +92,12 @@ jobs:
 
     # Run `uv lock`
 
+    - name: Authenticate git for private dependencies
+      uses: ./.github/actions/private-git-deps-auth
+      with:
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+
     - name: Run `uv lock`
       run: uv lock
 
