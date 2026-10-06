@@ -119,8 +119,8 @@ Tracing backend selection:
 - `AIRBYTE_MCP_INTENT_CAPTURE=1` enables optional top-level intent capture; intent
   is free text, so do not include credentials, identifiers or data values.
 - `AIRBYTE_MCP_TELEMETRY_HMAC_KEY` accepts unpadded base64url for a 32-byte key;
-  argument records under `airbyte.mcp.arg.<name>` are HMAC-hashed with it and
-  presence-only when the key is unset or invalid.
+  argument records under `airbyte.mcp.arg.<name>` are HMAC-hashed only for
+  verified (authenticated) callers with a valid key; otherwise, presence-only.
 - Spans include `analytic_source`, `auth_method`, `workspace_id`, `organization_id`
   and `scope_source` when available; session identifiers are digests.
 - `agent.action` and `agent.entity_type` record validated external-query metadata;
