@@ -5,15 +5,18 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp_extensions import (
     TelemetryConfig,
+    TelemetryRecord,
     ToolCallTelemetryMiddleware,
     ToolTracingConfig,
     capture_tool_spans,
@@ -24,9 +27,10 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import NoOpTracerProvider, SpanKind
 from opentelemetry.util.types import AttributeValue
 
+from airbyte import constants
 from airbyte._util import meta
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.mcp import _otel as observability
@@ -37,7 +41,7 @@ from airbyte.mcp._scope import (
     record_default_workspace,
     record_resolved_organization,
 )
-from airbyte.mcp._telemetry import request_properties
+from airbyte.mcp._telemetry import request_properties, session_id_digest
 
 
 WORKSPACE_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -355,16 +359,18 @@ def test_install_registers_tracing_then_instruments_requests(
 
     app = FastMCP("install-test")
     sdk_provider = TracerProvider()
-    providers = iter((trace.ProxyTracerProvider(), sdk_provider))
     registrations: list[tuple[object, TelemetryConfig]] = []
     instrumented: list[dict[str, object]] = []
 
     def register(app_arg: object, config: TelemetryConfig) -> None:
         registrations.append((app_arg, config))
 
+    providers = iter((trace.ProxyTracerProvider(), sdk_provider))
     monkeypatch.setattr(fastmcp_extensions, "register_tool_call_telemetry", register)
     monkeypatch.setattr(
-        observability.trace, "get_tracer_provider", lambda: next(providers)
+        observability.trace,
+        "get_tracer_provider",
+        lambda: next(providers, sdk_provider),
     )
     monkeypatch.setattr(
         RequestsInstrumentor,
@@ -400,33 +406,197 @@ def test_install_registers_tracing_then_instruments_requests(
     assert tracing.capture_intent is True
     assert tracing.other_spans is observability._http_client_span_attributes
     assert tracing.arg_key is observability._arg_key
+    assert tracing.session_id is observability._session_id
+    assert tracing.require_own_provider is True
     assert tracing.exporter == "otlp"
     assert instrumented == [{"excluded_urls": "api.segment.io"}]
 
 
+def test_http_session_id_is_shared_by_tool_span_and_telemetry_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    raw_session_id = "raw-client-session-id"
+    expected_digest = session_id_digest(raw_session_id)
+    captured: list[TelemetryRecord] = []
+
+    app = _app("session-correlation", extra_properties=request_properties)
+    telemetry = next(
+        middleware
+        for middleware in app.middleware
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    )
+    monkeypatch.setattr(telemetry._sinks, "emit", captured.append)
+    monkeypatch.setattr(telemetry._sinks, "segment_enabled", True)
+    monkeypatch.setattr(telemetry._sinks, "sentry_enabled", False)
+
+    @app.tool()
+    def echo() -> str:
+        return "ok"
+
+    monkeypatch.setattr(
+        RequestsInstrumentor,
+        "is_instrumented_by_opentelemetry",
+        property(lambda _self: False),
+    )
+    monkeypatch.setattr(
+        RequestsInstrumentor, "instrument", lambda _self, **_kwargs: None
+    )
+    providers = iter((trace.ProxyTracerProvider(),))
+    with monkeypatch.context() as provider_monkeypatch:
+        provider_monkeypatch.setattr(
+            observability.trace,
+            "get_tracer_provider",
+            lambda: next(providers, trace.ProxyTracerProvider()),
+        )
+        observability.install(
+            app,
+            environ={"AIRBYTE_MCP_TRACING_BACKEND": "otel"},
+        )
+
+    raw_app = app.http_app(path="/mcp", stateless_http=True, json_response=True)
+    wrapped = observability.SessionIdHeaderDigest(raw_app)
+
+    async def send_requests() -> list[httpx.Response]:
+        responses = []
+        async with raw_app.router.lifespan_context(raw_app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=wrapped),
+                base_url="http://testserver",
+            ) as client:
+                for index, (method, params) in enumerate((
+                    (
+                        "initialize",
+                        {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {
+                                "name": "session-test",
+                                "version": "1.0.0",
+                            },
+                        },
+                    ),
+                    ("tools/call", {"name": "echo", "arguments": {}}),
+                )):
+                    responses.append(
+                        await client.post(
+                            "/mcp",
+                            json={
+                                "jsonrpc": "2.0",
+                                "id": index,
+                                "method": method,
+                                "params": params,
+                            },
+                            headers={
+                                "accept": "application/json, text/event-stream",
+                                observability.MCP_SESSION_ID_HEADER: raw_session_id,
+                            },
+                        )
+                    )
+        return responses
+
+    with capture_tool_spans() as spans:
+        responses = asyncio.run(send_requests())
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert responses[1].json()["result"]["content"][0]["text"] == "ok"
+    span_attributes = _tool_span(spans, "echo").attributes or {}
+    actual_session_id = span_attributes["airbyte.mcp.session_id"]
+    assert actual_session_id == expected_digest
+    (tool_event,) = [
+        record for record in captured if record.invocation_type == "mcp_tool_call"
+    ]
+    assert tool_event.extra["session_id"] == expected_digest
+    assert (
+        actual_session_id != hashlib.sha256(expected_digest.encode("ascii")).hexdigest()
+    )
+
+
 @pytest.mark.parametrize(
-    ("provider_kind", "requests_instrumented"),
-    [("sdk", False), ("proxy", True)],
+    (
+        "provider_kind",
+        "requests_instrumented",
+        "expected_error",
+        "endpoint",
+        "do_not_track",
+    ),
+    [
+        ("sdk", False, observability._PROVIDER_OWNERSHIP_ERROR, None, False),
+        (
+            "sdk",
+            False,
+            observability._PROVIDER_OWNERSHIP_ERROR,
+            "http://localhost:4318",
+            True,
+        ),
+        (
+            "race",
+            False,
+            "require_own_provider",
+            "http://localhost:4318",
+            False,
+        ),
+        (
+            "non-sdk",
+            False,
+            observability._PROVIDER_OWNERSHIP_ERROR,
+            "http://localhost:4318",
+            False,
+        ),
+        (
+            "proxy",
+            True,
+            observability._PROVIDER_OWNERSHIP_ERROR,
+            None,
+            False,
+        ),
+    ],
 )
 def test_install_refuses_unowned_otel_instrumentation(
     monkeypatch: pytest.MonkeyPatch,
     provider_kind: str,
     requests_instrumented: bool,
+    expected_error: str,
+    endpoint: str | None,
+    do_not_track: bool,
 ) -> None:
-    provider = (
-        TracerProvider() if provider_kind == "sdk" else trace.ProxyTracerProvider()
-    )
-    monkeypatch.setattr(observability.trace, "get_tracer_provider", lambda: provider)
+    if provider_kind == "race":
+        providers = iter((trace.ProxyTracerProvider(), TracerProvider()))
+        monkeypatch.setattr(
+            observability.trace, "get_tracer_provider", lambda: next(providers)
+        )
+    else:
+        provider = {
+            "sdk": TracerProvider(),
+            "non-sdk": NoOpTracerProvider(),
+            "proxy": trace.ProxyTracerProvider(),
+        }[provider_kind]
+        monkeypatch.setattr(
+            observability.trace, "get_tracer_provider", lambda: provider
+        )
     monkeypatch.setattr(
         RequestsInstrumentor,
         "is_instrumented_by_opentelemetry",
         property(lambda _self: requests_instrumented),
     )
-    with pytest.raises(RuntimeError, match=observability._PROVIDER_OWNERSHIP_ERROR):
+    instrumented: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        RequestsInstrumentor,
+        "instrument",
+        lambda _self, **kwargs: instrumented.append(kwargs),
+    )
+    monkeypatch.delenv("DO_NOT_TRACK", raising=False)
+    if do_not_track:
+        monkeypatch.setenv("DO_NOT_TRACK", "1")
+    environ = {"AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"}
+    if endpoint is not None:
+        environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint
+    with pytest.raises(RuntimeError, match=expected_error):
         observability.install(
             FastMCP("ownership-test"),
-            environ={"AIRBYTE_MCP_TRACING_BACKEND": "datadog-otlp"},
+            environ=environ,
         )
+    assert instrumented == []
 
 
 def test_datadog_otlp_exporter_is_only_constructed_when_endpoint_is_set() -> None:

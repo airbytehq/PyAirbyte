@@ -195,7 +195,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=4.0.9,<5.0" },
-    { name = "fastmcp-extensions", git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=caleb%2Fmcp-otel-tracing" },
+    { name = "fastmcp-extensions", git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=devin%2F1791321365-tracing-session-provider-hooks" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1096,8 +1096,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.33.0.post19.dev0+8fc74eb"
-source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=caleb%2Fmcp-otel-tracing#8fc74eb8e3bf2d6624c2dfa834a269e824b4b9f2" }
+version = "0.33.0.post22.dev0+ef8fcc8"
+source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=devin%2F1791321365-tracing-session-provider-hooks#ef8fcc86686d2d0c5d29d4cdd7f9da5ba713e5e8" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
