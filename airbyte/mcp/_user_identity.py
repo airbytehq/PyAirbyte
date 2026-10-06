@@ -155,6 +155,18 @@ def airbyte_user_properties() -> dict[str, Any]:
     return {"airbyte_user_id": current_airbyte_user_id()}
 
 
+def _record_string(record: Any, key: str) -> str | None:  # noqa: ANN401
+    """Read a string field from a Config API response, whether a model or a raw dict.
+
+    Model fields may be non-`str` types (e.g. `UUID`); coerce those to `str` so
+    callers keep the string semantics the raw-JSON path had.
+    """
+    value = record.get(key) if isinstance(record, dict) else getattr(record, key, None)
+    if isinstance(value, str):
+        return value
+    return str(value) if value is not None else None
+
+
 def _lookup_airbyte_user(
     auth_user_id: str,
     *,
@@ -171,10 +183,10 @@ def _lookup_airbyte_user(
         bearer_token=bearer_token,
         timeout=(USER_ID_LOOKUP_TIMEOUT_SECONDS, USER_ID_LOOKUP_TIMEOUT_SECONDS),
     )
-    user_id = user.get("userId")
+    user_id = _record_string(user, "userId")
     if not isinstance(user_id, str) or not user_id:
         return None
-    default_workspace_id = user.get("defaultWorkspaceId")
+    default_workspace_id = _record_string(user, "defaultWorkspaceId")
     return AirbyteUser(
         user_id=user_id,
         default_workspace_id=(
@@ -276,7 +288,7 @@ def _lookup_workspace_organization_id(
         bearer_token=bearer_token,
         timeout=(USER_ID_LOOKUP_TIMEOUT_SECONDS, USER_ID_LOOKUP_TIMEOUT_SECONDS),
     )
-    organization_id = organization.get("organizationId")
+    organization_id = _record_string(organization, "organizationId")
     return organization_id if isinstance(organization_id, str) and organization_id else None
 
 

@@ -169,7 +169,7 @@ def _token_has_airbyte_user(access_token: str) -> bool:
             return False
         raise
 
-    user_id = user.get("userId")
+    user_id = user.get("userId") if isinstance(user, dict) else str(user.userId or "")
     return isinstance(user_id, str) and bool(user_id)
 
 

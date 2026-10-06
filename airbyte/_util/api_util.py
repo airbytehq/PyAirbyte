@@ -671,12 +671,13 @@ def list_connections(
             bearer_token=bearer_token,
             error_context={"workspace_id": workspace_id, "api_root": api_root},
         )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
+            break
+
         page_data = _decode_list_items(
             body, item_model=models.ConnectionResponse, list_path="/connections"
         )
-        if not page_data:
-            break
-
         matching_connections = [
             connection for connection in page_data if name_filter(connection.name)
         ]
@@ -690,7 +691,7 @@ def list_connections(
         if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
     return result
 
 
@@ -742,12 +743,13 @@ def list_workspaces(
             bearer_token=bearer_token,
             error_context={"workspace_id": workspace_id, "api_root": api_root},
         )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
+            break
+
         page_data = _decode_list_items(
             body, item_model=models.WorkspaceResponse, list_path="/workspaces"
         )
-        if not page_data:
-            break
-
         matching_workspaces = [workspace for workspace in page_data if name_filter(workspace.name)]
         page_results = matching_workspaces if remaining is None else matching_workspaces[:remaining]
         result += page_results
@@ -757,7 +759,7 @@ def list_workspaces(
         if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
     return result
 
@@ -798,10 +800,11 @@ def list_sources(
             bearer_token=bearer_token,
             error_context={"workspace_id": workspace_id, "api_root": api_root},
         )
-        page_data = _decode_list_items(body, item_model=models.SourceResponse, list_path="/sources")
-        if not page_data:
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(body, item_model=models.SourceResponse, list_path="/sources")
         matching_sources = [source for source in page_data if name_filter(source.name)]
         page_results = matching_sources if remaining is None else matching_sources[:remaining]
         result += page_results
@@ -811,7 +814,7 @@ def list_sources(
         if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
     return result
 
@@ -852,12 +855,13 @@ def list_destinations(
             bearer_token=bearer_token,
             error_context={"workspace_id": workspace_id, "api_root": api_root},
         )
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
+            break
+
         page_data = _decode_list_items(
             body, item_model=models.DestinationResponse, list_path="/destinations"
         )
-        if not page_data:
-            break
-
         matching_destinations = [
             destination for destination in page_data if name_filter(destination.name)
         ]
@@ -871,7 +875,7 @@ def list_destinations(
         if not (body or {}).get("next"):
             break
 
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
     return result
 
@@ -1044,16 +1048,17 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             error_context=base_context,
         )
 
-        page_data = _decode_list_items(body, item_model=models.JobResponse, list_path="/jobs")
-        if not page_data:
+        raw_items = (body or {}).get("data") or []
+        if not raw_items:
             break
 
+        page_data = _decode_list_items(body, item_model=models.JobResponse, list_path="/jobs")
         result += page_data
         if remaining is not None:
             remaining -= len(page_data)
-        current_offset += len(page_data)
+        current_offset += len(raw_items)
 
-        if not (body or {}).get("next") or len(page_data) < page_limit:
+        if not (body or {}).get("next") or len(raw_items) < page_limit:
             break
 
     return result if limit is None else result[:limit]

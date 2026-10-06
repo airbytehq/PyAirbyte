@@ -268,7 +268,11 @@ def test_lookup_request_has_a_finite_http_timeout(
     """A hung Config API can't pin the lookup's worker thread indefinitely."""
     request = MagicMock()
     request.return_value.status_code = 200
-    request.return_value.json.return_value = {"userId": USER_A}
+    request.return_value.json.return_value = {
+        "userId": USER_A,
+        "email": "user-a@example.com",
+        "metadata": {},
+    }
     monkeypatch.setattr(api_util.requests, "request", request)
 
     _call("keycloak-a")

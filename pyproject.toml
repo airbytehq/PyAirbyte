@@ -115,7 +115,7 @@ fallback-version = "0.0.0"
 allow-direct-references = true
 
 [tool.uv.sources]
-# TK-TODO: `airbyte-server-models` is consumed from a git branch while the package is
+# TK-TODO: `airbyte-server-models` is consumed from a git branch while the package is  # IGNORE:TK
 # unreleased. Pin this to a published PyPI version (and remove this source entry)
 # before the next PyAirbyte release.
 # CI authenticates to the private repo via .github/actions/private-git-deps-auth (Octavia bot app).

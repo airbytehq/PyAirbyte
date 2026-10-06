@@ -1869,36 +1869,53 @@ def test_get_job_info_decodes_queued_and_unknown_statuses(
 
 def test_list_connections_skips_invalid_items_and_logs(
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A malformed item in a paged list is skipped with a warning."""
+    """A malformed item in a paged list is skipped with a warning.
+
+    Pagination must advance by the RAW item count, not the decoded count:
+    a skipped item must not shift the next page's offset (which would yield
+    duplicates), and a page of only invalid items must not stop pagination
+    while `next` is still set.
+    """
     invalid_item = {"connectionId": "connection-bad"}
-    _public_api_spy(
+    invalid_only = {"connectionId": "connection-bad-2"}
+    captured = _public_api_spy(
         monkeypatch,
         [
+            # Page 1: one invalid item among three raw items.
             _page_body(
                 [
                     _connection_wire("good", 1),
                     invalid_item,
                     _connection_wire("also-good", 2),
                 ],
+                next_page="next",
             ),
+            # Page 2: every item fails to decode, but `next` is still set.
+            _page_body([invalid_only], next_page="next"),
+            _page_body([_connection_wire("third", 3)]),
         ],
     )
 
-    with caplog.at_level("WARNING", logger="airbyte._util.api_util"):
-        result = api_util.list_connections(
-            workspace_id="workspace-id",
-            api_root="https://api.airbyte.com/v1",
-            client_id=None,
-            client_secret=None,
-            bearer_token=SecretString("token"),
-        )
+    warnings: list[str] = []
 
-    assert [connection.name for connection in result] == ["good", "also-good"]
-    assert any(
-        "failed schema validation" in record.message for record in caplog.records
+    def record_warning(message: str, *args: object, **kwargs: object) -> None:
+        warnings.append(message % args if args else message)
+
+    monkeypatch.setattr(api_util.logger, "warning", record_warning)
+
+    result = api_util.list_connections(
+        workspace_id="workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
     )
+
+    # No duplicates: offset advanced by the raw page lengths (3, then 1).
+    assert [connection.name for connection in result] == ["good", "also-good", "third"]
+    assert [call["params"]["offset"] for call in captured] == [0, 3, 4]
+    assert any("failed schema validation" in message for message in warnings)
 
 
 def test_cloud_connection_info_configurations_keep_snake_case_keys(
