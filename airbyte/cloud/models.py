@@ -64,6 +64,7 @@ class ConnectionStatus(StrEnum):
 
     ACTIVE = "active"
     INACTIVE = "inactive"
+    LOCKED = "locked"
     DEPRECATED = "deprecated"
 
 
