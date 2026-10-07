@@ -344,10 +344,11 @@ Every event carries the same context: `is_hosted_mcp`, `edition` (`cloud` or
 `session_id`, `application_name`, `mcp_client_name`, `mcp_client_version`,
 `mcp_protocol_version`, `organization_id` and `workspace_id`. Over hosted HTTP,
 `session_id` is the SHA-256 digest of the client-echoed `Mcp-Session-Id`, and client
-info is recovered from the session token minted on `initialize`. Over stdio, `session_id` is a random ID for
-the server process. `X-Airbyte-Application-Name` is stripped and lowercased, other
-characters are replaced with `-`, and the result is capped at 128 characters (e.g.
-`io.airbyte.coral-support-agent`); it is reported as `application_name`. Organization
+info is recovered from the session token minted on `initialize`. Over stdio,
+`session_id` is a random ID for the server process. `X-Airbyte-Application-Name` is
+stripped and lowercased, other characters are replaced with `-`, and the result is
+capped at 128 characters (e.g. `io.airbyte.coral-support-agent`); it is reported as
+`application_name`. Organization
 and workspace IDs come from the MCP config headers or environment and are `null` when
 not configured. Tokens, secrets, tool arguments and results are never sent.
 
