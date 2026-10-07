@@ -65,6 +65,28 @@ DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
 """Connect and read timeouts for a deferred-credential create on the Config API."""
 
 
+def _register_queued_job_status() -> None:
+    """Register the `queued` job status on the `airbyte-api` SDK enum.
+
+    The Airbyte API returns `queued` for jobs waiting to start, but `airbyte-api<1.0` doesn't
+    define it, so decoding any job response with that status raises a `ValueError`.
+    """
+    sdk_enum: Any = models.JobStatusEnum
+    if "queued" in sdk_enum._value2member_map_:
+        return
+
+    member: Any = str.__new__(sdk_enum, "queued")
+    member._name_ = "QUEUED"
+    member._value_ = "queued"
+    sdk_enum.QUEUED = member
+    sdk_enum._member_names_.append("QUEUED")
+    sdk_enum._member_map_["QUEUED"] = member
+    sdk_enum._value2member_map_["queued"] = member
+
+
+_register_queued_job_status()
+
+
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
