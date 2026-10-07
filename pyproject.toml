@@ -5,7 +5,7 @@ readme = "README.md"
 authors = [
     { name = "Airbyte", email = "contact@airbyte.io" }
 ]
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 dynamic = ["version"]
 dependencies = [
     "airbyte-api>=0.53.0,<1.0",
