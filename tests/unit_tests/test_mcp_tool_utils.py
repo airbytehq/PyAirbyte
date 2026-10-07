@@ -247,3 +247,58 @@ def test_policy_config_args(
     assert config_arg.http_header_key == expected_header
     assert config_arg.default == ""
     assert not config_arg.required
+
+
+_DOCSTRING_SECTION_HEADERS = ("Args:", "Returns:", "Raises:")
+
+
+def _assert_docstring_is_dedented(doc: str) -> None:
+    in_section = False
+    for line in doc.splitlines():
+        if line in _DOCSTRING_SECTION_HEADERS:
+            in_section = True
+            continue
+        if not line:
+            in_section = False
+            continue
+        assert line.strip(), f"Whitespace-only line in docstring: {doc!r}"
+        if not in_section:
+            assert not line.startswith(" "), f"Indented body line {line!r} in: {doc!r}"
+
+
+def test_mcp_tool_dedents_docstring_before_extra_help_text() -> None:
+    @mcp_tool(read_only=True, extra_help_text="Extra help\nline two")
+    def dedent_docstring_tool(value: str) -> None:
+        """Summary line.
+
+        Indented body line one.
+        Indented body line two.
+
+        Args:
+            value: Some value.
+        """
+
+    doc = dedent_docstring_tool.__doc__
+    assert doc is not None
+    _assert_docstring_is_dedented(doc)
+    assert "\nIndented body line one.\nIndented body line two.\n" in doc
+    assert "\nArgs:\n    value: Some value.\n" in doc
+    assert doc.endswith("\n\nExtra help\nline two")
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "validate_connector_config",
+        "list_dotenv_secrets",
+        "list_source_streams",
+        "get_stream_previews",
+        "run_sql_query",
+    ],
+)
+def test_local_tool_descriptions_are_dedented(tool_name: str) -> None:
+    from airbyte.mcp import local as local_module
+
+    doc = getattr(local_module, tool_name).__doc__
+    assert doc is not None
+    _assert_docstring_is_dedented(doc)

@@ -1,79 +1,42 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Hosted MCP intent capture and fail-closed OpenTelemetry span export."""
-
-# Hosted startup is the only caller; defer exporter and registration imports until needed.
-# ruff: noqa: PLC0415
+"""Hosted OpenTelemetry tracing registration and request-span filtering."""
 
 from __future__ import annotations
 
-import asyncio
-import copy
+import base64
+import binascii
 import hashlib
 import json
 import logging
 import os
 import re
-import sys
-import unicodedata
-from contextlib import nullcontext
-from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from fastmcp.server.middleware import Middleware
-from fastmcp.server.telemetry import _active_seam_span, seam_span  # noqa: PLC2701
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import Event, ReadableSpan, SpanProcessor, TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import SpanKind, Status, StatusCode
+from opentelemetry.sdk.trace import Event, ReadableSpan, TracerProvider
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+from opentelemetry.trace import SpanKind, Status
 
-from airbyte._direct_connectors.models import ExternalApiReadOnlyAction, ExternalSearchType
-from airbyte.constants import (
-    CLOUD_API_ROOT,
-    CLOUD_CONFIG_API_ROOT,
-)
-from airbyte.mcp._scope import current_call_scope, enrich_call_scope, scope_from_request
-from airbyte.version import get_version
+from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     from fastmcp import FastMCP
-    from fastmcp.server.middleware import CallNext, MiddlewareContext
-    from fastmcp.tools import Tool, ToolResult
-    from mcp.server.context import ServerRequestContext
-    from mcp.types import CallToolRequestParams, ListToolsRequest
-    from opentelemetry.context import Context
-    from opentelemetry.sdk.trace import Span
+    from opentelemetry.util.types import AttributeValue
     from starlette.types import ASGIApp, Receive, Scope, Send
 
+
 logger = logging.getLogger(__name__)
-INTENT_ARG = "intent"
-_LEGACY_TELEMETRY_ARG = "telemetry"
 MCP_SESSION_ID_HEADER = "mcp-session-id"
-INTENT_INSTRUCTIONS_SENTENCE = (
-    " Tools may accept an optional `intent` string; if present, "
-    "state in one sentence why you are calling the tool "
-    "(never credentials, identifiers or data values)."
-)
 _PROVIDER_OWNERSHIP_ERROR = (
     "Hosted MCP tracing requires exclusive ownership of the global tracer provider "
     "and requests instrumentation."
 )
-_INTENT_SCHEMA = {
-    "type": "string",
-    "description": (
-        "Briefly describe the wider task and why you chose this tool, in English. "
-        "Omit argument values, personal information, and secrets."
-    ),
-}
 _UUID_PATTERN = r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
-# Only literal routes and validated IDs may survive export. Keep these aligned with
-# _util/api_util.py, _direct_connectors/api_util.py and their Public API SDK calls. Unknown
-# routes (including registry and custom API roots) retain status, but redact the URL.
 _SAFE_HTTP_URL = re.compile(
     rf"{re.escape(CLOUD_API_ROOT)}/(?:"
     rf"applications/token|organizations|jobs(?:/[0-9]{{1,19}})?|"
@@ -91,30 +54,11 @@ _SAFE_HTTP_URL = re.compile(
     rf"workspaces/{_UUID_PATTERN}/skills/docs)"
 )
 REDACTED_PLACEHOLDER = "[redacted by airbyte-mcp]"
-_MAX_INTENT_LENGTH = 4096
-_MAX_LATE_ATTRIBUTES = 4096
-_MAX_ENTITY_TYPE_LENGTH = 256
-_ENTITY_TYPE_ACTIONS = {
-    "execute_external_api_query": tuple(member.value for member in ExternalApiReadOnlyAction),
-}
+_ARG_KEY_ENV = "AIRBYTE_MCP_TELEMETRY_HMAC_KEY"
+_ARG_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+_ARG_KEY_LENGTH = 32
 _INSTALLED = False
-_ENVIRON: Mapping[str, str] | None = None
-_TOOL_MODULES: dict[str, str] = {}
-_TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
-_AGENT_ACTION_VALUES: dict[str, dict[str, str]] = {
-    "execute_external_api_query": {
-        member.value: member.value for member in ExternalApiReadOnlyAction
-    },
-    "execute_external_sql_query": {"sql_select": "sql_select"},
-    "execute_external_search_query": {
-        f"search_{member.value}": f"search_{member.value}" for member in ExternalSearchType
-    },
-}
-# Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
-_INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
-    "mcp_intent", default=None
-)
-_LATE_ATTRIBUTES: dict[int, dict[str, str]] = {}
+_ARG_KEY_WARNING_EMITTED = False
 
 
 def _env(environ: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -129,7 +73,6 @@ def _tracing_backend(environ: Mapping[str, str] | None) -> str:
     environment = _env(environ)
     backend = environment.get("AIRBYTE_MCP_TRACING_BACKEND")
     if backend is None:
-        # Explicit legacy settings retain their OTLP transport.
         vendor = environment.get("AIRBYTE_MCP_OTEL_VENDOR")
         if vendor is not None:
             return "datadog-otlp" if vendor.strip().lower() == "datadog" else "otel"
@@ -140,614 +83,137 @@ def _tracing_backend(environ: Mapping[str, str] | None) -> str:
     return backend
 
 
-def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-    """Install one hosted backend; OTel exports only with a configured endpoint.
-
-    `environ` is a test seam for enablement and the `AIRBYTE_MCP_*` controls only.
-    The OTel SDK always reads exporter and resource configuration from process
-    environment; production callers should omit `environ`. For OTel, an existing global
-    provider or requests instrumentation prevents safe redaction and therefore
-    refuses hosted startup, including when this integration's endpoint is unset.
-    """
-    global _INSTALLED, _ENVIRON
-    if _INSTALLED:
-        return
-    backend = _tracing_backend(environ)
-    if backend == "datadog":
-        from airbyte.mcp._datadog import install as install_datadog
-
-        install_datadog(app, environ=environ)
-        _INSTALLED, _ENVIRON = True, environ
-        return
-    if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
-        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004  # Conflicting process state, not an invalid argument type.
-    if RequestsInstrumentor().is_instrumented_by_opentelemetry:  # type: ignore[missing-attribute]  # Instrumentor singleton is non-null.
-        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
-    environment = _env(environ)
-    provider = None
-    if environment.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or environment.get(
-        "OTEL_EXPORTER_OTLP_ENDPOINT"
-    ):
-        try:
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-            _build_tool_maps()
-            provider = _build_provider(OTLPSpanExporter())
-            trace.set_tracer_provider(provider)
-        except Exception:
-            if provider is not None:
-                provider.shutdown()
-            provider = None
-            logger.error("OpenTelemetry controls could not be installed; export disabled")  # noqa: TRY400  # Never log exporter credentials.
-        else:
-            # The SDK silently ignores a second setter call; never instrument an unsafe provider.
-            if trace.get_tracer_provider() is not provider:
-                provider.shutdown()
-                raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
-    # Set the guard only once ownership is established, so a refused startup stays refused.
-    _INSTALLED, _ENVIRON = True, environ
-    app.add_middleware(IntentCaptureMiddleware(app, environ=environ))
-    if _flag(
-        environ, "AIRBYTE_MCP_INTENT_CAPTURE"
-    ) and INTENT_INSTRUCTIONS_SENTENCE.strip() not in (app.instructions or ""):
-        app.instructions = (app.instructions or "") + INTENT_INSTRUCTIONS_SENTENCE
-    if provider is None:
-        return
-    try:
-        RequestsInstrumentor().instrument(excluded_urls="api.segment.io")  # type: ignore[missing-attribute]  # Instrumentor singleton is non-null.
-    except Exception:
-        logger.debug("Optional OpenTelemetry setup failed")
-
-
-def _build_provider(exporter: SpanExporter) -> TracerProvider:
-    resource = Resource({"service.version": get_version()}).merge(Resource.create())
-    provider = TracerProvider(resource=resource)
-    try:
-        provider.add_span_processor(IntentStampProcessor())
-        provider.add_span_processor(BatchSpanProcessor(RedactingExporter(exporter)))
-    except Exception:
-        provider.shutdown()
-        raise
-    return provider
-
-
-def _reset_for_tests() -> None:
-    global _INSTALLED, _ENVIRON
-    _INSTALLED, _ENVIRON = False, None
-    _LATE_ATTRIBUTES.clear()
-    _TOOL_MODULES.clear()
-    _TOOL_ANNOTATIONS.clear()
-
-
-def _build_tool_maps() -> None:
-    from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE
-    from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
-
-    for func, tool_annotations in _REGISTERED_TOOLS:
-        name = getattr(func, "__name__", None)
-        if name:
-            _TOOL_MODULES[name] = str(tool_annotations.get(ANNOTATION_MCP_MODULE, ""))
-            _TOOL_ANNOTATIONS[name] = dict(tool_annotations)
-
-
-class _StripMetaTraceContextMiddleware:
-    """SDK-tier middleware dropping untrusted `_meta` tracing context.
-
-    FastMCP 4 extracts `_meta.traceparent`/`tracestate` for span parenting in
-    its seam span, which opens *above* the FastMCP middleware layer — so the
-    pop in `IntentCaptureMiddleware` runs too late to prevent an untrusted
-    client from parenting the server span onto its own trace. Inserted into
-    `LowLevelServer.middleware` just ahead of `FastMCPServerMiddleware`.
-    """
-
-    async def __call__(
-        self,
-        ctx: ServerRequestContext[Any],
-        call_next: Callable[[ServerRequestContext[Any]], Awaitable[Any]],
-    ) -> Any:  # noqa: ANN401
-        # The seam reads trace context from `ctx.params["_meta"]` (lifted into
-        # FastMCPRequestContext.meta inside the seam); `ctx.meta` only carries
-        # `progress_token`, so strip on the raw params block.
-        params = getattr(ctx, "params", None)
-        meta = params.get("_meta") if isinstance(params, dict) else None
-        if isinstance(meta, dict):
-            meta.pop("traceparent", None)
-            meta.pop("tracestate", None)
-        return await call_next(ctx)
-
-
-def _install_meta_trace_context_middleware(app: FastMCP) -> None:
-    """Insert `_StripMetaTraceContextMiddleware` ahead of FastMCP's seam span."""
-    from fastmcp.server.low_level import FastMCPServerMiddleware
-
-    low_level_middleware = app._mcp_server.middleware  # noqa: SLF001
-    index = next(
-        (
-            i
-            for i, middleware in enumerate(low_level_middleware)
-            if isinstance(middleware, FastMCPServerMiddleware)
-        ),
-        None,
-    )
-    if index is None:
-        raise RuntimeError(
-            "FastMCPServerMiddleware not found; cannot install _meta trace-context stripping"
-        )
-    low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
-
-
-def _client_label(value: object) -> str | None:
-    """Bound reported application labels; this is not arbitrary-text sanitization."""
-    if not isinstance(value, str) or any(
-        unicodedata.category(char).startswith("C") for char in value
-    ):
+def _arg_key() -> bytes | None:
+    """Return the configured 32-byte unpadded base64url argument-hash key."""
+    encoded = os.environ.get(_ARG_KEY_ENV)
+    if encoded is None:
         return None
-    return value.strip()[:256] or None
-
-
-class IntentCaptureMiddleware(Middleware):
-    """Advertise optional intent and carry it into FastMCP's existing tool span."""
-
-    def __init__(self, app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
-        """Retain the app to distinguish synthetic intent from real parameters."""
-        self._app, self._environ = app, environ
-        _install_meta_trace_context_middleware(app)
-
-    async def on_list_tools(
-        self,
-        context: MiddlewareContext[ListToolsRequest],
-        call_next: CallNext[ListToolsRequest, Sequence[Tool]],
-    ) -> Sequence[Tool]:
-        """Return copied schemas, leaving required fields and declared intent intact."""
-        tools = await call_next(context)
-        if not _flag(self._environ, "AIRBYTE_MCP_INTENT_CAPTURE"):
-            return tools
-        try:
-            result = []
-            for tool in tools:
-                parameters = copy.deepcopy(tool.parameters)
-                parameters.setdefault("properties", {}).setdefault(
-                    INTENT_ARG, copy.deepcopy(_INTENT_SCHEMA)
-                )
-                result.append(tool.model_copy(update={"parameters": parameters}))
-        except Exception:
-            logger.debug("Intent schema advertisement skipped")
-            return tools
-        else:
-            return result
-
-    async def on_call_tool(
-        self,
-        context: MiddlewareContext[CallToolRequestParams],
-        call_next: CallNext[CallToolRequestParams, ToolResult],
-    ) -> ToolResult:
-        """Strip synthetic arguments and untrusted tracing context before dispatch."""
-        attrs: dict[str, str | bool] = {}
-        try:
-            if context.fastmcp_context and context.fastmcp_context.request_context:
-                meta = context.fastmcp_context.request_context.meta
-                if meta:
-                    meta.pop("traceparent", None)
-                    meta.pop("tracestate", None)
-            args = dict(context.message.arguments or {})
-            intent = args.get(INTENT_ARG)
-            if INTENT_ARG in args or _LEGACY_TELEMETRY_ARG in args:
-                tool = await self._app.get_tool(context.message.name)
-                properties = tool.parameters.get("properties", {}) if tool is not None else {}
-                if _LEGACY_TELEMETRY_ARG not in properties:
-                    telemetry = args.pop(_LEGACY_TELEMETRY_ARG, None)
-                    if INTENT_ARG not in args and isinstance(telemetry, dict):
-                        intent = telemetry.get(INTENT_ARG)
-                if INTENT_ARG not in properties:
-                    args.pop(INTENT_ARG, None)
-                context = context.copy(
-                    message=context.message.model_copy(update={"arguments": args})
-                )
-            attrs = self._attributes(context, intent)
-        except Exception:
-            logger.debug("Intent attributes unavailable")
-        return await self._trace_call(context, call_next, attrs)
-
-    async def _trace_call(
-        self,
-        context: MiddlewareContext[CallToolRequestParams],
-        call_next: CallNext[CallToolRequestParams, ToolResult],
-        attrs: dict[str, str | bool],
-    ) -> ToolResult:
-        """Record an OTel call after common argument preparation."""
-        # HTTP already owns a seam span above middleware. Nested/in-process calls
-        # need their own seam, kept alive until we inspect the result. FastMCP
-        # enriches that same span, avoiding a second span or an ended-span race.
-        nested = _INTENT_ATTRIBUTES.get() is not None
-        token = _INTENT_ATTRIBUTES.set(attrs)
-        try:
-            with (
-                seam_span("tools/call", self._app.name)
-                if nested or _active_seam_span.get() is None
-                else nullcontext(trace.get_current_span())
-            ) as span:
-                try:
-                    try:
-                        span.set_attributes(attrs)
-                    except Exception:
-                        logger.debug("Intent stamping skipped")
-                    result = await call_next(context)
-                    try:
-                        span.set_attribute("airbyte.mcp.outcome", "success")
-                        if result.is_error and context.message.name in _TOOL_MODULES:
-                            # Never read error content: only a fixed category leaves here.
-                            span.set_status(Status(StatusCode.ERROR))
-                            span.set_attributes(
-                                {
-                                    "airbyte.mcp.error_type": "ToolError",
-                                    "error.type": "ToolError",
-                                    "airbyte.mcp.outcome": "tool_error",
-                                }
-                            )
-                    except Exception:
-                        logger.debug("Tool error status capture skipped")
-                except BaseException as exc:
-                    # HTTP converts exceptions into protocol errors before its
-                    # seam ends, so retain the original class at this boundary.
-                    try:
-                        span.set_status(Status(StatusCode.ERROR))
-                        _record_late_attributes(_exception_attributes(exc))
-                    except Exception:
-                        logger.debug("Exception class capture skipped")
-                    raise
-                else:
-                    return result
-                finally:
-                    try:
-                        if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
-                            await enrich_call_scope(context.fastmcp_context)
-                    except asyncio.CancelledError as exc:
-                        span.set_status(Status(StatusCode.ERROR))
-                        _record_late_attributes(_exception_attributes(exc))
-                        raise
-                    finally:
-                        _record_default_workspace()
-        finally:
-            _INTENT_ATTRIBUTES.reset(token)
-
-    @staticmethod
-    def _attributes(
-        context: MiddlewareContext[CallToolRequestParams],
-        intent: object,
-    ) -> dict[str, str | bool]:
-        from airbyte._util.meta import get_cloud_api_analytic_source
-
-        name = context.message.name
-        intent = intent.strip() if isinstance(intent, str) else ""
-        if len(intent) > _MAX_INTENT_LENGTH:
-            marker = "...[truncated]"
-            intent = intent[: _MAX_INTENT_LENGTH - len(marker)] + marker
-        attrs: dict[str, str | bool] = {
-            "gen_ai.operation.name": "execute_tool",
-            "gen_ai.tool.name": name,
-            "airbyte.mcp.intent_present": bool(intent),
-            "airbyte.mcp.analytic_source": get_cloud_api_analytic_source(),
-        }
-        attrs.update(_request_trace_attributes())
-        if intent:
-            attrs["airbyte.mcp.intent"] = intent
-        arguments = context.message.arguments or {}
-        if name == "execute_external_sql_query":
-            action = "sql_select"
-        elif name == "execute_external_search_query":
-            search_type = arguments.get("search_type", ExternalSearchType.HYBRID.value)
-            action = f"search_{search_type}" if isinstance(search_type, str) else None
-        else:
-            action = arguments.get("action", ExternalApiReadOnlyAction.LIST.value)
-        if isinstance(action, str):
-            canonical_action = _AGENT_ACTION_VALUES.get(name, {}).get(action)
-            if canonical_action is not None:
-                attrs["airbyte.mcp.agent.action"] = canonical_action
-        if isinstance(action, str) and action in _ENTITY_TYPE_ACTIONS.get(name, ()):
-            entity_type = arguments.get("entity_type")
-            if (
-                isinstance(entity_type, str)
-                and entity_type
-                and entity_type.isprintable()
-                and entity_type == entity_type.strip()
-            ):
-                attrs["airbyte.mcp.agent.entity_type"] = entity_type[
-                    :_MAX_ENTITY_TYPE_LENGTH
-                ].rstrip()
-        if name in _TOOL_MODULES:
-            hints = _TOOL_ANNOTATIONS.get(name, {})
-            attrs.update(
-                {
-                    "airbyte.mcp.tool_module": _TOOL_MODULES[name],
-                    "airbyte.mcp.tool_mutating": not hints.get("readOnlyHint", False),
-                    "airbyte.mcp.tool_destructive": bool(hints.get("destructiveHint", False)),
-                }
-            )
-        if context.fastmcp_context is not None:
-            attrs["gen_ai.tool.call.id"] = _call_id_digest(context.fastmcp_context.request_id)
-        scope = current_call_scope() or scope_from_request(context)
-        attrs.update(
-            {
-                attribute: value
-                for attribute, value in (
-                    ("airbyte.mcp.workspace_id", scope.workspace_id),
-                    ("airbyte.mcp.organization_id", scope.organization_id),
-                    ("airbyte.mcp.scope_source", scope.scope_source),
-                )
-                if value
-            }
-        )
-        return attrs
-
-
-def _request_trace_attributes() -> dict[str, str]:
-    """Reuse analytics context, exporting only bounded labels and the session digest."""
-    from fastmcp.server.dependencies import get_http_headers, get_http_request
-
-    from airbyte.mcp._telemetry import _SESSION_ID_STATE_KEY, request_properties
-
-    attrs: dict[str, str] = {}
+    if not _ARG_KEY_PATTERN.fullmatch(encoded):
+        _warn_invalid_arg_key()
+        return None
     try:
-        properties = request_properties()
-        for field, key in (
-            ("client_name", "mcp_client_name"),
-            ("client_version", "mcp_client_version"),
-            ("mcp_protocol_version", "mcp_protocol_version"),
-        ):
-            if value := _client_label(properties.get(key)):
-                attrs[f"airbyte.mcp.{field}"] = value
-        if properties.get("auth_method") in {"bearer", "client_credentials", "none"}:
-            attrs["airbyte.mcp.auth_method"] = str(properties["auth_method"])
-        session = properties.get("session_id")
-        if properties.get("transport") == "stdio" and isinstance(session, str):
+        value = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+    except (binascii.Error, ValueError):
+        _warn_invalid_arg_key()
+        return None
+    if len(value) != _ARG_KEY_LENGTH:
+        _warn_invalid_arg_key()
+        return None
+    return value
+
+
+def _warn_invalid_arg_key() -> None:
+    global _ARG_KEY_WARNING_EMITTED
+    if not _ARG_KEY_WARNING_EMITTED:
+        logger.warning("%s is invalid; argument hashing is disabled", _ARG_KEY_ENV)
+        _ARG_KEY_WARNING_EMITTED = True
+
+
+def _trace_attributes() -> dict[str, str]:
+    from airbyte._util.meta import get_cloud_api_analytic_source  # noqa: PLC0415
+
+    return {"analytic_source": get_cloud_api_analytic_source()}
+
+
+def _http_client_span_attributes(span: ReadableSpan) -> Mapping[str, AttributeValue] | None:
+    """Keep bounded requests spans and remove payload, identity and URL secrets."""
+    scope = span.instrumentation_scope
+    if scope is None or scope.name != "opentelemetry.instrumentation.requests":
+        return None
+    attributes: dict[str, AttributeValue] = {
+        key: value
+        for key, value in (span.attributes or {}).items()
+        if not key.startswith(("enduser.", "http.request.header.", "http.response.header."))
+        and key
+        not in {
+            "user_agent.original",
+            "url.query",
+            "http.user_agent",
+            "http.host",
+            "server.address",
+            "network.peer.address",
+            "gen_ai.tool.call.arguments",
+            "gen_ai.tool.call.result",
+            "_dd.ml_obs.metadata",
+        }
+    }
+    for key in ("http.url", "url.full"):
+        if key in attributes:
             try:
-                get_http_request()
-            except RuntimeError:
-                session = hashlib.sha256(session.encode()).hexdigest()
-            else:
-                # A manually hosted app may not set PyAirbyte's hosted-mode flag.
-                # Its process-wide stdio ID must not group unrelated HTTP clients.
-                session = None
-        if isinstance(session, str) and re.fullmatch(r"[0-9a-f]{64}", session):
-            attrs["airbyte.mcp.session_id"] = session
-    except Exception:
-        logger.debug("Request trace attributes unavailable")
-    # Only request state proves that a wrapper hashed the header. Its shape alone
-    # cannot distinguish a digest from a caller-supplied hexadecimal token.
-    try:
-        headers = get_http_headers(include={MCP_SESSION_ID_HEADER, "mcp-protocol-version"})
-        if "airbyte.mcp.session_id" not in attrs:
-            session = get_http_request().scope.get("state", {}).get(_SESSION_ID_STATE_KEY)
-            if isinstance(session, str) and re.fullmatch(r"[0-9a-f]{64}", session):
-                attrs["airbyte.mcp.session_id"] = session
-            elif raw_session := headers.get(MCP_SESSION_ID_HEADER):
-                attrs["airbyte.mcp.session_id"] = hashlib.sha256(
-                    raw_session.encode("latin-1")
-                ).hexdigest()
-        if "airbyte.mcp.mcp_protocol_version" not in attrs and (
-            protocol := _client_label(headers.get("mcp-protocol-version"))
-        ):
-            attrs["airbyte.mcp.mcp_protocol_version"] = protocol
-    except Exception:
-        logger.debug("Request header trace attributes unavailable")
-    if session := attrs.get("airbyte.mcp.session_id"):
-        attrs["gen_ai.conversation.id"] = session
-    return attrs
-
-
-def _exception_attributes(error: BaseException) -> dict[str, str]:
-    """Classify a failure without reading its potentially sensitive text."""
-    return {
-        "airbyte.mcp.outcome": "cancelled"
-        if isinstance(error, asyncio.CancelledError)
-        else "exception",
-        "airbyte.mcp.error_type": type(error.__cause__ or error).__name__,
-        "error.type": type(error.__cause__ or error).__name__,
-    }
-
-
-def _record_default_workspace() -> None:
-    """Attach the scope only known once the tool has run: its default workspace or org."""
-    call_scope = current_call_scope()
-    scope = call_scope.resolved() if call_scope is not None else None
-    if scope is None:
-        return
-    late_attributes = {
-        f"airbyte.mcp.{key}": value
-        for key, value in scope.to_properties().items()
-        if value is not None
-    }
-    if late_attributes:
-        try:
-            _record_late_attributes(late_attributes)
-        except Exception:
-            logger.debug("Default workspace capture skipped")
-
-
-def _record_late_attributes(attributes: dict[str, str]) -> None:
-    """Attach attributes to the in-flight span at export, after it has ended."""
-    span = trace.get_current_span()
-    span_context = span.get_span_context()
-    if not (span.is_recording() and span_context.is_valid):
-        return
-    if span_context.span_id not in _LATE_ATTRIBUTES and len(_LATE_ATTRIBUTES) >= (
-        _MAX_LATE_ATTRIBUTES
-    ):
-        _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-    _LATE_ATTRIBUTES.setdefault(span_context.span_id, {}).update(attributes)
-
-
-def _call_id_digest(request_id: object) -> str:
-    """JSON-RPC ids are client-controlled; export a digest so correlation survives."""
-    return hashlib.sha256(str(request_id).encode()).hexdigest()
-
-
-class IntentStampProcessor(SpanProcessor):
-    """Stamp intent on start and retain only the in-flight exception's cause class."""
-
-    def on_start(self, span: Span, parent_context: Context | None = None) -> None:  # noqa: ARG002
-        """Copy request-local attributes onto the server's tool span."""
-        try:
-            if span.kind == SpanKind.SERVER and span.name.startswith("tools/call "):
-                span.set_attributes(_INTENT_ATTRIBUTES.get() or {})
-        except Exception:
-            logger.debug("Intent stamping skipped")
-
-    def on_end(self, span: ReadableSpan) -> None:
-        """Capture the cause before FastMCP unwinds back to our middleware."""
-        # The middleware sees exceptions only after this span has already ended.
-        try:
-            exc = sys.exc_info()[1]
-            if (
-                exc is not None
-                and span.context is not None
-                and span.kind == SpanKind.SERVER
-                and span.name.startswith("tools/call ")
-            ):
-                # Bound state when the batch processor discards spans from a full queue.
-                if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
-                    _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-                _LATE_ATTRIBUTES.setdefault(span.context.span_id, {}).update(
-                    _exception_attributes(exc)
-                )
-        except Exception:
-            logger.debug("Exception class capture skipped")
-
-    def force_flush(self, timeout_millis: int = 30000) -> bool:  # noqa: ARG002
-        """Allow the provider to continue flushing the batch processor."""
-        return True
-
-
-class RedactingExporter(SpanExporter):
-    """The sole exporter boundary: only validated, rebuilt spans can leave the process."""
-
-    def __init__(self, exporter: SpanExporter, *, environ: Mapping[str, str] | None = None) -> None:
-        """Wrap the destination exporter without exposing it to a span processor."""
-        self._exporter, self._environ = exporter, environ
-
-    def _rebuild(self, span: ReadableSpan) -> ReadableSpan | None:
-        late = _LATE_ATTRIBUTES.pop(span.context.span_id, {}) if span.context else {}
-        # FastMCP also traces resource/prompt requests, including unknown caller
-        # names, and the `mcp` SDK emits its own client/session spans. Only the
-        # server tool spans belong in this hosted export pipeline.
-        if (
-            span.instrumentation_scope is not None
-            and span.instrumentation_scope.name in {"fastmcp", "mcp-python-sdk"}
-            and (span.kind != SpanKind.SERVER or not span.name.startswith("tools/call "))
-        ):
-            return None
-        if (
-            span.name.startswith("tools/call ")
-            and span.name.removeprefix("tools/call ") not in _TOOL_MODULES
-        ):
-            return None
-        attrs = {
-            key: value
-            for key, value in (span.attributes or {}).items()
-            # Header capture opt-ins would export raw Authorization and cookie values.
-            if not key.startswith(("enduser.", "http.request.header.", "http.response.header."))
-            and key
-            not in {
-                "user_agent.original",
-                "url.query",
-                "http.user_agent",
-                # Stable/duplicate HTTP conventions repeat the URL host in these fields.
-                "http.host",
-                "server.address",
-                "network.peer.address",
-                # Rebuild Datadog Input from approved metadata, never raw tool data.
-                "gen_ai.tool.call.arguments",
-                "gen_ai.tool.call.result",
-            }
-        }
-        for key in ("http.url", "url.full"):
-            if key in attrs:
-                url = urlsplit(str(attrs[key]))
+                url = urlsplit(str(attributes[key]))
                 clean_url = urlunsplit(
                     (url.scheme, url.netloc.rsplit("@", 1)[-1], url.path, "", "")
                 )
-                attrs[key] = (
-                    clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
-                )
-        attrs.update(late)
-        if "mcp.session.id" in attrs:
-            # FastMCP can copy the raw header on apps without our HTTP wrapper.
-            attrs.pop("mcp.session.id")
-            if session := attrs.get("airbyte.mcp.session_id"):
-                attrs["mcp.session.id"] = session
-        entity_type = attrs.pop("airbyte.mcp.agent.entity_type", None)
-        action = attrs.pop("airbyte.mcp.agent.action", None)
-        tool_name = span.name.removeprefix("tools/call ")
-        root_tool_span = (
-            span.kind == SpanKind.SERVER
-            and span.parent is None
-            and span.name.startswith("tools/call ")
-            and tool_name in _TOOL_MODULES
-        )
-        if root_tool_span and isinstance(action, str):
-            canonical_action = _AGENT_ACTION_VALUES.get(tool_name, {}).get(action)
-            if canonical_action is not None:
-                attrs["airbyte.mcp.agent.action"] = canonical_action
-        if not root_tool_span or tool_name not in _ENTITY_TYPE_ACTIONS:
-            entity_type = None
-        if (
-            isinstance(entity_type, str)
-            and entity_type
-            and entity_type.isprintable()
-            and entity_type == entity_type.strip()
-        ):
-            attrs["airbyte.mcp.agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
-        for key in ("client_name", "client_version"):
-            value = _client_label(attrs.pop(f"airbyte.mcp.{key}", None))
-            if (
-                value is not None
-                and span.kind == SpanKind.SERVER
-                and span.name.startswith("tools/call ")
-                and tool_name in _TOOL_MODULES
-            ):
-                attrs[f"airbyte.mcp.{key}"] = value
-        attrs.pop("_dd.ml_obs.metadata", None)
-        environment = _env(self._environ if self._environ is not None else _ENVIRON)
-        if _tracing_backend(environment) == "datadog-otlp":
-            metadata = {
-                key: attrs[f"airbyte.mcp.{key}"]
-                for key in (
-                    "intent",
-                    "intent_present",
-                    "tool_module",
-                    "workspace_id",
-                    "organization_id",
-                    "scope_source",
-                    "error_type",
-                    "outcome",
-                    "auth_method",
-                    "mcp_protocol_version",
-                    "session_id",
-                    "agent.action",
-                    "agent.entity_type",
-                    "client_name",
-                    "client_version",
-                )
-                if f"airbyte.mcp.{key}" in attrs
-            }
-            if metadata:
-                attrs["_dd.ml_obs.metadata"] = json.dumps(metadata)
-            tool_input = {
-                label: metadata[key]
-                for label, key in (
-                    ("intent", "intent"),
-                    ("action", "agent.action"),
-                    ("entity_name", "agent.entity_type"),
-                )
-                if isinstance(metadata.get(key), str) and metadata[key]
-            }
-            if (
-                span.kind == SpanKind.SERVER
-                and span.name.startswith("tools/call ")
-                and tool_name in _TOOL_MODULES
-                and tool_input
-            ):
-                attrs["gen_ai.tool.call.arguments"] = json.dumps(tool_input)
+            except ValueError:
+                clean_url = ""
+            attributes[key] = (
+                clean_url if _SAFE_HTTP_URL.fullmatch(clean_url) else REDACTED_PLACEHOLDER
+            )
+    return attributes
+
+
+def _exporter(
+    backend: str, environ: Mapping[str, str] | None
+) -> Literal["otlp"] | _DatadogMetadataExporter:
+    environment = _env(environ)
+    if backend != "datadog-otlp" or not (
+        environment.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        or environment.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    ):
+        return "otlp"
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
+        OTLPSpanExporter,
+    )
+
+    return _DatadogMetadataExporter(OTLPSpanExporter())
+
+
+class _DatadogMetadataExporter(SpanExporter):
+    def __init__(self, exporter: SpanExporter) -> None:
+        self._exporter = exporter
+
+    @staticmethod
+    def _rebuild(span: ReadableSpan) -> ReadableSpan:
+        attributes = dict(span.attributes or {})
+        attributes.pop("_dd.ml_obs.metadata", None)
+        attributes.pop("gen_ai.tool.call.arguments", None)
+        attributes.pop("gen_ai.tool.call.result", None)
+        metadata = {
+            key: attributes[f"airbyte.mcp.{key}"]
+            for key in (
+                "intent",
+                "intent_present",
+                "tool_module",
+                "workspace_id",
+                "organization_id",
+                "scope_source",
+                "error_type",
+                "outcome",
+                "auth_method",
+                "mcp_protocol_version",
+                "session_id",
+                "agent.action",
+                "agent.entity_type",
+                "client_name",
+                "client_version",
+                "arg_hash_status",
+                "arg_key_scope",
+            )
+            if f"airbyte.mcp.{key}" in attributes
+        }
+        if metadata:
+            attributes["_dd.ml_obs.metadata"] = json.dumps(metadata)
+        tool_arguments = {
+            label: metadata[key]
+            for label, key in (
+                ("intent", "intent"),
+                ("action", "agent.action"),
+                ("entity_name", "agent.entity_type"),
+            )
+            if isinstance(metadata.get(key), str) and metadata[key]
+        }
+        if span.kind == SpanKind.SERVER and span.name.startswith("tools/call ") and tool_arguments:
+            attributes["gen_ai.tool.call.arguments"] = json.dumps(tool_arguments)
         events = [
             Event(
                 "exception",
@@ -762,7 +228,7 @@ class RedactingExporter(SpanExporter):
             context=span.context,
             parent=span.parent,
             resource=span.resource,
-            attributes=attrs,
+            attributes=attributes,
             events=events,
             links=span.links,
             kind=span.kind,
@@ -773,46 +239,97 @@ class RedactingExporter(SpanExporter):
         )
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        """Drop individual redaction failures and contain any destination failure."""
         try:
             rebuilt = []
             for span in spans:
                 try:
-                    clean = self._rebuild(span)
-                    if clean is not None:
-                        rebuilt.append(clean)
+                    rebuilt.append(self._rebuild(span))
                 except Exception:
-                    logger.debug("Dropping span that could not be redacted")
+                    logger.debug("Dropping span that could not be mapped to Datadog")
             return self._exporter.export(rebuilt) if rebuilt else SpanExportResult.SUCCESS
         except Exception:
             return SpanExportResult.FAILURE
 
     def shutdown(self) -> None:
-        """Delegate shutdown without propagating exporter failures."""
         try:
             self._exporter.shutdown()
         except Exception:
             logger.debug("OpenTelemetry exporter shutdown failed")
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
-        """Delegate flush without propagating exporter failures."""
         try:
             return self._exporter.force_flush(timeout_millis)
         except Exception:
             return False
 
 
+def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
+    """Install hosted OpenTelemetry tracing after checking provider ownership."""
+    global _INSTALLED
+    if _INSTALLED:
+        return
+    backend = _tracing_backend(environ)
+    if backend == "datadog":
+        from airbyte.mcp._datadog import install as install_datadog  # noqa: PLC0415
+
+        install_datadog(app, environ=environ)
+        _INSTALLED = True
+        return
+    if not isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)  # noqa: TRY004
+    if RequestsInstrumentor().is_instrumented_by_opentelemetry:  # type: ignore[missing-attribute]
+        raise RuntimeError(_PROVIDER_OWNERSHIP_ERROR)
+
+    from fastmcp_extensions import (  # noqa: PLC0415
+        TelemetryConfig,
+        ToolTracingConfig,
+        register_tool_call_telemetry,
+    )
+
+    register_tool_call_telemetry(
+        app,
+        TelemetryConfig(
+            package_name="airbyte",
+            tool_tracing=ToolTracingConfig(
+                attribute_prefix="airbyte.mcp",
+                attributes=_trace_attributes,
+                shared_properties=(
+                    "workspace_id",
+                    "organization_id",
+                    "scope_source",
+                    "auth_method",
+                ),
+                capture_intent=_flag(environ, "AIRBYTE_MCP_INTENT_CAPTURE"),
+                other_spans=_http_client_span_attributes,
+                arg_key=_arg_key,
+                exporter=_exporter(backend, environ),
+            ),
+        ),
+    )
+    _INSTALLED = True
+
+    if isinstance(trace.get_tracer_provider(), TracerProvider):
+        try:
+            RequestsInstrumentor().instrument(excluded_urls="api.segment.io")  # type: ignore[missing-attribute]
+        except Exception:
+            logger.debug("Optional OpenTelemetry setup failed")
+
+
+def _reset_for_tests() -> None:
+    global _INSTALLED, _ARG_KEY_WARNING_EMITTED
+    _INSTALLED = False
+    _ARG_KEY_WARNING_EMITTED = False
+
+
 class SessionIdHeaderDigest:
     """Hash the unsigned client grouping key before MCP instrumentation sees it."""
 
     def __init__(self, app: ASGIApp) -> None:
-        """Wrap the MCP app inside capability minting and hosted HTTP guards."""
         self._app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Preserve extension declarations while replacing every session header value."""
         if scope["type"] == "http":
-            from fastmcp_extensions.capability_tokens import (
+            from fastmcp_extensions.capability_tokens import (  # noqa: PLC0415
                 DEFAULT_EXTENSIONS_HEADER,
                 decode_capability_token,
             )
@@ -822,7 +339,7 @@ class SessionIdHeaderDigest:
             headers: list[tuple[bytes, bytes]] = scope.get("headers") or []
             raw = next((value for name, value in headers if name.lower() == key), None)
             if raw is not None:
-                from airbyte.mcp._telemetry import _SESSION_ID_STATE_KEY
+                from airbyte.mcp._telemetry import _SESSION_ID_STATE_KEY  # noqa: PLC0415
 
                 scope.setdefault("state", {})[_SESSION_ID_STATE_KEY] = hashlib.sha256(
                     raw
@@ -842,7 +359,6 @@ class SessionIdHeaderDigest:
                     for name, value in headers
                 ]
                 if extensions:
-                    # In-app filters decode the token; re-declare before replacing it with a digest.
                     existing = b" ".join(
                         value for name, value in new_headers if name.lower() == ext_key
                     )

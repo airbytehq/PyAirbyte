@@ -252,6 +252,11 @@ set; the interactive path activates once the OIDC client credentials are set.
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST` — host interface to bind for the HTTP server (defaults
   to `0.0.0.0`).
+- `AIRBYTE_MCP_LOG_FORMAT` — `text` (default) leaves the existing console
+  logging untouched; `json` writes one JSON object per line on stdout,
+  including fastmcp and uvicorn logs and Datadog trace-correlation fields.
+  Case-insensitive; any other value fails startup. Field details are
+  documented in `airbyte.mcp.http_main`.
 - `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — enable
   interactive OIDC (both required).
 - `AIRBYTE_MCP_OIDC_CONFIG_URL` — OIDC discovery URL (required when the client
@@ -296,68 +301,34 @@ assembles the verifier(s) and reads no environment variables itself.
 
 ## Optional Hosted Tool Intent Observability
 
-A hosted HTTP deployment may advertise an optional top-level `intent` argument
-when its operator sets `AIRBYTE_MCP_INTENT_CAPTURE=1`. If provided, use one
-sentence explaining why the tool is being called; never include credentials,
-identifiers or data values. Calls without intent continue to work. The Agents
-tools' existing `intent` parameter serves the same purpose and passes through
-unchanged to the Agents API; only the trace copy is trimmed and capped.
-Advertisement and model guidance do not require an export endpoint.
+Hosted HTTP tracing uses `fastmcp-extensions` tool-call spans for `otel` and
+`datadog-otlp`; export remains dormant without an OTLP endpoint, and
+`DO_NOT_TRACK` also disables it. The optional
+top-level `intent` is enabled by `AIRBYTE_MCP_INTENT_CAPTURE=1`; never include
+credentials, identifiers or data values.
 
-`AIRBYTE_MCP_TRACING_BACKEND` selects the export backend and payload policy.
-When neither it nor the legacy `AIRBYTE_MCP_OTEL_VENDOR` is set,
-`DD_LLMOBS_ENABLED=1` or `true` defaults to `datadog`; otherwise the default is
-`otel`. Explicit backend and legacy vendor settings take precedence.
+`AIRBYTE_MCP_TRACING_BACKEND` accepts `otel`, `datadog-otlp` or `datadog`.
+Without it, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp`;
+otherwise `DD_LLMOBS_ENABLED=1` or `true` selects `datadog`, with `otel` as default.
 
-- `otel` and `datadog-otlp` require a configured OTLP traces endpoint.
-  They export supplied intent (capped at 4096 characters), validated action,
-  tool name, outcome class, validated workspace/organization UUIDs, tool
-  annotations and outbound HTTP methods, recognized public Airbyte API routes
-  with validated UUID/numeric IDs, and statuses. URL queries, unknown routes
-  and custom origins are redacted. Raw tool arguments/results, error
-  messages/stacks, HTTP header values, request/response bodies, JWTs and caller
-  identity are excluded. Calls to unregistered tool names are dropped.
-  `datadog-otlp` also maps intent/action into Datadog metadata and Input.
-- `datadog` uses the optional `airbyte[datadog]` extra and native Datadog LLM
-  Observability configuration; it does not require an OTLP endpoint. It records
-  initialization, tool listing and tool calls in the deployment's native trace
-  hierarchy, including unknown tools and errors. Tool Input contains only
-  captured intent, validated action and the bounded entity name described below.
-  All other tool arguments and all tool results are omitted; tool error messages
-  and stacks are not captured. Error status and type remain available. This
-  policy covers MCP spans; deployment-owned HTTP tracing remains unchanged.
-  Disable automatic Datadog MCP instrumentation with
-  `DD_TRACE_MCP_ENABLED=false` to avoid duplicate MCP spans.
+`AIRBYTE_MCP_TELEMETRY_HMAC_KEY` is an unpadded base64url-encoded 32-byte key
+for HMAC argument hashes; argument records are HMAC-hashed only for verified
+(authenticated) callers with a valid key, and are otherwise presence-only.
+Records use `airbyte.mcp.arg.<name>`. The client's `_meta.traceparent` trace ID
+is retained and its parent is dropped. `tools/list` spans and `unknown_tool`
+outcomes are exported.
 
-For `execute_external_api_query`, `airbyte.mcp.agent.entity_type` records the
-requested entity name for `list`, `get`, or `search`, including the default
-`list` action. Names must be nonempty printable strings with no surrounding
-whitespace. Valid names longer than 256 characters are truncated in metadata,
-with trailing spaces at the cut removed; execution receives the full original
-name. This caller-supplied field can include customer-defined names or sensitive
-text: format checks do not anonymize it. It describes the request, including
-failed attempts, rather than verified access to records. Both tracing backends
-share this extraction. `datadog-otlp` also exposes the bounded name as
-`entity_name` in approved Input; native `datadog` exposes the same bounded value
-as `entity_type` in its approved Input envelope.
+OTel tool spans include available `analytic_source`, `auth_method`,
+`workspace_id`, `organization_id` and `scope_source` fields. External query tools
+record validated `agent.action` and bounded `agent.entity_type` metadata.
+`datadog-otlp` adds `_dd.ml_obs.metadata` and only intent/action/entity_name to
+Datadog tool Input; raw arguments/results remain excluded. Native `datadog`
+continues to use deployment LLM Observability configuration.
 
-For OTel session grouping, the unsigned, client-echoed `Mcp-Session-Id` is
-replaced with a SHA-256 digest; it is not a verified identity. Intent itself
-is free text and may contain customer information, so keep it free of sensitive
-data. The legacy `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects `datadog-otlp` only
-when `AIRBYTE_MCP_TRACING_BACKEND` is unset.
-
-Export is best effort and does not determine whether a tool call succeeds;
-the backend controls retention and access. `DO_NOT_TRACK` continues to govern
-Segment only. Backend configuration, payload policies and rollback instructions
-are documented in `airbyte.mcp.http_main`. For OTel, unsetting both
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT` disables
-export while preserving compatibility with cached intent schemas. Those
-endpoint variables do not control native Datadog export. Legacy synthetic
-`telemetry.intent` is accepted without advertising it, with top-level `intent`
-taking precedence when supplied.
-Real tool parameters named `intent` or `telemetry` retain their normal validation
-and dispatch behavior.
+Hosted OTel tracing refuses an existing global provider or pre-instrumented
+`requests`; Segment requests are excluded. URL queries and unrecognized outbound
+routes are redacted. Session identifiers remain digests, and exporter retention
+and deployment-owned HTTP/log tracing follow their existing policies.
 
 ## Usage Telemetry
 

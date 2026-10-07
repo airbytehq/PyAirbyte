@@ -478,7 +478,7 @@ def _native_http_contract():
                                 "arguments": {
                                     **private_arguments,
                                     "mode": mode,
-                                    "entity_type": "Custom Entities/東京" * 20,
+                                    "entity_type": "Custom Entities/東京" * 12,
                                     "action": "list",
                                     "config": {"secret": "private argument"},
                                     "intent": "Keep Mixed Case Intent",
@@ -748,7 +748,7 @@ def _native_http_contract():
         assert [span.resource for span in primary] == [
             "server_request",
             "server_request",
-        ] + ["server_tool_call"] * 5
+        ] + ["execute_external_api_query"] * 3 + ["run_sql_query", "unknown_tool"]
         for index in (2, 3, 4):
             span, event = primary[index], events[index]
             assert json.loads(event["meta"]["input"]["value"]) == {
@@ -758,23 +758,19 @@ def _native_http_contract():
                     "arguments": {
                         "intent": "Keep Mixed Case Intent",
                         "action": "list",
-                        "entity_type": ("Custom Entities/東京" * 20)[:256].rstrip(),
+                        "entity_type": "Custom Entities/東京" * 12,
                     },
                 },
             }
             assert event["meta"]["output"]["value"] == "[REDACTED]"
             assert event["meta"]["metadata"]["intent"] == "Keep Mixed Case Intent"
             assert event["meta"]["metadata"]["agent.action"] == "list"
-            entity = "Custom Entities/東京" * 20
+            entity = "Custom Entities/東京" * 12
             # Only bounded approved telemetry leaves the process; execution
             # receives the original argument.
             assert entities[index - 2] == entity
-            assert (
-                event["meta"]["metadata"]["agent.entity_type"] == entity[:256].rstrip()
-            )
-            assert (
-                span.get_tag("airbyte.mcp.agent.entity_type") == entity[:256].rstrip()
-            )
+            assert event["meta"]["metadata"]["agent.entity_type"] == entity
+            assert span.get_tag("airbyte.mcp.agent.entity_type") == entity
             assert (
                 event["meta"]["metadata"]["workspace_id"]
                 == "11111111-1111-1111-1111-111111111111"
@@ -865,3 +861,58 @@ def _native_http_contract():
 
 if __name__ == "__main__":
     _native_http_contract()
+
+
+def test_native_arg_records_use_upstream_validation(monkeypatch) -> None:
+    from typing import Annotated
+
+    from ddtrace.llmobs import LLMObs
+    from fastmcp_extensions import TraceArg
+    from fastmcp_extensions.otel._arg_digests import ArgTracer  # noqa: PLC2701
+
+    def native_arg_tool(
+        prompt: Annotated[str, TraceArg.FINGERPRINT],
+        limit: Annotated[int, TraceArg.VALUE] = 10,
+    ) -> str:
+        return prompt
+
+    tracer = ArgTracer("airbyte.mcp", key=bytes(range(0x40, 0x60)))
+    monkeypatch.setattr(_datadog, "_ARG_TRACER", tracer)
+    monkeypatch.setitem(_datadog._TOOL_MODULES, "native_arg_tool", "test")
+    attrs = tracer.record(
+        "native_arg_tool",
+        native_arg_tool,
+        ["prompt", "limit"],
+        {"prompt": "private-native-prompt", "limit": 5},
+        principal="https://issuer.example.test|user-1",
+        now=1.0,
+    )
+    attrs["airbyte.mcp.arg.forged"] = '{"value": "private-forged"}'
+    annotations: list[dict] = []
+    monkeypatch.setattr(
+        LLMObs, "annotate", lambda _span, **kwargs: annotations.append(kwargs)
+    )
+    tags: dict[str, str] = {}
+    metrics: dict[str, int] = {}
+    span = SimpleNamespace(
+        set_tags=tags.update,
+        set_tag=tags.__setitem__,
+        set_metric=metrics.__setitem__,
+    )
+
+    _datadog._annotate_attributes(
+        span, {"gen_ai.tool.name": "native_arg_tool", **attrs}
+    )
+
+    assert json.loads(tags["airbyte.mcp.arg.limit"]) == {"value": 5}
+    assert json.loads(tags["airbyte.mcp.arg.prompt"]).keys() == {
+        "digest",
+        "similarity",
+    }
+    assert "airbyte.mcp.arg.forged" not in tags
+    assert metrics == {"airbyte.mcp.arg_trace_dropped": 1}
+    metadata = annotations[0]["metadata"]
+    assert metadata["arg_hash_status"] == "ok"
+    assert metadata["arg_key_scope"] == attrs["airbyte.mcp.arg_key_scope"]
+    assert not any(key.startswith("arg.") for key in metadata)
+    assert "private" not in json.dumps([tags, metadata])

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
-from fastmcp_extensions import mcp_tool, register_mcp_tools
+from fastmcp_extensions import TraceArg, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
@@ -31,6 +31,7 @@ from airbyte.destinations.util import get_destination
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
+from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -139,6 +140,7 @@ def validate_connector_config(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector to validate."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -153,6 +155,7 @@ def validate_connector_config(
             description="Path to a YAML or JSON file containing the connector configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -160,6 +163,7 @@ def validate_connector_config(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -175,6 +179,7 @@ def validate_connector_config(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
@@ -218,6 +223,7 @@ def list_connector_config_secrets(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector."),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[str]:
     """List all `config_secret_name` options that are known for the given connector.
@@ -246,7 +252,6 @@ def list_connector_config_secrets(
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def list_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
@@ -273,6 +278,7 @@ def list_source_streams(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -287,6 +293,7 @@ def list_source_streams(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -294,6 +301,7 @@ def list_source_streams(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -309,6 +317,7 @@ def list_source_streams(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[str]:
     """List all streams available in a source connector.
@@ -340,10 +349,12 @@ def get_source_stream_json_schema(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     stream_name: Annotated[
         str,
         Field(description="The name of the stream."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -358,6 +369,7 @@ def get_source_stream_json_schema(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -365,6 +377,7 @@ def get_source_stream_json_schema(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -380,6 +393,7 @@ def get_source_stream_json_schema(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
@@ -407,6 +421,7 @@ def read_source_stream_records(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -421,6 +436,7 @@ def read_source_stream_records(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -428,11 +444,13 @@ def read_source_stream_records(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     *,
     stream_name: Annotated[
         str,
         Field(description="The name of the stream to read records from."),
+        TraceArg.FINGERPRINT,
     ],
     max_records: Annotated[
         int,
@@ -455,6 +473,7 @@ def read_source_stream_records(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
@@ -498,6 +517,7 @@ def get_stream_previews(
     source_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -512,6 +532,7 @@ def get_stream_previews(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -519,6 +540,7 @@ def get_stream_previews(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     streams: Annotated[
         list[str] | str | None,
@@ -529,6 +551,7 @@ def get_stream_previews(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     limit: Annotated[
         int,
@@ -536,6 +559,7 @@ def get_stream_previews(
             description="The maximum number of sample records to return per stream.",
             default=10,
         ),
+        TraceArg.VALUE,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -551,6 +575,7 @@ def get_stream_previews(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
@@ -611,6 +636,7 @@ def sync_source_to_cache(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -625,6 +651,7 @@ def sync_source_to_cache(
             description="Path to a YAML or JSON file containing the source connector config.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -632,6 +659,7 @@ def sync_source_to_cache(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     streams: Annotated[
         list[str] | str,
@@ -639,6 +667,7 @@ def sync_source_to_cache(
             description="The streams to sync.",
             default="suggested",
         ),
+        TraceArg.FINGERPRINT,
     ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
@@ -654,6 +683,7 @@ def sync_source_to_cache(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
@@ -715,7 +745,6 @@ class CachedDatasetInfo(BaseModel):
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
@@ -737,7 +766,6 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
@@ -792,7 +820,6 @@ def _is_safe_sql(sql_query: str) -> bool:
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
-    extra_help_text=_CONFIG_HELP,
 )
 def run_sql_query(
     sql_query: Annotated[
@@ -861,6 +888,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
                 "(e.g. 'destination-snowflake', 'destination-motherduck')."
             ),
         ),
+        TraceArg.FINGERPRINT,
     ],
     config: Annotated[
         dict | str | None,
@@ -878,6 +906,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             description="Path to a YAML or JSON file containing the destination configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     config_secret_name: Annotated[
         str | None,
@@ -885,6 +914,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             description="The name of the secret containing the destination configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     scenarios: Annotated[
         list[str] | str,
@@ -897,6 +927,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default="fast",
         ),
+        TraceArg.FINGERPRINT,
     ],
     custom_scenarios: Annotated[
         list[dict[str, Any]] | None,
@@ -918,6 +949,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     namespace_suffix: Annotated[
         str | None,
@@ -929,6 +961,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     reuse_namespace: Annotated[
         str | None,
@@ -940,6 +973,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     skip_preflight: Annotated[
         bool,

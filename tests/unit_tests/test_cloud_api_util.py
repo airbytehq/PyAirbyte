@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
@@ -27,8 +28,101 @@ from airbyte.exceptions import (
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
-from airbyte_api import api, models
+from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
+
+
+@pytest.mark.parametrize("interval_hours", [1, 24, 168])
+@pytest.mark.parametrize("use_client_credentials", [False, True])
+def test_set_connection_interval_schedule_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    interval_hours: int,
+    *,
+    use_client_credentials: bool,
+) -> None:
+    """Send only a basic schedule with the configured root and authentication."""
+    token = Mock(return_value=SecretString("minted-token"))
+    monkeypatch.setattr(api_util, "get_bearer_token", token)
+    with responses.RequestsMock() as http:
+        http.post(
+            "https://config.example/custom/web_backend/connections/update",
+            json={"connectionId": "connection-id", "scheduleType": "basic"},
+        )
+        result = api_util.set_connection_interval_schedule(
+            connection_id="connection-id",
+            interval_hours=interval_hours,
+            api_root="https://public.example/custom",
+            config_api_root="https://config.example/custom",
+            client_id=SecretString("client-id") if use_client_credentials else None,
+            client_secret=SecretString("client-secret")
+            if use_client_credentials
+            else None,
+            bearer_token=None
+            if use_client_credentials
+            else SecretString("bearer-token"),
+        )
+        captured_calls = list(http.calls)
+
+    assert result["scheduleType"] == "basic"
+    assert len(captured_calls) == 1
+    request = captured_calls[0].request
+    assert json.loads(request.body) == {
+        "connectionId": "connection-id",
+        "scheduleType": "basic",
+        "scheduleData": {
+            "basicSchedule": {"timeUnit": "hours", "units": interval_hours}
+        },
+        "skipReset": True,
+    }
+    assert request.headers["Authorization"] == (
+        "Bearer minted-token" if use_client_credentials else "Bearer bearer-token"
+    )
+    if use_client_credentials:
+        token.assert_called_once_with(
+            client_id=SecretString("client-id"),
+            client_secret=SecretString("client-secret"),
+            api_root="https://public.example/custom",
+            timeout=None,
+        )
+    else:
+        token.assert_not_called()
+
+
+@pytest.mark.parametrize("interval_hours", [0, -1, True, False, 1.0, 1.5, "24", None])
+def test_set_connection_interval_schedule_rejects_invalid_hours(
+    interval_hours: object,
+) -> None:
+    """Reject invalid intervals before any network request or authentication."""
+    with responses.RequestsMock() as http:
+        with pytest.raises(AirbyteLibInputError, match="positive whole number"):
+            api_util.set_connection_interval_schedule(
+                connection_id="connection-id",
+                interval_hours=interval_hours,
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=SecretString("token"),
+            )
+        assert len(http.calls) == 0
+
+
+def test_set_connection_interval_schedule_reports_api_failure() -> None:
+    """Propagate configuration API failures instead of reporting success."""
+    with responses.RequestsMock() as http:
+        http.post(
+            "https://cloud.airbyte.com/api/v1/web_backend/connections/update",
+            json={"message": "schedule rejected"},
+            status=400,
+        )
+        with pytest.raises(AirbyteCloudError, match="status 400"):
+            api_util.set_connection_interval_schedule(
+                connection_id="connection-id",
+                interval_hours=24,
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=SecretString("token"),
+            )
 
 
 def _job_response(job_id: int) -> models.JobResponse:
@@ -1231,7 +1325,7 @@ def test_get_job_info_preserves_unknown_status() -> None:
     api_root = "https://api.airbyte.test/api/public/v1"
     job_id = 42
     url = f"{api_root}/jobs/{job_id}"
-    responses.get(url, json=_raw_job_response(job_id, "queued"))
+    responses.get(url, json=_raw_job_response(job_id, "future-status"))
 
     job = api_util.get_job_info(
         job_id=job_id,
@@ -1241,8 +1335,7 @@ def test_get_job_info_preserves_unknown_status() -> None:
         bearer_token=SecretString("bearer-token"),
     )
 
-    assert job.status == "queued"
-    assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
+    assert job.status == "future-status"
     assert len(responses.calls) == 2
 
 
@@ -1254,7 +1347,7 @@ def test_get_job_logs_preserves_unknown_statuses_and_stops_without_next_page() -
         f"{api_root}/jobs",
         json={
             "data": [
-                _raw_job_response(42, "queued"),
+                _raw_job_response(42, "future-status"),
                 _raw_job_response(43, "succeeded"),
             ]
         },
@@ -1271,7 +1364,7 @@ def test_get_job_logs_preserves_unknown_statuses_and_stops_without_next_page() -
     )
 
     assert len(jobs) == 2
-    assert jobs[0].status == "queued"
+    assert jobs[0].status == "future-status"
     assert jobs[1].status is models.JobStatusEnum.SUCCEEDED
     assert len(responses.calls) == 2
 
@@ -1425,6 +1518,26 @@ def test_list_connections_rejects_invalid_limits(limit: int) -> None:
             bearer_token=None,
             limit=limit,
         )
+
+
+def test_sdk_decodes_queued_job_status() -> None:
+    payload = {
+        "data": [
+            {
+                "connectionId": "connection-id",
+                "jobId": 1,
+                "jobType": "sync",
+                "startTime": "2026-01-01T00:00:00Z",
+                "status": "queued",
+            }
+        ]
+    }
+
+    response = utils.unmarshal_json(json.dumps(payload), models.JobsResponse)
+    job = response.data[0]
+
+    assert job.status is models.JobStatusEnum("queued")
+    assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:

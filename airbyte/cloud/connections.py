@@ -1082,9 +1082,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     def set_schedule(
         self,
-        cron_expression: str,
+        cron_expression: str | None = None,
+        *,
+        interval_hours: int | None = None,
     ) -> None:
-        """Set a cron schedule for the connection.
+        """Set a cron or basic interval schedule for the connection.
+
+        Provide exactly one of `cron_expression` or `interval_hours`.
 
         Args:
             cron_expression: A Quartz cron expression defining when syncs should run.
@@ -1093,6 +1097,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 optionally followed by a timezone ID. The Airbyte API rejects standard
                 5-field Unix cron expressions and schedules that run more often than
                 once per hour.
+            interval_hours: A positive whole number of hours between syncs. On an active
+                connection, interval scheduling runs a first sync as soon as it is enabled,
+                then measures each interval from the previous sync.
+
+        Raises:
+            AirbyteLibInputError: If both or neither schedule options are provided, or
+                the selected schedule is invalid.
 
         Examples:
             - "0 0 0 * * ?"  # Daily at midnight UTC
@@ -1100,19 +1111,40 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             - "0 0 0 ? * SUN"  # Weekly on Sunday at midnight UTC
             - "0 0 9 ? * MON-FRI US/Pacific"  # Weekdays at 9am Pacific
         """
-        _validate_quartz_cron_expression(cron_expression)
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            schedule=api_util.build_connection_schedule(
-                schedule_type="cron",
-                cron_expression=cron_expression,
-            ),
-        )
-        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
+        if (cron_expression is None) == (interval_hours is None):
+            raise AirbyteLibInputError(
+                message="Provide exactly one of `cron_expression` or `interval_hours`.",
+            )
+
+        if interval_hours is not None:
+            api_util.set_connection_interval_schedule(
+                connection_id=self.connection_id,
+                interval_hours=interval_hours,
+                api_root=self.workspace.api_root,
+                config_api_root=self.workspace.config_api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            # The Config API response differs from the public API connection model.
+            # Clear cached details so the next property read fetches the updated schedule.
+            self._connection_info = None
+            return
+
+        if cron_expression is not None:
+            _validate_quartz_cron_expression(cron_expression)
+            updated_response = api_util.patch_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                schedule=api_util.build_connection_schedule(
+                    schedule_type="cron",
+                    cron_expression=cron_expression,
+                ),
+            )
+            self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
 
     def set_manual_schedule(self) -> None:
         """Set the connection to manual scheduling.

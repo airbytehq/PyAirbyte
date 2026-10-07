@@ -749,13 +749,13 @@ def test_mcp_deploy_deferred_rejects_plaintext_credentials(
         )
 
 
-def test_mcp_check_cloud_connector_is_not_read_only_or_idempotent() -> None:
-    """The check triggers a connection test, so it must not be advertised as read-only."""
+def test_mcp_check_cloud_connector_is_read_only_and_idempotent() -> None:
+    """The check only reads the connector's check result; it mutates nothing."""
     (annotations,) = [
         a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector
     ]
-    assert annotations["readOnlyHint"] is False
-    assert annotations["idempotentHint"] is False
+    assert annotations["readOnlyHint"] is True
+    assert annotations["idempotentHint"] is True
 
 
 def test_mcp_deploy_deferred_rejects_config_secret_name(
