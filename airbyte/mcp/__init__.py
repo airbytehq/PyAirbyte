@@ -314,7 +314,8 @@ otherwise `DD_LLMOBS_ENABLED=1` or `true` selects `datadog`, with `otel` as defa
 `AIRBYTE_MCP_TELEMETRY_HMAC_KEY` is an unpadded base64url-encoded 32-byte key
 for HMAC argument hashes; argument records are HMAC-hashed only for verified
 (authenticated) callers with a valid key, and are otherwise presence-only.
-Records use `airbyte.mcp.arg.<name>`. The client's `_meta.traceparent` trace ID
+Records use `airbyte.mcp.arg.<name>` and are copied to LLM Observability
+metadata as `arg.<name>`. The client's `_meta.traceparent` trace ID
 is retained and its parent is dropped. `tools/list` spans and `unknown_tool`
 outcomes are exported.
 
