@@ -24,7 +24,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import deployment
 from airbyte._util.api_util import (
-    AIRBYTE_ANALYTIC_SOURCE_HEADER,
+    AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     CLOUD_API_ROOT,
     get_bearer_token,
     get_cloud_api_analytic_source,
@@ -157,7 +157,7 @@ def make_cloud_agent_request(
         "Accept": "application/json",
         "Authorization": f"Bearer {_resolve_bearer_token(credentials)}",
         "User-Agent": "PyAirbyte Client",
-        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
+        AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
     }
 
     response = requests.request(

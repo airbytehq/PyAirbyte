@@ -59,10 +59,19 @@ def is_mcp_mode() -> bool:
     return _MCP_MODE_ENABLED
 
 
-AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
-"""Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
+AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
+"""Outbound header PyAirbyte sends on Airbyte Cloud API requests.
+
+The platform stamps its value onto Segment events as `airbyte_source`.
+Never read from inbound MCP requests; see `get_cloud_api_analytic_source()`.
+"""
 
 AIRBYTE_APPLICATION_NAME_HEADER = "X-Airbyte-Application-Name"
+"""Inbound header MCP callers may send to self-identify by application name.
+
+Normalized and reported as `application_name` in MCP telemetry. A recognized
+name may also map to the outbound analytic source. Does not affect functionality.
+"""
 
 _APPLICATION_ANALYTIC_SOURCES: dict[str, str] = {
     "io.airbyte.coral-support-agent": "coral-support-agent"

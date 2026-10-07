@@ -1936,7 +1936,7 @@ def test_config_api_request_sends_analytic_source_header(
 
     headers = captured["headers"]
     assert isinstance(headers, dict)
-    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
+    assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
 def test_config_api_request_handles_no_content_response(
@@ -2129,7 +2129,10 @@ def test_public_api_client_sends_analytic_source_header(
     )
 
     session = airbyte_instance.sdk_configuration.client
-    assert session.headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-local"
+    assert (
+        session.headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER]
+        == "pyairbyte-mcp-local"
+    )
 
 
 def test_get_bearer_token_sends_analytic_source_header(
@@ -2152,7 +2155,7 @@ def test_get_bearer_token_sends_analytic_source_header(
 
     headers = captured["headers"]
     assert isinstance(headers, dict)
-    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
+    assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
 
 
 def _sdk_404_error(resource_type: str) -> SDKError:

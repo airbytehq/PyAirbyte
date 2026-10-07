@@ -823,7 +823,7 @@ def test_auth_failed_reports_application_name_separately_from_session_token(
     if application_name is not None:
         request_headers[meta.AIRBYTE_APPLICATION_NAME_HEADER] = application_name
     if analytic_source is not None:
-        request_headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] = analytic_source
+        request_headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] = analytic_source
 
     async def send_request() -> httpx.Response:
         async with httpx.AsyncClient(
