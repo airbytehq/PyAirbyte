@@ -68,7 +68,6 @@ _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
 _ARG_PREFIX = "airbyte.mcp"
-_LLMOBS_ARG_KEYS = frozenset({"arg_hash_status", "arg_key_scope"})
 # Same classification and validation as the OTel backend; intent is exported separately.
 _ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
 
@@ -460,7 +459,7 @@ def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
     """Keep native APM attributes and LLM metadata consistent.
 
     Argument records pass the OTel backend's export validation: ints become
-    metrics, and only the tracing state reaches LLM metadata.
+    metrics, and the validated records also reach LLM metadata.
     """
     from ddtrace.llmobs import LLMObs  # noqa: PLC0415
 
@@ -483,13 +482,7 @@ def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
         for key, value in attrs.items()
         if key.startswith("airbyte.mcp.")
     }
-    metadata.update(
-        {
-            short: value
-            for key, value in accepted.items()
-            if (short := key.removeprefix("airbyte.mcp.")) in _LLMOBS_ARG_KEYS
-        }
-    )
+    metadata.update({key.removeprefix("airbyte.mcp."): value for key, value in accepted.items()})
     if "gen_ai.tool.call.id" in attrs:
         metadata["tool_id"] = attrs["gen_ai.tool.call.id"]
     LLMObs.annotate(span, metadata=metadata)

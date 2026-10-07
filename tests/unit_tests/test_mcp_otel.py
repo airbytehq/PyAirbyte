@@ -337,6 +337,8 @@ def test_datadog_metadata_exporter_maps_only_approved_tool_attributes() -> None:
         assert metadata["workspace_id"] == WORKSPACE_ID
         assert metadata["organization_id"] == ORGANIZATION_ID
         assert metadata["auth_method"] == "bearer"
+        assert metadata["arg.value"] == attributes["airbyte.mcp.arg.value"]
+        assert metadata["arg_hash_status"] == attributes["airbyte.mcp.arg_hash_status"]
         assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
             "intent": "Read the user records",
             "action": "list",
