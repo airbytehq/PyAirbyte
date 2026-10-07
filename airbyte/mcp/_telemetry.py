@@ -31,11 +31,10 @@ from fastmcp_extensions.capability_tokens import (
 from starlette.datastructures import Headers
 
 from airbyte._util.meta import (
-    AIRBYTE_ANALYTIC_SOURCE_HEADER,
     AIRBYTE_APPLICATION_NAME_HEADER,
-    declared_application_name,
     get_declared_application_name,
     is_mcp_mode,
+    normalize_application_name,
 )
 from airbyte.constants import (
     CLOUD_API_ROOT,
@@ -140,6 +139,7 @@ def context_properties(
     *,
     auth_method: AuthMethod,
     session_id: str | None,
+    application_name: str | None,
     client_name: str | None,
     client_version: str | None,
     protocol_version: str | None,
@@ -153,6 +153,7 @@ def context_properties(
         "transport": _transport(),
         "auth_method": auth_method,
         "session_id": session_id,
+        "application_name": application_name,
         "mcp_client_name": client_name,
         "mcp_client_version": client_version,
         "mcp_protocol_version": protocol_version,
@@ -251,22 +252,16 @@ def request_properties(
             get_http_request().headers
         )
 
-    declared_name = get_declared_application_name()
-    client_name = declared_name or (
-        client_info.name if client_info else (session_token.client_name if session_token else None)
-    )
-
     return context_properties(
         auth_method=auth_method if auth_method in {"bearer", "client_credentials"} else "none",
         session_id=session_id if isinstance(session_id, str) else None,
-        client_name=client_name,
-        client_version=None
-        if declared_name
-        else (
-            client_info.version
-            if client_info
-            else (session_token.client_version if session_token else None)
-        ),
+        application_name=get_declared_application_name(),
+        client_name=client_info.name
+        if client_info
+        else (session_token.client_name if session_token else None),
+        client_version=client_info.version
+        if client_info
+        else (session_token.client_version if session_token else None),
         protocol_version=protocol_version
         or (session_token.protocol_version if session_token else None),
         organization_id=_config_value(MCP_CONFIG_ORGANIZATION_ID),
@@ -490,21 +485,16 @@ class McpRequestTelemetryMiddleware:
         )
         if reason is None:
             return
-        client_name = (
-            declared_application_name(
-                headers.get(AIRBYTE_APPLICATION_NAME_HEADER),
-                headers.get(AIRBYTE_ANALYTIC_SOURCE_HEADER),
-            )
-            if is_mcp_mode()
-            else None
-        )
         properties = context_properties(
             auth_method=auth_method,
             session_id=session_id,
-            client_name=client_name or (session_token.client_name if session_token else None),
-            client_version=None
-            if client_name
-            else (session_token.client_version if session_token else None),
+            application_name=normalize_application_name(
+                headers.get(AIRBYTE_APPLICATION_NAME_HEADER)
+            )
+            if is_mcp_mode()
+            else None,
+            client_name=session_token.client_name if session_token else None,
+            client_version=session_token.client_version if session_token else None,
             protocol_version=session_token.protocol_version if session_token else None,
             organization_id=headers.get(MCP_ORGANIZATION_ID_HEADER)
             or os.getenv(CLOUD_ORGANIZATION_ID_ENV_VAR),

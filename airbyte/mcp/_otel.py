@@ -110,9 +110,15 @@ def _warn_invalid_arg_key() -> None:
 
 
 def _trace_attributes() -> dict[str, str]:
-    from airbyte._util.meta import get_cloud_api_analytic_source  # noqa: PLC0415
+    from airbyte._util.meta import (  # noqa: PLC0415
+        get_cloud_api_analytic_source,
+        get_declared_application_name,
+    )
 
-    return {"analytic_source": get_cloud_api_analytic_source()}
+    attributes = {"analytic_source": get_cloud_api_analytic_source()}
+    if application_name := get_declared_application_name():
+        attributes["application_name"] = application_name
+    return attributes
 
 
 def _http_client_span_attributes(span: ReadableSpan) -> Mapping[str, AttributeValue] | None:

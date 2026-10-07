@@ -64,32 +64,17 @@ AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
 
 AIRBYTE_APPLICATION_NAME_HEADER = "X-Airbyte-Application-Name"
 
-_UPSTREAM_ANALYTIC_SOURCES: frozenset[str] = frozenset({"coral-support-agent"})
-"""Analytic sources a trusted upstream may declare on requests to the hosted MCP server."""
+_APPLICATION_ANALYTIC_SOURCES: dict[str, str] = {
+    "io.airbyte.coral-support-agent": "coral-support-agent"
+}
 
 
-def _allowlisted_value(value: str | None, allowlist: frozenset[str]) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip().lower()
-    return normalized if normalized in allowlist else None
-
-
-def _normalize_application_name(value: str | None) -> str | None:
+def normalize_application_name(value: str | None) -> str | None:
+    """Normalize a declared application name for telemetry."""
     if value is None:
         return None
     normalized = re.sub(r"[^a-z0-9._-]+", "-", value.strip().lower()).strip("-")[:128]
     return normalized or None
-
-
-def declared_application_name(
-    application_name: str | None,
-    analytic_source: str | None = None,
-) -> str | None:
-    """Return the declared application name, falling back to the analytic source."""
-    return _normalize_application_name(application_name) or _allowlisted_value(
-        analytic_source, _UPSTREAM_ANALYTIC_SOURCES
-    )
 
 
 def get_http_headers() -> dict[str, str]:
@@ -102,28 +87,12 @@ def get_http_headers() -> dict[str, str]:
     return get_http_headers()
 
 
-def _declared_analytic_source() -> str | None:
-    if not is_mcp_mode():
-        return None
-    return _allowlisted_value(
-        get_http_headers().get(AIRBYTE_ANALYTIC_SOURCE_HEADER.lower()),
-        _UPSTREAM_ANALYTIC_SOURCES,
-    )
-
-
-def _declared_application_name() -> str | None:
-    if not is_mcp_mode():
-        return None
-    return _normalize_application_name(
-        get_http_headers().get(AIRBYTE_APPLICATION_NAME_HEADER.lower())
-    )
-
-
 def get_declared_application_name() -> str | None:
     """Return the declared application name for the current MCP request."""
-    return declared_application_name(
-        _declared_application_name(),
-        _declared_analytic_source(),
+    if not is_mcp_mode():
+        return None
+    return normalize_application_name(
+        get_http_headers().get(AIRBYTE_APPLICATION_NAME_HEADER.lower())
     )
 
 
@@ -133,15 +102,13 @@ def get_cloud_api_analytic_source() -> str:
     This is an identifier of the client software (MCP or PyAirbyte API) and
     *not* an indicator of the user and/or workspace. Because it is not
     user-identifying and only sent for logged-in API calls, it is not affected
-    by the `DO_NOT_TRACK` environment variable. In MCP mode, a declared value
-    from the incoming request wins.
+    by the `DO_NOT_TRACK` environment variable. In MCP mode, a recognized
+    declared application name maps to its analytic source.
     """
     if not is_mcp_mode():
         return "pyairbyte"
-    if source := _declared_analytic_source():
+    if source := _APPLICATION_ANALYTIC_SOURCES.get(get_declared_application_name() or ""):
         return source
-    if application_name := _declared_application_name():
-        return application_name
     return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
 
 
