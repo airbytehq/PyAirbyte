@@ -302,7 +302,8 @@ assembles the verifier(s) and reads no environment variables itself.
 ## Optional Hosted Tool Intent Observability
 
 Hosted HTTP tracing uses `fastmcp-extensions` tool-call spans for `otel` and
-`datadog-otlp`; export remains dormant without an OTLP endpoint. The optional
+`datadog-otlp`; export remains dormant without an OTLP endpoint, and
+`DO_NOT_TRACK` also disables it. The optional
 top-level `intent` is enabled by `AIRBYTE_MCP_INTENT_CAPTURE=1`; never include
 credentials, identifiers or data values.
 

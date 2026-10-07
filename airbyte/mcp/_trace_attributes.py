@@ -42,9 +42,9 @@ def agent_action_attributes(tool_name: str, arguments: Mapping[str, object]) -> 
         entity_type = arguments.get("entity_type")
         if (
             isinstance(entity_type, str)
-            and entity_type
+            and 0 < len(entity_type) <= _MAX_ENTITY_TYPE_LENGTH
             and entity_type.isprintable()
             and entity_type == entity_type.strip()
         ):
-            attributes["agent.entity_type"] = entity_type[:_MAX_ENTITY_TYPE_LENGTH].rstrip()
+            attributes["agent.entity_type"] = entity_type
     return attributes

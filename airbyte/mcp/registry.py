@@ -17,7 +17,7 @@ from typing import Annotated, Literal
 
 import requests
 from fastmcp import FastMCP
-from fastmcp_extensions import mcp_tool, register_mcp_tools
+from fastmcp_extensions import TraceArg, mcp_tool, register_mcp_tools
 from pydantic import Field
 
 from airbyte import exceptions as exc
@@ -44,6 +44,7 @@ def list_connectors(
             description="Filter connectors by keyword.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     connector_type_filter: Annotated[
         Literal["source", "destination"] | None,
@@ -134,6 +135,7 @@ def get_connector_version_history(
         Field(
             description="The name of the connector (e.g., 'source-faker', 'destination-postgres')"
         ),
+        TraceArg.FINGERPRINT,
     ],
     num_versions_to_validate: Annotated[
         int,
@@ -155,6 +157,7 @@ def get_connector_version_history(
             ),
             default=None,
         ),
+        TraceArg.VALUE,
     ] = None,
 ) -> list[ConnectorVersionInfo] | Literal["Connector not found.", "Failed to fetch changelog."]:
     """Get version history for a connector.

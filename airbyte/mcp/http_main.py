@@ -111,6 +111,7 @@ Tracing backend selection:
   with `otel` as the default.
 - OTel tracing uses `fastmcp-extensions` tool-call spans and stays dormant until
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+- `DO_NOT_TRACK` also disables hosted OTel trace export, even with an OTLP endpoint set.
 - Hosted OTel startup refuses an existing global tracer provider or pre-instrumented
   `requests`; active export also requires a provider created by `fastmcp-extensions`.
   Segment requests are excluded.
@@ -125,7 +126,8 @@ Tracing backend selection:
 - Spans include `analytic_source`, `auth_method`, `workspace_id`, `organization_id`
   and `scope_source` when available; session identifiers are digests.
 - `agent.action` and `agent.entity_type` record validated external-query metadata;
-  entity names are printable, have no surrounding whitespace and are capped at 256 characters.
+  entity names must be printable, have no surrounding whitespace and be at most 256
+  characters; others are dropped.
 - Raw tool arguments/results, exception messages/stacks, status descriptions,
   HTTP header values, user agents and URL queries are excluded; unrecognized
   outbound routes are redacted.

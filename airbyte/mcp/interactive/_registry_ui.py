@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastmcp.apps import PrefabAppConfig
 from fastmcp.tools.base import ToolResult
+from fastmcp_extensions import TraceArg
 from prefab_ui.actions import OpenLink, SendMessage, SetState
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
@@ -92,6 +93,7 @@ def show_connectors_list(
                 "or `archived`. Empty string means no filter."
             ),
         ),
+        TraceArg.VALUE,
     ] = "",
     certified: Annotated[  # noqa: FBT002 - FastMCP tool parameter.
         bool,
@@ -110,6 +112,7 @@ def show_connectors_list(
                 "< `certified`. Empty string means no filter."
             ),
         ),
+        TraceArg.VALUE,
     ] = "",
     connector_type: Annotated[
         str,
@@ -119,6 +122,7 @@ def show_connectors_list(
                 "Empty string means no filter."
             ),
         ),
+        TraceArg.VALUE,
     ] = "",
     search: Annotated[
         str,
@@ -128,6 +132,7 @@ def show_connectors_list(
                 "definition ID, Docker repository, subtype, and docs URL."
             ),
         ),
+        TraceArg.FINGERPRINT,
     ] = "",
     limit: Annotated[
         int,
@@ -135,6 +140,7 @@ def show_connectors_list(
             description="Maximum number of connectors to return. Use `0` for no limit.",
             ge=0,
         ),
+        TraceArg.VALUE,
     ] = 0,
 ) -> ToolResult:
     """Show an interactive public connector catalog from the OSS registry."""
