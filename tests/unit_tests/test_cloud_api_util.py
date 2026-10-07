@@ -1765,46 +1765,151 @@ def test_get_analytic_source_reflects_runtime_mode(
         pytest.param(
             True,
             True,
-            {"x-airbyte-analytic-source": "Coral-Support-Agent"},
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
             "coral-support-agent",
-            id="upstream_wins",
+            id="mapped-application-name",
         ),
         pytest.param(
             True,
             True,
-            {"x-airbyte-analytic-source": "evil"},
+            {"x-airbyte-application-name": "  IO.Airbyte.Coral-Support-Agent "},
+            "coral-support-agent",
+            id="normalized-mapped-application-name",
+        ),
+        pytest.param(
+            True,
+            True,
+            {"x-airbyte-application-name": "my-agent"},
             "pyairbyte-mcp-hosted",
-            id="unlisted_source_rejected",
+            id="unmapped-application-name",
         ),
         pytest.param(True, True, {}, "pyairbyte-mcp-hosted", id="no_header_falls_back"),
         pytest.param(
-            False,
-            False,
+            True,
+            True,
             {"x-airbyte-analytic-source": "coral-support-agent"},
+            "pyairbyte-mcp-hosted",
+            id="analytic-source-header-ignored",
+        ),
+        pytest.param(
+            False,
+            False,
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
             "pyairbyte",
-            id="header_ignored_outside_mcp_mode",
+            id="application-name-ignored-outside-mcp-mode",
         ),
         pytest.param(
             True,
             False,
             {"x-airbyte-analytic-source": "coral-support-agent"},
-            "coral-support-agent",
-            id="upstream_wins_local_mcp_mode",
+            "pyairbyte-mcp-local",
+            id="analytic-source-header-ignored-in-local-mode",
         ),
     ],
 )
-def test_get_analytic_source_upstream_header(
+def test_get_analytic_source_uses_application_name_mapping(
     monkeypatch: pytest.MonkeyPatch,
     mcp_mode: bool,
     hosted_mcp_mode: bool,
-    headers: dict,
+    headers: dict[str, str],
     expected: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
     monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
-    monkeypatch.setattr(meta, "get_http_headers", lambda **_: headers)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
 
     assert meta.get_cloud_api_analytic_source() == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("My Agent!", "my-agent"),
+        ("IO.AIRBYTE.X", "io.airbyte.x"),
+        ("x" * 200, "x" * 128),
+        ("   ", None),
+        ("!!!", None),
+        (None, None),
+    ],
+)
+def test_normalize_application_name(
+    value: str | None,
+    expected: str | None,
+) -> None:
+    assert meta.normalize_application_name(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("mcp_mode", "headers", "expected_declared_name", "expected_application_name"),
+    [
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            "com.example.my-agent",
+            "com.example.my-agent",
+            id="mcp-header",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-analytic-source": "coral-support-agent"},
+            None,
+            "local-script",
+            id="analytic-source-header-ignored",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "My Agent!"},
+            "my-agent",
+            "my-agent",
+            id="normalized-application-name",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "!!!"},
+            None,
+            "local-script",
+            id="empty-normalized-name",
+        ),
+        pytest.param(True, {}, None, "local-script", id="mcp-no-header"),
+        pytest.param(
+            False,
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            None,
+            "local-script",
+            id="non-mcp-header-ignored",
+        ),
+    ],
+)
+def test_get_declared_application_name_and_get_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_mode: bool,
+    headers: dict[str, str],
+    expected_declared_name: str | None,
+    expected_application_name: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
+
+    assert meta.get_declared_application_name() == expected_declared_name
+    assert meta.get_application_name() == expected_application_name
+
+
+def test_get_application_name_resolves_current_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    headers: dict[str, str] = {}
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
+
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-analytic-source"] = "coral-support-agent"
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-application-name"] = "!!!"
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-application-name"] = "My Agent!"
+    assert meta.get_application_name() == "my-agent"
 
 
 def test_config_api_request_sends_analytic_source_header(
@@ -1831,7 +1936,7 @@ def test_config_api_request_sends_analytic_source_header(
 
     headers = captured["headers"]
     assert isinstance(headers, dict)
-    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
+    assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
 
 
 def test_config_api_request_handles_no_content_response(
@@ -2024,7 +2129,10 @@ def test_public_api_client_sends_analytic_source_header(
     )
 
     session = airbyte_instance.sdk_configuration.client
-    assert session.headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-local"
+    assert (
+        session.headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER]
+        == "pyairbyte-mcp-local"
+    )
 
 
 def test_get_bearer_token_sends_analytic_source_header(
@@ -2047,7 +2155,7 @@ def test_get_bearer_token_sends_analytic_source_header(
 
     headers = captured["headers"]
     assert isinstance(headers, dict)
-    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
+    assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
 
 
 def _sdk_404_error(resource_type: str) -> SDKError:

@@ -110,6 +110,34 @@ def _tool_span(spans: Sequence[ReadableSpan], name: str) -> ReadableSpan:
     return next(span for span in spans if span.name == f"tools/call {name}")
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected_application_name"),
+    [
+        pytest.param(
+            {"x-airbyte-application-name": "My Agent!"},
+            "my-agent",
+            id="declared-application-name",
+        ),
+        pytest.param({}, None, id="no-application-name"),
+    ],
+)
+def test_trace_attributes_include_application_name_when_declared(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected_application_name: str | None,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+
+    attributes = observability._trace_attributes()
+
+    assert "analytic_source" in attributes
+    if expected_application_name is None:
+        assert "application_name" not in attributes
+    else:
+        assert attributes["application_name"] == expected_application_name
+
+
 class _Collector(SpanExporter):
     def __init__(self) -> None:
         self.spans: list[ReadableSpan] = []

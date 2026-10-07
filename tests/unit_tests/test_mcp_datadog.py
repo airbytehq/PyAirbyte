@@ -7,11 +7,122 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
-from airbyte.mcp import _datadog
+from airbyte._util import meta
+from airbyte.mcp import _datadog, _telemetry
 from airbyte.version import get_version
+
+
+@pytest.mark.parametrize(
+    ("headers", "client_info", "expected_client_name", "expected_client_version"),
+    [
+        pytest.param(
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            {"name": "mcp", "version": "1.2"},
+            "mcp",
+            "mcp_1.2",
+            id="application-name-header-does-not-override-client-info",
+        ),
+        pytest.param(
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            {"name": "", "version": "1.2"},
+            None,
+            None,
+            id="application-name-does-not-fill-missing-client-name",
+        ),
+        pytest.param(
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            {"name": "mcp", "version": ""},
+            None,
+            None,
+            id="application-name-does-not-fill-missing-client-version",
+        ),
+        pytest.param(
+            {},
+            {"name": "cursor", "version": "2.0"},
+            "cursor",
+            "cursor_2.0",
+            id="no-header-uses-client-info",
+        ),
+    ],
+)
+def test_datadog_initialize_tags_use_client_info(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    client_info: dict[str, str],
+    expected_client_name: str | None,
+    expected_client_version: str | None,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(_datadog, "_request_trace_attributes", lambda: {})
+    monkeypatch.setattr(_datadog, "_annotate_attributes", lambda *_: None)
+    annotations: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "ddtrace.llmobs.LLMObs.annotate",
+        lambda _span, **kwargs: annotations.append(kwargs),
+    )
+
+    _datadog._annotate_request(
+        cast(Any, object()),
+        cast(
+            Any,
+            SimpleNamespace(
+                method="initialize",
+                params={
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": client_info,
+                },
+            ),
+        ),
+    )
+
+    tags = annotations[0]["tags"]
+    assert isinstance(tags, dict)
+    if expected_client_name:
+        assert tags["client_name"] == expected_client_name
+    else:
+        assert "client_name" not in tags
+    if expected_client_version:
+        assert tags["client_version"] == expected_client_version
+    else:
+        assert "client_version" not in tags
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected_application_name"),
+    [
+        pytest.param(
+            {"x-airbyte-application-name": "My Agent!"},
+            "my-agent",
+            id="declared-application-name",
+        ),
+        pytest.param({}, None, id="no-application-name"),
+    ],
+)
+def test_request_trace_attributes_include_declared_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected_application_name: str | None,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(
+        _telemetry,
+        "request_properties",
+        lambda: {"application_name": meta.get_declared_application_name()},
+    )
+
+    attributes = _datadog._request_trace_attributes()
+
+    if expected_application_name is None:
+        assert "airbyte.mcp.application_name" not in attributes
+    else:
+        assert attributes["airbyte.mcp.application_name"] == expected_application_name
 
 
 @pytest.mark.parametrize("original_input", [[{"content": "private"}], [object()], []])

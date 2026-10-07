@@ -129,6 +129,7 @@ def _request_trace_attributes() -> dict[str, str]:
     try:
         properties = request_properties()
         for field, key in (
+            ("application_name", "application_name"),
             ("client_name", "mcp_client_name"),
             ("client_version", "mcp_client_version"),
             ("mcp_protocol_version", "mcp_protocol_version"),
