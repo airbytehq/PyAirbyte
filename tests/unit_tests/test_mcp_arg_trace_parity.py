@@ -95,7 +95,7 @@ def traced_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[FastMCP]:
     connect = socket.socket.connect
 
     def loopback_only(sock: socket.socket, address: object) -> object:
-        if sock.family != socket.AF_UNIX:
+        if sock.family in {socket.AF_INET, socket.AF_INET6}:
             assert isinstance(address, tuple) and address[0] in {"127.0.0.1", "::1"}
         return connect(sock, address)
 
