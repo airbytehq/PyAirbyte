@@ -121,81 +121,15 @@ has its own documentation and code samples related to effectively using the rela
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pkgutil
 
-from airbyte import registry
-from airbyte.caches.bigquery import BigQueryCache
-from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_cache
-from airbyte.datasets import CachedDataset
-from airbyte.destinations.base import Destination
-from airbyte.destinations.util import get_destination
-from airbyte.records import StreamRecord
-from airbyte.registry import get_available_connectors
-from airbyte.results import ReadResult, WriteResult
-from airbyte.secrets import SecretSourceEnum, get_secret
-from airbyte.sources.base import Source
-from airbyte.sources.util import get_source
+import lazy_loader
 
 
-# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
-if TYPE_CHECKING:
-    # ruff: noqa: TC004  # imports used for more than type checking
-    from airbyte import (
-        caches,
-        callbacks,
-        cli,
-        cloud,
-        constants,
-        datasets,
-        destinations,
-        documents,
-        exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
-        logs,
-        mcp,
-        records,
-        results,
-        secrets,
-        sources,
-    )
+# Public names are declared once in `__init__.pyi` and loaded on first attribute access.
+__getattr__, __dir__, _lazy_names = lazy_loader.attach_stub(__name__, __file__)
 
-
-__all__ = [
-    # Modules
-    "caches",
-    "callbacks",
-    "cli",
-    "cloud",
-    "constants",
-    "datasets",
-    "destinations",
-    "documents",
-    "exceptions",
-    "logs",
-    "mcp",
-    "records",
-    "registry",
-    "results",
-    "secrets",
-    "sources",
-    # Factories
-    "get_available_connectors",
-    "get_colab_cache",
-    "get_default_cache",
-    "get_destination",
-    "get_secret",
-    "get_source",
-    "new_local_cache",
-    # Classes
-    "BigQueryCache",
-    "CachedDataset",
-    "Destination",
-    "DuckDBCache",
-    "ReadResult",
-    "SecretSourceEnum",
-    "Source",
-    "StreamRecord",
-    "WriteResult",
-]
+_SUBMODULE_NAMES = {module.name for module in pkgutil.iter_modules(__path__)}
+__all__ = [name for name in _lazy_names if name not in _SUBMODULE_NAMES]
 
 __docformat__ = "google"
