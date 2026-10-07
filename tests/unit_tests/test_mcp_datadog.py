@@ -17,35 +17,31 @@ from airbyte.version import get_version
 
 
 @pytest.mark.parametrize(
-    ("client_info", "expected_client_version"),
+    "client_info",
     [
         pytest.param(
             {"name": "mcp", "version": "1.2"},
-            "io.airbyte.coral-support-agent_1.2",
             id="overrides-client-info",
         ),
         pytest.param(
             {"name": "", "version": "1.2"},
-            "io.airbyte.coral-support-agent_1.2",
             id="application-name-without-client-name",
         ),
         pytest.param(
             {"name": "mcp", "version": ""},
-            None,
             id="application-name-without-client-version",
         ),
     ],
 )
-def test_datadog_initialize_uses_allowlisted_application_name(
+def test_datadog_initialize_uses_declared_application_name_without_client_version(
     monkeypatch: pytest.MonkeyPatch,
     client_info: dict[str, str],
-    expected_client_version: str | None,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     monkeypatch.setattr(
         meta,
         "get_http_headers",
-        lambda: {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+        lambda: {"x-airbyte-application-name": "com.example.my-agent"},
     )
     monkeypatch.setattr(_datadog, "_request_trace_attributes", lambda: {})
     monkeypatch.setattr(_datadog, "_annotate_attributes", lambda *_: None)
@@ -72,28 +68,28 @@ def test_datadog_initialize_uses_allowlisted_application_name(
 
     tags = annotations[0]["tags"]
     assert isinstance(tags, dict)
-    assert tags["client_name"] == "io.airbyte.coral-support-agent"
-    assert tags.get("client_version") == expected_client_version
+    assert tags["client_name"] == "com.example.my-agent"
+    assert "client_version" not in tags
 
 
-def test_request_trace_attributes_use_application_name(
+def test_request_trace_attributes_use_declared_application_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     monkeypatch.setattr(
         meta,
         "get_http_headers",
-        lambda: {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+        lambda: {"x-airbyte-application-name": "My Agent!"},
     )
     monkeypatch.setattr(
         _telemetry,
         "request_properties",
-        lambda: {"mcp_client_name": meta.get_known_application_name()},
+        lambda: {"mcp_client_name": meta.get_declared_application_name()},
     )
 
     attributes = _datadog._request_trace_attributes()
 
-    assert attributes["airbyte.mcp.client_name"] == "io.airbyte.coral-support-agent"
+    assert attributes["airbyte.mcp.client_name"] == "my-agent"
 
 
 @pytest.mark.parametrize("original_input", [[{"content": "private"}], [object()], []])

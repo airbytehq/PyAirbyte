@@ -1550,23 +1550,24 @@ def test_get_analytic_source_upstream_header(
     ("headers", "expected"),
     [
         (
-            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
-            "io.airbyte.coral-support-agent",
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            "com.example.my-agent",
         ),
         (
             {
-                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-application-name": "My Agent!",
                 "x-airbyte-analytic-source": "unlisted",
             },
-            "io.airbyte.coral-support-agent",
+            "my-agent",
         ),
         (
             {
-                "x-airbyte-application-name": "unlisted",
+                "x-airbyte-application-name": "!!!",
                 "x-airbyte-analytic-source": "coral-support-agent",
             },
             "coral-support-agent",
         ),
+        ({"x-airbyte-application-name": "x" * 200}, "x" * 128),
     ],
 )
 def test_get_analytic_source_falls_back_between_headers(
@@ -1581,7 +1582,7 @@ def test_get_analytic_source_falls_back_between_headers(
     assert meta.get_cloud_api_analytic_source() == expected
 
 
-def test_get_analytic_source_prefers_analytic_source_when_both_are_allowlisted(
+def test_get_analytic_source_prefers_analytic_source_when_both_are_declared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
@@ -1590,7 +1591,7 @@ def test_get_analytic_source_prefers_analytic_source_when_both_are_allowlisted(
         meta,
         "get_http_headers",
         lambda: {
-            "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+            "x-airbyte-application-name": "com.example.my-agent",
             "x-airbyte-analytic-source": "coral-support-agent",
         },
     )
@@ -1601,35 +1602,39 @@ def test_get_analytic_source_prefers_analytic_source_when_both_are_allowlisted(
 @pytest.mark.parametrize(
     ("application_name", "analytic_source", "expected"),
     [
-        ("  IO.Airbyte.Coral-Support-Agent\n", None, "io.airbyte.coral-support-agent"),
+        ("  COM.Example.My-Agent\n", None, "com.example.my-agent"),
+        ("My Agent!", None, "my-agent"),
+        ("IO.AIRBYTE.X", None, "io.airbyte.x"),
+        ("x" * 200, None, "x" * 128),
+        ("   ", None, None),
+        ("!!!", None, None),
         (None, None, None),
-        ("unlisted-application", None, None),
         (None, " Coral-Support-Agent ", "coral-support-agent"),
-        ("unlisted-application", " Coral-Support-Agent ", "coral-support-agent"),
+        ("!!!", " Coral-Support-Agent ", "coral-support-agent"),
         (
-            "io.airbyte.coral-support-agent",
+            "com.example.my-agent",
             "unlisted-source",
-            "io.airbyte.coral-support-agent",
+            "com.example.my-agent",
         ),
-        ("unlisted-application", "unlisted-source", None),
+        ("!!!", "unlisted-source", None),
     ],
 )
-def test_known_application_name(
+def test_declared_application_name(
     application_name: str | None,
     analytic_source: str | None,
     expected: str | None,
 ) -> None:
-    assert meta.known_application_name(application_name, analytic_source) == expected
+    assert meta.declared_application_name(application_name, analytic_source) == expected
 
 
 @pytest.mark.parametrize(
-    ("mcp_mode", "headers", "expected_known_name", "expected_application_name"),
+    ("mcp_mode", "headers", "expected_declared_name", "expected_application_name"),
     [
         pytest.param(
             True,
-            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
-            "io.airbyte.coral-support-agent",
-            "io.airbyte.coral-support-agent",
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            "com.example.my-agent",
+            "com.example.my-agent",
             id="mcp-header",
         ),
         pytest.param(
@@ -1642,22 +1647,43 @@ def test_known_application_name(
         pytest.param(
             True,
             {
-                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-application-name": "My Agent!",
                 "x-airbyte-analytic-source": "coral-support-agent",
             },
-            "io.airbyte.coral-support-agent",
-            "io.airbyte.coral-support-agent",
+            "my-agent",
+            "my-agent",
             id="application-name-precedes-analytic-source",
         ),
         pytest.param(
             True,
             {
-                "x-airbyte-application-name": "unlisted-application",
+                "x-airbyte-application-name": "!!!",
                 "x-airbyte-analytic-source": "coral-support-agent",
             },
             "coral-support-agent",
             "coral-support-agent",
-            id="unlisted-application-falls-back-to-analytic-source",
+            id="empty-normalized-name-falls-back-to-analytic-source",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "IO.AIRBYTE.X"},
+            "io.airbyte.x",
+            "io.airbyte.x",
+            id="lowercases-application-name",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "x" * 200},
+            "x" * 128,
+            "x" * 128,
+            id="truncates-application-name",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "!!!"},
+            None,
+            "local-script",
+            id="empty-normalized-name",
         ),
         pytest.param(
             True,
@@ -1672,25 +1698,25 @@ def test_known_application_name(
         pytest.param(True, {}, None, "local-script", id="mcp-no-header"),
         pytest.param(
             False,
-            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            {"x-airbyte-application-name": "com.example.my-agent"},
             None,
             "local-script",
             id="non-mcp-header-ignored",
         ),
     ],
 )
-def test_get_known_application_name_and_get_application_name(
+def test_get_declared_application_name_and_get_application_name(
     monkeypatch: pytest.MonkeyPatch,
     mcp_mode: bool,
     headers: dict[str, str],
-    expected_known_name: str | None,
+    expected_declared_name: str | None,
     expected_application_name: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
     monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
     monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
 
-    assert meta.get_known_application_name() == expected_known_name
+    assert meta.get_declared_application_name() == expected_declared_name
     assert meta.get_application_name() == expected_application_name
 
 
@@ -1705,8 +1731,10 @@ def test_get_application_name_resolves_current_request(
     assert meta.get_application_name() == "local-script"
     headers["x-airbyte-analytic-source"] = "coral-support-agent"
     assert meta.get_application_name() == "coral-support-agent"
-    headers["x-airbyte-application-name"] = "io.airbyte.coral-support-agent"
-    assert meta.get_application_name() == "io.airbyte.coral-support-agent"
+    headers["x-airbyte-application-name"] = "!!!"
+    assert meta.get_application_name() == "coral-support-agent"
+    headers["x-airbyte-application-name"] = "My Agent!"
+    assert meta.get_application_name() == "my-agent"
 
 
 def test_config_api_request_sends_analytic_source_header(

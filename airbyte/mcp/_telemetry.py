@@ -33,9 +33,9 @@ from starlette.datastructures import Headers
 from airbyte._util.meta import (
     AIRBYTE_ANALYTIC_SOURCE_HEADER,
     AIRBYTE_APPLICATION_NAME_HEADER,
-    get_known_application_name,
+    declared_application_name,
+    get_declared_application_name,
     is_mcp_mode,
-    known_application_name,
 )
 from airbyte.constants import (
     CLOUD_API_ROOT,
@@ -251,7 +251,8 @@ def request_properties(
             get_http_request().headers
         )
 
-    client_name = get_known_application_name() or (
+    declared_name = get_declared_application_name()
+    client_name = declared_name or (
         client_info.name if client_info else (session_token.client_name if session_token else None)
     )
 
@@ -259,9 +260,13 @@ def request_properties(
         auth_method=auth_method if auth_method in {"bearer", "client_credentials"} else "none",
         session_id=session_id if isinstance(session_id, str) else None,
         client_name=client_name,
-        client_version=client_info.version
-        if client_info
-        else (session_token.client_version if session_token else None),
+        client_version=None
+        if declared_name
+        else (
+            client_info.version
+            if client_info
+            else (session_token.client_version if session_token else None)
+        ),
         protocol_version=protocol_version
         or (session_token.protocol_version if session_token else None),
         organization_id=_config_value(MCP_CONFIG_ORGANIZATION_ID),
@@ -486,7 +491,7 @@ class McpRequestTelemetryMiddleware:
         if reason is None:
             return
         client_name = (
-            known_application_name(
+            declared_application_name(
                 headers.get(AIRBYTE_APPLICATION_NAME_HEADER),
                 headers.get(AIRBYTE_ANALYTIC_SOURCE_HEADER),
             )
@@ -497,7 +502,9 @@ class McpRequestTelemetryMiddleware:
             auth_method=auth_method,
             session_id=session_id,
             client_name=client_name or (session_token.client_name if session_token else None),
-            client_version=session_token.client_version if session_token else None,
+            client_version=None
+            if client_name
+            else (session_token.client_version if session_token else None),
             protocol_version=session_token.protocol_version if session_token else None,
             organization_id=headers.get(MCP_ORGANIZATION_ID_HEADER)
             or os.getenv(CLOUD_ORGANIZATION_ID_ENV_VAR),

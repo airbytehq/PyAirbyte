@@ -7,6 +7,7 @@ This module contains functions for detecting environment and runtime information
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 from contextlib import suppress
@@ -66,9 +67,6 @@ AIRBYTE_APPLICATION_NAME_HEADER = "X-Airbyte-Application-Name"
 _UPSTREAM_ANALYTIC_SOURCES: frozenset[str] = frozenset({"coral-support-agent"})
 """Analytic sources a trusted upstream may declare on requests to the hosted MCP server."""
 
-_KNOWN_APPLICATION_NAMES: frozenset[str] = frozenset({"io.airbyte.coral-support-agent"})
-"""Allowlisted application names a trusted upstream may declare via `X-Airbyte-Application-Name`."""
-
 
 def _allowlisted_value(value: str | None, allowlist: frozenset[str]) -> str | None:
     if value is None:
@@ -77,12 +75,19 @@ def _allowlisted_value(value: str | None, allowlist: frozenset[str]) -> str | No
     return normalized if normalized in allowlist else None
 
 
-def known_application_name(
+def _normalize_application_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = re.sub(r"[^a-z0-9._-]+", "-", value.strip().lower()).strip("-")[:128]
+    return normalized or None
+
+
+def declared_application_name(
     application_name: str | None,
     analytic_source: str | None = None,
 ) -> str | None:
-    """Return the allowlisted application name, falling back to the analytic source."""
-    return _allowlisted_value(application_name, _KNOWN_APPLICATION_NAMES) or _allowlisted_value(
+    """Return the declared application name, falling back to the analytic source."""
+    return _normalize_application_name(application_name) or _allowlisted_value(
         analytic_source, _UPSTREAM_ANALYTIC_SOURCES
     )
 
@@ -109,15 +114,14 @@ def _declared_analytic_source() -> str | None:
 def _declared_application_name() -> str | None:
     if not is_mcp_mode():
         return None
-    return _allowlisted_value(
-        get_http_headers().get(AIRBYTE_APPLICATION_NAME_HEADER.lower()),
-        _KNOWN_APPLICATION_NAMES,
+    return _normalize_application_name(
+        get_http_headers().get(AIRBYTE_APPLICATION_NAME_HEADER.lower())
     )
 
 
-def get_known_application_name() -> str | None:
-    """Return the allowlisted application name declared by the current MCP request."""
-    return known_application_name(
+def get_declared_application_name() -> str | None:
+    """Return the declared application name for the current MCP request."""
+    return declared_application_name(
         _declared_application_name(),
         _declared_analytic_source(),
     )
@@ -129,8 +133,8 @@ def get_cloud_api_analytic_source() -> str:
     This is an identifier of the client software (MCP or PyAirbyte API) and
     *not* an indicator of the user and/or workspace. Because it is not
     user-identifying and only sent for logged-in API calls, it is not affected
-    by the `DO_NOT_TRACK` environment variable. In MCP mode, an allowlisted
-    upstream value from the incoming request wins.
+    by the `DO_NOT_TRACK` environment variable. In MCP mode, a declared value
+    from the incoming request wins.
     """
     if not is_mcp_mode():
         return "pyairbyte"
@@ -250,8 +254,8 @@ def _get_local_application_name() -> str | None:
 
 
 def get_application_name() -> str | None:
-    """Return the request's allowlisted application name or local application name."""
-    return get_known_application_name() or _get_local_application_name()
+    """Return the request's declared application name or local application name."""
+    return get_declared_application_name() or _get_local_application_name()
 
 
 def get_python_version() -> str:

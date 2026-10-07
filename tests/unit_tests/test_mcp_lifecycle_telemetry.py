@@ -180,58 +180,65 @@ def _initialize_request(
 
 
 @pytest.mark.parametrize(
-    ("headers", "client_name", "expected"),
+    ("headers", "client_name", "expected", "expected_version"),
     [
         pytest.param(
-            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            {"x-airbyte-application-name": "com.example.my-agent"},
             "mcp",
-            "io.airbyte.coral-support-agent",
-            id="allowlisted-header-overrides-mcp",
+            "com.example.my-agent",
+            None,
+            id="declared-header-overrides-mcp",
         ),
         pytest.param(
-            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            {"x-airbyte-application-name": "My Agent!"},
             "cursor",
-            "io.airbyte.coral-support-agent",
-            id="allowlisted-header-overrides-client",
+            "my-agent",
+            None,
+            id="normalizes-header-and-overrides-client",
         ),
         pytest.param(
             {"x-airbyte-analytic-source": "coral-support-agent"},
             "cursor",
             "coral-support-agent",
+            None,
             id="analytic-source-fallback",
         ),
         pytest.param(
             {
-                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-application-name": "com.example.my-agent",
                 "x-airbyte-analytic-source": "coral-support-agent",
             },
             "cursor",
-            "io.airbyte.coral-support-agent",
+            "com.example.my-agent",
+            None,
             id="application-name-precedes-analytic-source",
         ),
         pytest.param(
             {
-                "x-airbyte-application-name": "unlisted",
+                "x-airbyte-application-name": "!!!",
                 "x-airbyte-analytic-source": "coral-support-agent",
             },
             "cursor",
             "coral-support-agent",
-            id="unlisted-application-falls-back-to-analytic-source",
+            None,
+            id="empty-normalized-name-falls-back-to-analytic-source",
         ),
-        pytest.param({}, "cursor", "cursor", id="no-header-keeps-client"),
+        pytest.param({}, "cursor", "cursor", "1.0.0", id="no-header-keeps-client"),
         pytest.param(
-            {"x-airbyte-application-name": "unlisted"},
+            {"x-airbyte-application-name": "!!!"},
             "cursor",
             "cursor",
-            id="unlisted-header-keeps-client",
+            "1.0.0",
+            id="empty-normalized-name-keeps-client",
         ),
     ],
 )
-def test_request_properties_prefers_known_application_name(
+def test_request_properties_prefers_declared_application_name(
     monkeypatch: pytest.MonkeyPatch,
     headers: dict[str, str],
     client_name: str,
     expected: str,
+    expected_version: str | None,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
@@ -241,6 +248,7 @@ def test_request_properties_prefers_known_application_name(
     )
 
     assert properties["mcp_client_name"] == expected
+    assert properties["mcp_client_version"] == expected_version
 
 
 async def _stateless_session(
@@ -786,44 +794,65 @@ def test_auth_failures_are_classified(
     assert record.extra["reason"] == expected_reason
     assert record.extra["http_status"] == status
     assert record.extra["mcp_client_name"] == "Cursor"
+    assert record.extra["mcp_client_version"] == "3.0"
     assert record.extra["session_id"] == hashlib.sha256(token.encode()).hexdigest()
     assert record.extra["organization_id"] == "org-123"
 
 
 @pytest.mark.parametrize(
-    ("application_name", "analytic_source", "expected_client_name"),
+    (
+        "application_name",
+        "analytic_source",
+        "expected_client_name",
+        "expected_client_version",
+    ),
     [
         pytest.param(
-            "io.airbyte.coral-support-agent",
+            "My Agent!",
             None,
-            "io.airbyte.coral-support-agent",
-            id="application-name-header",
+            "my-agent",
+            None,
+            id="normalized-application-name-header",
         ),
         pytest.param(
-            None, "coral-support-agent", "coral-support-agent", id="analytic-fallback"
-        ),
-        pytest.param(None, None, "Cursor", id="session-token-fallback"),
-        pytest.param(
-            "io.airbyte.coral-support-agent",
+            None,
             "coral-support-agent",
-            "io.airbyte.coral-support-agent",
+            "coral-support-agent",
+            None,
+            id="analytic-fallback",
+        ),
+        pytest.param(None, None, "Cursor", "3.0", id="session-token-fallback"),
+        pytest.param(
+            "com.example.my-agent",
+            "coral-support-agent",
+            "com.example.my-agent",
+            None,
             id="application-name-precedence",
         ),
         pytest.param(
-            "unlisted",
+            "!!!",
             "coral-support-agent",
             "coral-support-agent",
-            id="unlisted-application-falls-back",
+            None,
+            id="empty-normalized-application-falls-back",
+        ),
+        pytest.param(
+            "!!!",
+            None,
+            "Cursor",
+            "3.0",
+            id="empty-normalized-application-keeps-session-token",
         ),
     ],
 )
-def test_auth_failed_uses_allowlisted_application_name_or_session_token(
+def test_auth_failed_uses_declared_application_name_or_session_token(
     records,
     hosted,
     monkeypatch: pytest.MonkeyPatch,
     application_name: str | None,
     analytic_source: str | None,
     expected_client_name: str,
+    expected_client_version: str | None,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     sinks, captured = records
@@ -853,6 +882,7 @@ def test_auth_failed_uses_allowlisted_application_name_or_session_token(
     assert response.status_code == 401
     (record,) = captured
     assert record.extra["mcp_client_name"] == expected_client_name
+    assert record.extra["mcp_client_version"] == expected_client_version
 
 
 def test_auth_failed_keeps_server_segment_identity_without_user_lookups(

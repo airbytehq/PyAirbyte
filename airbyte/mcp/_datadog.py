@@ -27,7 +27,7 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from airbyte._util.meta import get_known_application_name
+from airbyte._util.meta import get_declared_application_name
 from airbyte.mcp._otel import _arg_key, _env, _flag
 from airbyte.mcp._scope import current_call_scope, scope_from_request
 from airbyte.mcp._trace_attributes import agent_action_attributes
@@ -513,15 +513,12 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
     elif ctx.method == "initialize":
         client = params.get("clientInfo") or {}
         client_version = client.get("version") if isinstance(client, dict) else None
-        client_name = get_known_application_name() or (
-            str(client["name"])
-            if isinstance(client, dict) and client.get("name") and client_version
-            else None
-        )
-        if client_name:
-            tags["client_name"] = client_name
-            if client_version:
-                tags["client_version"] = f"{client_name}_{client_version}"
+        declared_name = get_declared_application_name()
+        if declared_name:
+            tags["client_name"] = declared_name
+        elif isinstance(client, dict) and client.get("name") and client_version:
+            tags["client_name"] = str(client["name"])
+            tags["client_version"] = f"{client['name']}_{client_version}"
     attrs = _request_trace_attributes()
     if tool_call:
         try:
