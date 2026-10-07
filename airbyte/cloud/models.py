@@ -64,6 +64,7 @@ class ConnectionStatus(StrEnum):
 
     ACTIVE = "active"
     INACTIVE = "inactive"
+    LOCKED = "locked"
     DEPRECATED = "deprecated"
 
 
@@ -167,6 +168,7 @@ class JobStatusEnum(str, Enum):
     """Status values for an Airbyte Cloud job."""
 
     PENDING = "pending"
+    QUEUED = "queued"
     RUNNING = "running"
     INCOMPLETE = "incomplete"
     FAILED = "failed"

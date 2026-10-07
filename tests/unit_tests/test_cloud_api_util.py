@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -13,6 +14,12 @@ import requests
 import responses
 from airbyte import constants
 from airbyte._util import api_util, meta
+from airbyte.cloud.models import (
+    CloudConnectionInfo,
+    CloudJobInfo,
+    ConnectionStatus,
+    JobStatusEnum,
+)
 from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteMissingResourceError,
@@ -21,7 +28,7 @@ from airbyte.exceptions import (
 )
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
-from airbyte_api import api, models
+from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
 
 
@@ -129,6 +136,16 @@ def _job_response(job_id: int) -> models.JobResponse:
     )
 
 
+def _raw_job_response(job_id: int, status: str) -> dict[str, Any]:
+    return {
+        "connectionId": "connection-id",
+        "jobId": job_id,
+        "jobType": "sync",
+        "startTime": "2026-01-01T00:00:00Z",
+        "status": status,
+    }
+
+
 def _list_jobs_response(
     data: list[models.JobResponse],
     *,
@@ -162,6 +179,40 @@ def _connection_response(name: str, index: int) -> models.ConnectionResponse:
         tags=[],
         workspace_id="workspace-id",
     )
+
+
+def _connection_with_field_filtering_mapper(
+    connection_id: str,
+) -> dict[str, Any]:
+    return {
+        "connectionId": connection_id,
+        "name": "test connection",
+        "sourceId": "source-id",
+        "destinationId": "destination-id",
+        "workspaceId": "workspace-id",
+        "status": "active",
+        "schedule": {"scheduleType": "manual"},
+        "dataResidency": "auto",
+        "nonBreakingSchemaUpdatesBehavior": "ignore",
+        "namespaceDefinition": "destination",
+        "createdAt": 1,
+        "tags": [],
+        "configurations": {
+            "streams": [
+                {
+                    "name": "leads",
+                    "syncMode": "full_refresh_overwrite",
+                    "mappers": [
+                        {
+                            "id": "00000000-0000-0000-0000-000000000000",
+                            "type": "field-filtering",
+                            "mapperConfiguration": {"targetField": "foo"},
+                        }
+                    ],
+                }
+            ]
+        },
+    }
 
 
 def _workspace_response(name: str, index: int) -> models.WorkspaceResponse:
@@ -1168,6 +1219,196 @@ def test_list_connections_paginates_resources(
     ] == expected_requests
 
 
+@responses.activate
+def test_get_connection_retries_without_undecodable_stream_mappers() -> None:
+    """A mapper the SDK cannot decode is omitted from the returned connection."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert isinstance(connection, models.ConnectionResponse)
+    assert connection.configurations.streams[0].name == "leads"
+    assert len(responses.calls) == 2
+    assert [call.request.url for call in responses.calls] == [url, url]
+    assert (
+        responses.calls[1].request.req_kwargs["timeout"]
+        == api_util.PUBLIC_API_FALLBACK_TIMEOUT_SECS
+    )
+
+
+@responses.activate
+def test_get_connection_fallback_404_raises_missing_resource_error() -> None:
+    """A missing resource during raw fallback raises the missing-resource error."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+    responses.get(url, status=404, json={"message": "Not found"})
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        api_util.get_connection(
+            workspace_id="workspace-id",
+            connection_id=connection_id,
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert len(responses.calls) == 2
+    assert exc_info.value.context["status_code"] == 404
+    assert exc_info.value.guidance is None
+
+
+@responses.activate
+def test_list_connections_retries_page_without_undecodable_stream_mappers() -> None:
+    """Connection listing falls back to raw JSON when a page has unknown mappers."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.get(
+        f"{api_root}/connections",
+        json={
+            "data": [_connection_with_field_filtering_mapper("connection-id")],
+            "next": None,
+        },
+    )
+
+    connections = api_util.list_connections(
+        workspace_id="workspace-id",
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert [
+        connection.configurations.streams[0].name for connection in connections
+    ] == ["leads"]
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_connection_without_mappers_uses_sdk_response_once() -> None:
+    """Connections without mappers keep using the typed SDK response."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    body = _connection_with_field_filtering_mapper(connection_id)
+    body["configurations"]["streams"][0].pop("mappers")
+    responses.get(url, json=body)
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert connection.configurations.streams[0].name == "leads"
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_get_job_info_preserves_unknown_status() -> None:
+    """Job lookup retries when the SDK cannot decode a status value."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    job_id = 42
+    url = f"{api_root}/jobs/{job_id}"
+    responses.get(url, json=_raw_job_response(job_id, "future-status"))
+
+    job = api_util.get_job_info(
+        job_id=job_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert job.status == "future-status"
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_job_logs_preserves_unknown_statuses_and_stops_without_next_page() -> None:
+    """Job listing retries the page and stops when the raw response has no next page."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.get(
+        f"{api_root}/jobs",
+        json={
+            "data": [
+                _raw_job_response(42, "future-status"),
+                _raw_job_response(43, "succeeded"),
+            ]
+        },
+    )
+
+    jobs = api_util.get_job_logs(
+        workspace_id="workspace-id",
+        connection_id="connection-id",
+        limit=2,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert len(jobs) == 2
+    assert jobs[0].status == "future-status"
+    assert jobs[1].status is models.JobStatusEnum.SUCCEEDED
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_connection_preserves_unknown_status() -> None:
+    """Connection lookup retries when the SDK cannot decode a status value."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    raw = _connection_with_field_filtering_mapper(connection_id)
+    raw["configurations"]["streams"][0].pop("mappers")
+    raw["status"] = "locked"
+    responses.get(url, json=raw)
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert connection.status == "locked"
+    assert (
+        CloudConnectionInfo.from_api_response(connection).status
+        is ConnectionStatus.LOCKED
+    )
+    assert len(responses.calls) == 2
+
+
+def test_decode_with_unknown_status_keeps_known_enum() -> None:
+    """Known SDK status values are decoded to their enum members."""
+    job = api_util._decode_with_unknown_status(
+        _raw_job_response(42, "succeeded"),
+        models.JobResponse,
+        status_enum=models.JobStatusEnum,
+        placeholder=models.JobStatusEnum.RUNNING,
+    )
+
+    assert job.status is models.JobStatusEnum.SUCCEEDED
+
+
 def test_list_workspaces_does_not_filter_by_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1277,6 +1518,26 @@ def test_list_connections_rejects_invalid_limits(limit: int) -> None:
             bearer_token=None,
             limit=limit,
         )
+
+
+def test_sdk_decodes_queued_job_status() -> None:
+    payload = {
+        "data": [
+            {
+                "connectionId": "connection-id",
+                "jobId": 1,
+                "jobType": "sync",
+                "startTime": "2026-01-01T00:00:00Z",
+                "status": "queued",
+            }
+        ]
+    }
+
+    response = utils.unmarshal_json(json.dumps(payload), models.JobsResponse)
+    job = response.data[0]
+
+    assert job.status is models.JobStatusEnum("queued")
+    assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:

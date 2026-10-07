@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 1
 
       - name: Create draft release (not ready)
-        uses: aaronsteers/semantic-pr-release-drafter@v2.5.1
+        uses: airbytehq/semantic-pr-release-drafter@v2.5.1
         id: not-ready-draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,7 +52,7 @@ jobs:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Attach assets and finalize draft
-        uses: aaronsteers/semantic-pr-release-drafter@v2.5.1
+        uses: airbytehq/semantic-pr-release-drafter@v2.5.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

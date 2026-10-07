@@ -1025,5 +1025,7 @@ def test_native_arg_records_use_upstream_validation(monkeypatch) -> None:
     metadata = annotations[0]["metadata"]
     assert metadata["arg_hash_status"] == "ok"
     assert metadata["arg_key_scope"] == attrs["airbyte.mcp.arg_key_scope"]
-    assert not any(key.startswith("arg.") for key in metadata)
+    assert metadata["arg.limit"] == tags["airbyte.mcp.arg.limit"]
+    assert metadata["arg.prompt"] == tags["airbyte.mcp.arg.prompt"]
+    assert "arg.forged" not in metadata
     assert "private" not in json.dumps([tags, metadata])

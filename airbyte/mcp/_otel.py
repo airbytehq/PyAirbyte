@@ -13,6 +13,7 @@ import re
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit, urlunsplit
 
+from fastmcp_extensions.otel._arg_digests import is_arg_key  # noqa: PLC2701
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import Event, ReadableSpan, TracerProvider
@@ -202,11 +203,16 @@ class _DatadogMetadataExporter(SpanExporter):
                 "agent.entity_type",
                 "client_name",
                 "client_version",
-                "arg_hash_status",
-                "arg_key_scope",
             )
             if f"airbyte.mcp.{key}" in attributes
         }
+        metadata.update(
+            {
+                key.removeprefix("airbyte.mcp."): value
+                for key, value in attributes.items()
+                if is_arg_key("airbyte.mcp", key)
+            }
+        )
         if metadata:
             attributes["_dd.ml_obs.metadata"] = json.dumps(metadata)
         tool_arguments = {
