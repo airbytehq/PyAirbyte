@@ -82,7 +82,6 @@ def is_knowledge_search_available(app: FastMCP) -> bool:
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
     required_capabilities=[KNOWLEDGE_SEARCH_CAPABILITY],
 )
 def search_airbyte_knowledge_sources(
@@ -172,7 +171,6 @@ def test_my_tools_prompt(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
     extra_help_text=SKILL_DOCS_SECTION_HINT,
     external_access=True,
 )

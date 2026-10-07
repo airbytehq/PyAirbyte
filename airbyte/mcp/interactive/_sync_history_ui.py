@@ -75,7 +75,6 @@ def _time_label(dt: datetime, *, include_date: bool = False) -> str:
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
     app=PrefabAppConfig(),
 )
 def show_connection_sync_history(  # noqa: PLR0914

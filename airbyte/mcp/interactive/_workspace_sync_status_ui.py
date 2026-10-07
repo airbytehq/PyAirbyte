@@ -116,7 +116,6 @@ class WorkspaceConnectionSyncStatus:
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
     app=PrefabAppConfig(),
 )
 def show_workspace_sync_status(

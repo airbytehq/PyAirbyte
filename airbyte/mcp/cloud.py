@@ -580,9 +580,7 @@ def _get_cloud_client(
     )
 
 
-@mcp_tool(
-    open_world=True,
-)
+@mcp_tool()
 def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
     ctx: Context,
     name: Annotated[
@@ -772,9 +770,7 @@ def _get_suggested_streams_for_source(
     return suggested_streams
 
 
-@mcp_tool(
-    open_world=True,
-)
+@mcp_tool()
 def create_connection_on_cloud(
     ctx: Context,
     connection_name: Annotated[
@@ -856,7 +852,6 @@ def create_connection_on_cloud(
 
 
 @mcp_tool(
-    open_world=True,
     pipeline_change=False,
 )
 def run_cloud_sync(
@@ -907,9 +902,7 @@ def run_cloud_sync(
     return f"Sync started. Job ID is '{sync_result.job_id}' and job URL is: {sync_result.job_url}"
 
 
-@mcp_tool(
-    open_world=True,
-)
+@mcp_tool()
 def deploy_noop_destination_to_cloud(
     ctx: Context,
     name: str = "No-op Destination",
@@ -942,7 +935,6 @@ def deploy_noop_destination_to_cloud(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_cloud_sync_status(
     ctx: Context,
@@ -1020,7 +1012,6 @@ def get_cloud_sync_status(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def list_cloud_sync_jobs(
     ctx: Context,
@@ -1112,7 +1103,6 @@ def list_cloud_sync_jobs(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
     pipeline_change=False,
 )
 def cancel_cloud_sync(
@@ -1183,7 +1173,6 @@ class CloudConnectorResult(BaseModel):
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def list_cloud_connectors(
     ctx: Context,
@@ -1439,7 +1428,6 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def describe_cloud_connector(
     ctx: Context,
@@ -1923,7 +1911,6 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
     external_access=True,
 )
 def get_cloud_search_status(
@@ -2012,7 +1999,6 @@ def get_cloud_search_status(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def check_cloud_connector(
     ctx: Context,
@@ -2051,7 +2037,6 @@ def check_cloud_connector(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def describe_cloud_connection(
     ctx: Context,
@@ -2090,7 +2075,6 @@ def describe_cloud_connection(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_cloud_sync_logs(
     ctx: Context,
@@ -2237,7 +2221,6 @@ def get_cloud_sync_logs(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def list_cloud_connections(
     ctx: Context,
@@ -2362,7 +2345,6 @@ def list_cloud_connections(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def list_cloud_workspaces(
     ctx: Context,
@@ -2479,7 +2461,6 @@ def list_cloud_workspaces(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     """Return the authenticated user's default Cloud context.
@@ -2575,7 +2556,6 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
 @mcp_tool(
     idempotent=True,
     destructive=True,
-    open_world=True,
 )
 def set_default_cloud_workspace(
     ctx: Context,
@@ -2633,7 +2613,6 @@ def set_default_cloud_workspace(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def list_cloud_organizations(
     ctx: Context,
@@ -2726,7 +2705,6 @@ def list_cloud_organizations(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def describe_cloud_workspace(
     ctx: Context,
@@ -2771,7 +2749,6 @@ def describe_cloud_workspace(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def describe_cloud_organization(
     ctx: Context,
@@ -2816,7 +2793,6 @@ def describe_cloud_organization(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_cloud_organization_billing_status(
     ctx: Context,
@@ -2881,9 +2857,7 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool(
-    open_world=True,
-)
+@mcp_tool()
 def publish_custom_source_definition(
     ctx: Context,
     name: Annotated[
@@ -2989,7 +2963,6 @@ def publish_custom_source_definition(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def list_custom_source_definitions(
     ctx: Context,
@@ -3026,7 +2999,6 @@ def list_custom_source_definitions(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_custom_source_definition(
     ctx: Context,
@@ -3088,7 +3060,6 @@ def get_custom_source_definition(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_connector_builder_draft_manifest(
     ctx: Context,
@@ -3133,7 +3104,6 @@ def get_connector_builder_draft_manifest(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
 )
 def update_custom_source_definition(
     ctx: Context,
@@ -3274,7 +3244,6 @@ def update_custom_source_definition(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
 def permanently_delete_custom_source_definition(
@@ -3335,7 +3304,6 @@ def permanently_delete_custom_source_definition(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
 def permanently_delete_cloud_connector(
@@ -3407,7 +3375,6 @@ def permanently_delete_cloud_connector(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
 def permanently_delete_cloud_connection(
@@ -3482,9 +3449,7 @@ def permanently_delete_cloud_connection(
     return f"Successfully deleted connection '{actual_name}' (ID: {connection_id})"
 
 
-@mcp_tool(
-    open_world=True,
-)
+@mcp_tool()
 def rename_cloud_connector(
     ctx: Context,
     connector_id: Annotated[
@@ -3523,7 +3488,6 @@ def rename_cloud_connector(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
 )
 def update_cloud_connector_config(
     ctx: Context,
@@ -3582,9 +3546,7 @@ def update_cloud_connector_config(
     )
 
 
-@mcp_tool(
-    open_world=True,
-)
+@mcp_tool()
 def rename_cloud_connection(
     ctx: Context,
     connection_id: Annotated[
@@ -3616,7 +3578,6 @@ def rename_cloud_connection(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
 )
 def set_cloud_connection_table_prefix(
     ctx: Context,
@@ -3654,7 +3615,6 @@ def set_cloud_connection_table_prefix(
 
 @mcp_tool(
     destructive=True,
-    open_world=True,
 )
 def set_cloud_connection_selected_streams(
     ctx: Context,
@@ -3699,7 +3659,6 @@ def set_cloud_connection_selected_streams(
 
 
 @mcp_tool(
-    open_world=True,
     destructive=True,
 )
 def update_cloud_connection(
@@ -3846,7 +3805,6 @@ def update_cloud_connection(
 @mcp_tool(
     read_only=True,
     idempotent=True,
-    open_world=True,
 )
 def get_connection_artifact(
     ctx: Context,
