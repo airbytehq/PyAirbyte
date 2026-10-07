@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
 from fastmcp import Context, FastMCP
-from fastmcp_extensions import get_mcp_config, register_mcp_tools
+from fastmcp_extensions import TraceArg, get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
 from airbyte import Destination, Source, get_destination, get_source
@@ -93,6 +93,7 @@ from airbyte.mcp._tool_utils import (
     mcp_tool,
     register_guid_created_in_session,
 )
+from airbyte.mcp._trace_attributes import agent_action_attributes
 from airbyte.mcp._user_identity import forget_cached_airbyte_user
 from airbyte.registry import (
     ApiDocsUrl,  # Needed at runtime for Pydantic field types.
@@ -586,6 +587,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
     name: Annotated[
         str,
         Field(description="The name to use when deploying the connector."),
+        TraceArg.FINGERPRINT,
     ],
     connector_name: Annotated[
         str,
@@ -595,6 +597,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
                 "'destination-postgres')."
             ),
         ),
+        TraceArg.FINGERPRINT,
     ],
     *,
     connector_type: Annotated[
@@ -613,6 +616,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     config: Annotated[
         dict | str | None,
@@ -627,6 +631,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     unique: Annotated[
         bool,
@@ -641,6 +646,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
             description=DEFER_CREDENTIALS_TIP_TEXT,
             default=False,
         ),
+        TraceArg.VALUE,
     ] = False,
 ) -> str:
     """Deploy a source or destination connector to Airbyte Cloud.
@@ -776,6 +782,7 @@ def create_connection_on_cloud(
     connection_name: Annotated[
         str,
         Field(description="The name of the connection."),
+        TraceArg.FINGERPRINT,
     ],
     source_id: Annotated[
         str,
@@ -792,6 +799,7 @@ def create_connection_on_cloud(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     selected_streams: Annotated[
         str | list[str] | None,
@@ -804,6 +812,7 @@ def create_connection_on_cloud(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     table_prefix: Annotated[
         str | None,
@@ -811,6 +820,7 @@ def create_connection_on_cloud(
             description="Optional table prefix to use when syncing to the destination.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
@@ -867,6 +877,7 @@ def run_cloud_sync(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     wait: Annotated[
         bool,
@@ -905,7 +916,7 @@ def run_cloud_sync(
 @mcp_tool()
 def deploy_noop_destination_to_cloud(
     ctx: Context,
-    name: str = "No-op Destination",
+    name: Annotated[str, TraceArg.FINGERPRINT] = "No-op Destination",
     *,
     workspace_id: Annotated[
         str | None,
@@ -913,6 +924,7 @@ def deploy_noop_destination_to_cloud(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     unique: bool = True,
 ) -> str:
@@ -961,6 +973,7 @@ def get_cloud_sync_status(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     include_attempts: Annotated[
         bool,
@@ -1026,6 +1039,7 @@ def list_cloud_sync_jobs(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     max_jobs: Annotated[
         int,
@@ -1128,6 +1142,7 @@ def cancel_cloud_sync(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> SyncJobResult:
     """Cancel a running sync job on an Airbyte Cloud connection."""
@@ -1183,6 +1198,7 @@ def list_cloud_connectors(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     connector_type: Annotated[
         ConnectorType | None,
@@ -1197,6 +1213,7 @@ def list_cloud_connectors(
             description="Optional case-insensitive substring to filter connectors by name",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     limit: Annotated[
         int | None,
@@ -1204,6 +1221,7 @@ def list_cloud_connectors(
             description="Optional maximum number of items to return (default: no limit)",
             default=None,
         ),
+        TraceArg.VALUE,
     ],
     feature_filter: Annotated[
         ConnectorFeature | None,
@@ -1454,6 +1472,7 @@ def describe_cloud_connector(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     with_config: Annotated[
         bool,
@@ -1508,6 +1527,7 @@ def describe_cloud_connector(
     open_world=True,
     extra_help_text=SKILL_DOCS_SECTION_HINT,
     external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_api_query", args),
 )
 def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1524,6 +1544,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
                 "`get_agent_skill_docs` for supported entity types."
             ),
         ),
+        TraceArg.VALUE,
     ],
     action: Annotated[
         ExternalApiReadOnlyAction,
@@ -1541,6 +1562,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             ),
             default=None,
         ),
+        TraceArg.HASH,
     ] = None,
     select_fields: Annotated[
         list[str] | str | None,
@@ -1548,6 +1570,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description="Fields to keep in the response, as a list or a CSV string.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     exclude_fields: Annotated[
         list[str] | str | None,
@@ -1555,6 +1578,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description="Fields to drop from the response, as a list or a CSV string.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     page_size: Annotated[
         int | None,
@@ -1562,6 +1586,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description="Maximum number of entities to return in this page.",
             default=None,
         ),
+        TraceArg.VALUE,
     ] = None,
     cursor: Annotated[
         str | None,
@@ -1583,6 +1608,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description="Optional free-text intent recorded with the request.",
             default=None,
         ),
+        TraceArg.OMIT,
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -1590,6 +1616,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ] = None,
 ) -> ExternalApiExecuteResult:
     """Read data from an external system through a deployed Cloud connector's direct API.
@@ -1707,6 +1734,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     idempotent=True,
     open_world=True,
     external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_sql_query", args),
 )
 def execute_external_sql_query(
     ctx: Context,
@@ -1728,6 +1756,7 @@ def execute_external_sql_query(
             ),
             default=None,
         ),
+        TraceArg.VALUE,
     ] = None,
     page_size: Annotated[
         int | None,
@@ -1735,6 +1764,7 @@ def execute_external_sql_query(
             description="Maximum number of rows to return in this page.",
             default=None,
         ),
+        TraceArg.VALUE,
     ] = None,
     cursor: Annotated[
         str | None,
@@ -1759,6 +1789,7 @@ def execute_external_sql_query(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ] = None,
 ) -> ExternalApiExecuteResult:
     """Run a read-only SQL query against a deployed SQL-passthrough destination.
@@ -1788,6 +1819,7 @@ def execute_external_sql_query(
     idempotent=True,
     open_world=True,
     external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_search_query", args),
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1806,6 +1838,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     prompt: Annotated[
         str,
         Field(description="The search text, for example `refund requests from ACME`."),
+        TraceArg.FINGERPRINT,
     ],
     search_type: Annotated[
         ExternalSearchType,
@@ -1820,6 +1853,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
             description="Maximum number of hits to return, 1 to 100. Defaults to the backend's.",
             default=None,
         ),
+        TraceArg.VALUE,
     ] = None,
     streams: Annotated[
         list[dict[str, Any]] | str | None,
@@ -1832,6 +1866,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
             ),
             default=None,
         ),
+        TraceArg.HASH,
     ] = None,
     lookback_seconds: Annotated[
         int | None,
@@ -1877,6 +1912,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ] = None,
 ) -> ExternalSearchResult:
     """Search indexed data for a deployed Cloud source or destination.
@@ -1933,6 +1969,7 @@ def get_cloud_search_status(
             description="Optional stream name to report. Omit to report every stream.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     namespace: Annotated[
         str | None,
@@ -1940,6 +1977,7 @@ def get_cloud_search_status(
             description="Optional stream namespace to report. Omit to report every namespace.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -1947,6 +1985,7 @@ def get_cloud_search_status(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ] = None,
 ) -> ExternalSearchStatusResult:
     """Report search indexing status for a deployed Cloud source or destination.
@@ -2020,6 +2059,7 @@ def check_cloud_connector(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> ConnectorCheckResult:
     """Check the configuration and credentials of a deployed source or destination."""
@@ -2051,6 +2091,7 @@ def describe_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> CloudConnectionDetails:
     """Get detailed information about a specific deployed connection."""
@@ -2099,6 +2140,7 @@ def get_cloud_sync_logs(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     max_lines: Annotated[
         int,
@@ -2231,6 +2273,7 @@ def list_cloud_connections(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     name_contains: Annotated[
         str | None,
@@ -2238,6 +2281,7 @@ def list_cloud_connections(
             description="Optional case-insensitive substring to filter connections by name",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     limit: Annotated[
         int | None,
@@ -2245,6 +2289,7 @@ def list_cloud_connections(
             description="Optional maximum number of items to return (default: no limit)",
             default=None,
         ),
+        TraceArg.VALUE,
     ],
     with_connection_status: Annotated[
         bool | None,
@@ -2362,6 +2407,7 @@ def list_cloud_workspaces(
             description=("Optional organization name (exact match) to list workspaces within."),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     name_contains: Annotated[
         str | None,
@@ -2369,6 +2415,7 @@ def list_cloud_workspaces(
             description="Optional substring to filter workspaces by name (server-side filtering)",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     limit: Annotated[
         int | None,
@@ -2376,6 +2423,7 @@ def list_cloud_workspaces(
             description="Optional maximum number of items to return (default: no limit)",
             default=None,
         ),
+        TraceArg.VALUE,
     ],
     privilege_scope: Annotated[
         WorkspacePrivilegeScope,
@@ -2580,6 +2628,7 @@ def set_default_cloud_workspace(
                 "workspaces are rejected."
             ),
         ),
+        TraceArg.OMIT,
     ],
 ) -> CloudDefaultWorkspaceUpdateResult:
     """Durably set the authenticated user's default Airbyte Cloud workspace.
@@ -2622,6 +2671,7 @@ def list_cloud_organizations(
             description="Optional case-insensitive substring to filter organization names.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     limit: Annotated[
         int | None,
@@ -2629,6 +2679,7 @@ def list_cloud_organizations(
             description="Optional maximum number of organizations to return (default: 100).",
             default=None,
         ),
+        TraceArg.VALUE,
     ] = None,
     feature_filter: Annotated[
         OrganizationFeature | None,
@@ -2718,6 +2769,7 @@ def describe_cloud_workspace(
             ),
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> CloudWorkspaceResult:
     """Get basic details about a workspace (ID, name, URL, parent organization).
@@ -2766,6 +2818,7 @@ def describe_cloud_organization(
             description="Organization name (exact match).",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> CloudOrganizationResult:
     """Get basic details about an organization (ID, name, email, feature flags).
@@ -2810,6 +2863,7 @@ def get_cloud_organization_billing_status(
             description="Organization name for an exact match, when ID is not provided.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> CloudOrganizationBillingStatusResult:
     """Get billing and account status for an organization.
@@ -2863,6 +2917,7 @@ def publish_custom_source_definition(
     name: Annotated[
         str,
         Field(description="The name for the custom connector definition."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     workspace_id: Annotated[
@@ -2871,6 +2926,7 @@ def publish_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     manifest_yaml: Annotated[
         str | Path | None,
@@ -2922,6 +2978,7 @@ def publish_custom_source_definition(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
@@ -2973,6 +3030,7 @@ def list_custom_source_definitions(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
@@ -3013,6 +3071,7 @@ def get_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     include_draft: Annotated[
         bool,
@@ -3074,6 +3133,7 @@ def get_connector_builder_draft_manifest(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> dict[str, Any]:
     """Get the Connector Builder draft manifest for a custom source definition.
@@ -3129,6 +3189,7 @@ def update_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
     name: Annotated[
         str | None,
@@ -3139,6 +3200,7 @@ def update_custom_source_definition(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     pre_validate: Annotated[
         bool,
@@ -3173,6 +3235,7 @@ def update_custom_source_definition(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> str:
     """Update a custom YAML source definition in Airbyte Cloud.
@@ -3255,6 +3318,7 @@ def permanently_delete_custom_source_definition(
     name: Annotated[
         str,
         Field(description="The expected name of the custom source definition (for verification)."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     workspace_id: Annotated[
@@ -3263,6 +3327,7 @@ def permanently_delete_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
@@ -3315,6 +3380,7 @@ def permanently_delete_cloud_connector(
     name: Annotated[
         str,
         Field(description="The expected name of the connector (for verification)."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     connector_type: Annotated[
@@ -3330,6 +3396,7 @@ def permanently_delete_cloud_connector(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Permanently delete a deployed source or destination connector from Airbyte Cloud.
@@ -3386,6 +3453,7 @@ def permanently_delete_cloud_connection(
     name: Annotated[
         str,
         Field(description="The expected name of the connection (for verification)."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     cascade_delete_source: Annotated[
@@ -3412,6 +3480,7 @@ def permanently_delete_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Permanently delete a connection from Airbyte Cloud.
@@ -3459,6 +3528,7 @@ def rename_cloud_connector(
     name: Annotated[
         str,
         Field(description="New name for the connector."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     connector_type: Annotated[
@@ -3474,6 +3544,7 @@ def rename_cloud_connector(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Rename a deployed source or destination connector on Airbyte Cloud."""
@@ -3507,6 +3578,7 @@ def update_cloud_connector_config(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     *,
     connector_type: Annotated[
@@ -3522,6 +3594,7 @@ def update_cloud_connector_config(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Update a deployed source or destination connector's configuration on Airbyte Cloud.
@@ -3556,6 +3629,7 @@ def rename_cloud_connection(
     name: Annotated[
         str,
         Field(description="New name for the connection."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     workspace_id: Annotated[
@@ -3564,6 +3638,7 @@ def rename_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Rename a connection on Airbyte Cloud."""
@@ -3588,6 +3663,7 @@ def set_cloud_connection_table_prefix(
     prefix: Annotated[
         str,
         Field(description="New table prefix to use when syncing to the destination."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     workspace_id: Annotated[
@@ -3596,6 +3672,7 @@ def set_cloud_connection_table_prefix(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Set the table prefix for a connection on Airbyte Cloud.
@@ -3630,6 +3707,7 @@ def set_cloud_connection_selected_streams(
                 "Must be an explicit stream name or list of streams."
             )
         ),
+        TraceArg.FINGERPRINT,
     ],
     *,
     workspace_id: Annotated[
@@ -3638,6 +3716,7 @@ def set_cloud_connection_selected_streams(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Set the selected streams for a connection on Airbyte Cloud.
@@ -3699,6 +3778,7 @@ def update_cloud_connection(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ],
     interval_hours: Annotated[
         int | None,
@@ -3732,6 +3812,7 @@ def update_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> str:
     """Update a connection's settings on Airbyte Cloud.
@@ -3823,6 +3904,7 @@ def get_connection_artifact(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Get a connection artifact (state or catalog) from Airbyte Cloud.

@@ -1,0 +1,374 @@
+{
+  "cancel_cloud_sync": {
+    "connection_id": "hash",
+    "job_id": "hash",
+    "workspace_id": "omit"
+  },
+  "check_cloud_connector": {
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "workspace_id": "omit"
+  },
+  "create_connection_on_cloud": {
+    "connection_name": "fingerprint",
+    "destination_id": "hash",
+    "selected_streams": "fingerprint list",
+    "source_id": "hash",
+    "table_prefix": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "deploy_connector_to_cloud": {
+    "config": "presence",
+    "config_secret_name": "fingerprint",
+    "connector_name": "fingerprint",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "defer_credentials": "value allowed=[false,true]",
+    "name": "fingerprint",
+    "unique": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "deploy_noop_destination_to_cloud": {
+    "name": "fingerprint",
+    "unique": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "describe_cloud_connection": {
+    "connection_id": "hash",
+    "workspace_id": "omit"
+  },
+  "describe_cloud_connector": {
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "with_config": "value allowed=[false,true]",
+    "with_data_replication_docs": "value allowed=[false,true]",
+    "with_direct_access_guidance": "value allowed=[false,true]",
+    "with_replication_details": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "describe_cloud_organization": {
+    "organization_id": "hash",
+    "organization_name": "fingerprint"
+  },
+  "describe_cloud_workspace": {
+    "workspace_id": "omit"
+  },
+  "describe_default_cache": {},
+  "destination_smoke_test": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "custom_scenarios": "presence",
+    "destination_connector_name": "fingerprint",
+    "docker_image": "fingerprint",
+    "namespace_suffix": "fingerprint",
+    "reuse_namespace": "fingerprint",
+    "scenarios": "fingerprint list",
+    "skip_preflight": "value allowed=[false,true]"
+  },
+  "execute_external_api_query": {
+    "action": "value allowed=[\"get\",\"list\",\"search\"]",
+    "api_args": "hash",
+    "connector_id": "hash",
+    "cursor": "hash",
+    "entity_type": "value str",
+    "exclude_fields": "fingerprint list",
+    "intent": "omit",
+    "page_size": "value int",
+    "select_fields": "fingerprint list",
+    "skip_truncation": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "execute_external_search_query": {
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "destination_id": "hash",
+    "limit": "value int",
+    "lookback_seconds": "hash",
+    "max_context_chars": "hash",
+    "max_similarity_diff": "hash",
+    "min_similarity": "hash",
+    "prompt": "fingerprint",
+    "search_type": "value allowed=[\"hybrid\",\"keyword\",\"semantic\"]",
+    "streams": "hash list",
+    "workspace_id": "omit"
+  },
+  "execute_external_sql_query": {
+    "connector_id": "hash",
+    "cursor": "hash",
+    "dry_run": "value allowed=[false,true]",
+    "page_size": "value int",
+    "sql": "hash",
+    "sql_dialect": "value str",
+    "workspace_id": "omit"
+  },
+  "get_agent_skill_docs": {
+    "connector_id": "hash",
+    "docs_skill_id": "hash",
+    "section": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "get_api_docs_urls": {
+    "connector_name": "fingerprint"
+  },
+  "get_cloud_organization_billing_status": {
+    "organization_id": "hash",
+    "organization_name": "fingerprint"
+  },
+  "get_cloud_search_status": {
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "namespace": "fingerprint",
+    "stream_name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "get_cloud_sync_logs": {
+    "attempt_number": "hash",
+    "connection_id": "hash",
+    "from_tail": "value allowed=[false,true]",
+    "job_id": "hash",
+    "line_offset": "hash",
+    "max_lines": "hash",
+    "workspace_id": "omit"
+  },
+  "get_cloud_sync_status": {
+    "connection_id": "hash",
+    "include_attempts": "value allowed=[false,true]",
+    "job_id": "hash",
+    "workspace_id": "omit"
+  },
+  "get_connection_artifact": {
+    "artifact_type": "value allowed=[\"catalog\",\"state\"]",
+    "connection_id": "hash",
+    "workspace_id": "omit"
+  },
+  "get_connector_builder_draft_manifest": {
+    "definition_id": "hash",
+    "workspace_id": "omit"
+  },
+  "get_connector_info": {
+    "connector_name": "fingerprint"
+  },
+  "get_connector_version_history": {
+    "connector_name": "fingerprint",
+    "limit": "value int",
+    "num_versions_to_validate": "hash"
+  },
+  "get_custom_source_definition": {
+    "definition_id": "hash",
+    "include_draft": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "get_default_cloud_context": {},
+  "get_source_stream_json_schema": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "manifest_path": "fingerprint",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "fingerprint",
+    "stream_name": "fingerprint"
+  },
+  "get_stream_previews": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "limit": "value int",
+    "manifest_path": "fingerprint",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_name": "fingerprint",
+    "streams": "fingerprint list"
+  },
+  "list_cached_streams": {},
+  "list_cloud_connections": {
+    "failing_connections_only": "value allowed=[false,true]",
+    "limit": "value int",
+    "name_contains": "fingerprint",
+    "with_connection_status": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "list_cloud_connectors": {
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "feature_filter": "value allowed=[\"direct_access\",\"direct_api_action\",\"direct_api_query\",\"direct_sql_query\",\"search_indexing\"]",
+    "limit": "value int",
+    "name_contains": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "list_cloud_organizations": {
+    "feature_filter": "value allowed=[\"direct_access\",\"search_indexing\"]",
+    "limit": "value int",
+    "name_contains": "fingerprint"
+  },
+  "list_cloud_sync_jobs": {
+    "connection_id": "hash",
+    "from_tail": "value allowed=[false,true]",
+    "job_type": "value allowed=[\"clear\",\"refresh\",\"reset\",\"sync\"]",
+    "max_jobs": "hash",
+    "workspace_id": "omit"
+  },
+  "list_cloud_workspaces": {
+    "limit": "value int",
+    "name_contains": "fingerprint",
+    "organization_id": "hash",
+    "organization_name": "fingerprint",
+    "privilege_scope": "value allowed=[\"any\",\"instance_admin\",\"member_of\",\"organization_admin\"]"
+  },
+  "list_connector_config_secrets": {
+    "connector_name": "fingerprint"
+  },
+  "list_connectors": {
+    "connector_type_filter": "value allowed=[\"destination\",\"source\"]",
+    "install_types": "value allowed=[\"docker\",\"java\",\"python\",\"yaml\"] list",
+    "keyword_filter": "fingerprint"
+  },
+  "list_custom_source_definitions": {
+    "workspace_id": "omit"
+  },
+  "list_dotenv_secrets": {},
+  "list_source_streams": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "manifest_path": "fingerprint",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "fingerprint"
+  },
+  "permanently_delete_cloud_connection": {
+    "cascade_delete_destination": "value allowed=[false,true]",
+    "cascade_delete_source": "value allowed=[false,true]",
+    "connection_id": "hash",
+    "name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "permanently_delete_cloud_connector": {
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "permanently_delete_custom_source_definition": {
+    "definition_id": "hash",
+    "name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "publish_custom_source_definition": {
+    "manifest_yaml": "presence",
+    "name": "fingerprint",
+    "pre_validate": "value allowed=[false,true]",
+    "testing_values": "presence",
+    "testing_values_secret_name": "fingerprint",
+    "unique": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "read_source_stream_records": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "manifest_path": "fingerprint",
+    "max_records": "hash",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "fingerprint",
+    "stream_name": "fingerprint"
+  },
+  "rename_cloud_connection": {
+    "connection_id": "hash",
+    "name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "rename_cloud_connector": {
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "run_cloud_sync": {
+    "connection_id": "hash",
+    "wait": "value allowed=[false,true]",
+    "wait_timeout": "hash",
+    "workspace_id": "omit"
+  },
+  "run_sql_query": {
+    "max_records": "hash",
+    "sql_query": "hash"
+  },
+  "search_airbyte_knowledge_sources": {
+    "query": "fingerprint"
+  },
+  "set_cloud_connection_selected_streams": {
+    "connection_id": "hash",
+    "stream_names": "fingerprint list",
+    "workspace_id": "omit"
+  },
+  "set_cloud_connection_table_prefix": {
+    "connection_id": "hash",
+    "prefix": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "set_default_cloud_workspace": {
+    "user_email": "hash",
+    "workspace_id": "omit"
+  },
+  "show_connection_sync_history": {
+    "agent_context": "value allowed=[\"min\",\"summary\",\"verbose\"]",
+    "connection_id": "hash",
+    "max_jobs": "hash",
+    "suppress_ui": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "show_connectors_list": {
+    "certified": "value allowed=[false,true]",
+    "connector_type": "value str",
+    "limit": "value int",
+    "min_support_level": "value str",
+    "search": "fingerprint",
+    "support_level": "value str"
+  },
+  "show_workspace_sync_status": {
+    "agent_context": "value allowed=[\"min\",\"summary\",\"verbose\"]",
+    "max_connections": "hash",
+    "max_jobs_per_connection": "hash",
+    "recent_hours": "hash",
+    "suppress_ui": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "sync_source_to_cache": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "manifest_path": "fingerprint",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
+    "source_connector_name": "fingerprint",
+    "streams": "fingerprint list"
+  },
+  "update_cloud_connection": {
+    "connection_id": "hash",
+    "cron_expression": "fingerprint",
+    "enabled": "value allowed=[false,true]",
+    "interval_hours": "hash",
+    "manual_schedule": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
+  "update_cloud_connector_config": {
+    "config": "presence",
+    "config_secret_name": "fingerprint",
+    "connector_id": "hash",
+    "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "workspace_id": "omit"
+  },
+  "update_custom_source_definition": {
+    "definition_id": "hash",
+    "manifest_yaml": "presence",
+    "name": "fingerprint",
+    "pre_validate": "value allowed=[false,true]",
+    "testing_values": "presence",
+    "testing_values_secret_name": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "validate_connector_config": {
+    "config": "presence",
+    "config_file": "fingerprint",
+    "config_secret_name": "fingerprint",
+    "connector_name": "fingerprint",
+    "manifest_path": "fingerprint",
+    "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]"
+  }
+}

@@ -456,7 +456,7 @@ def test_interactive_tools_are_filtered_by_ui_support(
     from fastmcp_extensions import mcp_server
 
     app = mcp_server(
-        name="test",
+        display_name="test",
         include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
@@ -479,7 +479,7 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
     from airbyte.mcp import interactive
 
     app = mcp_server(
-        name="test",
+        display_name="test",
         include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
@@ -494,7 +494,7 @@ def test_interactive_tools_include_prefab_metadata() -> None:
 
     from airbyte.mcp import interactive
 
-    app = mcp_server(name="test")
+    app = mcp_server(display_name="test")
     interactive.register_interactive_tools(app)
 
     provider = getattr(app, "_local_provider")

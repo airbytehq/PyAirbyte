@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from fastmcp import Context  # noqa: TC002 - required at runtime for FastMCP tool registration
 from fastmcp.apps import PrefabAppConfig
 from fastmcp.tools.base import ToolResult
+from fastmcp_extensions import TraceArg
 from prefab_ui.actions import OpenLink, SendMessage, SetState
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
@@ -127,6 +128,7 @@ def show_workspace_sync_status(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ] = None,
     max_connections: Annotated[
         int,

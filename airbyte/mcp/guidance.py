@@ -17,6 +17,7 @@ import requests
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import (
     MCPServerConfigArg,
+    TraceArg,
     get_mcp_config,
     mcp_prompt,
     register_mcp_prompts,
@@ -93,6 +94,7 @@ def search_airbyte_knowledge_sources(
                 "A single, well-formed natural-language query. " "Must be a complete sentence."
             )
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[dict[str, str]]:
     """Search Airbyte knowledge sources.
@@ -206,6 +208,7 @@ def get_agent_skill_docs(
             ),
             default=None,
         ),
+        TraceArg.FINGERPRINT,
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -213,6 +216,7 @@ def get_agent_skill_docs(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
+        TraceArg.OMIT,
     ],
 ) -> AgentSkillDocsResult:
     """Returns the requested skill document by ID for an AI agent.
@@ -244,6 +248,7 @@ def get_connector_info(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector to get information for."),
+        TraceArg.FINGERPRINT,
     ],
 ) -> ConnectorInfo | Literal["Connector not found."]:
     """Get metadata, documentation URL, config spec, and manifest URL for a connector.
@@ -313,6 +318,7 @@ def get_api_docs_urls(
                 "(e.g., 'source-facebook-marketing', 'destination-snowflake')"
             )
         ),
+        TraceArg.FINGERPRINT,
     ],
 ) -> list[ApiDocsUrl] | Literal["Connector not found."]:
     """Get API documentation URLs for a connector.
