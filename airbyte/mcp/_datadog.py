@@ -512,10 +512,11 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
         tags.update(mcp_tool=name, mcp_tool_kind="server")
     elif ctx.method == "initialize":
         client = params.get("clientInfo") or {}
-        client_version = client.get("version") if isinstance(client, dict) else None
-        if isinstance(client, dict) and client.get("name") and client_version:
-            tags["client_name"] = str(client["name"])
-            tags["client_version"] = f"{client['name']}_{client_version}"
+        if isinstance(client, dict) and client.get("name") and client.get("version"):
+            tags.update(
+                client_name=str(client["name"]),
+                client_version=f"{client['name']}_{client['version']}",
+            )
     attrs = _request_trace_attributes()
     if tool_call:
         try:
