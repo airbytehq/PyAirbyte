@@ -196,6 +196,8 @@ class _DatadogMetadataExporter(SpanExporter):
                 "agent.entity_type",
                 "client_name",
                 "client_version",
+                "arg_hash_status",
+                "arg_key_scope",
             )
             if f"airbyte.mcp.{key}" in attributes
         }

@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
+from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
+from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
     CallToolResult,
     InitializeRequest,
@@ -25,7 +27,7 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from airbyte.mcp._otel import _env, _flag
+from airbyte.mcp._otel import _arg_key, _env, _flag
 from airbyte.mcp._scope import current_call_scope, scope_from_request
 from airbyte.mcp._trace_attributes import agent_action_attributes
 from airbyte.version import get_version
@@ -65,6 +67,10 @@ _INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
 )
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
+_ARG_PREFIX = "airbyte.mcp"
+_LLMOBS_ARG_KEYS = frozenset({"arg_hash_status", "arg_key_scope"})
+# Same classification and validation as the OTel backend; intent is exported separately.
+_ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
 
 
 def _build_tool_maps() -> None:
@@ -396,6 +402,26 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
         except Exception:
             span = None
         try:
+            tool = (
+                await self._app.get_tool(context.message.name)
+                if span is not None and context.message.name in _TOOL_MODULES
+                else None
+            )
+            if tool is not None:
+                attrs.update(
+                    arg_trace_attributes(
+                        _ARG_TRACER,
+                        context.message.name,
+                        tool,
+                        context.message.arguments,
+                        session_digest=attrs.get("airbyte.mcp.session_id"),
+                        client_name=attrs.get("airbyte.mcp.client_name"),
+                        client_version=attrs.get("airbyte.mcp.client_version"),
+                    )
+                )
+        except Exception:
+            logger.debug("Datadog argument tracing unavailable")
+        try:
             return await call_next(context)
         except BaseException as exc:
             attrs.update(_exception_attributes(exc))
@@ -430,16 +456,40 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                 logger.debug("Datadog tool attributes unavailable")
 
 
-def _annotate_attributes(span: Span, attrs: Mapping[str, str | bool]) -> None:
-    """Keep native APM attributes and LLM metadata consistent."""
+def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
+    """Keep native APM attributes and LLM metadata consistent.
+
+    Argument records pass the OTel backend's export validation: ints become
+    metrics, and only the tracing state reaches LLM metadata.
+    """
     from ddtrace.llmobs import LLMObs  # noqa: PLC0415
 
+    attrs = dict(source)
+    arg_attrs = {key: attrs.pop(key) for key in list(attrs) if is_arg_key(_ARG_PREFIX, key)}
+    tool = attrs.get("gen_ai.tool.name")
+    accepted = (
+        _ARG_TRACER.revalidate(tool, arg_attrs)
+        if arg_attrs and isinstance(tool, str) and tool in _TOOL_MODULES
+        else {}
+    )
     span.set_tags({key: str(value) for key, value in attrs.items()})
-    metadata = {
+    for key, value in accepted.items():
+        if isinstance(value, int):
+            span.set_metric(key, value)
+        else:
+            span.set_tag(key, value)
+    metadata: dict[str, object] = {
         key.removeprefix("airbyte.mcp."): value
         for key, value in attrs.items()
         if key.startswith("airbyte.mcp.")
     }
+    metadata.update(
+        {
+            short: value
+            for key, value in accepted.items()
+            if (short := key.removeprefix("airbyte.mcp.")) in _LLMOBS_ARG_KEYS
+        }
+    )
     if "gen_ai.tool.call.id" in attrs:
         metadata["tool_id"] = attrs["gen_ai.tool.call.id"]
     LLMObs.annotate(span, metadata=metadata)
@@ -589,7 +639,11 @@ class _DatadogRequestMiddleware:
             span = start(name=name)
             # LLMObs retains its display name independently of these APM fields.
             span.name = f"mcp.{ctx.method}"
-            span.resource = "server_tool_call" if tool_call else "server_request"
+            if tool_call:
+                # Per-tool APM trace metrics group by resource; keep it bounded.
+                span.resource = name if name in _TOOL_MODULES else "unknown_tool"
+            else:
+                span.resource = "server_request"
             span.set_metric("_dd.measured", 1)
             _annotate_request(span, ctx)
         except Exception:

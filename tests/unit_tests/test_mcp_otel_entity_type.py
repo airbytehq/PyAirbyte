@@ -65,7 +65,7 @@ def _tool_span(spans: list[ReadableSpan]) -> ReadableSpan:
     [
         ("issues", "issues"),
         ("x" * 256, "x" * 256),
-        ("x" * 257, "x" * 256),
+        ("x" * 257, None),
         (" leading-space", None),
         ("trailing-space ", None),
         ("\n", None),
