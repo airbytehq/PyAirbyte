@@ -61,8 +61,30 @@ def is_mcp_mode() -> bool:
 AIRBYTE_ANALYTIC_SOURCE_HEADER = "X-Airbyte-Analytic-Source"
 """Request header the Airbyte platform stamps onto Segment events as `airbyte_source`."""
 
+AIRBYTE_APPLICATION_NAME_HEADER = "X-Airbyte-Application-Name"
+
 _UPSTREAM_ANALYTIC_SOURCES: frozenset[str] = frozenset({"coral-support-agent"})
 """Analytic sources a trusted upstream may declare on requests to the hosted MCP server."""
+
+_KNOWN_APPLICATION_NAMES: frozenset[str] = frozenset({"io.airbyte.coral-support-agent"})
+"""Allowlisted application names a trusted upstream may declare via `X-Airbyte-Application-Name`."""
+
+
+def _allowlisted_value(value: str | None, allowlist: frozenset[str]) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in allowlist else None
+
+
+def known_application_name(
+    application_name: str | None,
+    analytic_source: str | None = None,
+) -> str | None:
+    """Return the allowlisted application name, falling back to the analytic source."""
+    return _allowlisted_value(application_name, _KNOWN_APPLICATION_NAMES) or _allowlisted_value(
+        analytic_source, _UPSTREAM_ANALYTIC_SOURCES
+    )
 
 
 def get_http_headers() -> dict[str, str]:
@@ -73,6 +95,32 @@ def get_http_headers() -> dict[str, str]:
     from fastmcp.server.dependencies import get_http_headers  # noqa: PLC0415
 
     return get_http_headers()
+
+
+def _declared_analytic_source() -> str | None:
+    if not is_mcp_mode():
+        return None
+    return _allowlisted_value(
+        get_http_headers().get(AIRBYTE_ANALYTIC_SOURCE_HEADER.lower()),
+        _UPSTREAM_ANALYTIC_SOURCES,
+    )
+
+
+def _declared_application_name() -> str | None:
+    if not is_mcp_mode():
+        return None
+    return _allowlisted_value(
+        get_http_headers().get(AIRBYTE_APPLICATION_NAME_HEADER.lower()),
+        _KNOWN_APPLICATION_NAMES,
+    )
+
+
+def get_known_application_name() -> str | None:
+    """Return the allowlisted application name declared by the current MCP request."""
+    return known_application_name(
+        _declared_application_name(),
+        _declared_analytic_source(),
+    )
 
 
 def get_cloud_api_analytic_source() -> str:
@@ -86,9 +134,10 @@ def get_cloud_api_analytic_source() -> str:
     """
     if not is_mcp_mode():
         return "pyairbyte"
-    upstream = get_http_headers().get(AIRBYTE_ANALYTIC_SOURCE_HEADER.lower(), "").strip().lower()
-    if upstream in _UPSTREAM_ANALYTIC_SOURCES:
-        return upstream
+    if source := _declared_analytic_source():
+        return source
+    if application_name := _declared_application_name():
+        return application_name
     return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
 
 
@@ -196,8 +245,13 @@ def get_python_script_name() -> str | None:
 
 
 @lru_cache
-def get_application_name() -> str | None:
+def _get_local_application_name() -> str | None:
     return get_notebook_name() or get_python_script_name() or get_vscode_notebook_name() or None
+
+
+def get_application_name() -> str | None:
+    """Return the request's allowlisted application name or local application name."""
+    return get_known_application_name() or _get_local_application_name()
 
 
 def get_python_version() -> str:

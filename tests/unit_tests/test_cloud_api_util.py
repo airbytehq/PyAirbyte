@@ -1546,6 +1546,169 @@ def test_get_analytic_source_upstream_header(
     assert meta.get_cloud_api_analytic_source() == expected
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        (
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            "io.airbyte.coral-support-agent",
+        ),
+        (
+            {
+                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-analytic-source": "unlisted",
+            },
+            "io.airbyte.coral-support-agent",
+        ),
+        (
+            {
+                "x-airbyte-application-name": "unlisted",
+                "x-airbyte-analytic-source": "coral-support-agent",
+            },
+            "coral-support-agent",
+        ),
+    ],
+)
+def test_get_analytic_source_falls_back_between_headers(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+
+    assert meta.get_cloud_api_analytic_source() == expected
+
+
+def test_get_analytic_source_prefers_analytic_source_when_both_are_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(
+        meta,
+        "get_http_headers",
+        lambda: {
+            "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+            "x-airbyte-analytic-source": "coral-support-agent",
+        },
+    )
+
+    assert meta.get_cloud_api_analytic_source() == "coral-support-agent"
+
+
+@pytest.mark.parametrize(
+    ("application_name", "analytic_source", "expected"),
+    [
+        ("  IO.Airbyte.Coral-Support-Agent\n", None, "io.airbyte.coral-support-agent"),
+        (None, None, None),
+        ("unlisted-application", None, None),
+        (None, " Coral-Support-Agent ", "coral-support-agent"),
+        ("unlisted-application", " Coral-Support-Agent ", "coral-support-agent"),
+        (
+            "io.airbyte.coral-support-agent",
+            "unlisted-source",
+            "io.airbyte.coral-support-agent",
+        ),
+        ("unlisted-application", "unlisted-source", None),
+    ],
+)
+def test_known_application_name(
+    application_name: str | None,
+    analytic_source: str | None,
+    expected: str | None,
+) -> None:
+    assert meta.known_application_name(application_name, analytic_source) == expected
+
+
+@pytest.mark.parametrize(
+    ("mcp_mode", "headers", "expected_known_name", "expected_application_name"),
+    [
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            "io.airbyte.coral-support-agent",
+            "io.airbyte.coral-support-agent",
+            id="mcp-header",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-analytic-source": "coral-support-agent"},
+            "coral-support-agent",
+            "coral-support-agent",
+            id="analytic-source-fallback",
+        ),
+        pytest.param(
+            True,
+            {
+                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-analytic-source": "coral-support-agent",
+            },
+            "io.airbyte.coral-support-agent",
+            "io.airbyte.coral-support-agent",
+            id="application-name-precedes-analytic-source",
+        ),
+        pytest.param(
+            True,
+            {
+                "x-airbyte-application-name": "unlisted-application",
+                "x-airbyte-analytic-source": "coral-support-agent",
+            },
+            "coral-support-agent",
+            "coral-support-agent",
+            id="unlisted-application-falls-back-to-analytic-source",
+        ),
+        pytest.param(
+            True,
+            {
+                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-analytic-source": "unlisted-source",
+            },
+            "io.airbyte.coral-support-agent",
+            "io.airbyte.coral-support-agent",
+            id="unlisted-analytic-source-falls-back-to-application-name",
+        ),
+        pytest.param(True, {}, None, "local-script", id="mcp-no-header"),
+        pytest.param(
+            False,
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            None,
+            "local-script",
+            id="non-mcp-header-ignored",
+        ),
+    ],
+)
+def test_get_known_application_name_and_get_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_mode: bool,
+    headers: dict[str, str],
+    expected_known_name: str | None,
+    expected_application_name: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
+
+    assert meta.get_known_application_name() == expected_known_name
+    assert meta.get_application_name() == expected_application_name
+
+
+def test_get_application_name_resolves_current_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    headers: dict[str, str] = {}
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
+
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-analytic-source"] = "coral-support-agent"
+    assert meta.get_application_name() == "coral-support-agent"
+    headers["x-airbyte-application-name"] = "io.airbyte.coral-support-agent"
+    assert meta.get_application_name() == "io.airbyte.coral-support-agent"
+
+
 def test_config_api_request_sends_analytic_source_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

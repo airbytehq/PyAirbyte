@@ -23,11 +23,11 @@ from fastmcp_extensions import (
     mcp_server,
 )
 from fastmcp_extensions.capability_tokens import encode_session_token
-from mcp.types import TextContent
+from mcp.types import Implementation, TextContent
 from starlette.types import Receive, Scope, Send
 
 from airbyte import constants
-from airbyte._util import api_util
+from airbyte._util import api_util, meta
 from airbyte.mcp import _telemetry, _user_identity, server
 from airbyte.mcp._otel import SessionIdHeaderDigest
 from airbyte.mcp._user_identity import AirbyteUserMiddleware
@@ -177,6 +177,70 @@ def _initialize_request(
         },
         {"authorization": "Bearer verified-access-token"} | (headers or {}),
     )
+
+
+@pytest.mark.parametrize(
+    ("headers", "client_name", "expected"),
+    [
+        pytest.param(
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            "mcp",
+            "io.airbyte.coral-support-agent",
+            id="allowlisted-header-overrides-mcp",
+        ),
+        pytest.param(
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+            "cursor",
+            "io.airbyte.coral-support-agent",
+            id="allowlisted-header-overrides-client",
+        ),
+        pytest.param(
+            {"x-airbyte-analytic-source": "coral-support-agent"},
+            "cursor",
+            "coral-support-agent",
+            id="analytic-source-fallback",
+        ),
+        pytest.param(
+            {
+                "x-airbyte-application-name": "io.airbyte.coral-support-agent",
+                "x-airbyte-analytic-source": "coral-support-agent",
+            },
+            "cursor",
+            "io.airbyte.coral-support-agent",
+            id="application-name-precedes-analytic-source",
+        ),
+        pytest.param(
+            {
+                "x-airbyte-application-name": "unlisted",
+                "x-airbyte-analytic-source": "coral-support-agent",
+            },
+            "cursor",
+            "coral-support-agent",
+            id="unlisted-application-falls-back-to-analytic-source",
+        ),
+        pytest.param({}, "cursor", "cursor", id="no-header-keeps-client"),
+        pytest.param(
+            {"x-airbyte-application-name": "unlisted"},
+            "cursor",
+            "cursor",
+            id="unlisted-header-keeps-client",
+        ),
+    ],
+)
+def test_request_properties_prefers_known_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    client_name: str,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+
+    properties = request_properties(
+        client_info=Implementation(name=client_name, version="1.0.0")
+    )
+
+    assert properties["mcp_client_name"] == expected
 
 
 async def _stateless_session(
@@ -724,6 +788,71 @@ def test_auth_failures_are_classified(
     assert record.extra["mcp_client_name"] == "Cursor"
     assert record.extra["session_id"] == hashlib.sha256(token.encode()).hexdigest()
     assert record.extra["organization_id"] == "org-123"
+
+
+@pytest.mark.parametrize(
+    ("application_name", "analytic_source", "expected_client_name"),
+    [
+        pytest.param(
+            "io.airbyte.coral-support-agent",
+            None,
+            "io.airbyte.coral-support-agent",
+            id="application-name-header",
+        ),
+        pytest.param(
+            None, "coral-support-agent", "coral-support-agent", id="analytic-fallback"
+        ),
+        pytest.param(None, None, "Cursor", id="session-token-fallback"),
+        pytest.param(
+            "io.airbyte.coral-support-agent",
+            "coral-support-agent",
+            "io.airbyte.coral-support-agent",
+            id="application-name-precedence",
+        ),
+        pytest.param(
+            "unlisted",
+            "coral-support-agent",
+            "coral-support-agent",
+            id="unlisted-application-falls-back",
+        ),
+    ],
+)
+def test_auth_failed_uses_allowlisted_application_name_or_session_token(
+    records,
+    hosted,
+    monkeypatch: pytest.MonkeyPatch,
+    application_name: str | None,
+    analytic_source: str | None,
+    expected_client_name: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    sinks, captured = records
+    token = encode_session_token(client_name="Cursor", client_version="3.0")
+    app = McpRequestTelemetryMiddleware(
+        _status_app(401, 'Bearer error="invalid_token"'),
+        sinks=sinks,
+        mcp_path="/mcp",
+    )
+    request_headers = {
+        "authorization": "Bearer expired",
+        "mcp-session-id": token,
+    }
+    if application_name is not None:
+        request_headers[meta.AIRBYTE_APPLICATION_NAME_HEADER] = application_name
+    if analytic_source is not None:
+        request_headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] = analytic_source
+
+    async def send_request() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            return await client.post("/mcp", headers=request_headers)
+
+    response = asyncio.run(send_request())
+
+    assert response.status_code == 401
+    (record,) = captured
+    assert record.extra["mcp_client_name"] == expected_client_name
 
 
 def test_auth_failed_keeps_server_segment_identity_without_user_lookups(

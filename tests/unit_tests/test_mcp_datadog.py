@@ -7,11 +7,93 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
-from airbyte.mcp import _datadog
+from airbyte._util import meta
+from airbyte.mcp import _datadog, _telemetry
 from airbyte.version import get_version
+
+
+@pytest.mark.parametrize(
+    ("client_info", "expected_client_version"),
+    [
+        pytest.param(
+            {"name": "mcp", "version": "1.2"},
+            "io.airbyte.coral-support-agent_1.2",
+            id="overrides-client-info",
+        ),
+        pytest.param(
+            {"name": "", "version": "1.2"},
+            "io.airbyte.coral-support-agent_1.2",
+            id="application-name-without-client-name",
+        ),
+        pytest.param(
+            {"name": "mcp", "version": ""},
+            None,
+            id="application-name-without-client-version",
+        ),
+    ],
+)
+def test_datadog_initialize_uses_allowlisted_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    client_info: dict[str, str],
+    expected_client_version: str | None,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(
+        meta,
+        "get_http_headers",
+        lambda: {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+    )
+    monkeypatch.setattr(_datadog, "_request_trace_attributes", lambda: {})
+    monkeypatch.setattr(_datadog, "_annotate_attributes", lambda *_: None)
+    annotations: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "ddtrace.llmobs.LLMObs.annotate",
+        lambda _span, **kwargs: annotations.append(kwargs),
+    )
+
+    _datadog._annotate_request(
+        cast(Any, object()),
+        cast(
+            Any,
+            SimpleNamespace(
+                method="initialize",
+                params={
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": client_info,
+                },
+            ),
+        ),
+    )
+
+    tags = annotations[0]["tags"]
+    assert isinstance(tags, dict)
+    assert tags["client_name"] == "io.airbyte.coral-support-agent"
+    assert tags.get("client_version") == expected_client_version
+
+
+def test_request_trace_attributes_use_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(
+        meta,
+        "get_http_headers",
+        lambda: {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
+    )
+    monkeypatch.setattr(
+        _telemetry,
+        "request_properties",
+        lambda: {"mcp_client_name": meta.get_known_application_name()},
+    )
+
+    attributes = _datadog._request_trace_attributes()
+
+    assert attributes["airbyte.mcp.client_name"] == "io.airbyte.coral-support-agent"
 
 
 @pytest.mark.parametrize("original_input", [[{"content": "private"}], [object()], []])

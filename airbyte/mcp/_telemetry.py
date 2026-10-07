@@ -30,6 +30,13 @@ from fastmcp_extensions.capability_tokens import (
 )
 from starlette.datastructures import Headers
 
+from airbyte._util.meta import (
+    AIRBYTE_ANALYTIC_SOURCE_HEADER,
+    AIRBYTE_APPLICATION_NAME_HEADER,
+    get_known_application_name,
+    is_mcp_mode,
+    known_application_name,
+)
 from airbyte.constants import (
     CLOUD_API_ROOT,
     CLOUD_API_ROOT_ENV_VAR,
@@ -244,12 +251,14 @@ def request_properties(
             get_http_request().headers
         )
 
+    client_name = get_known_application_name() or (
+        client_info.name if client_info else (session_token.client_name if session_token else None)
+    )
+
     return context_properties(
         auth_method=auth_method if auth_method in {"bearer", "client_credentials"} else "none",
         session_id=session_id if isinstance(session_id, str) else None,
-        client_name=client_info.name
-        if client_info
-        else (session_token.client_name if session_token else None),
+        client_name=client_name,
         client_version=client_info.version
         if client_info
         else (session_token.client_version if session_token else None),
@@ -476,10 +485,18 @@ class McpRequestTelemetryMiddleware:
         )
         if reason is None:
             return
+        client_name = (
+            known_application_name(
+                headers.get(AIRBYTE_APPLICATION_NAME_HEADER),
+                headers.get(AIRBYTE_ANALYTIC_SOURCE_HEADER),
+            )
+            if is_mcp_mode()
+            else None
+        )
         properties = context_properties(
             auth_method=auth_method,
             session_id=session_id,
-            client_name=session_token.client_name if session_token else None,
+            client_name=client_name or (session_token.client_name if session_token else None),
             client_version=session_token.client_version if session_token else None,
             protocol_version=session_token.protocol_version if session_token else None,
             organization_id=headers.get(MCP_ORGANIZATION_ID_HEADER)
