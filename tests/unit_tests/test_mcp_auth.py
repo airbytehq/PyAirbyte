@@ -747,8 +747,10 @@ def test_multi_realm_user_verifier_checks_default_realm_azp(
     assert asyncio.run(verifier.verify_token(rejected)) is None
 
 
+@pytest.mark.parametrize("response_token_type", ["Bearer", "bearer"])
 def test_user_token_exchange_uses_default_realm_and_caches_result(
     monkeypatch: MonkeyPatch,
+    response_token_type: str,
 ) -> None:
     requests: list[httpx.Request] = []
     token_endpoint = "https://kc.example/auth/realms/airbyte/token"
@@ -765,7 +767,12 @@ def test_user_token_exchange_uses_default_realm_and_caches_result(
             )
         return httpx.Response(
             200,
-            json={"access_token": "exchanged-token", "expires_in": 1800},
+            json={
+                "access_token": "exchanged-token",
+                "expires_in": 1800,
+                "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "token_type": response_token_type,
+            },
         )
 
     client_factory = lambda: httpx.AsyncClient(  # noqa: E731
@@ -811,6 +818,145 @@ def test_user_token_exchange_uses_default_realm_and_caches_result(
         "requested_token_type": ["urn:ietf:params:oauth:token-type:access_token"],
         "scope": ["openid email profile"],
     }
+
+
+def test_user_token_exchange_coalesces_concurrent_calls(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def _handle_request(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "concurrent-exchanged-token",
+                "expires_in": 1800,
+                "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "token_type": "Bearer",
+            },
+        )
+
+    client_factory = lambda: httpx.AsyncClient(  # noqa: E731
+        transport=httpx.MockTransport(_handle_request)
+    )
+    _, verifier, _ = _create_sso_user_auth(
+        monkeypatch,
+        token_exchange=True,
+        client_factory=client_factory,
+    )
+    token = _user_token(
+        issuer="https://kc.example/auth/realms/acme",
+        azp="airbyte-webapp",
+        audience="cid",
+    )
+
+    async def _verify_concurrently():
+        return await asyncio.gather(
+            verifier.verify_token(token),
+            verifier.verify_token(token),
+        )
+
+    first, second = asyncio.run(_verify_concurrently())
+
+    assert first is not None
+    assert second is not None
+    assert first.token == second.token == "concurrent-exchanged-token"
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+
+
+def test_user_token_exchange_coalesces_failures_without_caching(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def _handle_request(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(400)
+
+    client_factory = lambda: httpx.AsyncClient(  # noqa: E731
+        transport=httpx.MockTransport(_handle_request)
+    )
+    _, verifier, _ = _create_sso_user_auth(
+        monkeypatch,
+        token_exchange=True,
+        client_factory=client_factory,
+    )
+    token = _user_token(
+        issuer="https://kc.example/auth/realms/acme",
+        azp="airbyte-webapp",
+        audience="cid",
+    )
+
+    async def _verify_concurrently_then_retry():
+        first, second = await asyncio.gather(
+            verifier.verify_token(token),
+            verifier.verify_token(token),
+        )
+        retry = await verifier.verify_token(token)
+        return first, second, retry
+
+    first, second, retry = asyncio.run(_verify_concurrently_then_retry())
+
+    assert first is None
+    assert second is None
+    assert retry is None
+    assert [request.method for request in requests] == ["POST", "POST"]
+
+
+@pytest.mark.parametrize(
+    "response_document",
+    [
+        pytest.param(
+            {
+                "access_token": "unexpected-token",
+                "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "token_type": "DPoP",
+            },
+            id="dpop-token",
+        ),
+        pytest.param(
+            {"access_token": "unexpected-token", "token_type": "Bearer"},
+            id="missing-issued-token-type",
+        ),
+        pytest.param(
+            {
+                "access_token": "unexpected-token",
+                "issued_token_type": "urn:ietf:params:oauth:token-type:refresh_token",
+                "token_type": "Bearer",
+            },
+            id="wrong-issued-token-type",
+        ),
+    ],
+)
+def test_user_token_exchange_rejects_invalid_response_types(
+    monkeypatch: MonkeyPatch,
+    response_document: dict[str, str],
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def _handle_request(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=response_document)
+
+    client_factory = lambda: httpx.AsyncClient(  # noqa: E731
+        transport=httpx.MockTransport(_handle_request)
+    )
+    _, verifier, _ = _create_sso_user_auth(
+        monkeypatch,
+        token_exchange=True,
+        client_factory=client_factory,
+    )
+    token = _user_token(
+        issuer="https://kc.example/auth/realms/acme",
+        azp="airbyte-webapp",
+        audience="cid",
+    )
+
+    assert asyncio.run(verifier.verify_token(token)) is None
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
 
 
 @pytest.mark.parametrize(
@@ -929,7 +1075,12 @@ def test_user_token_exchange_uses_routed_realm_token_endpoint(
         requests.append(request)
         return httpx.Response(
             200,
-            json={"access_token": "routed-exchanged-token", "expires_in": 1800},
+            json={
+                "access_token": "routed-exchanged-token",
+                "expires_in": 1800,
+                "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "token_type": "Bearer",
+            },
         )
 
     client_factory = lambda: httpx.AsyncClient(  # noqa: E731

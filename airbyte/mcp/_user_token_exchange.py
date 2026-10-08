@@ -61,7 +61,7 @@ class UserTokenExchangeClient:
         self._default_token_endpoint: str | None = None
         self._discovery_lock = asyncio.Lock()
         self._cache: OrderedDict[str, _CachedToken] = OrderedDict()
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._inflight: dict[str, asyncio.Task[str | None]] = {}
 
     async def exchange_token(
         self,
@@ -76,25 +76,47 @@ class UserTokenExchangeClient:
         if cached is not None:
             return cached.token
 
-        lock = self._locks.setdefault(digest, asyncio.Lock())
+        task = self._inflight.get(digest)
+        if task is not None:
+            return await asyncio.shield(task)
+
+        task = asyncio.create_task(
+            self._exchange_uncached(token, digest, access_token, token_endpoint)
+        )
+        self._inflight[digest] = task
+
+        def _clear_inflight(completed: asyncio.Task[str | None]) -> None:
+            if self._inflight.get(digest) is completed:
+                del self._inflight[digest]
+
+        task.add_done_callback(_clear_inflight)
+        return await asyncio.shield(task)
+
+    async def _exchange_uncached(
+        self,
+        token: str,
+        digest: str,
+        access_token: AccessToken,
+        token_endpoint: str | None,
+    ) -> str | None:
         try:
-            async with lock:
-                cached = self._cached(digest)
-                if cached is not None:
-                    return cached.token
+            cached = self._cached(digest)
+            if cached is not None:
+                return cached.token
 
-                exchanged, expires_in = await self._request_exchange(
-                    token,
-                    token_endpoint=token_endpoint,
-                )
-                if exchanged is None:
-                    return None
+            exchanged, expires_in = await self._request_exchange(
+                token,
+                token_endpoint=token_endpoint,
+            )
+            if exchanged is None:
+                return None
 
-                self._cache_exchange(digest, exchanged, access_token, expires_in)
-                return exchanged
-        finally:
-            if not lock.locked():
-                self._locks.pop(digest, None)
+            self._cache_exchange(digest, exchanged, access_token, expires_in)
+        except Exception as exc:
+            logger.warning("User token exchange failed: %s", type(exc).__name__)
+            return None
+        else:
+            return exchanged
 
     def _cached(self, digest: str) -> _CachedToken | None:
         cached = self._cache.get(digest)
@@ -165,8 +187,15 @@ class UserTokenExchangeClient:
             logger.warning("User token exchange returned a non-object response")
             return None, None
         exchanged = document.get("access_token")
-        if not isinstance(exchanged, str) or not exchanged:
-            logger.warning("User token exchange response omitted access_token")
+        if (
+            not isinstance(exchanged, str)
+            or not exchanged
+            or document.get("issued_token_type") != _ACCESS_TOKEN_TYPE
+            or str(document.get("token_type", "")).lower() != "bearer"
+        ):
+            logger.warning(
+                "User token exchange response omitted access_token or had invalid token types"
+            )
             return None, None
         expires_in = document.get("expires_in")
         return exchanged, (
