@@ -1906,15 +1906,45 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
         api_root=api_root,
     )
     stream_configurations_obj = build_stream_configurations(selected_stream_names)
-    response = airbyte_instance.connections.create_connection(
-        models.ConnectionCreateRequest(
-            name=name,
-            source_id=source_id,
-            destination_id=destination_id,
-            configurations=stream_configurations_obj,
-            prefix=prefix,
-        ),
-    )
+    try:
+        response = airbyte_instance.connections.create_connection(
+            models.ConnectionCreateRequest(
+                name=name,
+                source_id=source_id,
+                destination_id=destination_id,
+                configurations=stream_configurations_obj,
+                prefix=prefix,
+            ),
+        )
+    except SDKError as e:
+        base_context = {
+            "source_id": source_id,
+            "destination_id": destination_id,
+            "selected_stream_names": selected_stream_names,
+        }
+        if e.status_code == HTTPStatus.BAD_REQUEST:
+            message = "The Airbyte API rejected the connection request (HTTP 400)."
+            try:
+                body = json.loads(e.body) if e.body else None
+            except (json.JSONDecodeError, TypeError):
+                body = None
+            if isinstance(body, dict):
+                data = body.get("data")
+                detail = data.get("message") if isinstance(data, dict) else None
+                if not (isinstance(detail, str) and detail):
+                    top_detail = body.get("detail")
+                    detail = top_detail if isinstance(top_detail, str) and top_detail else None
+                if detail:
+                    message = detail
+            raise AirbyteLibInputError(
+                message=message,
+                guidance=(
+                    "Check that every name in `selected_streams` is a stream of the "
+                    "source, and that `source_id` and `destination_id` are correct."
+                ),
+                context={**base_context, **_get_sdk_error_context(e)},
+            ) from e
+        raise _wrap_sdk_error(e, base_context) from e
     if not status_ok(response.status_code) or response.connection_response is None:
         raise AirbyteCloudError(
             context={

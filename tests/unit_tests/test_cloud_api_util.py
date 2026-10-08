@@ -2243,6 +2243,133 @@ def test_api_util_calls_wrap_sdk_errors_with_status_context(
         get_job.assert_not_called()
 
 
+def _call_create_connection() -> None:
+    """Invoke `create_connection` with canned IDs for SDKError tests."""
+    api_util.create_connection(
+        "connection-name",
+        source_id="source-id",
+        destination_id="destination-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+        prefix="",
+        selected_stream_names=["no_such_stream"],
+    )
+
+
+def test_create_connection_400_raises_input_error_with_api_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 400 surfaces the API's `data.message` as an `AirbyteLibInputError`."""
+    api_message = (
+        "No streams found with name [no_such_stream] and namespace [null]. "
+        "Please call the https://reference.airbyte.com/reference/getstreamproperties "
+        "endpoint to see the valid stream name and namespace combinations."
+    )
+    body = json.dumps({
+        "status": 400,
+        "type": "https://reference.airbyte.com/reference/errors#bad-request",
+        "title": "bad-request",
+        "detail": "The request could not be understood by the server "
+        "due to malformed syntax.",
+        "documentationUrl": None,
+        "data": {"message": api_message},
+    })
+    raw_response = requests.Response()
+    raw_response.status_code = 400
+    raw_response.url = "https://api.airbyte.com/v1/connections"
+    sdk_error = SDKError("API error occurred: Status 400", 400, body, raw_response)
+    create_connection = Mock(side_effect=sdk_error)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(create_connection=create_connection),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        _call_create_connection()
+
+    assert exc_info.value.get_message() == api_message
+    assert exc_info.value.context["source_id"] == "source-id"
+    assert exc_info.value.context["destination_id"] == "destination-id"
+    assert exc_info.value.context["status_code"] == 400
+    assert exc_info.value.__cause__ is sdk_error
+
+
+def test_create_connection_400_with_non_json_body_uses_fallback_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 400 with an unparseable body falls back to a generic input error."""
+    raw_response = requests.Response()
+    raw_response.status_code = 400
+    raw_response.url = "https://api.airbyte.com/v1/connections"
+    sdk_error = SDKError(
+        "API error occurred: Status 400",
+        400,
+        "<html>Bad Request</html>",
+        raw_response,
+    )
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(
+            create_connection=Mock(side_effect=sdk_error),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        _call_create_connection()
+
+    assert exc_info.value.get_message() == (
+        "The Airbyte API rejected the connection request (HTTP 400)."
+    )
+    assert exc_info.value.__cause__ is sdk_error
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expect_missing_resource"),
+    [
+        pytest.param(403, True, id="403-missing-resource"),
+        pytest.param(500, False, id="500-cloud-error"),
+    ],
+)
+def test_create_connection_non_400_sdk_errors_keep_status_context(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    expect_missing_resource: bool,
+) -> None:
+    """Non-400 SDK errors go through `_wrap_sdk_error` with the create context."""
+    sdk_error = _sdk_status_error(status_code)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(
+            create_connection=Mock(side_effect=sdk_error),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        _call_create_connection()
+
+    assert isinstance(exc_info.value, AirbyteMissingResourceError) == (
+        expect_missing_resource
+    )
+    assert exc_info.value.context["status_code"] == status_code
+    assert exc_info.value.context["source_id"] == "source-id"
+    assert exc_info.value.context["destination_id"] == "destination-id"
+    assert exc_info.value.__cause__ is sdk_error
+
+
 @pytest.mark.parametrize(
     "source_status",
     [
