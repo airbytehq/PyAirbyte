@@ -100,13 +100,6 @@
     "organization_id": "hash",
     "organization_name": "fingerprint"
   },
-  "get_cloud_search_status": {
-    "connector_id": "hash",
-    "connector_type": "value allowed=[\"destination\",\"source\"]",
-    "namespace": "fingerprint",
-    "stream_name": "fingerprint",
-    "workspace_id": "omit"
-  },
   "get_cloud_sync_logs": {
     "attempt_number": "hash",
     "connection_id": "hash",

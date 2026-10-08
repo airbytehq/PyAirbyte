@@ -206,7 +206,6 @@ def test_server_tools_register_expected_policies() -> None:
     external_tools = (
         "execute_external_api_query",
         "execute_external_sql_query",
-        "get_cloud_search_status",
         "get_agent_skill_docs",
     )
     for tool_name in external_tools:

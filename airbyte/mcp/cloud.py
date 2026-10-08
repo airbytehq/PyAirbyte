@@ -107,7 +107,7 @@ if TYPE_CHECKING:
 
 
 SEARCH_TOOLS_DISABLED = True
-"""Hide `execute_external_search_query` until the search backend is enabled."""
+"""Hide the search tools until the search backend is enabled."""
 
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
@@ -1967,6 +1967,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     read_only=True,
     idempotent=True,
     external_access=True,
+    force_disabled=SEARCH_TOOLS_DISABLED,
 )
 def get_cloud_search_status(
     ctx: Context,
