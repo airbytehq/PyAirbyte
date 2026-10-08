@@ -740,6 +740,11 @@ class AirbyteDeferredSetupError(AirbyteCloudError):
     """The created connector ID, retained for inspection and cleanup before retrying."""
 
 
+@dataclass
+class AirbyteConnectorNotReadyError(AirbyteCloudError):
+    """A source or destination is still a draft awaiting setup by a person in Airbyte Cloud."""
+
+
 # Custom Warnings
 @dataclass
 class AirbyteMultipleResourcesError(AirbyteCloudError):

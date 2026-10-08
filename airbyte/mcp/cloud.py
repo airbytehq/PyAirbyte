@@ -135,9 +135,12 @@ DEFER_CREDENTIALS_TIP_TEXT = (
 )
 DEFERRED_SETUP_GUIDANCE = (
     "Share `settings_url` with the user. They must open it, complete authentication and any "
-    "missing settings, then test and save the draft. A successful test makes it ready to use. "
-    "Then call `check_cloud_connector` with `connector_id` (optionally `connector_type` "
-    "and `workspace_id`)."
+    "missing settings, then test and save. Until then the connector is a draft: you can "
+    "describe or delete it, but creating a connection, discovering streams, or running a "
+    "sync fails with `409 actor-not-ready`. Don't attempt or retry those until the user "
+    "confirms. Then call `check_cloud_connector` with `connector_id` (optionally "
+    "`connector_type` and `workspace_id`); a successful check makes the connector ready "
+    "to use."
 )
 
 _DiscoveryResult = TypeVar("_DiscoveryResult")
