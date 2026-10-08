@@ -106,6 +106,9 @@ if TYPE_CHECKING:
     from airbyte.cloud.sync_results import SyncResult
 
 
+SEARCH_TOOLS_DISABLED = True
+"""Hide the search tools until the search backend is enabled."""
+
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
@@ -1838,6 +1841,7 @@ def execute_external_sql_query(
     open_world=True,
     external_access=True,
     tracing=lambda args: agent_action_attributes("execute_external_search_query", args),
+    force_disabled=SEARCH_TOOLS_DISABLED,
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -1966,6 +1970,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     read_only=True,
     idempotent=True,
     external_access=True,
+    force_disabled=SEARCH_TOOLS_DISABLED,
 )
 def get_cloud_search_status(
     ctx: Context,

@@ -11,7 +11,6 @@ READ_ONLY_NAME_PREFIXES = ("list_", "describe_", "get_", "check_")
 OPEN_WORLD_TOOL_NAMES = {
     "execute_external_api_query",
     "execute_external_sql_query",
-    "execute_external_search_query",
 }
 
 

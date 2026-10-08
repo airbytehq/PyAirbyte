@@ -2060,11 +2060,12 @@ def test_search_tools_use_connector_type_without_probe(
 
 
 def test_search_tools_are_advertised() -> None:
-    """The search tools register like the other Cloud tools."""
+    """The search tools register unless `SEARCH_TOOLS_DISABLED` hides them."""
     from airbyte.mcp import server
 
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
-    assert {"execute_external_search_query", "get_cloud_search_status"} <= names
+    for tool_name in ("execute_external_search_query", "get_cloud_search_status"):
+        assert (tool_name in names) is not cloud_mcp.SEARCH_TOOLS_DISABLED
 
 
 @pytest.mark.parametrize(
