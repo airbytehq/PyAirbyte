@@ -1194,17 +1194,46 @@ def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
         )
 
 
-class _DeployConnectionWorkspace:
-    """Fake `CloudWorkspace` capturing `deploy_connection` and `get_source` calls."""
+class _LazyConnector:
+    """Connector double whose `name` raises `AirbyteMissingResourceError` when missing."""
 
-    def __init__(self) -> None:
+    def __init__(self, connector_id: str, *, missing: bool = False) -> None:
+        self.connector_id = connector_id
+        self.definition_id = "definition-id"
+        self._missing = missing
+
+    @property
+    def name(self) -> str:
+        """Return the connector name, or raise when the connector is marked missing."""
+        if self._missing:
+            raise AirbyteMissingResourceError(
+                resource_type="connector",
+                resource_name_or_id=self.connector_id,
+            )
+        return "connector-name"
+
+
+class _DeployConnectionWorkspace:
+    """Fake `CloudWorkspace` capturing `deploy_connection` and connector lookups."""
+
+    def __init__(self, missing_ids: set[str] | None = None) -> None:
         self.deploy_calls: list[dict[str, object]] = []
         self.get_source_calls: list[str] = []
+        self.get_destination_calls: list[str] = []
+        self.workspace_id = "workspace-id"
+        self._missing_ids = missing_ids or set()
 
-    def get_source(self, source_id: str) -> SimpleNamespace:
+    def get_source(self, source_id: str) -> _LazyConnector:
         """Return a source double exposing the connector definition ID."""
         self.get_source_calls.append(source_id)
-        return SimpleNamespace(definition_id="definition-id")
+        return _LazyConnector(source_id, missing=source_id in self._missing_ids)
+
+    def get_destination(self, destination_id: str) -> _LazyConnector:
+        """Return a destination double."""
+        self.get_destination_calls.append(destination_id)
+        return _LazyConnector(
+            destination_id, missing=destination_id in self._missing_ids
+        )
 
     def deploy_connection(self, **kwargs: object) -> SimpleNamespace:
         """Capture the deploy request and return a connection double."""
@@ -1217,8 +1246,9 @@ class _DeployConnectionWorkspace:
 
 def _patch_deploy_connection_workspace(
     monkeypatch: pytest.MonkeyPatch,
+    missing_ids: set[str] | None = None,
 ) -> _DeployConnectionWorkspace:
-    workspace = _DeployConnectionWorkspace()
+    workspace = _DeployConnectionWorkspace(missing_ids=missing_ids)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
     monkeypatch.setattr(
         cloud_mcp, "register_guid_created_in_session", lambda *args: None
@@ -1249,7 +1279,8 @@ def test_create_connection_on_cloud_uses_explicit_streams(
         table_prefix=None,
     )
 
-    assert workspace.get_source_calls == []
+    assert workspace.get_source_calls == ["source-id"]
+    assert workspace.get_destination_calls == ["destination-id"]
     assert workspace.deploy_calls == [
         {
             "connection_name": "My Connection",
@@ -1285,6 +1316,7 @@ def test_create_connection_on_cloud_defaults_to_suggested_streams(
     )
 
     assert workspace.get_source_calls == ["source-id"]
+    assert workspace.get_destination_calls == ["destination-id"]
     assert workspace.deploy_calls[0]["selected_streams"] == ["users"]
     assert "suggested streams" in result
 
@@ -1316,6 +1348,50 @@ def test_create_connection_on_cloud_without_suggested_streams_raises(
             destination_id="destination-id",
             workspace_id=None,
             selected_streams=None,
+            table_prefix=None,
+        )
+
+    assert workspace.deploy_calls == []
+
+
+def test_create_connection_on_cloud_unknown_destination_names_arg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unknown destination raises `AirbyteMissingResourceError` naming `destination_id`."""
+    workspace = _patch_deploy_connection_workspace(
+        monkeypatch, missing_ids={"destination-id"}
+    )
+
+    with pytest.raises(AirbyteMissingResourceError, match="`destination_id`"):
+        cloud_mcp.create_connection_on_cloud(
+            cast(Context, object()),
+            connection_name="My Connection",
+            source_id="source-id",
+            destination_id="destination-id",
+            workspace_id=None,
+            selected_streams=["users"],
+            table_prefix=None,
+        )
+
+    assert workspace.deploy_calls == []
+
+
+def test_create_connection_on_cloud_unknown_source_names_arg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unknown source raises `AirbyteMissingResourceError` naming `source_id`."""
+    workspace = _patch_deploy_connection_workspace(
+        monkeypatch, missing_ids={"source-id"}
+    )
+
+    with pytest.raises(AirbyteMissingResourceError, match="`source_id`"):
+        cloud_mcp.create_connection_on_cloud(
+            cast(Context, object()),
+            connection_name="My Connection",
+            source_id="source-id",
+            destination_id="destination-id",
+            workspace_id=None,
+            selected_streams=["users"],
             table_prefix=None,
         )
 

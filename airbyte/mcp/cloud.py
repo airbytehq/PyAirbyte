@@ -754,17 +754,15 @@ def _deploy_deferred_to_cloud(
 
 
 def _get_suggested_streams_for_source(
-    workspace: CloudWorkspace,
-    source_id: str,
+    source: CloudSource,
 ) -> list[str]:
     """Resolve the source connector's suggested streams from the connector registry."""
-    source = workspace.get_source(source_id)
     metadata = get_connector_metadata_by_definition_id(source.definition_id)
     suggested_streams = metadata.suggested_streams if metadata else None
     if not suggested_streams:
         raise AirbyteLibInputError(
             message=(
-                f"No `selected_streams` provided and source '{source_id}' has no "
+                f"No `selected_streams` provided and source '{source.connector_id}' has no "
                 "suggested streams in the connector registry."
             ),
             guidance=(
@@ -834,9 +832,26 @@ def create_connection_on_cloud(
     """
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+
+    source = workspace.get_source(source_id)
+    destination = workspace.get_destination(destination_id)
+    for arg_name, connector in (("source_id", source), ("destination_id", destination)):
+        try:
+            _ = connector.name  # Forces the connector info fetch; objects are lazy.
+        except AirbyteMissingResourceError as ex:
+            raise AirbyteMissingResourceError(
+                message=(
+                    f"`{arg_name}` '{connector.connector_id}' was not found in workspace "
+                    f"'{workspace.workspace_id}', or these credentials can't access it."
+                ),
+                guidance=api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+                resource_type=arg_name.removesuffix("_id"),
+                resource_name_or_id=connector.connector_id,
+            ) from ex
+
     used_suggested_streams = False
     if not resolved_streams_list:
-        resolved_streams_list = _get_suggested_streams_for_source(workspace, source_id)
+        resolved_streams_list = _get_suggested_streams_for_source(source)
         used_suggested_streams = True
 
     deployed_connection = workspace.deploy_connection(
