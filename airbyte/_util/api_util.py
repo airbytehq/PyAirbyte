@@ -14,16 +14,22 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import base64
+import copy
 import json
+import logging
+from dataclasses import replace
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import airbyte_api
 import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
-from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
+from airbyte._util.meta import (
+    AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
+    get_cloud_api_analytic_source,
+)
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteCloudError,
@@ -42,6 +48,7 @@ from airbyte.secrets.util import try_get_secret
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from enum import Enum
 
     from airbyte_api.models import (
         DestinationConfiguration,
@@ -63,6 +70,33 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 
 DEFERRED_CREATE_TIMEOUT_SECS: tuple[float, float] = (5.0, 120.0)
 """Connect and read timeouts for a deferred-credential create on the Config API."""
+PUBLIC_API_FALLBACK_TIMEOUT_SECS: tuple[float, float] = (5.0, 60.0)
+"""Connect and read timeouts for the raw Public API fallback GET."""
+
+logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
+
+
+def _register_queued_job_status() -> None:
+    """Register the `queued` job status on the `airbyte-api` SDK enum.
+
+    The Airbyte API returns `queued` for jobs waiting to start, but `airbyte-api<1.0` doesn't
+    define it, so decoding any job response with that status raises a `ValueError`.
+    """
+    sdk_enum: Any = models.JobStatusEnum
+    if "queued" in sdk_enum._value2member_map_:
+        return
+
+    member: Any = str.__new__(sdk_enum, "queued")
+    member._name_ = "QUEUED"
+    member._value_ = "queued"
+    sdk_enum.QUEUED = member
+    sdk_enum._member_names_.append("QUEUED")
+    sdk_enum._member_map_["QUEUED"] = member
+    sdk_enum._value2member_map_["queued"] = member
+
+
+_register_queued_job_status()
 
 
 def status_ok(status_code: int) -> bool:
@@ -252,7 +286,7 @@ def get_airbyte_server_instance(
         )
 
     client = requests.Session()
-    client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
+    client.headers[AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
 
     # Option 1: Bearer token authentication
     if bearer_token is not None:
@@ -549,17 +583,43 @@ def list_connections(
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            raise AirbyteCloudError(
-                context={
-                    "workspace_id": workspace_id,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
+        except ValueError as e:
+            logger.warning(
+                "Could not decode connections for workspace %s at offset %s: %s. "
+                "Retrying with lenient decoding.",
+                workspace_id,
+                current_offset,
+                e,
             )
-        assert response.connections_response is not None
-        page_data = response.connections_response.data
+            raw_response = _get_public_api_json(
+                api_root=api_root,
+                path="/connections",
+                params={
+                    "workspaceIds": workspace_id,
+                    "offset": current_offset,
+                    "limit": PAGE_SIZE,
+                },
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            page_data = [
+                _lenient_decode_connection(connection) for connection in raw_response["data"]
+            ]
+            next_page = raw_response.get("next")
+        else:
+            if not status_ok(response.status_code):
+                raise AirbyteCloudError(
+                    context={
+                        "workspace_id": workspace_id,
+                        "request_url": response.raw_response.url,
+                        "status_code": response.status_code,
+                    },
+                )
+            assert response.connections_response is not None
+            page_data = response.connections_response.data
+            next_page = response.connections_response.next
+
         if not page_data:
             break
 
@@ -573,7 +633,7 @@ def list_connections(
         if remaining is not None:
             remaining -= len(page_results)
 
-        if not response.connections_response.next:
+        if not next_page:
             break
 
         current_offset += len(page_data)
@@ -830,6 +890,22 @@ def get_connection(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
+    except ValueError as e:
+        logger.warning(
+            "Could not decode connection %s: %s. Retrying with lenient decoding.",
+            connection_id,
+            e,
+        )
+        return _lenient_decode_connection(
+            _get_public_api_json(
+                api_root=api_root,
+                path=f"/connections/{connection_id}",
+                params=None,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+        )
 
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
@@ -974,39 +1050,69 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        if not status_ok(response.status_code):
-            if response.status_code == HTTPStatus.NOT_FOUND:
-                raise AirbyteMissingResourceError(
+        except ValueError as e:
+            logger.warning(
+                "Could not decode jobs for connection %s at offset %s: %s. "
+                "Retrying with lenient decoding.",
+                connection_id,
+                current_offset,
+                e,
+            )
+            params: dict[str, Any] = {
+                "workspaceIds": workspace_id,
+                "connectionId": connection_id,
+                "limit": page_limit,
+                "offset": current_offset,
+            }
+            if order_by is not None:
+                params["orderBy"] = order_by
+            if job_type_value is not None:
+                params["jobType"] = job_type_value.value
+            raw_response = _get_public_api_json(
+                api_root=api_root,
+                path="/jobs",
+                params=params,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            page_data = [_lenient_decode_job(job) for job in raw_response["data"]]
+            next_page = raw_response.get("next")
+        else:
+            if not status_ok(response.status_code):
+                if response.status_code == HTTPStatus.NOT_FOUND:
+                    raise AirbyteMissingResourceError(
+                        response=response,
+                        resource_type="job",
+                        context={
+                            **base_context,
+                            "request_url": response.raw_response.url,
+                            "status_code": response.status_code,
+                        },
+                    )
+                raise AirbyteCloudError(
+                    message="Failed to list jobs.",
                     response=response,
-                    resource_type="job",
                     context={
                         **base_context,
                         "request_url": response.raw_response.url,
                         "status_code": response.status_code,
                     },
                 )
-            raise AirbyteCloudError(
-                message="Failed to list jobs.",
-                response=response,
-                context={
-                    **base_context,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
-        if not response.jobs_response:
-            raise AirbyteCloudError(
-                message="Jobs response payload was empty.",
-                response=response,
-                context={
-                    **base_context,
-                    "request_url": response.raw_response.url,
-                    "status_code": response.status_code,
-                },
-            )
+            if not response.jobs_response:
+                raise AirbyteCloudError(
+                    message="Jobs response payload was empty.",
+                    response=response,
+                    context={
+                        **base_context,
+                        "request_url": response.raw_response.url,
+                        "status_code": response.status_code,
+                    },
+                )
 
-        page_data: list[models.JobResponse] = list(response.jobs_response.data)
+            page_data = list(response.jobs_response.data)
+            next_page = response.jobs_response.next
+
         if not page_data:
             break
 
@@ -1015,7 +1121,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             remaining -= len(page_data)
         current_offset += len(page_data)
 
-        if not response.jobs_response.next or len(page_data) < page_limit:
+        if not next_page or len(page_data) < page_limit:
             break
 
     return result if limit is None else result[:limit]
@@ -1044,6 +1150,22 @@ def get_job_info(
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, {"job_id": job_id}) from e
+    except ValueError as e:
+        logger.warning(
+            "Could not decode job %s: %s. Retrying with lenient decoding.",
+            job_id,
+            e,
+        )
+        return _lenient_decode_job(
+            _get_public_api_json(
+                api_root=api_root,
+                path=f"/jobs/{job_id}",
+                params=None,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+        )
 
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
@@ -2088,7 +2210,7 @@ def get_bearer_token(
         headers={
             "content-type": "application/json",
             "accept": "application/json",
-            AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
+            AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
         },
         json={
             "client_id": client_id,
@@ -2187,8 +2309,118 @@ def _config_api_headers(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {bearer_token}",
         "User-Agent": "PyAirbyte Client",
-        AIRBYTE_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
+        AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER: get_cloud_api_analytic_source(),
     }
+
+
+def _get_public_api_json(
+    *,
+    api_root: str,
+    path: str,
+    params: dict[str, Any] | None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get raw JSON from the Public API."""
+    full_url = api_root.rstrip("/") + path
+    response = requests.get(
+        full_url,
+        headers=_config_api_headers(
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            timeout=PUBLIC_API_FALLBACK_TIMEOUT_SECS,
+        ),
+        params=params,
+        timeout=PUBLIC_API_FALLBACK_TIMEOUT_SECS,
+    )
+    if not status_ok(response.status_code):
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as ex:
+            error_message = f"API request failed with status {response.status_code}"
+            error_context = {
+                "full_url": full_url,
+                "path": path,
+                "status_code": response.status_code,
+                "url": response.request.url,
+                "body": response.request.body,
+                "response": response.__dict__,
+            }
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise AirbyteMissingResourceError(
+                    message=error_message,
+                    context=error_context,
+                ) from ex
+            if response.status_code == HTTPStatus.FORBIDDEN:
+                raise AirbyteMissingResourceError(
+                    message=(
+                        "The requested resource was not found, or these credentials can't "
+                        "access it (HTTP 403)."
+                    ),
+                    guidance=FORBIDDEN_RESOURCE_GUIDANCE,
+                    context=error_context,
+                ) from ex
+            raise AirbyteCloudError(
+                message=error_message,
+                context=error_context,
+            ) from ex
+
+    return response.json()
+
+
+def _decode_with_unknown_status(
+    raw: dict[str, Any],
+    model_cls: type[_T],
+    *,
+    status_enum: type[Enum],
+    placeholder: Enum,
+) -> _T:
+    """Decode an SDK model, preserving a `status` value the SDK enum doesn't define."""
+    raw_status = raw.get("status")
+    if isinstance(raw_status, str) and raw_status not in {status.value for status in status_enum}:
+        cleaned = {**raw, "status": placeholder.value}
+        decoded = airbyte_api.utils.unmarshal_json(
+            json.dumps(cleaned),
+            model_cls,
+        )
+        return replace(decoded, status=raw_status)
+
+    return airbyte_api.utils.unmarshal_json(
+        json.dumps(raw),
+        model_cls,
+    )
+
+
+def _lenient_decode_connection(
+    raw: dict[str, Any],
+) -> models.ConnectionResponse:
+    """Decode a connection after dropping stream mappers and tolerating unknown status values."""
+    cleaned = copy.deepcopy(raw)
+    configurations = cleaned.get("configurations")
+    if configurations is not None:
+        for stream in configurations.get("streams") or []:
+            if isinstance(stream, dict):
+                stream.pop("mappers", None)
+
+    return _decode_with_unknown_status(
+        cleaned,
+        models.ConnectionResponse,
+        status_enum=models.ConnectionStatusEnum,
+        placeholder=models.ConnectionStatusEnum.INACTIVE,
+    )
+
+
+def _lenient_decode_job(raw: dict[str, Any]) -> models.JobResponse:
+    """Decode a job while tolerating status values unknown to the SDK."""
+    return _decode_with_unknown_status(
+        raw,
+        models.JobResponse,
+        status_enum=models.JobStatusEnum,
+        placeholder=models.JobStatusEnum.RUNNING,
+    )
 
 
 def create_connector_deferred(  # noqa: PLR0913  # Mirrors the API surface.

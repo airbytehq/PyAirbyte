@@ -4,12 +4,20 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
 import logging
+import re
 import sys
+import unicodedata
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
+from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
+from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
+from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
     CallToolResult,
     InitializeRequest,
@@ -19,32 +27,293 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from airbyte.mcp._otel import (
-    _INTENT_ATTRIBUTES,
-    INTENT_INSTRUCTIONS_SENTENCE,
-    IntentCaptureMiddleware,
-    _build_tool_maps,
-    _env,
-    _exception_attributes,
-    _flag,
-    _request_trace_attributes,
-)
+from airbyte.mcp._otel import _arg_key, _env, _flag
+from airbyte.mcp._scope import current_call_scope, scope_from_request
+from airbyte.mcp._trace_attributes import agent_action_attributes
 from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from ddtrace.llmobs import LLMObsSpan
     from ddtrace.trace import Span
     from fastmcp import FastMCP
     from fastmcp.server.middleware import CallNext, MiddlewareContext
-    from fastmcp.tools import ToolResult
+    from fastmcp.tools import Tool, ToolResult
     from mcp.server.context import ServerRequestContext
     from mcp.types import CallToolRequestParams
 
 logger = logging.getLogger(__name__)
 REDACTED = "[REDACTED]"
+INTENT_ARG = "intent"
+_LEGACY_TELEMETRY_ARG = "telemetry"
+MCP_SESSION_ID_HEADER = "mcp-session-id"
+_MAX_INTENT_LENGTH = 4096
+INTENT_INSTRUCTIONS_SENTENCE = (
+    " Tools may accept an optional `intent` string; if present, "
+    "state in one sentence why you are calling the tool "
+    "(never credentials, identifiers or data values)."
+)
+_INTENT_SCHEMA = {
+    "type": "string",
+    "description": (
+        "Briefly describe the wider task and why you chose this tool, in English. "
+        "Omit argument values, personal information, and secrets."
+    ),
+}
+_INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
+    "mcp_intent", default=None
+)
+_TOOL_MODULES: dict[str, str] = {}
+_TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
+_ARG_PREFIX = "airbyte.mcp"
+# Same classification and validation as the OTel backend; intent is exported separately.
+_ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
+
+
+def _build_tool_maps() -> None:
+    from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE  # noqa: PLC0415
+    from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC0415, PLC2701
+
+    for func, tool_annotations in _REGISTERED_TOOLS:
+        name = getattr(func, "__name__", None)
+        if name:
+            _TOOL_MODULES[name] = str(tool_annotations.get(ANNOTATION_MCP_MODULE, ""))
+            _TOOL_ANNOTATIONS[name] = dict(tool_annotations)
+
+
+def _install_meta_trace_context_middleware(app: FastMCP) -> None:
+    from fastmcp.server.low_level import FastMCPServerMiddleware  # noqa: PLC0415
+
+    low_level_middleware = app._mcp_server.middleware  # noqa: SLF001
+    index = next(
+        (
+            i
+            for i, middleware in enumerate(low_level_middleware)
+            if isinstance(middleware, FastMCPServerMiddleware)
+        ),
+        None,
+    )
+    if index is None:
+        raise RuntimeError(
+            "FastMCPServerMiddleware not found; cannot install _meta trace-context stripping"
+        )
+    low_level_middleware.insert(index, _StripMetaTraceContextMiddleware())
+
+
+def _client_label(value: object) -> str | None:
+    if not isinstance(value, str) or any(
+        unicodedata.category(char).startswith("C") for char in value
+    ):
+        return None
+    return value.strip()[:256] or None
+
+
+def _call_id_digest(request_id: object) -> str:
+    return hashlib.sha256(str(request_id).encode()).hexdigest()
+
+
+def _request_trace_attributes() -> dict[str, str]:
+    from fastmcp.server.dependencies import (  # noqa: PLC0415
+        get_http_headers,
+        get_http_request,
+    )
+
+    from airbyte.mcp._telemetry import (  # noqa: PLC0415
+        _SESSION_ID_STATE_KEY,
+        request_properties,
+    )
+
+    attrs: dict[str, str] = {}
+    try:
+        properties = request_properties()
+        for field, key in (
+            ("application_name", "application_name"),
+            ("client_name", "mcp_client_name"),
+            ("client_version", "mcp_client_version"),
+            ("mcp_protocol_version", "mcp_protocol_version"),
+        ):
+            if value := _client_label(properties.get(key)):
+                attrs[f"airbyte.mcp.{field}"] = value
+        if properties.get("auth_method") in {"bearer", "client_credentials", "none"}:
+            attrs["airbyte.mcp.auth_method"] = str(properties["auth_method"])
+        session = properties.get("session_id")
+        if properties.get("transport") == "stdio" and isinstance(session, str):
+            try:
+                get_http_request()
+            except RuntimeError:
+                session = hashlib.sha256(session.encode()).hexdigest()
+            else:
+                session = None
+        if isinstance(session, str) and re.fullmatch(r"[0-9a-f]{64}", session):
+            attrs["airbyte.mcp.session_id"] = session
+    except Exception:
+        logger.debug("Request trace attributes unavailable")
+    try:
+        headers = get_http_headers(include={MCP_SESSION_ID_HEADER, "mcp-protocol-version"})
+        if "airbyte.mcp.session_id" not in attrs:
+            session = get_http_request().scope.get("state", {}).get(_SESSION_ID_STATE_KEY)
+            if isinstance(session, str) and re.fullmatch(r"[0-9a-f]{64}", session):
+                attrs["airbyte.mcp.session_id"] = session
+            elif raw_session := headers.get(MCP_SESSION_ID_HEADER):
+                attrs["airbyte.mcp.session_id"] = hashlib.sha256(
+                    raw_session.encode("latin-1")
+                ).hexdigest()
+        if "airbyte.mcp.mcp_protocol_version" not in attrs and (
+            protocol := _client_label(headers.get("mcp-protocol-version"))
+        ):
+            attrs["airbyte.mcp.mcp_protocol_version"] = protocol
+    except Exception:
+        logger.debug("Request header trace attributes unavailable")
+    if session := attrs.get("airbyte.mcp.session_id"):
+        attrs["gen_ai.conversation.id"] = session
+    return attrs
+
+
+def _exception_attributes(error: BaseException) -> dict[str, str]:
+    error_type = type(error.__cause__ or error).__name__
+    return {
+        "airbyte.mcp.outcome": "cancelled"
+        if isinstance(error, asyncio.CancelledError)
+        else "exception",
+        "airbyte.mcp.error_type": error_type,
+        "error.type": error_type,
+    }
+
+
+class _StripMetaTraceContextMiddleware:
+    async def __call__(
+        self,
+        ctx: ServerRequestContext[Any],
+        call_next: Callable[[ServerRequestContext[Any]], Awaitable[Any]],
+    ) -> Any:  # noqa: ANN401
+        params = getattr(ctx, "params", None)
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        if isinstance(meta, dict):
+            meta.pop("traceparent", None)
+            meta.pop("tracestate", None)
+        return await call_next(ctx)
+
+
+class IntentCaptureMiddleware(Middleware):
+    def __init__(self, app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
+        self._app, self._environ = app, environ
+        _install_meta_trace_context_middleware(app)
+
+    async def on_list_tools(
+        self,
+        context: MiddlewareContext[ListToolsRequest],
+        call_next: CallNext[ListToolsRequest, Sequence[Tool]],
+    ) -> Sequence[Tool]:
+        tools = await call_next(context)
+        if not _flag(self._environ, "AIRBYTE_MCP_INTENT_CAPTURE"):
+            return tools
+        try:
+            result = []
+            for tool in tools:
+                parameters = copy.deepcopy(tool.parameters)
+                parameters.setdefault("properties", {}).setdefault(
+                    INTENT_ARG, copy.deepcopy(_INTENT_SCHEMA)
+                )
+                result.append(tool.model_copy(update={"parameters": parameters}))
+        except Exception:
+            logger.debug("Intent schema advertisement skipped")
+            return tools
+        return result
+
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
+        attrs: dict[str, str | bool] = {}
+        try:
+            if context.fastmcp_context and context.fastmcp_context.request_context:
+                meta = context.fastmcp_context.request_context.meta
+                if meta:
+                    meta.pop("traceparent", None)
+                    meta.pop("tracestate", None)
+            args = dict(context.message.arguments or {})
+            intent = args.get(INTENT_ARG)
+            if INTENT_ARG in args or _LEGACY_TELEMETRY_ARG in args:
+                tool = await self._app.get_tool(context.message.name)
+                properties = tool.parameters.get("properties", {}) if tool is not None else {}
+                if _LEGACY_TELEMETRY_ARG not in properties:
+                    telemetry = args.pop(_LEGACY_TELEMETRY_ARG, None)
+                    if INTENT_ARG not in args and isinstance(telemetry, dict):
+                        intent = telemetry.get(INTENT_ARG)
+                if INTENT_ARG not in properties:
+                    args.pop(INTENT_ARG, None)
+                context = context.copy(
+                    message=context.message.model_copy(update={"arguments": args})
+                )
+            attrs = self._attributes(context, intent)
+        except Exception:
+            logger.debug("Intent attributes unavailable")
+        return await self._trace_call(context, call_next, attrs)
+
+    async def _trace_call(
+        self,
+        context: MiddlewareContext[CallToolRequestParams],
+        call_next: CallNext[CallToolRequestParams, ToolResult],
+        attrs: dict[str, str | bool],  # noqa: ARG002
+    ) -> ToolResult:
+        return await call_next(context)
+
+    @staticmethod
+    def _attributes(
+        context: MiddlewareContext[CallToolRequestParams],
+        intent: object,
+    ) -> dict[str, str | bool]:
+        from airbyte._util.meta import get_cloud_api_analytic_source  # noqa: PLC0415
+
+        name = context.message.name
+        intent = intent.strip() if isinstance(intent, str) else ""
+        if len(intent) > _MAX_INTENT_LENGTH:
+            marker = "...[truncated]"
+            intent = intent[: _MAX_INTENT_LENGTH - len(marker)] + marker
+        attrs: dict[str, str | bool] = {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": name,
+            "airbyte.mcp.intent_present": bool(intent),
+            "airbyte.mcp.analytic_source": get_cloud_api_analytic_source(),
+        }
+        attrs.update(_request_trace_attributes())
+        if intent:
+            attrs["airbyte.mcp.intent"] = intent
+        attrs.update(
+            {
+                f"airbyte.mcp.{key}": value
+                for key, value in agent_action_attributes(
+                    name, context.message.arguments or {}
+                ).items()
+            }
+        )
+        if name in _TOOL_MODULES:
+            hints = _TOOL_ANNOTATIONS.get(name, {})
+            attrs.update(
+                {
+                    "airbyte.mcp.tool_module": _TOOL_MODULES[name],
+                    "airbyte.mcp.tool_mutating": not hints.get("readOnlyHint", False),
+                    "airbyte.mcp.tool_destructive": bool(hints.get("destructiveHint", False)),
+                }
+            )
+        if context.fastmcp_context is not None:
+            attrs["gen_ai.tool.call.id"] = _call_id_digest(context.fastmcp_context.request_id)
+        scope = current_call_scope() or scope_from_request(context)
+        attrs.update(
+            {
+                attribute: value
+                for attribute, value in (
+                    ("airbyte.mcp.workspace_id", scope.workspace_id),
+                    ("airbyte.mcp.organization_id", scope.organization_id),
+                    ("airbyte.mcp.scope_source", scope.scope_source),
+                )
+                if value
+            }
+        )
+        return attrs
 
 
 def redact_tool_span(span: LLMObsSpan) -> LLMObsSpan:
@@ -133,6 +402,26 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
         except Exception:
             span = None
         try:
+            tool = (
+                await self._app.get_tool(context.message.name)
+                if span is not None and context.message.name in _TOOL_MODULES
+                else None
+            )
+            if tool is not None:
+                attrs.update(
+                    arg_trace_attributes(
+                        _ARG_TRACER,
+                        context.message.name,
+                        tool,
+                        context.message.arguments,
+                        session_digest=attrs.get("airbyte.mcp.session_id"),
+                        client_name=attrs.get("airbyte.mcp.client_name"),
+                        client_version=attrs.get("airbyte.mcp.client_version"),
+                    )
+                )
+        except Exception:
+            logger.debug("Datadog argument tracing unavailable")
+        try:
             return await call_next(context)
         except BaseException as exc:
             attrs.update(_exception_attributes(exc))
@@ -167,16 +456,34 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                 logger.debug("Datadog tool attributes unavailable")
 
 
-def _annotate_attributes(span: Span, attrs: Mapping[str, str | bool]) -> None:
-    """Keep native APM attributes and LLM metadata consistent."""
+def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
+    """Keep native APM attributes and LLM metadata consistent.
+
+    Argument records pass the OTel backend's export validation: ints become
+    metrics, and the validated records also reach LLM metadata.
+    """
     from ddtrace.llmobs import LLMObs  # noqa: PLC0415
 
+    attrs = dict(source)
+    arg_attrs = {key: attrs.pop(key) for key in list(attrs) if is_arg_key(_ARG_PREFIX, key)}
+    tool = attrs.get("gen_ai.tool.name")
+    accepted = (
+        _ARG_TRACER.revalidate(tool, arg_attrs)
+        if arg_attrs and isinstance(tool, str) and tool in _TOOL_MODULES
+        else {}
+    )
     span.set_tags({key: str(value) for key, value in attrs.items()})
-    metadata = {
+    for key, value in accepted.items():
+        if isinstance(value, int):
+            span.set_metric(key, value)
+        else:
+            span.set_tag(key, value)
+    metadata: dict[str, object] = {
         key.removeprefix("airbyte.mcp."): value
         for key, value in attrs.items()
         if key.startswith("airbyte.mcp.")
     }
+    metadata.update({key.removeprefix("airbyte.mcp."): value for key, value in accepted.items()})
     if "gen_ai.tool.call.id" in attrs:
         metadata["tool_id"] = attrs["gen_ai.tool.call.id"]
     LLMObs.annotate(span, metadata=metadata)
@@ -326,7 +633,11 @@ class _DatadogRequestMiddleware:
             span = start(name=name)
             # LLMObs retains its display name independently of these APM fields.
             span.name = f"mcp.{ctx.method}"
-            span.resource = "server_tool_call" if tool_call else "server_request"
+            if tool_call:
+                # Per-tool APM trace metrics group by resource; keep it bounded.
+                span.resource = name if name in _TOOL_MODULES else "unknown_tool"
+            else:
+                span.resource = "server_request"
             span.set_metric("_dd.measured", 1)
             _annotate_request(span, ctx)
         except Exception:

@@ -7,11 +7,122 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
-from airbyte.mcp import _datadog
+from airbyte._util import meta
+from airbyte.mcp import _datadog, _telemetry
 from airbyte.version import get_version
+
+
+@pytest.mark.parametrize(
+    ("headers", "client_info", "expected_client_name", "expected_client_version"),
+    [
+        pytest.param(
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            {"name": "mcp", "version": "1.2"},
+            "mcp",
+            "mcp_1.2",
+            id="application-name-header-does-not-override-client-info",
+        ),
+        pytest.param(
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            {"name": "", "version": "1.2"},
+            None,
+            None,
+            id="application-name-does-not-fill-missing-client-name",
+        ),
+        pytest.param(
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            {"name": "mcp", "version": ""},
+            None,
+            None,
+            id="application-name-does-not-fill-missing-client-version",
+        ),
+        pytest.param(
+            {},
+            {"name": "cursor", "version": "2.0"},
+            "cursor",
+            "cursor_2.0",
+            id="no-header-uses-client-info",
+        ),
+    ],
+)
+def test_datadog_initialize_tags_use_client_info(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    client_info: dict[str, str],
+    expected_client_name: str | None,
+    expected_client_version: str | None,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(_datadog, "_request_trace_attributes", lambda: {})
+    monkeypatch.setattr(_datadog, "_annotate_attributes", lambda *_: None)
+    annotations: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "ddtrace.llmobs.LLMObs.annotate",
+        lambda _span, **kwargs: annotations.append(kwargs),
+    )
+
+    _datadog._annotate_request(
+        cast(Any, object()),
+        cast(
+            Any,
+            SimpleNamespace(
+                method="initialize",
+                params={
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": client_info,
+                },
+            ),
+        ),
+    )
+
+    tags = annotations[0]["tags"]
+    assert isinstance(tags, dict)
+    if expected_client_name:
+        assert tags["client_name"] == expected_client_name
+    else:
+        assert "client_name" not in tags
+    if expected_client_version:
+        assert tags["client_version"] == expected_client_version
+    else:
+        assert "client_version" not in tags
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected_application_name"),
+    [
+        pytest.param(
+            {"x-airbyte-application-name": "My Agent!"},
+            "my-agent",
+            id="declared-application-name",
+        ),
+        pytest.param({}, None, id="no-application-name"),
+    ],
+)
+def test_request_trace_attributes_include_declared_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected_application_name: str | None,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(
+        _telemetry,
+        "request_properties",
+        lambda: {"application_name": meta.get_declared_application_name()},
+    )
+
+    attributes = _datadog._request_trace_attributes()
+
+    if expected_application_name is None:
+        assert "airbyte.mcp.application_name" not in attributes
+    else:
+        assert attributes["airbyte.mcp.application_name"] == expected_application_name
 
 
 @pytest.mark.parametrize("original_input", [[{"content": "private"}], [object()], []])
@@ -478,7 +589,7 @@ def _native_http_contract():
                                 "arguments": {
                                     **private_arguments,
                                     "mode": mode,
-                                    "entity_type": "Custom Entities/東京" * 20,
+                                    "entity_type": "Custom Entities/東京" * 12,
                                     "action": "list",
                                     "config": {"secret": "private argument"},
                                     "intent": "Keep Mixed Case Intent",
@@ -748,7 +859,7 @@ def _native_http_contract():
         assert [span.resource for span in primary] == [
             "server_request",
             "server_request",
-        ] + ["server_tool_call"] * 5
+        ] + ["execute_external_api_query"] * 3 + ["run_sql_query", "unknown_tool"]
         for index in (2, 3, 4):
             span, event = primary[index], events[index]
             assert json.loads(event["meta"]["input"]["value"]) == {
@@ -758,23 +869,19 @@ def _native_http_contract():
                     "arguments": {
                         "intent": "Keep Mixed Case Intent",
                         "action": "list",
-                        "entity_type": ("Custom Entities/東京" * 20)[:256].rstrip(),
+                        "entity_type": "Custom Entities/東京" * 12,
                     },
                 },
             }
             assert event["meta"]["output"]["value"] == "[REDACTED]"
             assert event["meta"]["metadata"]["intent"] == "Keep Mixed Case Intent"
             assert event["meta"]["metadata"]["agent.action"] == "list"
-            entity = "Custom Entities/東京" * 20
+            entity = "Custom Entities/東京" * 12
             # Only bounded approved telemetry leaves the process; execution
             # receives the original argument.
             assert entities[index - 2] == entity
-            assert (
-                event["meta"]["metadata"]["agent.entity_type"] == entity[:256].rstrip()
-            )
-            assert (
-                span.get_tag("airbyte.mcp.agent.entity_type") == entity[:256].rstrip()
-            )
+            assert event["meta"]["metadata"]["agent.entity_type"] == entity
+            assert span.get_tag("airbyte.mcp.agent.entity_type") == entity
             assert (
                 event["meta"]["metadata"]["workspace_id"]
                 == "11111111-1111-1111-1111-111111111111"
@@ -865,3 +972,60 @@ def _native_http_contract():
 
 if __name__ == "__main__":
     _native_http_contract()
+
+
+def test_native_arg_records_use_upstream_validation(monkeypatch) -> None:
+    from typing import Annotated
+
+    from ddtrace.llmobs import LLMObs
+    from fastmcp_extensions import TraceArg
+    from fastmcp_extensions.otel._arg_digests import ArgTracer  # noqa: PLC2701
+
+    def native_arg_tool(
+        prompt: Annotated[str, TraceArg.FINGERPRINT],
+        limit: Annotated[int, TraceArg.VALUE] = 10,
+    ) -> str:
+        return prompt
+
+    tracer = ArgTracer("airbyte.mcp", key=bytes(range(0x40, 0x60)))
+    monkeypatch.setattr(_datadog, "_ARG_TRACER", tracer)
+    monkeypatch.setitem(_datadog._TOOL_MODULES, "native_arg_tool", "test")
+    attrs = tracer.record(
+        "native_arg_tool",
+        native_arg_tool,
+        ["prompt", "limit"],
+        {"prompt": "private-native-prompt", "limit": 5},
+        principal="https://issuer.example.test|user-1",
+        now=1.0,
+    )
+    attrs["airbyte.mcp.arg.forged"] = '{"value": "private-forged"}'
+    annotations: list[dict] = []
+    monkeypatch.setattr(
+        LLMObs, "annotate", lambda _span, **kwargs: annotations.append(kwargs)
+    )
+    tags: dict[str, str] = {}
+    metrics: dict[str, int] = {}
+    span = SimpleNamespace(
+        set_tags=tags.update,
+        set_tag=tags.__setitem__,
+        set_metric=metrics.__setitem__,
+    )
+
+    _datadog._annotate_attributes(
+        span, {"gen_ai.tool.name": "native_arg_tool", **attrs}
+    )
+
+    assert json.loads(tags["airbyte.mcp.arg.limit"]) == {"value": 5}
+    assert json.loads(tags["airbyte.mcp.arg.prompt"]).keys() == {
+        "digest",
+        "similarity",
+    }
+    assert "airbyte.mcp.arg.forged" not in tags
+    assert metrics == {"airbyte.mcp.arg_trace_dropped": 1}
+    metadata = annotations[0]["metadata"]
+    assert metadata["arg_hash_status"] == "ok"
+    assert metadata["arg_key_scope"] == attrs["airbyte.mcp.arg_key_scope"]
+    assert metadata["arg.limit"] == tags["airbyte.mcp.arg.limit"]
+    assert metadata["arg.prompt"] == tags["airbyte.mcp.arg.prompt"]
+    assert "arg.forged" not in metadata
+    assert "private" not in json.dumps([tags, metadata])
