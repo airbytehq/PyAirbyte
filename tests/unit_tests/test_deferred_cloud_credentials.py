@@ -661,6 +661,8 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     assert result.settings_url.endswith("/settings")
     assert "check_cloud_connector" in result.guidance
     assert "`workspace_id`" in result.guidance
+    assert "409 actor-not-ready" in result.guidance
+    assert "creating a connection" in result.guidance
     (call,) = workspace_like.deploy_calls
     assert call["defer_credentials"] is True
     assert call["definition_id"] == DEFINITION_ID

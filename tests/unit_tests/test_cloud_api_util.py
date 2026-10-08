@@ -2353,6 +2353,15 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
         ),
         pytest.param(
             json.dumps({
+                "type": "https://reference.airbyte.com/reference/errors#409-actor-not-ready"
+            }),
+            True,
+            AirbyteConnectorNotReadyError,
+            "`check_cloud_connector`",
+            id="actor-not-ready-by-type",
+        ),
+        pytest.param(
+            json.dumps({
                 "title": "locked",
                 "type": "https://reference.airbyte.com/reference/errors#connection/locked",
             }),
