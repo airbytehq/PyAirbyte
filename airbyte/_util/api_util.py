@@ -29,12 +29,14 @@ from airbyte_api.errors import SDKError
 from airbyte._util.meta import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     get_cloud_api_analytic_source,
+    is_mcp_mode,
 )
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
+    AirbyteConnectorNotReadyError,
     AirbyteDeferredSetupError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -62,6 +64,22 @@ JWT_PART_COUNT = 3
 FORBIDDEN_RESOURCE_GUIDANCE = (
     "Airbyte Cloud returns 403 both for IDs that don't exist and for resources outside your "
     "access. Check the ID, and that it belongs to the workspace you passed."
+)
+ACTOR_NOT_READY_ERROR_MESSAGE = (
+    "The source or destination is still a draft: a person has not finished its setup in "
+    "Airbyte Cloud (HTTP 409 actor-not-ready)."
+)
+ACTOR_NOT_READY_MCP_GUIDANCE = (
+    "This is expected right after creating a connector with `defer_credentials=True`. "
+    "Don't retry yet. Ask the user to open the connector's settings page, complete "
+    "authentication and any missing settings, then test and save. After they confirm, call "
+    "`check_cloud_connector`; once it succeeds, retry this call."
+)
+ACTOR_NOT_READY_PYTHON_GUIDANCE = (
+    "This is expected right after creating a connector as a draft. Don't retry yet. "
+    "Ask the user to open the connector's settings page, complete authentication and any "
+    "missing settings, then test and save. After they confirm, run `connector.check()`; "
+    "once it succeeds, retry this call."
 )
 
 # Job ordering constants for list_jobs API
@@ -142,6 +160,24 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
     return context
 
 
+def _is_actor_not_ready_error(error: SDKError) -> bool:
+    """Check whether an SDKError contains Airbyte Cloud's actor-not-ready problem."""
+    if error.status_code != HTTPStatus.CONFLICT:
+        return False
+
+    try:
+        body = json.loads(error.body)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(body, dict):
+        return False
+
+    error_type = body.get("type")
+    return body.get("title") == "actor-not-ready" or (
+        isinstance(error_type, str) and error_type.endswith("409-actor-not-ready")
+    )
+
+
 def _wrap_sdk_error(
     error: SDKError, base_context: dict[str, Any] | None = None
 ) -> AirbyteCloudError:
@@ -152,6 +188,15 @@ def _wrap_sdk_error(
     """
     sdk_context = _get_sdk_error_context(error)
     merged_context = {**(base_context or {}), **sdk_context}
+    if _is_actor_not_ready_error(error):
+        return AirbyteConnectorNotReadyError(
+            message=ACTOR_NOT_READY_ERROR_MESSAGE,
+            guidance=(
+                ACTOR_NOT_READY_MCP_GUIDANCE if is_mcp_mode() else ACTOR_NOT_READY_PYTHON_GUIDANCE
+            ),
+            context=merged_context,
+        )
+
     status_code = sdk_context.get("status_code")
     is_forbidden = status_code == HTTPStatus.FORBIDDEN
     error_type = (

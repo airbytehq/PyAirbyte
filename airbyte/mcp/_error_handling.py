@@ -6,6 +6,7 @@ from __future__ import annotations
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteConnectorInUseError,
+    AirbyteConnectorNotReadyError,
     AirbyteExternalAccessDisabledError,
     AirbyteLibError,
     AirbyteLibInputError,
@@ -23,6 +24,7 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbytePipelineChangesDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,
+    AirbyteConnectorNotReadyError,
     AirbyteConnectorInUseError,
     AirbyteMissingResourceError,
 )

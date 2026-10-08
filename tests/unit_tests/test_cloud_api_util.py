@@ -22,6 +22,7 @@ from airbyte.cloud.models import (
 )
 from airbyte.exceptions import (
     AirbyteCloudError,
+    AirbyteConnectorNotReadyError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
     AirbyteLibInputError,
@@ -2331,6 +2332,77 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
         "The Airbyte API rejected the connection request (HTTP 400)."
     )
     assert exc_info.value.__cause__ is sdk_error
+
+
+@pytest.mark.parametrize(
+    ("body", "mcp_mode", "expected_error", "guidance_fragment"),
+    [
+        pytest.param(
+            json.dumps({"title": "actor-not-ready"}),
+            True,
+            AirbyteConnectorNotReadyError,
+            "`check_cloud_connector`",
+            id="actor-not-ready-mcp",
+        ),
+        pytest.param(
+            json.dumps({"title": "actor-not-ready"}),
+            False,
+            AirbyteConnectorNotReadyError,
+            "`connector.check()`",
+            id="actor-not-ready-python",
+        ),
+        pytest.param(
+            json.dumps({
+                "title": "locked",
+                "type": "https://reference.airbyte.com/reference/errors#connection/locked",
+            }),
+            False,
+            AirbyteCloudError,
+            None,
+            id="different-problem",
+        ),
+        pytest.param(
+            "<html>Conflict</html>",
+            False,
+            AirbyteCloudError,
+            None,
+            id="non-json-body",
+        ),
+    ],
+)
+def test_create_connection_409_actor_not_ready_error_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    mcp_mode: bool,
+    expected_error: type[AirbyteCloudError],
+    guidance_fragment: str | None,
+) -> None:
+    """Map only actor-not-ready conflicts to the actionable draft-connector error."""
+    monkeypatch.setattr(api_util, "is_mcp_mode", lambda: mcp_mode)
+    raw_response = requests.Response()
+    raw_response.status_code = 409
+    raw_response.url = "https://api.airbyte.com/v1/connections"
+    sdk_error = SDKError("API error occurred: Status 409", 409, body, raw_response)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(
+            create_connection=Mock(side_effect=sdk_error),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(expected_error) as exc_info:
+        _call_create_connection()
+
+    assert type(exc_info.value) is expected_error
+    assert exc_info.value.context is not None
+    assert exc_info.value.context["status_code"] == 409
+    assert exc_info.value.__cause__ is sdk_error
+    if guidance_fragment:
+        assert guidance_fragment in (exc_info.value.guidance or "")
 
 
 @pytest.mark.parametrize(
