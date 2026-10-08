@@ -49,11 +49,9 @@ CALLS: dict[str, dict[str, object]] = {
         "page_size": 10,
         "cursor": SENTINEL,
     },
-    "execute_external_search_query": {
+    "get_cloud_search_status": {
         "connector_id": CONNECTOR_ID,
-        "prompt": f"find {SENTINEL}",
-        "streams": [{"name": SENTINEL}],
-        "limit": 3,
+        "stream_name": f"find {SENTINEL}",
     },
     "list_cloud_connections": {"name_contains": SENTINEL, "limit": 5},
 }
@@ -170,11 +168,9 @@ def test_records_match_fixture_and_exclude_raw_values(
 def test_prompt_records_carry_similarity_and_sql_stays_equality_only(
     traced_app: FastMCP,
 ) -> None:
-    # As in #1303, `prompt` is fingerprinted while `sql` is equality-only.
+    # As in #1303, fingerprinted args carry similarity while `sql` is equality-only.
     attributes = _call_all(traced_app)
-    prompt = json.loads(
-        str(attributes["execute_external_search_query"][ARG + "prompt"])
-    )
+    prompt = json.loads(str(attributes["get_cloud_search_status"][ARG + "stream_name"]))
     sql = json.loads(str(attributes["execute_external_sql_query"][ARG + "sql"]))
     assert prompt.keys() == {"digest", "similarity"}
     assert sql.keys() == {"digest"}

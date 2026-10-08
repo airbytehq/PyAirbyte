@@ -1824,7 +1824,7 @@ def test_execute_external_search_query_forwards_args(
     connector = _RecordingExecuteConnector()
     workspace = _execute_workspace(monkeypatch, connector)
 
-    result = cloud_mcp.execute_external_search_query(
+    result = cloud_mcp._execute_external_search_query(
         None,
         connector_id="source-1",
         prompt="refund requests",
@@ -1838,7 +1838,7 @@ def test_execute_external_search_query_forwards_args(
         destination_id="destination-1",
         workspace_id=None,
     )
-    cloud_mcp.execute_external_search_query(
+    cloud_mcp._execute_external_search_query(
         None,
         connector_id="source-1",
         prompt="refund requests",
@@ -1885,7 +1885,7 @@ def test_execute_external_search_query_rejects_bad_streams(
     _execute_workspace(monkeypatch, connector)
 
     with pytest.raises(AirbyteLibInputError, match="`streams`"):
-        cloud_mcp.execute_external_search_query(
+        cloud_mcp._execute_external_search_query(
             None,
             connector_id="source-1",
             prompt="refund requests",
@@ -2037,7 +2037,7 @@ def test_search_tools_use_connector_type_without_probe(
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    cloud_mcp.execute_external_search_query(
+    cloud_mcp._execute_external_search_query(
         None,
         connector_id="connector-1",
         connector_type=connector_type,
@@ -2059,12 +2059,13 @@ def test_search_tools_use_connector_type_without_probe(
     assert [kind for kind, _ in connector.calls] == ["search", "search_status"]
 
 
-def test_search_tools_are_advertised() -> None:
-    """The search tools register like the other Cloud tools."""
+def test_execute_external_search_query_is_not_advertised() -> None:
+    """The search tool stays hidden until the search backend is enabled."""
     from airbyte.mcp import server
 
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
-    assert {"execute_external_search_query", "get_cloud_search_status"} <= names
+    assert "get_cloud_search_status" in names
+    assert "execute_external_search_query" not in names
 
 
 @pytest.mark.parametrize(

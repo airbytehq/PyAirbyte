@@ -78,20 +78,6 @@
     "skip_truncation": "value allowed=[false,true]",
     "workspace_id": "omit"
   },
-  "execute_external_search_query": {
-    "connector_id": "hash",
-    "connector_type": "value allowed=[\"destination\",\"source\"]",
-    "destination_id": "hash",
-    "limit": "value int",
-    "lookback_seconds": "hash",
-    "max_context_chars": "hash",
-    "max_similarity_diff": "hash",
-    "min_similarity": "hash",
-    "prompt": "fingerprint",
-    "search_type": "value allowed=[\"hybrid\",\"keyword\",\"semantic\"]",
-    "streams": "hash list",
-    "workspace_id": "omit"
-  },
   "execute_external_sql_query": {
     "connector_id": "hash",
     "cursor": "hash",
