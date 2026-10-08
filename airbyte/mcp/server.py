@@ -28,6 +28,8 @@ Supports two transport modes:
       trusted first-party app, pinned via the `azp` allowlist in
       `AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS`; with SSO configured, that verifier
       routes tokens to each realm's discovery-published JWKS.
+      `AIRBYTE_MCP_AUTH_USER_TOKEN_EXCHANGE=true` exchanges verified user tokens
+      for Cloud API tokens and requires SSO plus OIDC client credentials.
   When both are active they are combined via `MultiAuth`; when neither is
   configured `_create_auth` returns `None` and HTTP transport runs
   unauthenticated (a startup warning is logged in `http_main`).
@@ -120,6 +122,10 @@ from airbyte.mcp._user_identity import (
     AirbyteUserMiddleware,
     airbyte_user_properties,
     current_airbyte_user_id,
+)
+from airbyte.mcp._user_token_exchange import (
+    UserTokenExchangeClient,
+    UserTokenExchangeVerifier,
 )
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.guidance import (
@@ -250,12 +256,13 @@ JWT_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_ALGORITHM"
 # Optional second headless verifier for user-realm tokens forwarded by a
 # trusted first-party app (e.g. the Ops Webapp session token). Activated by
 # `USER_JWKS_URI_ENV`, which also requires `USER_ISSUER_ENV` (pinned issuer)
-# and `USER_TOKEN_CLIENT_IDS_ENV`; `aud` is not checked (Keycloak user-token
-# audiences vary by client) — the `azp` allowlist is the trust boundary.
+# and `USER_TOKEN_CLIENT_IDS_ENV`; `aud` is not checked unless token exchange is
+# enabled, because Keycloak user-token audiences vary by client.
 USER_JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_USER_JWKS_URI"
 USER_ISSUER_ENV = "AIRBYTE_MCP_AUTH_USER_ISSUER"
 USER_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_USER_ALGORITHM"
 USER_TOKEN_CLIENT_IDS_ENV = "AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS"
+USER_TOKEN_EXCHANGE_ENV = "AIRBYTE_MCP_AUTH_USER_TOKEN_EXCHANGE"
 
 # Names a durable-storage factory (`"package.module:callable"`) for the
 # interactive `OIDCProxy`'s OAuth state. The concrete backend (and its infra
@@ -376,6 +383,9 @@ def _create_user_token_auth(
     *,
     base_url: str,
     sso_config: SsoRealmConfig | None,
+    token_exchange_enabled: bool,
+    oidc_client_id: str,
+    oidc_client_secret: str,
 ) -> tuple[JWTAuthConfig | None, TokenVerifier | None]:
     """Build the forwarded-user verifier, routing across realms when SSO is enabled."""
     user_jwks_uri = os.getenv(USER_JWKS_URI_ENV, "").strip()
@@ -415,23 +425,50 @@ def _create_user_token_auth(
             None,
         )
 
-    default_verifier = ClientAllowlistJWTVerifier(
+    exchange_client = (
+        UserTokenExchangeClient(
+            client_id=oidc_client_id,
+            client_secret=oidc_client_secret,
+            scopes=AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES,
+            default_issuer=user_issuer,
+        )
+        if token_exchange_enabled
+        else None
+    )
+    default_jwt_verifier = ClientAllowlistJWTVerifier(
         allowed_client_ids=client_ids,
         jwks_uri=user_jwks_uri,
         issuer=user_issuer,
         algorithm=user_algorithm,
+        audience=oidc_client_id if token_exchange_enabled else None,
         base_url=base_url,
+    )
+    default_verifier: TokenVerifier = (
+        UserTokenExchangeVerifier(
+            default_jwt_verifier,
+            exchange_client=exchange_client,
+        )
+        if exchange_client is not None
+        else default_jwt_verifier
     )
     registry = SsoRealmRegistry(sso_config)
 
     def _realm_verifier(endpoints: RealmEndpoints) -> TokenVerifier:
-        return ClientAllowlistJWTVerifier(
+        verifier = ClientAllowlistJWTVerifier(
             allowed_client_ids=client_ids,
             jwks_uri=endpoints.jwks_uri,
             issuer=endpoints.issuer,
             algorithm=user_algorithm,
+            audience=oidc_client_id if token_exchange_enabled else None,
             base_url=base_url,
         )
+        if exchange_client is not None:
+            return UserTokenExchangeVerifier(
+                verifier,
+                exchange_client=exchange_client,
+                token_endpoint=endpoints.token_endpoint,
+            )
+        return verifier
 
     return (
         None,
@@ -460,7 +497,9 @@ def _create_auth() -> AuthProvider | None:
     (an `OIDCProxy` subclass supplied through `OIDCAuthConfig.proxy_factory`)
     when `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set. Returns `None` when
     neither path is configured, so the server falls back to unauthenticated
-    local behavior. The `stdio` transport ignores the provider entirely.
+    local behavior. `AIRBYTE_MCP_AUTH_USER_TOKEN_EXCHANGE=true` additionally
+    exchanges verified user tokens and requires SSO plus OIDC client credentials.
+    The `stdio` transport ignores the provider entirely.
 
     This server declares only the env var *names*; the concrete values (e.g. a
     deployment's realm endpoints, issuer, audience, and discovery URL) are
@@ -486,6 +525,16 @@ def _create_auth() -> AuthProvider | None:
 
     oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "").strip()
     oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "").strip()
+    token_exchange_enabled = os.getenv(USER_TOKEN_EXCHANGE_ENV, "").strip().casefold() in {
+        "1",
+        "true",
+    }
+    if token_exchange_enabled and not (oidc_client_id and oidc_client_secret):
+        msg = (
+            f"{USER_TOKEN_EXCHANGE_ENV} requires both {OIDC_CLIENT_ID_ENV} and "
+            f"{OIDC_CLIENT_SECRET_ENV}."
+        )
+        raise ValueError(msg)
     if bool(oidc_client_id) != bool(oidc_client_secret):
         present, missing = (
             (OIDC_CLIENT_ID_ENV, OIDC_CLIENT_SECRET_ENV)
@@ -500,10 +549,16 @@ def _create_auth() -> AuthProvider | None:
     sso_config = _resolve_sso_config(
         interactive_oidc_configured=bool(oidc_client_id and oidc_client_secret)
     )
+    if token_exchange_enabled and sso_config is None:
+        msg = f"{USER_TOKEN_EXCHANGE_ENV} requires " f"{SSO_OIDC_CONFIG_URL_TEMPLATE_ENV}."
+        raise ValueError(msg)
 
     user_jwt_config, user_token_verifier = _create_user_token_auth(
         base_url=base_url,
         sso_config=sso_config,
+        token_exchange_enabled=token_exchange_enabled,
+        oidc_client_id=oidc_client_id,
+        oidc_client_secret=oidc_client_secret,
     )
     if user_jwt_config is not None:
         jwt_configs.append(user_jwt_config)
