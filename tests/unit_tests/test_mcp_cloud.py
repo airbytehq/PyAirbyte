@@ -45,6 +45,9 @@ from airbyte.mcp.cloud import (
     CloudConnectorResult,
     SyncJobResult,
 )
+from airbyte.mcp.cloud import (
+    _execute_external_search_query as execute_external_search_query,
+)
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectorInUseError,
@@ -1824,7 +1827,7 @@ def test_execute_external_search_query_forwards_args(
     connector = _RecordingExecuteConnector()
     workspace = _execute_workspace(monkeypatch, connector)
 
-    result = cloud_mcp._execute_external_search_query(
+    result = execute_external_search_query(
         None,
         connector_id="source-1",
         prompt="refund requests",
@@ -1838,7 +1841,7 @@ def test_execute_external_search_query_forwards_args(
         destination_id="destination-1",
         workspace_id=None,
     )
-    cloud_mcp._execute_external_search_query(
+    execute_external_search_query(
         None,
         connector_id="source-1",
         prompt="refund requests",
@@ -1885,7 +1888,7 @@ def test_execute_external_search_query_rejects_bad_streams(
     _execute_workspace(monkeypatch, connector)
 
     with pytest.raises(AirbyteLibInputError, match="`streams`"):
-        cloud_mcp._execute_external_search_query(
+        execute_external_search_query(
             None,
             connector_id="source-1",
             prompt="refund requests",
@@ -2037,7 +2040,7 @@ def test_search_tools_use_connector_type_without_probe(
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    cloud_mcp._execute_external_search_query(
+    execute_external_search_query(
         None,
         connector_id="connector-1",
         connector_type=connector_type,
