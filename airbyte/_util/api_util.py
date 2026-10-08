@@ -171,6 +171,19 @@ def _wrap_sdk_error(
     )
 
 
+def _get_sdk_error_detail(error: SDKError) -> str | None:
+    """Return the human-readable message from an Airbyte API error body, if present."""
+    try:
+        body = json.loads(error.body)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    data = body.get("data")
+    candidates = (data.get("message") if isinstance(data, dict) else None, body.get("detail"))
+    return next((c for c in candidates if isinstance(c, str) and c), None)
+
+
 def _infer_config_api_root(api_root: str) -> str | None:
     """Infer the configuration API root from a public API root."""
     normalized_api_root = api_root.rstrip("/")
@@ -1923,21 +1936,9 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
             "selected_stream_names": selected_stream_names,
         }
         if e.status_code == HTTPStatus.BAD_REQUEST:
-            message = "The Airbyte API rejected the connection request (HTTP 400)."
-            try:
-                body = json.loads(e.body) if e.body else None
-            except (json.JSONDecodeError, TypeError):
-                body = None
-            if isinstance(body, dict):
-                data = body.get("data")
-                detail = data.get("message") if isinstance(data, dict) else None
-                if not (isinstance(detail, str) and detail):
-                    top_detail = body.get("detail")
-                    detail = top_detail if isinstance(top_detail, str) and top_detail else None
-                if detail:
-                    message = detail
             raise AirbyteLibInputError(
-                message=message,
+                message=_get_sdk_error_detail(e)
+                or "The Airbyte API rejected the connection request (HTTP 400).",
                 guidance=(
                     "Check that every name in `selected_streams` is a stream of the "
                     "source, and that `source_id` and `destination_id` are correct."
