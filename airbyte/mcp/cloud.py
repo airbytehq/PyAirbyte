@@ -106,6 +106,9 @@ if TYPE_CHECKING:
     from airbyte.cloud.sync_results import SyncResult
 
 
+SEARCH_TOOLS_DISABLED = True
+"""Hide `execute_external_search_query` until the search backend is enabled."""
+
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
@@ -1829,10 +1832,15 @@ def execute_external_sql_query(
     )
 
 
-# Not yet registered as an MCP tool: the search backend is not enabled yet.
-# Restore the `@mcp_tool(read_only=True, idempotent=True, open_world=True,
-# external_access=True, tracing=...)` decorator and revert the `_` prefix when it is live.
-def _execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    external_access=True,
+    tracing=lambda args: agent_action_attributes("execute_external_search_query", args),
+    force_disabled=SEARCH_TOOLS_DISABLED,
+)
+def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
     *,
     connector_id: Annotated[

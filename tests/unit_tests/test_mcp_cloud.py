@@ -45,9 +45,6 @@ from airbyte.mcp.cloud import (
     CloudConnectorResult,
     SyncJobResult,
 )
-from airbyte.mcp.cloud import (
-    _execute_external_search_query as execute_external_search_query,
-)
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectorInUseError,
@@ -1827,7 +1824,7 @@ def test_execute_external_search_query_forwards_args(
     connector = _RecordingExecuteConnector()
     workspace = _execute_workspace(monkeypatch, connector)
 
-    result = execute_external_search_query(
+    result = cloud_mcp.execute_external_search_query(
         None,
         connector_id="source-1",
         prompt="refund requests",
@@ -1841,7 +1838,7 @@ def test_execute_external_search_query_forwards_args(
         destination_id="destination-1",
         workspace_id=None,
     )
-    execute_external_search_query(
+    cloud_mcp.execute_external_search_query(
         None,
         connector_id="source-1",
         prompt="refund requests",
@@ -1888,7 +1885,7 @@ def test_execute_external_search_query_rejects_bad_streams(
     _execute_workspace(monkeypatch, connector)
 
     with pytest.raises(AirbyteLibInputError, match="`streams`"):
-        execute_external_search_query(
+        cloud_mcp.execute_external_search_query(
             None,
             connector_id="source-1",
             prompt="refund requests",
@@ -2040,7 +2037,7 @@ def test_search_tools_use_connector_type_without_probe(
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace)
 
-    execute_external_search_query(
+    cloud_mcp.execute_external_search_query(
         None,
         connector_id="connector-1",
         connector_type=connector_type,
@@ -2062,13 +2059,15 @@ def test_search_tools_use_connector_type_without_probe(
     assert [kind for kind, _ in connector.calls] == ["search", "search_status"]
 
 
-def test_execute_external_search_query_is_not_advertised() -> None:
-    """The search tool stays hidden until the search backend is enabled."""
+def test_search_tools_are_advertised() -> None:
+    """The search tools register unless `SEARCH_TOOLS_DISABLED` hides the query tool."""
     from airbyte.mcp import server
 
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
     assert "get_cloud_search_status" in names
-    assert "execute_external_search_query" not in names
+    assert (
+        "execute_external_search_query" in names
+    ) is not cloud_mcp.SEARCH_TOOLS_DISABLED
 
 
 @pytest.mark.parametrize(
