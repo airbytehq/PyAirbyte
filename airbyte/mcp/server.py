@@ -26,15 +26,16 @@ Supports two transport modes:
       stored/rotating refresh token). Setting `AIRBYTE_MCP_AUTH_USER_JWKS_URI`
       adds a second headless verifier for user-realm tokens forwarded by a
       trusted first-party app, pinned via the `azp` allowlist in
-      `AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS`.
+      `AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS`; with SSO configured, that verifier
+      routes tokens to each realm's discovery-published JWKS.
   When both are active they are combined via `MultiAuth`; when neither is
   configured `_create_auth` returns `None` and HTTP transport runs
   unauthenticated (a startup warning is logged in `http_main`).
 
 This module declares only the env var *names* and maps their values into the
-typed `OIDCAuthConfig` / `JWTAuthConfig` objects that `build_mcp_auth` consumes,
-so the extensions library stays provider-neutral and reads no env itself. It
-embeds no provider-specific configuration *values* (a realm's discovery URL,
+typed `OIDCAuthConfig` / `JWTAuthConfig` objects and custom token verifiers that
+`build_mcp_auth` consumes, so the extensions library stays provider-neutral and
+reads no env itself. It embeds no provider-specific configuration *values* (a realm's discovery URL,
 issuer, JWKS URI, audience, algorithm, etc.); those are supplied at deploy time
 by the deployment's own repo — e.g. the hosted Cloud MCP image in
 `airbyte-ops-mcp` sets the `AIRBYTE_MCP_*` env for the Airbyte Cloud realm.
@@ -65,6 +66,7 @@ from fastmcp_extensions import (
     build_mcp_auth,
     mcp_server,
 )
+from fastmcp_extensions.auth import ClientAllowlistJWTVerifier
 from starlette.responses import JSONResponse
 
 
@@ -72,7 +74,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from fastmcp import FastMCP
-    from fastmcp.server.auth import AuthProvider
+    from fastmcp.server.auth import AuthProvider, TokenVerifier
     from key_value.aio.protocols.key_value import AsyncKeyValue
     from starlette.requests import Request
 
@@ -86,7 +88,13 @@ from airbyte.mcp._error_handling import (
 )
 from airbyte.mcp._policy_middleware import PolicyGuardMiddleware
 from airbyte.mcp._scope import CallScopeMiddleware, call_scope_properties
-from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
+from airbyte.mcp._sso_auth import (
+    MultiRealmTokenVerifier,
+    RealmEndpoints,
+    SsoRealmConfig,
+    SsoRealmRegistry,
+    make_sso_proxy_factory,
+)
 from airbyte.mcp._telemetry import ServerConnectedTelemetryMiddleware, request_properties
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
@@ -364,6 +372,78 @@ def _resolve_sso_config(*, interactive_oidc_configured: bool) -> SsoRealmConfig 
         raise ValueError(msg) from exc
 
 
+def _create_user_token_auth(
+    *,
+    base_url: str,
+    sso_config: SsoRealmConfig | None,
+) -> tuple[JWTAuthConfig | None, TokenVerifier | None]:
+    """Build the forwarded-user verifier, routing across realms when SSO is enabled."""
+    user_jwks_uri = os.getenv(USER_JWKS_URI_ENV, "").strip()
+    if not user_jwks_uri:
+        return None, None
+
+    client_ids = frozenset(
+        entry.strip()
+        for entry in os.getenv(USER_TOKEN_CLIENT_IDS_ENV, "").split(",")
+        if entry.strip()
+    )
+    if not client_ids:
+        msg = (
+            f"{USER_JWKS_URI_ENV} is set but {USER_TOKEN_CLIENT_IDS_ENV} is "
+            "empty; the user-realm verifier needs a non-empty "
+            "comma-separated azp allowlist."
+        )
+        raise ValueError(msg)
+    user_issuer = os.getenv(USER_ISSUER_ENV, "").strip()
+    if not user_issuer:
+        msg = (
+            f"{USER_JWKS_URI_ENV} is set but {USER_ISSUER_ENV} is empty; "
+            "the user-realm verifier must pin the token issuer."
+        )
+        raise ValueError(msg)
+
+    user_algorithm = os.getenv(USER_ALGORITHM_ENV, "").strip() or None
+    if sso_config is None:
+        return (
+            JWTAuthConfig(
+                jwks_uri=user_jwks_uri,
+                issuer=user_issuer,
+                algorithm=user_algorithm,
+                base_url=base_url,
+                allowed_client_ids=client_ids,
+            ),
+            None,
+        )
+
+    default_verifier = ClientAllowlistJWTVerifier(
+        allowed_client_ids=client_ids,
+        jwks_uri=user_jwks_uri,
+        issuer=user_issuer,
+        algorithm=user_algorithm,
+        base_url=base_url,
+    )
+    registry = SsoRealmRegistry(sso_config)
+
+    def _realm_verifier(endpoints: RealmEndpoints) -> TokenVerifier:
+        return ClientAllowlistJWTVerifier(
+            allowed_client_ids=client_ids,
+            jwks_uri=endpoints.jwks_uri,
+            issuer=endpoints.issuer,
+            algorithm=user_algorithm,
+            base_url=base_url,
+        )
+
+    return (
+        None,
+        MultiRealmTokenVerifier(
+            default_verifier=default_verifier,
+            default_issuer=user_issuer,
+            registry=registry,
+            verifier_factory=_realm_verifier,
+        ),
+    )
+
+
 def _create_auth() -> AuthProvider | None:
     """Assemble the transport auth provider from this server's env configuration.
 
@@ -373,12 +453,12 @@ def _create_auth() -> AuthProvider | None:
     `JWTVerifier` and/or an interactive `OIDCProxy`, combined via `MultiAuth`.
     The headless verifier activates once a signing-key source
     (`AIRBYTE_MCP_AUTH_JWKS_URI` or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is
-    configured; setting `AIRBYTE_MCP_AUTH_USER_JWKS_URI` adds a second,
-    `azp`-allowlisted headless verifier for user-realm tokens forwarded by a
-    trusted first-party app; the interactive path activates once the OIDC
+    configured; `AIRBYTE_MCP_AUTH_USER_JWKS_URI` adds an `azp`-allowlisted
+    verifier for forwarded user tokens, routed by issuer to discovery-published
+    JWKS when SSO is configured. The interactive path activates once the OIDC
     client credentials are supplied, and gains the SSO identifier-entry page
     (an `OIDCProxy` subclass supplied through `OIDCAuthConfig.proxy_factory`)
-    once `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set too. Returns `None` when
+    when `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set. Returns `None` when
     neither path is configured, so the server falls back to unauthenticated
     local behavior. The `stdio` transport ignores the provider entirely.
 
@@ -404,38 +484,6 @@ def _create_auth() -> AuthProvider | None:
             )
         )
 
-    user_jwks_uri = os.getenv(USER_JWKS_URI_ENV, "").strip()
-    if user_jwks_uri:
-        client_ids = frozenset(
-            entry.strip()
-            for entry in os.getenv(USER_TOKEN_CLIENT_IDS_ENV, "").split(",")
-            if entry.strip()
-        )
-        if not client_ids:
-            msg = (
-                f"{USER_JWKS_URI_ENV} is set but {USER_TOKEN_CLIENT_IDS_ENV} is "
-                "empty; the user-realm verifier needs a non-empty "
-                "comma-separated azp allowlist."
-            )
-            raise ValueError(msg)
-        user_issuer = os.getenv(USER_ISSUER_ENV, "").strip()
-        if not user_issuer:
-            msg = (
-                f"{USER_JWKS_URI_ENV} is set but {USER_ISSUER_ENV} is empty; "
-                "the user-realm verifier must pin the token issuer."
-            )
-            raise ValueError(msg)
-        jwt_configs.append(
-            JWTAuthConfig(
-                jwks_uri=user_jwks_uri,
-                issuer=user_issuer,
-                algorithm=os.getenv(USER_ALGORITHM_ENV, "").strip() or None,
-                base_url=base_url,
-                allowed_client_ids=client_ids,
-            )
-        )
-
-    oidc: OIDCAuthConfig | None = None
     oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "").strip()
     oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "").strip()
     if bool(oidc_client_id) != bool(oidc_client_secret):
@@ -452,6 +500,15 @@ def _create_auth() -> AuthProvider | None:
     sso_config = _resolve_sso_config(
         interactive_oidc_configured=bool(oidc_client_id and oidc_client_secret)
     )
+
+    user_jwt_config, user_token_verifier = _create_user_token_auth(
+        base_url=base_url,
+        sso_config=sso_config,
+    )
+    if user_jwt_config is not None:
+        jwt_configs.append(user_jwt_config)
+
+    oidc: OIDCAuthConfig | None = None
     if oidc_client_id and oidc_client_secret:
         config_url = os.getenv(OIDC_CONFIG_URL_ENV, "").strip()
         if not config_url:
@@ -479,7 +536,12 @@ def _create_auth() -> AuthProvider | None:
             proxy_factory=make_sso_proxy_factory(sso_config) if sso_config else None,
         )
 
-    return build_mcp_auth(oidc=oidc, jwt=jwt_configs or None, base_url=base_url)
+    return build_mcp_auth(
+        oidc=oidc,
+        jwt=jwt_configs or None,
+        token_verifiers=([user_token_verifier] if user_token_verifier is not None else None),
+        base_url=base_url,
+    )
 
 
 SEGMENT_USER_ID = "airbyte-mcp"

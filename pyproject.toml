@@ -58,6 +58,10 @@ dependencies = [
     "opentelemetry-instrumentation-requests==0.60b1",
 ]
 
+[tool.uv.sources]
+# TK-TODO: replace with released fastmcp-extensions floor
+fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions", rev = "fa62c9551f2459e9aaf20b7a50114ff9777f7322" }
+
 [project.optional-dependencies]
 datadog = ["ddtrace>=4.15.2,<5.0"]
 

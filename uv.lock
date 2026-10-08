@@ -213,7 +213,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=4.0.9,<5.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.34.0,<1.0.0" },
+    { name = "fastmcp-extensions", git = "https://github.com/airbytehq/fastmcp-extensions?rev=fa62c9551f2459e9aaf20b7a50114ff9777f7322" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1198,8 +1198,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.34.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.34.0.post1.dev0+fa62c95"
+source = { git = "https://github.com/airbytehq/fastmcp-extensions?rev=fa62c9551f2459e9aaf20b7a50114ff9777f7322#fa62c9551f2459e9aaf20b7a50114ff9777f7322" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
@@ -1212,10 +1212,6 @@ dependencies = [
     { name = "sentry-sdk" },
     { name = "starlette" },
     { name = "uvicorn" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/05/ee/4271c98fcd6659bc3831b9a4d2c7629bca7b8279ecdb3c544417ef6bcbb8/fastmcp_extensions-0.34.0.tar.gz", hash = "sha256:37246e902e5eef30d514cbe95d8a1e98e066b0e5146efe5025656c46282d5b61", size = 353341, upload-time = "2026-10-06T23:16:03.497Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ad/df/fc52f76c9ba8340c3b2f7548c46da081d03be300dc60cbd5328ce71f26e5/fastmcp_extensions-0.34.0-py3-none-any.whl", hash = "sha256:cdf1b3aafe4a3342a2073c8e7101b3949e76fa052d5996ad70e2d49f50f64562", size = 157650, upload-time = "2026-10-06T23:16:01.745Z" },
 ]
 
 [[package]]
