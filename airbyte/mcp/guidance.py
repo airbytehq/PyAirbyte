@@ -59,6 +59,7 @@ _KAPA_TIMEOUT_SECONDS = 30.0
 
 KNOWLEDGE_SEARCH_CAPABILITY = "io.airbyte/knowledge-search"
 GITHUB_ISSUES_REPO = "airbytehq/PyAirbyte"
+MAX_GITHUB_ISSUE_URL_LENGTH = 8000
 
 
 class GitHubIssueCategory(StrEnum):
@@ -378,7 +379,7 @@ def get_github_issue_creation_link(
     customer data. Draft the description in Markdown with what happened, what was expected, and
     the tool calls involved.
     """
-    return f"https://github.com/{GITHUB_ISSUES_REPO}/issues/new?" + urlencode(
+    url = f"https://github.com/{GITHUB_ISSUES_REPO}/issues/new?" + urlencode(
         {
             "template": f"{category.value}.yml",
             "title": title,
@@ -386,6 +387,18 @@ def get_github_issue_creation_link(
         },
         quote_via=cast(Any, quote),
     )
+    if len(url) > MAX_GITHUB_ISSUE_URL_LENGTH:
+        raise exc.AirbyteLibInputError(
+            message=(
+                "The issue link is too long after URL encoding. "
+                "Shorten the title or description and try again."
+            ),
+            context={
+                "url_length": len(url),
+                "max_url_length": MAX_GITHUB_ISSUE_URL_LENGTH,
+            },
+        )
+    return url
 
 
 def register_guidance_tools(app: FastMCP) -> None:

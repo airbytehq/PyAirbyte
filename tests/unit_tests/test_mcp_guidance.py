@@ -17,6 +17,7 @@ from airbyte.constants import (
     MCP_DOMAINS_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp import guidance
 
 
@@ -88,6 +89,32 @@ def test_get_github_issue_creation_link(
 
 def test_get_github_issue_creation_link_is_listed_by_app() -> None:
     assert "get_github_issue_creation_link" in _list_tool_names(_airbyte_mcp_app())
+
+
+def test_get_github_issue_creation_link_rejects_oversized_encoded_description() -> None:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        guidance.get_github_issue_creation_link(
+            guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+            "Issue",
+            "😀" * 4000,
+        )
+
+    assert exc_info.value.context["url_length"] > guidance.MAX_GITHUB_ISSUE_URL_LENGTH
+    assert (
+        exc_info.value.context["max_url_length"] == guidance.MAX_GITHUB_ISSUE_URL_LENGTH
+    )
+
+
+def test_get_github_issue_creation_link_accepts_ascii_description_at_field_limit() -> (
+    None
+):
+    url = guidance.get_github_issue_creation_link(
+        guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+        "Issue",
+        "a" * 4000,
+    )
+
+    assert len(url) <= guidance.MAX_GITHUB_ISSUE_URL_LENGTH
 
 
 @pytest.mark.parametrize(
