@@ -10,6 +10,8 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from airbyte.exceptions import (
+    AirbyteConnectionSyncError,
+    AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
     AirbyteMissingResourceError,
     AirbyteLibError,
@@ -17,6 +19,7 @@ from airbyte.exceptions import (
 )
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
+    classify_mcp_tool_error,
     format_user_facing_error,
 )
 from fastmcp_extensions import mcp_server
@@ -106,3 +109,33 @@ def test_format_user_facing_error() -> None:
     )
     assert format_user_facing_error(AirbyteLibInputError(message="bad")) == "bad"
     assert format_user_facing_error(ValueError("plain")) == "plain"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            AirbyteConnectionSyncError(
+                connection_id="c", job_id=1, job_status="failed"
+            ),
+            "upstream_error",
+            id="failed-job",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncTimeoutError(
+                connection_id="c", job_id=1, job_status="running", timeout=5
+            ),
+            "upstream_timeout",
+            id="timed-out-job",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncError(connection_id="c"),
+            None,
+            id="api-error-keeps-status-category",
+        ),
+        pytest.param(AirbyteLibInputError(message="bad input"), None, id="other-error"),
+        pytest.param(ValueError("unexpected"), None, id="non-airbyte-error"),
+    ],
+)
+def test_classify_mcp_tool_error(error: BaseException, expected: str | None) -> None:
+    assert classify_mcp_tool_error(error) == expected
