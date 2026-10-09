@@ -66,6 +66,8 @@ def classify_mcp_tool_error(error: BaseException) -> str | None:
 _PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
 # The last path segment of the generic problem `type` URL; `title` is the slug then.
 _GENERIC_PROBLEM_SLUG = "errors"
+# A slug names a kind of problem; one that is or holds an ID names a resource.
+_ID_LIKE = re.compile(r"\d+|.*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*")
 _MAX_PROBLEM_BODY = 65536
 
 
@@ -92,6 +94,10 @@ def mcp_tool_error_reason(error: BaseException) -> str | None:
         if not isinstance(value, str):
             continue
         slug = re.split(r"[/#]", value)[-1]
-        if slug != _GENERIC_PROBLEM_SLUG and _PROBLEM_SLUG.fullmatch(slug):
+        if (
+            slug != _GENERIC_PROBLEM_SLUG
+            and _PROBLEM_SLUG.fullmatch(slug)
+            and not _ID_LIKE.fullmatch(slug)
+        ):
             return slug
     return None

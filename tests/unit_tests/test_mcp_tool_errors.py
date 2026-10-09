@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
@@ -21,6 +23,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     classify_mcp_tool_error,
     format_user_facing_error,
+    mcp_tool_error_reason,
 )
 from fastmcp_extensions import mcp_server
 
@@ -139,3 +142,32 @@ def test_format_user_facing_error() -> None:
 )
 def test_classify_mcp_tool_error(error: BaseException, expected: str | None) -> None:
     assert classify_mcp_tool_error(error) == expected
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected"),
+    [
+        (
+            {"type": "https://h/errors", "title": "unexpected-problem"},
+            "unexpected-problem",
+        ),
+        # A slug that is, or holds, an ID names a resource and is never exported.
+        ({"type": "https://h/errors", "title": "1234567"}, None),
+        (
+            {"type": "https://h/v1/workspaces/97953b90-8f3a-4c1e-9d2b-0a1b2c3d4e5f"},
+            None,
+        ),
+        (
+            {
+                "type": "https://h/errors",
+                "title": "ws-97953b90-8f3a-4c1e-9d2b-0a1b2c3d4e5f",
+            },
+            None,
+        ),
+    ],
+)
+def test_mcp_tool_error_reason_is_never_an_id(
+    problem: dict[str, str], expected: str | None
+) -> None:
+    error = AirbyteCloudApiError(context={"response_text": json.dumps(problem)})
+    assert mcp_tool_error_reason(error) == expected
