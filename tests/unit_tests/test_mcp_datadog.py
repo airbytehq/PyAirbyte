@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 import requests
 from airbyte_api.errors import SDKError
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
 
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
@@ -364,6 +364,27 @@ def test_exception_attributes_classify_without_error_text(
         **expected,
     }
     assert "SENTINEL" not in json.dumps(attrs)
+
+
+def test_fastmcp_rejections_are_classified_like_the_otel_backend() -> None:
+    # FastMCP chains its own `ValidationError` from pydantic's; only a
+    # `ToolError` wrapper is removed, so the FastMCP class is what is classified.
+    invalid = ValidationError("SENTINEL")
+    invalid.__cause__ = ValueError("SENTINEL")
+    attrs = _datadog._exception_attributes(invalid)
+    assert (attrs["airbyte.mcp.outcome"], attrs["airbyte.mcp.error.category"]) == (
+        "exception",
+        "invalid_arguments",
+    )
+
+    attrs = _datadog._exception_attributes(NotFoundError("SENTINEL"))
+    assert attrs == {
+        "airbyte.mcp.outcome": "unknown_tool",
+        "airbyte.mcp.error_type": "NotFoundError",
+        "error.type": "NotFoundError",
+        "airbyte.mcp.error.category": "unknown_tool",
+        "airbyte.mcp.error.fault": "caller",
+    }
 
 
 def test_returned_tool_error_is_classified_as_tool_error() -> None:
