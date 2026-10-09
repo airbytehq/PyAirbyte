@@ -533,6 +533,15 @@ def _native_http_contract():
         return "private synthetic result"
 
     @app.tool()
+    def fail_tool(upstream: bool = False) -> str:
+        if not upstream:
+            raise KeyError(private_payload)
+        response = SimpleNamespace(status_code=500)
+        raise RuntimeError(private_payload) from requests.HTTPError(
+            private_payload, response=response
+        )
+
+    @app.tool()
     async def handle_error() -> str:
         from fastmcp.exceptions import ToolError
 
@@ -686,6 +695,57 @@ def _native_http_contract():
                     == "33333333-3333-3333-3333-333333333333"
                 )
                 assert metadata["outcome"] == "success"
+
+                # A failed call carries the library's error facts, the same ones
+                # as its telemetry event, and no exception message.
+                for arguments, expected, status in (
+                    (
+                        {"upstream": True, "intent": "Fail upstream"},
+                        {
+                            "error.category": "upstream_error",
+                            "error.fault": "upstream",
+                            "error.cause_types": '["HTTPError"]',
+                        },
+                        500,
+                    ),
+                    (
+                        {},
+                        {"error.category": "unclassified", "error.fault": "unknown"},
+                        None,
+                    ),
+                ):
+                    response = await client.post(
+                        "/mcp",
+                        headers={"accept": "application/json, text/event-stream"},
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 41,
+                            "method": "tools/call",
+                            "params": {"name": "fail_tool", "arguments": arguments},
+                        },
+                    )
+                    assert response.json()["result"]["isError"]
+                    failed = [span for span in spans if span.span_type == "llm"][-1]
+                    facts = {
+                        key: failed.get_tag(f"airbyte.mcp.{key}")
+                        for key in (
+                            "error.category",
+                            "error.fault",
+                            "error.cause_types",
+                        )
+                    }
+                    assert facts == {"error.cause_types": None, **expected}
+                    assert (
+                        failed.get_metric("airbyte.mcp.upstream.status_code") == status
+                    )
+                    assert (
+                        failed.get_tag("error.message") == "tool resulted in an error"
+                    )
+                    assert (
+                        records[-1].extra["error_category"]
+                        == expected["error.category"]
+                    )
+                    assert records[-1].extra.get("upstream_status_code") == status
 
         # An exception escaping the protocol boundary must retain its class/status
         # without exporting a payload-containing message or traceback.

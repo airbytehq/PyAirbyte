@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
+from fastmcp_extensions._telemetry_middleware import tool_call_facts  # noqa: PLC2701
 from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
 from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp.tools import Tool, ToolResult
+    from fastmcp_extensions._telemetry_middleware import ToolCallFacts
     from mcp.server.context import ServerRequestContext
     from mcp.types import CallToolRequestParams
 
@@ -182,6 +184,18 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
     }
 
 
+def _error_fact_attributes(
+    facts: ToolCallFacts, result: ToolResult | None, error: BaseException | None
+) -> dict[str, str]:
+    """Return the library's error facts for a failed call; no exception message is read."""
+    # Settled on the shared facts, so the telemetry event reports the same values.
+    facts.settle(result, error)
+    errors = dict(facts.error_facts())
+    if causes := errors.pop("error.cause_types", None):
+        errors["error.cause_types"] = json.dumps(causes)
+    return {f"airbyte.mcp.{key}": str(value) for key, value in errors.items()}
+
+
 class _StripMetaTraceContextMiddleware:
     async def __call__(
         self,
@@ -228,7 +242,10 @@ class IntentCaptureMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         attrs: dict[str, str | bool] = {}
+        facts = None
         try:
+            # Found by message identity, so before intent stripping copies it.
+            facts = tool_call_facts(context)
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
                 if meta:
@@ -251,13 +268,14 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
-        return await self._trace_call(context, call_next, attrs)
+        return await self._trace_call(context, call_next, attrs, facts)
 
     async def _trace_call(
         self,
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
         attrs: dict[str, str | bool],  # noqa: ARG002
+        facts: ToolCallFacts | None = None,  # noqa: ARG002
     ) -> ToolResult:
         return await call_next(context)
 
@@ -389,6 +407,7 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
         attrs: dict[str, str | bool],
+        facts: ToolCallFacts | None = None,
     ) -> ToolResult:
         """Reuse common intent/action extraction without creating an OTel span."""
         from ddtrace import tracer  # noqa: PLC0415
@@ -421,11 +440,15 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                 )
         except Exception:
             logger.debug("Datadog argument tracing unavailable")
+        result = error = None
         try:
-            return await call_next(context)
+            result = await call_next(context)
         except BaseException as exc:
+            error = exc
             attrs.update(_exception_attributes(exc))
             raise
+        else:
+            return result
         finally:
             _INTENT_ATTRIBUTES.reset(token)
             try:
@@ -438,6 +461,7 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                     if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
                         await enrich_call_scope(context.fastmcp_context)
                 except asyncio.CancelledError as exc:
+                    error = exc
                     attrs.update(_exception_attributes(exc))
                     raise
                 finally:
@@ -451,7 +475,12 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                                     if value is not None
                                 }
                             )
+                        if facts is not None:
+                            attrs.update(_error_fact_attributes(facts, result, error))
                         _annotate_attributes(span, attrs)
+                        if status := attrs.get("airbyte.mcp.upstream.status_code"):
+                            # Numeric like the OTel backend's attribute.
+                            span.set_metric("airbyte.mcp.upstream.status_code", int(status))
             except Exception:
                 logger.debug("Datadog tool attributes unavailable")
 
