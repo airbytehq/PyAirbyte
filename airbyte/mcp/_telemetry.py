@@ -112,8 +112,30 @@ def _edition() -> str:
     return "cloud" if api_root.rstrip("/") == CLOUD_API_ROOT.rstrip("/") else "oss"
 
 
+def _http_request_in_flight() -> bool:
+    try:
+        get_http_request()
+    except RuntimeError:
+        return False
+    return True
+
+
 def _transport() -> Transport:
-    return "streamable-http" if is_hosted_mcp_mode() else "stdio"
+    return "streamable-http" if is_hosted_mcp_mode() or _http_request_in_flight() else "stdio"
+
+
+def _local_http_session_id() -> str | None:
+    """Digest of the FastMCP session ID when a non-hosted server is run over HTTP.
+
+    FastMCP caches the ID on the server session at `initialize`, so it is stable for the
+    client session, unlike `_STDIO_SESSION_ID`, which spans every session of the process.
+    """
+    if not _http_request_in_flight():
+        return None
+    try:
+        return session_id_digest(get_context().session_id)
+    except RuntimeError:
+        return None
 
 
 def _auth_method_from_headers(headers: Headers) -> AuthMethod:
@@ -243,7 +265,7 @@ def request_properties(
         session_id = state.get(_SESSION_ID_STATE_KEY)
     else:
         auth_method = _stdio_auth_method()
-        session_id = _STDIO_SESSION_ID
+        session_id = _local_http_session_id() or _STDIO_SESSION_ID
 
     # A manually hosted HTTP app may not set the hosted-mode flag. Prefer its
     # actual request scheme; middleware state preserves it across token exchange.
