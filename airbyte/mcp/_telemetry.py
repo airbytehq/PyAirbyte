@@ -32,6 +32,7 @@ from starlette.datastructures import Headers
 
 from airbyte._util.meta import (
     AIRBYTE_APPLICATION_NAME_HEADER,
+    get_cloud_api_analytic_source,
     get_declared_application_name,
     is_mcp_mode,
     normalize_application_name,
@@ -154,6 +155,7 @@ def context_properties(
         "auth_method": auth_method,
         "session_id": session_id,
         "application_name": application_name,
+        "analytic_source": get_cloud_api_analytic_source(application_name),
         "mcp_client_name": client_name,
         "mcp_client_version": client_version,
         "mcp_protocol_version": protocol_version,
@@ -252,10 +254,11 @@ def request_properties(
             get_http_request().headers
         )
 
+    application_name = get_declared_application_name()
     return context_properties(
         auth_method=auth_method if auth_method in {"bearer", "client_credentials"} else "none",
         session_id=session_id if isinstance(session_id, str) else None,
-        application_name=get_declared_application_name(),
+        application_name=application_name,
         client_name=client_info.name
         if client_info
         else (session_token.client_name if session_token else None),
@@ -485,14 +488,15 @@ class McpRequestTelemetryMiddleware:
         )
         if reason is None:
             return
+        application_name = (
+            normalize_application_name(headers.get(AIRBYTE_APPLICATION_NAME_HEADER))
+            if is_mcp_mode()
+            else None
+        )
         properties = context_properties(
             auth_method=auth_method,
             session_id=session_id,
-            application_name=normalize_application_name(
-                headers.get(AIRBYTE_APPLICATION_NAME_HEADER)
-            )
-            if is_mcp_mode()
-            else None,
+            application_name=application_name,
             client_name=session_token.client_name if session_token else None,
             client_version=session_token.client_version if session_token else None,
             protocol_version=session_token.protocol_version if session_token else None,

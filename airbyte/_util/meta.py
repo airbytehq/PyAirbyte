@@ -105,18 +105,20 @@ def get_declared_application_name() -> str | None:
     )
 
 
-def get_cloud_api_analytic_source() -> str:
+def get_cloud_api_analytic_source(application_name: str | None = None) -> str:
     """Return the `X-Airbyte-Analytic-Source` value sent with Cloud API requests.
 
     This is an identifier of the client software (MCP or PyAirbyte API) and
     *not* an indicator of the user and/or workspace. Because it is not
     user-identifying and only sent for logged-in API calls, it is not affected
     by the `DO_NOT_TRACK` environment variable. In MCP mode, a recognized
-    declared application name maps to its analytic source.
+    declared application name maps to its analytic source. Pass `application_name`
+    when it was already resolved outside the FastMCP request context.
     """
     if not is_mcp_mode():
         return "pyairbyte"
-    if source := _APPLICATION_ANALYTIC_SOURCES.get(get_declared_application_name() or ""):
+    application_name = application_name or get_declared_application_name()
+    if source := _APPLICATION_ANALYTIC_SOURCES.get(application_name or ""):
         return source
     return "pyairbyte-mcp-hosted" if is_hosted_mcp_mode() else "pyairbyte-mcp-local"
 

@@ -54,6 +54,7 @@ _CONTEXT_KEYS = {
     "auth_method",
     "session_id",
     "application_name",
+    "analytic_source",
     "mcp_client_name",
     "mcp_client_version",
     "mcp_protocol_version",
@@ -181,31 +182,42 @@ def _initialize_request(
 
 
 @pytest.mark.parametrize(
-    ("headers", "client_name", "expected_application_name"),
+    ("headers", "client_name", "expected_application_name", "expected_analytic_source"),
     [
         pytest.param(
             {"x-airbyte-application-name": "com.example.my-agent"},
             "mcp",
             "com.example.my-agent",
+            "pyairbyte-mcp-local",
             id="declared-header-is-separate-from-mcp-client",
+        ),
+        pytest.param(
+            {"x-airbyte-application-name": "IO.Airbyte.Coral-Support-Agent"},
+            "mcp",
+            "io.airbyte.coral-support-agent",
+            "coral-support-agent",
+            id="recognized-application-maps-analytic-source",
         ),
         pytest.param(
             {"x-airbyte-application-name": "My Agent!"},
             "cursor",
             "my-agent",
+            "pyairbyte-mcp-local",
             id="normalizes-application-name-separately",
         ),
         pytest.param(
             {"x-airbyte-analytic-source": "coral-support-agent"},
             "cursor",
             None,
+            "pyairbyte-mcp-local",
             id="analytic-source-header-ignored",
         ),
-        pytest.param({}, "cursor", None, id="no-header"),
+        pytest.param({}, "cursor", None, "pyairbyte-mcp-local", id="no-header"),
         pytest.param(
             {"x-airbyte-application-name": "!!!"},
             "cursor",
             None,
+            "pyairbyte-mcp-local",
             id="empty-normalized-name",
         ),
     ],
@@ -215,6 +227,7 @@ def test_request_properties_reports_application_name_separately(
     headers: dict[str, str],
     client_name: str,
     expected_application_name: str | None,
+    expected_analytic_source: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
@@ -224,6 +237,7 @@ def test_request_properties_reports_application_name_separately(
     )
 
     assert properties["application_name"] == expected_application_name
+    assert properties["analytic_source"] == expected_analytic_source
     assert properties["mcp_client_name"] == client_name
     assert properties["mcp_client_version"] == "1.0.0"
 
@@ -777,25 +791,42 @@ def test_auth_failures_are_classified(
 
 
 @pytest.mark.parametrize(
-    ("application_name", "analytic_source", "expected_application_name"),
+    (
+        "application_name",
+        "analytic_source",
+        "expected_application_name",
+        "expected_analytic_source",
+    ),
     [
         pytest.param(
             "My Agent!",
             None,
             "my-agent",
+            "pyairbyte-mcp-hosted",
             id="normalized-application-name-header",
+        ),
+        pytest.param(
+            "io.airbyte.coral-support-agent",
+            None,
+            "io.airbyte.coral-support-agent",
+            "coral-support-agent",
+            id="recognized-application-maps-analytic-source",
         ),
         pytest.param(
             None,
             "coral-support-agent",
             None,
+            "pyairbyte-mcp-hosted",
             id="analytic-source-header-ignored",
         ),
-        pytest.param(None, None, None, id="session-token-fallback"),
+        pytest.param(
+            None, None, None, "pyairbyte-mcp-hosted", id="session-token-fallback"
+        ),
         pytest.param(
             "!!!",
             "coral-support-agent",
             None,
+            "pyairbyte-mcp-hosted",
             id="empty-application-name",
         ),
     ],
@@ -807,6 +838,7 @@ def test_auth_failed_reports_application_name_separately_from_session_token(
     application_name: str | None,
     analytic_source: str | None,
     expected_application_name: str | None,
+    expected_analytic_source: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     sinks, captured = records
@@ -836,6 +868,7 @@ def test_auth_failed_reports_application_name_separately_from_session_token(
     assert response.status_code == 401
     (record,) = captured
     assert record.extra["application_name"] == expected_application_name
+    assert record.extra["analytic_source"] == expected_analytic_source
     assert record.extra["mcp_client_name"] == "Cursor"
     assert record.extra["mcp_client_version"] == "3.0"
 
