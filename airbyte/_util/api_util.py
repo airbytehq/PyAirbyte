@@ -33,6 +33,7 @@ from airbyte._util.meta import (
 )
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
+    AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
@@ -158,6 +159,16 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
         context["response_content_type"] = error.raw_response.headers.get("content-type")
 
     return context
+
+
+def error_response_body(error: BaseException) -> str | None:
+    """Return the raw response body an Airbyte API error carries, if any."""
+    if isinstance(error, SDKError):
+        return error.body
+    if isinstance(error, AirbyteCloudApiError):
+        body = (error.context or {}).get("response_text")
+        return body if isinstance(body, str) else None
+    return None
 
 
 def _is_actor_not_ready_error(error: SDKError) -> bool:
@@ -1718,12 +1729,20 @@ def get_source_definition(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.source_definitions.get_source_definition(
-        api.GetSourceDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
+    base_context = {
+        "workspace_id": workspace_id,
+        "definition_id": definition_id,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.source_definitions.get_source_definition(
+            api.GetSourceDefinitionRequest(
+                definition_id=definition_id,
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 
@@ -1754,12 +1773,20 @@ def get_destination_definition(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destination_definitions.get_destination_definition(
-        api.GetDestinationDefinitionRequest(
-            definition_id=definition_id,
-            workspace_id=workspace_id,
-        ),
-    )
+    base_context = {
+        "workspace_id": workspace_id,
+        "definition_id": definition_id,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.destination_definitions.get_destination_definition(
+            api.GetDestinationDefinitionRequest(
+                definition_id=definition_id,
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
     if status_ok(response.status_code) and response.definition_response:
         return response.definition_response
 

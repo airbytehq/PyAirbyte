@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
 from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
+from fastmcp_extensions.otel._extras import _chain, error_attributes  # noqa: PLC2701
 from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
     CallToolResult,
@@ -27,6 +28,8 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
+from airbyte._util.api_util import error_response_body
+from airbyte.mcp._error_handling import MCP_TOOL_USER_FACING_ERRORS, classify_mcp_tool_error
 from airbyte.mcp._otel import _arg_key, _env, _flag
 from airbyte.mcp._scope import current_call_scope, scope_from_request
 from airbyte.mcp._trace_attributes import agent_action_attributes
@@ -70,6 +73,11 @@ _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
 _ARG_PREFIX = "airbyte.mcp"
 # Same classification and validation as the OTel backend; intent is exported separately.
 _ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
+_TOOL_ERROR_MESSAGE = "tool resulted in an error"
+_PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
+# The last path segment of the generic problem `type` URL; `title` is the slug then.
+_GENERIC_PROBLEM_SLUG = "errors"
+_MAX_PROBLEM_BODY = 65536
 
 
 def _build_tool_maps() -> None:
@@ -172,14 +180,83 @@ def _request_trace_attributes() -> dict[str, str]:
 
 
 def _exception_attributes(error: BaseException) -> dict[str, str]:
-    error_type = type(error.__cause__ or error).__name__
+    cause = error.__cause__ or error
+    error_type = type(cause).__name__
     return {
         "airbyte.mcp.outcome": "cancelled"
         if isinstance(error, asyncio.CancelledError)
         else "exception",
         "airbyte.mcp.error_type": error_type,
         "error.type": error_type,
+        **_error_classification(cause),
     }
+
+
+def _error_classification(cause: BaseException | None) -> dict[str, str]:
+    """Return the bounded category, fault, upstream status, and problem type of a failure.
+
+    `cause` is `None` for a tool that returned an error result. These are the
+    OTel backend's `error_attributes`, plus the Airbyte API problem slug.
+    """
+    try:
+        attrs = {
+            f"airbyte.mcp.{key}": str(value)
+            for key, value in error_attributes(
+                cause,
+                user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
+                classifier=classify_mcp_tool_error,
+            ).items()
+        }
+        problem_type = _problem_type(cause) if cause is not None else None
+    except Exception:
+        logger.debug("Datadog error classification unavailable")
+        return {}
+    if problem_type is not None:
+        attrs["airbyte.mcp.error.problem_type"] = problem_type
+    return attrs
+
+
+def _problem_type(cause: BaseException) -> str | None:
+    """Return the problem slug from the first Airbyte API error body in the chain.
+
+    Only the problem `type`, or its `title` when `type` is the generic errors
+    page, is read. `detail` and `data` quote IDs and payloads, so they never are.
+    """
+    body = next(
+        (body for body in map(error_response_body, _chain(cause)) if body is not None),
+        None,
+    )
+    if body is None or len(body) > _MAX_PROBLEM_BODY:
+        return None
+    try:
+        problem = json.loads(body)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(problem, dict):
+        return None
+    for field in ("type", "title"):
+        value = problem.get(field)
+        if not isinstance(value, str):
+            continue
+        slug = re.split(r"[/#]", value)[-1]
+        if slug != _GENERIC_PROBLEM_SLUG and _PROBLEM_SLUG.fullmatch(slug):
+            return slug
+    return None
+
+
+def _tool_error_message(span: Span) -> str:
+    """Summarize a tool error from its bounded classification tags only."""
+    status = span.get_tag("airbyte.mcp.upstream.status_code")
+    details = ", ".join(
+        detail
+        for detail in (
+            span.get_tag("airbyte.mcp.error.category"),
+            f"HTTP {status}" if status else None,
+            span.get_tag("airbyte.mcp.error.problem_type"),
+        )
+        if detail
+    )
+    return f"{_TOOL_ERROR_MESSAGE} ({details})" if details else _TOOL_ERROR_MESSAGE
 
 
 class _StripMetaTraceContextMiddleware:
@@ -656,16 +733,17 @@ class _DatadogRequestMiddleware:
                     if tool_call and getattr(response, "is_error", False):
                         span.error = 1
                         error_type = span.get_tag("airbyte.mcp.error_type") or "ToolError"
-                        _annotate_attributes(
-                            span,
-                            {
-                                "airbyte.mcp.outcome": span.get_tag("airbyte.mcp.outcome")
-                                or "tool_error",
-                                "airbyte.mcp.error_type": error_type,
-                                "error.type": error_type,
-                            },
-                        )
-                        span.set_tag("error.message", "tool resulted in an error")
+                        error_attrs = {
+                            "airbyte.mcp.outcome": span.get_tag("airbyte.mcp.outcome")
+                            or "tool_error",
+                            "airbyte.mcp.error_type": error_type,
+                            "error.type": error_type,
+                        }
+                        # A returned error result raised nothing to classify.
+                        if span.get_tag("airbyte.mcp.error.category") is None:
+                            error_attrs.update(_error_classification(None))
+                        _annotate_attributes(span, error_attrs)
+                        span.set_tag("error.message", _tool_error_message(span))
                     else:
                         _annotate_attributes(span, {"airbyte.mcp.outcome": "success"})
                     LLMObs.annotate(span, output_data=output)
