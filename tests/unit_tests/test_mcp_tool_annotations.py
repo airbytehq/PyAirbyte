@@ -28,7 +28,7 @@ def test_check_cloud_connector_is_read_only_and_idempotent() -> None:
 
 
 def test_get_github_issue_creation_link_is_read_only_and_idempotent() -> None:
-    """`get_github_issue_creation_link` only returns a GitHub URL."""
+    """`get_github_issue_creation_link` only constructs a GitHub URL."""
     (annotations,) = [
         a
         for f, a in _REGISTERED_TOOLS

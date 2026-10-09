@@ -69,6 +69,13 @@ class GitHubIssueCategory(StrEnum):
     CLOUD_MCP_FEATURE_REQUEST = "cloud-mcp-feature-request"
 
 
+class GitHubIssueCreationLink(BaseModel):
+    """A pre-filled GitHub issue creation link."""
+
+    url: str
+    warning: str | None = None
+
+
 KAPA_API_KEY_CONFIG_ARG = MCPServerConfigArg(
     name="kapa_api_key",
     env_var=KAPA_API_KEY_ENV_VAR,
@@ -365,19 +372,18 @@ def get_github_issue_creation_link(
                 "and the tool calls involved."
             ),
             min_length=1,
-            max_length=4000,
         ),
         TraceArg.FINGERPRINT,
     ],
-) -> str:
+) -> GitHubIssueCreationLink:
     """Create a link to a pre-filled public GitHub issue for the Airbyte Cloud MCP server.
 
     Use this when a user encounters a bug in this server's tools or asks for a capability it
-    lacks. Always give the returned URL to the user as a clickable link. This tool does not file
-    anything: the user must be signed in to GitHub to review and submit the issue under their own
-    account. Issues are public, so never include secrets, credentials, connector config values, or
-    customer data. Draft the description in Markdown with what happened, what was expected, and
-    the tool calls involved.
+    lacks. Always give the returned URL to the user as a clickable link. If `warning` is set, the
+    link may be too long to open; follow its guidance. This tool does not file anything: the user
+    must be signed in to GitHub to review and submit the issue under their own account. Issues are
+    public, so never include secrets, credentials, connector config values, or customer data. Draft
+    the description in Markdown with what happened, what was expected, and the tool calls involved.
     """
     url = f"https://github.com/{GITHUB_ISSUES_REPO}/issues/new?" + urlencode(
         {
@@ -387,18 +393,15 @@ def get_github_issue_creation_link(
         },
         quote_via=cast(Any, quote),
     )
+    warning = None
     if len(url) > MAX_GITHUB_ISSUE_URL_LENGTH:
-        raise exc.AirbyteLibInputError(
-            message=(
-                "The issue link is too long after URL encoding. "
-                "Shorten the title or description and try again."
-            ),
-            context={
-                "url_length": len(url),
-                "max_url_length": MAX_GITHUB_ISSUE_URL_LENGTH,
-            },
+        warning = (
+            f"This link is {len(url)} characters after URL encoding, above the "
+            f"{MAX_GITHUB_ISSUE_URL_LENGTH}-character limit some browsers and servers enforce. "
+            "Give the user the link anyway. If it fails to open, shorten the description and "
+            "create a new link."
         )
-    return url
+    return GitHubIssueCreationLink(url=url, warning=warning)
 
 
 def register_guidance_tools(app: FastMCP) -> None:
