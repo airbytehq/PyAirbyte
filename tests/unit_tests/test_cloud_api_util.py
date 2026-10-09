@@ -1272,6 +1272,39 @@ def test_get_connection_fallback_404_raises_missing_resource_error() -> None:
 
 
 @responses.activate
+@pytest.mark.parametrize(
+    ("lookup", "definitions_path"),
+    [
+        pytest.param(api_util.get_source_definition, "sources", id="source"),
+        pytest.param(
+            api_util.get_destination_definition, "destinations", id="destination"
+        ),
+    ],
+)
+def test_get_definition_wraps_sdk_errors(
+    lookup: Callable[..., models.DefinitionResponse], definitions_path: str
+) -> None:
+    """A missing definition raises the missing-resource error, chained to the SDK error."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    url = f"{api_root}/workspaces/workspace-id/definitions/{definitions_path}/definition-id"
+    responses.get(url, status=404, json={"message": "Not found"})
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        lookup(
+            definition_id="definition-id",
+            workspace_id="workspace-id",
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 404
+    assert exc_info.value.context["definition_id"] == "definition-id"
+
+
+@responses.activate
 def test_list_connections_retries_page_without_undecodable_stream_mappers() -> None:
     """Connection listing falls back to raw JSON when a page has unknown mappers."""
     api_root = "https://api.airbyte.test/api/public/v1"

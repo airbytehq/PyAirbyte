@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
-from fastmcp_extensions._telemetry_middleware import tool_call_facts  # noqa: PLC2701
 from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
+from fastmcp_extensions.otel._extras import _chain, error_attributes  # noqa: PLC2701
 from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
     CallToolResult,
@@ -28,6 +28,8 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
+from airbyte._util.api_util import error_response_body
+from airbyte.mcp._error_handling import MCP_TOOL_USER_FACING_ERRORS, classify_mcp_tool_error
 from airbyte.mcp._otel import _arg_key, _env, _flag
 from airbyte.mcp._scope import current_call_scope, scope_from_request
 from airbyte.mcp._trace_attributes import agent_action_attributes
@@ -42,7 +44,6 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp.tools import Tool, ToolResult
-    from fastmcp_extensions._telemetry_middleware import ToolCallFacts
     from mcp.server.context import ServerRequestContext
     from mcp.types import CallToolRequestParams
 
@@ -72,6 +73,12 @@ _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
 _ARG_PREFIX = "airbyte.mcp"
 # Same classification and validation as the OTel backend; intent is exported separately.
 _ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
+_TOOL_ERROR_MESSAGE = "tool resulted in an error"
+_STATUS_CODE = "airbyte.mcp.upstream.status_code"
+_PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
+# The last path segment of the generic problem `type` URL; `title` is the slug then.
+_GENERIC_PROBLEM_SLUG = "errors"
+_MAX_PROBLEM_BODY = 65536
 
 
 def _build_tool_maps() -> None:
@@ -174,26 +181,84 @@ def _request_trace_attributes() -> dict[str, str]:
 
 
 def _exception_attributes(error: BaseException) -> dict[str, str]:
-    error_type = type(error.__cause__ or error).__name__
+    cause = error.__cause__ or error
+    error_type = type(cause).__name__
     return {
         "airbyte.mcp.outcome": "cancelled"
         if isinstance(error, asyncio.CancelledError)
         else "exception",
         "airbyte.mcp.error_type": error_type,
         "error.type": error_type,
+        **_error_classification(cause),
     }
 
 
-def _error_fact_attributes(
-    facts: ToolCallFacts, result: ToolResult | None, error: BaseException | None
-) -> dict[str, str]:
-    """Return the library's error facts for a failed call; no exception message is read."""
-    # Settled on the shared facts, so the telemetry event reports the same values.
-    facts.settle(result, error)
-    errors = dict(facts.error_facts())
-    if causes := errors.pop("error.cause_types", None):
-        errors["error.cause_types"] = json.dumps(causes)
-    return {f"airbyte.mcp.{key}": str(value) for key, value in errors.items()}
+def _error_classification(cause: BaseException | None) -> dict[str, str]:
+    """Return the bounded category, fault, cause types, status, and problem type of a failure.
+
+    `cause` is `None` for a tool that returned an error result. These are the
+    OTel backend's `error_attributes`, plus the Airbyte API problem slug.
+    """
+    try:
+        errors = error_attributes(
+            cause,
+            user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
+            classifier=classify_mcp_tool_error,
+        )
+        if causes := errors.pop("error.cause_types", None):
+            # A tuple of class names; a JSON array is what a tag can carry.
+            errors["error.cause_types"] = json.dumps(causes)
+        attrs = {f"airbyte.mcp.{key}": str(value) for key, value in errors.items()}
+        problem_type = _problem_type(cause) if cause is not None else None
+    except Exception:
+        logger.debug("Datadog error classification unavailable")
+        return {}
+    if problem_type is not None:
+        attrs["airbyte.mcp.error.problem_type"] = problem_type
+    return attrs
+
+
+def _problem_type(cause: BaseException) -> str | None:
+    """Return the problem slug from the first Airbyte API error body in the chain.
+
+    Only the problem `type`, or its `title` when `type` is the generic errors
+    page, is read. `detail` and `data` quote IDs and payloads, so they never are.
+    """
+    body = next(
+        (body for body in map(error_response_body, _chain(cause)) if body is not None),
+        None,
+    )
+    if body is None or len(body) > _MAX_PROBLEM_BODY:
+        return None
+    try:
+        problem = json.loads(body)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(problem, dict):
+        return None
+    for field in ("type", "title"):
+        value = problem.get(field)
+        if not isinstance(value, str):
+            continue
+        slug = re.split(r"[/#]", value)[-1]
+        if slug != _GENERIC_PROBLEM_SLUG and _PROBLEM_SLUG.fullmatch(slug):
+            return slug
+    return None
+
+
+def _tool_error_message(span: Span) -> str:
+    """Summarize a tool error from its bounded classification tags only."""
+    status = span.get_metric(_STATUS_CODE)
+    details = ", ".join(
+        detail
+        for detail in (
+            span.get_tag("airbyte.mcp.error.category"),
+            f"HTTP {int(status)}" if status else None,
+            span.get_tag("airbyte.mcp.error.problem_type"),
+        )
+        if detail
+    )
+    return f"{_TOOL_ERROR_MESSAGE} ({details})" if details else _TOOL_ERROR_MESSAGE
 
 
 class _StripMetaTraceContextMiddleware:
@@ -242,10 +307,7 @@ class IntentCaptureMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         attrs: dict[str, str | bool] = {}
-        facts = None
         try:
-            # Found by message identity, so before intent stripping copies it.
-            facts = tool_call_facts(context)
             if context.fastmcp_context and context.fastmcp_context.request_context:
                 meta = context.fastmcp_context.request_context.meta
                 if meta:
@@ -268,14 +330,13 @@ class IntentCaptureMiddleware(Middleware):
             attrs = self._attributes(context, intent)
         except Exception:
             logger.debug("Intent attributes unavailable")
-        return await self._trace_call(context, call_next, attrs, facts)
+        return await self._trace_call(context, call_next, attrs)
 
     async def _trace_call(
         self,
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
         attrs: dict[str, str | bool],  # noqa: ARG002
-        facts: ToolCallFacts | None = None,  # noqa: ARG002
     ) -> ToolResult:
         return await call_next(context)
 
@@ -407,7 +468,6 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
         attrs: dict[str, str | bool],
-        facts: ToolCallFacts | None = None,
     ) -> ToolResult:
         """Reuse common intent/action extraction without creating an OTel span."""
         from ddtrace import tracer  # noqa: PLC0415
@@ -440,15 +500,11 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                 )
         except Exception:
             logger.debug("Datadog argument tracing unavailable")
-        result = error = None
         try:
-            result = await call_next(context)
+            return await call_next(context)
         except BaseException as exc:
-            error = exc
             attrs.update(_exception_attributes(exc))
             raise
-        else:
-            return result
         finally:
             _INTENT_ATTRIBUTES.reset(token)
             try:
@@ -461,7 +517,6 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                     if not isinstance(sys.exc_info()[1], asyncio.CancelledError):
                         await enrich_call_scope(context.fastmcp_context)
                 except asyncio.CancelledError as exc:
-                    error = exc
                     attrs.update(_exception_attributes(exc))
                     raise
                 finally:
@@ -475,12 +530,7 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                                     if value is not None
                                 }
                             )
-                        if facts is not None:
-                            attrs.update(_error_fact_attributes(facts, result, error))
                         _annotate_attributes(span, attrs)
-                        if status := attrs.get("airbyte.mcp.upstream.status_code"):
-                            # Numeric like the OTel backend's attribute.
-                            span.set_metric("airbyte.mcp.upstream.status_code", int(status))
             except Exception:
                 logger.debug("Datadog tool attributes unavailable")
 
@@ -501,7 +551,10 @@ def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
         if arg_attrs and isinstance(tool, str) and tool in _TOOL_MODULES
         else {}
     )
-    span.set_tags({key: str(value) for key, value in attrs.items()})
+    span.set_tags({key: str(value) for key, value in attrs.items() if key != _STATUS_CODE})
+    if status := attrs.get(_STATUS_CODE):
+        # A metric, so numeric queries work as on the OTel backend's attribute.
+        span.set_metric(_STATUS_CODE, int(status))
     for key, value in accepted.items():
         if isinstance(value, int):
             span.set_metric(key, value)
@@ -685,16 +738,17 @@ class _DatadogRequestMiddleware:
                     if tool_call and getattr(response, "is_error", False):
                         span.error = 1
                         error_type = span.get_tag("airbyte.mcp.error_type") or "ToolError"
-                        _annotate_attributes(
-                            span,
-                            {
-                                "airbyte.mcp.outcome": span.get_tag("airbyte.mcp.outcome")
-                                or "tool_error",
-                                "airbyte.mcp.error_type": error_type,
-                                "error.type": error_type,
-                            },
-                        )
-                        span.set_tag("error.message", "tool resulted in an error")
+                        error_attrs = {
+                            "airbyte.mcp.outcome": span.get_tag("airbyte.mcp.outcome")
+                            or "tool_error",
+                            "airbyte.mcp.error_type": error_type,
+                            "error.type": error_type,
+                        }
+                        # A returned error result raised nothing to classify.
+                        if span.get_tag("airbyte.mcp.error.category") is None:
+                            error_attrs.update(_error_classification(None))
+                        _annotate_attributes(span, error_attrs)
+                        span.set_tag("error.message", _tool_error_message(span))
                     else:
                         _annotate_attributes(span, {"airbyte.mcp.outcome": "success"})
                     LLMObs.annotate(span, output_data=output)
