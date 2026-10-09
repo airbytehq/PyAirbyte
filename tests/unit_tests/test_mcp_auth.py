@@ -2,10 +2,10 @@
 """Unit tests for branded transport-auth resolution in `airbyte.mcp.server`.
 
 These cover what this server owns: mapping its branded `AIRBYTE_MCP_*` env vars
-into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects it hands to
-`fastmcp_extensions.build_mcp_auth`, activation of the headless and interactive
-paths from env, blank-as-unset handling, and the durable-storage factory
-injection on the interactive path. This server declares only env var names and
+into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects and custom verifier it
+hands to `fastmcp_extensions.build_mcp_auth`, activation of the headless and
+interactive paths from env, blank-as-unset handling, and durable-storage
+factory injection on the interactive path. This server declares only env var names and
 maps their values — it embeds no provider-specific configuration values; those
 are supplied at deploy time by the deployment's own repo. The generic verifier
 assembly lives in `fastmcp-extensions` and is tested there.
@@ -13,13 +13,17 @@ assembly lives in `fastmcp-extensions` and is tested there.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import pytest
-from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp.server.auth import MultiAuth
+from fastmcp.server.auth.providers.jwt import JWTVerifier, RSAKeyPair
 from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
+import fastmcp_extensions.auth as extension_auth
 
 from airbyte.mcp import _client_credentials as client_credentials
 from airbyte.mcp import _otel
@@ -28,7 +32,9 @@ from airbyte.mcp import server
 from airbyte.mcp._sso_auth import (
     AirbyteSsoOidcProxy,
     InvalidRealmIdentifierError,
+    MultiRealmTokenVerifier,
     SsoRealmConfig,
+    SsoRealmRegistry,
     validate_realm_identifier,
 )
 from airbyte.mcp._transport_security import HostOriginGuardMiddleware
@@ -375,6 +381,7 @@ def test_create_auth_user_jwks_adds_azp_allowlisted_config(
     # The app-realm config is unchanged and carries no allowlist.
     assert jwt_configs[0].jwks_uri == "https://idp.example/jwks"
     assert jwt_configs[0].allowed_client_ids is None
+    assert captured["token_verifiers"] is None
 
 
 @pytest.mark.parametrize(
@@ -585,6 +592,157 @@ def _set_interactive_oidc_env(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
     monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
     monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+
+
+_DEFAULT_USER_ISSUER = "https://kc.example/auth/realms/airbyte"
+_USER_TOKEN_KEYPAIR = RSAKeyPair.generate()
+
+
+class _UserRealmDiscoveryFetch:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def __call__(self, url: str) -> httpx.Response:
+        self.calls.append(url)
+        issuer = url.removesuffix("/.well-known/openid-configuration")
+        return httpx.Response(
+            200,
+            json={
+                "issuer": issuer,
+                "authorization_endpoint": f"{issuer}/protocol/openid-connect/auth",
+                "token_endpoint": f"{issuer}/protocol/openid-connect/token",
+                "jwks_uri": f"{issuer}/protocol/openid-connect/certs",
+                "response_types_supported": ["code"],
+                "subject_types_supported": ["public"],
+                "id_token_signing_alg_values_supported": ["RS256"],
+            },
+        )
+
+
+def _create_sso_user_auth(
+    monkeypatch: MonkeyPatch,
+) -> tuple[MultiAuth, MultiRealmTokenVerifier, _UserRealmDiscoveryFetch]:
+    _clear_all_auth_env(monkeypatch)
+    _set_interactive_oidc_env(monkeypatch)
+    monkeypatch.setenv(server.SSO_OIDC_CONFIG_URL_TEMPLATE_ENV, _SSO_TEMPLATE)
+    monkeypatch.setenv(
+        server.USER_JWKS_URI_ENV,
+        f"{_DEFAULT_USER_ISSUER}/protocol/openid-connect/certs",
+    )
+    monkeypatch.setenv(server.USER_ISSUER_ENV, _DEFAULT_USER_ISSUER)
+    monkeypatch.setenv(server.USER_ALGORITHM_ENV, "RS256")
+    monkeypatch.setenv(server.USER_TOKEN_CLIENT_IDS_ENV, "airbyte-webapp")
+
+    discovery_fetch = _UserRealmDiscoveryFetch()
+    monkeypatch.setattr(
+        server,
+        "SsoRealmRegistry",
+        lambda config: SsoRealmRegistry(config, fetch=discovery_fetch),
+    )
+    monkeypatch.setattr(
+        extension_auth,
+        "_build_oidc_proxy",
+        lambda *args, **kwargs: SimpleNamespace(
+            base_url="https://mcp.example",
+            resource_base_url=None,
+            required_scopes=["openid"],
+        ),
+    )
+
+    async def _get_verification_key(_verifier: JWTVerifier, kid: str | None) -> str:
+        assert kid == "user-auth-test"
+        return _USER_TOKEN_KEYPAIR.public_key
+
+    monkeypatch.setattr(JWTVerifier, "_get_jwks_key", _get_verification_key)
+
+    auth = server._create_auth()
+    assert isinstance(auth, MultiAuth)
+    multi_realm_verifier = next(
+        verifier
+        for verifier in auth.verifiers
+        if isinstance(verifier, MultiRealmTokenVerifier)
+    )
+    return auth, multi_realm_verifier, discovery_fetch
+
+
+def _user_token(*, issuer: str, azp: str) -> str:
+    return _USER_TOKEN_KEYPAIR.create_token(
+        issuer=issuer,
+        audience="account",
+        additional_claims={"azp": azp},
+        kid="user-auth-test",
+    )
+
+
+def test_create_auth_sso_user_config_uses_multi_realm_verifier(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    auth, verifier, _ = _create_sso_user_auth(monkeypatch)
+
+    assert isinstance(auth, MultiAuth)
+    assert verifier in auth.verifiers
+
+
+def test_multi_realm_user_verifier_accepts_routed_realm_and_uses_discovery_jwks(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _, verifier, discovery_fetch = _create_sso_user_auth(monkeypatch)
+    issuer = "https://kc.example/auth/realms/acme"
+    token = _user_token(issuer=issuer, azp="airbyte-webapp")
+
+    access_token = asyncio.run(verifier.verify_token(token))
+
+    assert access_token is not None
+    assert access_token.claims["iss"] == issuer
+    assert discovery_fetch.calls == [f"{issuer}/.well-known/openid-configuration"]
+    routed_verifier = next(iter(verifier._realm_verifiers.values()))  # noqa: SLF001
+    assert isinstance(routed_verifier, extension_auth.ClientAllowlistJWTVerifier)
+    assert routed_verifier.jwks_uri == f"{issuer}/protocol/openid-connect/certs"
+
+
+def test_multi_realm_user_verifier_rejects_routed_realm_wrong_azp(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _, verifier, _ = _create_sso_user_auth(monkeypatch)
+    token = _user_token(
+        issuer="https://kc.example/auth/realms/acme",
+        azp="other-client",
+    )
+
+    assert asyncio.run(verifier.verify_token(token)) is None
+
+
+def test_multi_realm_user_verifier_checks_default_realm_azp(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _, verifier, _ = _create_sso_user_auth(monkeypatch)
+    accepted = _user_token(issuer=_DEFAULT_USER_ISSUER, azp="airbyte-webapp")
+    rejected = _user_token(issuer=_DEFAULT_USER_ISSUER, azp="other-client")
+
+    assert asyncio.run(verifier.verify_token(accepted)) is not None
+    assert asyncio.run(verifier.verify_token(rejected)) is None
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        pytest.param(
+            "https://kc.example/auth/realms/_airbyte-application-clients",
+            id="internal-application-clients",
+        ),
+        pytest.param("https://kc.example/auth/realms/master", id="master"),
+        pytest.param("https://foreign.example/auth/realms/acme", id="foreign-host"),
+    ],
+)
+def test_multi_realm_user_verifier_rejects_reserved_and_foreign_issuers(
+    issuer: str,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _, verifier, discovery_fetch = _create_sso_user_auth(monkeypatch)
+    token = _user_token(issuer=issuer, azp="airbyte-webapp")
+
+    assert asyncio.run(verifier.verify_token(token)) is None
+    assert discovery_fetch.calls == []
 
 
 def test_create_auth_without_sso_template_builds_stock_proxy(
