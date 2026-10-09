@@ -30,7 +30,7 @@ from opentelemetry.util.types import AttributeValue
 from airbyte._util import meta
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.mcp import _otel as observability
-from airbyte.mcp._error_handling import classify_mcp_tool_error
+from airbyte.mcp._error_handling import classify_mcp_tool_error, mcp_tool_error_reason
 from airbyte.mcp import _scope
 from airbyte.mcp._scope import (
     CallScopeMiddleware,
@@ -430,6 +430,7 @@ def test_install_registers_tracing_then_instruments_requests(
     )
     assert tracing.capture_intent is True
     assert tracing.error_classifier is classify_mcp_tool_error
+    assert tracing.error_reason is mcp_tool_error_reason
     assert tracing.other_spans is observability._http_client_span_attributes
     assert tracing.arg_key is observability._arg_key
     assert tracing.exporter == "otlp"

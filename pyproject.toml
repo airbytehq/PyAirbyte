@@ -46,7 +46,7 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=4.0.9,<5.0",
-    "fastmcp-extensions==0.34.0.dev14837991475662",
+    "fastmcp-extensions==0.34.0.dev14837993197853",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "httpx",  # Transitive dependency of fastmcp, imported directly
     "mcp",  # Transitive dependency of fastmcp, imported directly

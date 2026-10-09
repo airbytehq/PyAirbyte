@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
 from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
-from fastmcp_extensions.otel._extras import _chain, error_attributes  # noqa: PLC2701
+from fastmcp_extensions.otel._extras import error_attributes  # noqa: PLC2701
 from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
     CallToolResult,
@@ -28,8 +28,11 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-from airbyte._util.api_util import error_response_body
-from airbyte.mcp._error_handling import MCP_TOOL_USER_FACING_ERRORS, classify_mcp_tool_error
+from airbyte.mcp._error_handling import (
+    MCP_TOOL_USER_FACING_ERRORS,
+    classify_mcp_tool_error,
+    mcp_tool_error_reason,
+)
 from airbyte.mcp._otel import _arg_key, _env, _flag
 from airbyte.mcp._scope import current_call_scope, scope_from_request
 from airbyte.mcp._trace_attributes import agent_action_attributes
@@ -75,10 +78,6 @@ _ARG_PREFIX = "airbyte.mcp"
 _ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
 _TOOL_ERROR_MESSAGE = "tool resulted in an error"
 _STATUS_CODE = "airbyte.mcp.upstream.status_code"
-_PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
-# The last path segment of the generic problem `type` URL; `title` is the slug then.
-_GENERIC_PROBLEM_SLUG = "errors"
-_MAX_PROBLEM_BODY = 65536
 
 
 def _build_tool_maps() -> None:
@@ -194,56 +193,26 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
 
 
 def _error_classification(cause: BaseException | None) -> dict[str, str]:
-    """Return the bounded category, fault, cause types, status, and problem type of a failure.
+    """Return the bounded category, fault, cause types, status, and reason of a failure.
 
     `cause` is `None` for a tool that returned an error result. These are the
-    OTel backend's `error_attributes`, plus the Airbyte API problem slug.
+    OTel backend's `error_attributes`, with the same classifier and reason hook.
     """
     try:
         errors = error_attributes(
             cause,
             user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
             classifier=classify_mcp_tool_error,
+            reason=mcp_tool_error_reason,
         )
         if causes := errors.pop("error.cause_types", None):
             # A tuple of class names; a JSON array is what a tag can carry.
             errors["error.cause_types"] = json.dumps(causes)
         attrs = {f"airbyte.mcp.{key}": str(value) for key, value in errors.items()}
-        problem_type = _problem_type(cause) if cause is not None else None
     except Exception:
         logger.debug("Datadog error classification unavailable")
         return {}
-    if problem_type is not None:
-        attrs["airbyte.mcp.error.problem_type"] = problem_type
     return attrs
-
-
-def _problem_type(cause: BaseException) -> str | None:
-    """Return the problem slug from the first Airbyte API error body in the chain.
-
-    Only the problem `type`, or its `title` when `type` is the generic errors
-    page, is read. `detail` and `data` quote IDs and payloads, so they never are.
-    """
-    body = next(
-        (body for body in map(error_response_body, _chain(cause)) if body is not None),
-        None,
-    )
-    if body is None or len(body) > _MAX_PROBLEM_BODY:
-        return None
-    try:
-        problem = json.loads(body)
-    except (ValueError, RecursionError):
-        return None
-    if not isinstance(problem, dict):
-        return None
-    for field in ("type", "title"):
-        value = problem.get(field)
-        if not isinstance(value, str):
-            continue
-        slug = re.split(r"[/#]", value)[-1]
-        if slug != _GENERIC_PROBLEM_SLUG and _PROBLEM_SLUG.fullmatch(slug):
-            return slug
-    return None
 
 
 def _tool_error_message(span: Span) -> str:
@@ -254,7 +223,7 @@ def _tool_error_message(span: Span) -> str:
         for detail in (
             span.get_tag("airbyte.mcp.error.category"),
             f"HTTP {int(status)}" if status else None,
-            span.get_tag("airbyte.mcp.error.problem_type"),
+            span.get_tag("airbyte.mcp.error.reason"),
         )
         if detail
     )

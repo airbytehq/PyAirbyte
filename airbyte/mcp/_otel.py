@@ -21,7 +21,7 @@ from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.trace import SpanKind, Status
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
-from airbyte.mcp._error_handling import classify_mcp_tool_error
+from airbyte.mcp._error_handling import classify_mcp_tool_error, mcp_tool_error_reason
 
 
 if TYPE_CHECKING:
@@ -314,6 +314,7 @@ def install(app: FastMCP, *, environ: Mapping[str, str] | None = None) -> None:
                 ),
                 capture_intent=_flag(environ, "AIRBYTE_MCP_INTENT_CAPTURE"),
                 error_classifier=classify_mcp_tool_error,
+                error_reason=mcp_tool_error_reason,
                 other_spans=_http_client_span_attributes,
                 arg_key=_arg_key,
                 exporter=_exporter(backend, environ),
