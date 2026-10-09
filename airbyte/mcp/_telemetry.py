@@ -89,7 +89,7 @@ _STDIO_SESSION_ID = uuid.uuid4().hex
 """A stdio process serves exactly one client session."""
 
 AuthMethod = Literal["bearer", "client_credentials", "none"]
-Transport = Literal["streamable-http", "stdio"]
+Transport = Literal["streamable-http", "sse", "stdio"]
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,12 @@ def _http_request_in_flight() -> bool:
 
 
 def _transport() -> Transport:
-    return "streamable-http" if is_hosted_mcp_mode() or _http_request_in_flight() else "stdio"
+    if is_hosted_mcp_mode():
+        return "streamable-http"
+    with suppress(RuntimeError):
+        if transport := get_context().transport:
+            return transport
+    return "stdio"
 
 
 def _local_http_session_id() -> str | None:
