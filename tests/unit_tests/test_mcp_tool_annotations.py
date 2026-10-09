@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import airbyte.mcp.server  # noqa: F401  # Importing registers every MCP tool module.
-from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp import cloud as cloud_mcp, guidance as guidance_mcp
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
 READ_ONLY_NAME_PREFIXES = ("list_", "describe_", "get_", "check_")
@@ -22,6 +22,17 @@ def test_check_cloud_connector_is_read_only_and_idempotent() -> None:
     """`check_cloud_connector` only returns the connector check result."""
     (annotations,) = [
         a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector
+    ]
+    assert annotations["readOnlyHint"] is True
+    assert annotations["idempotentHint"] is True
+
+
+def test_get_github_issue_creation_link_is_read_only_and_idempotent() -> None:
+    """`get_github_issue_creation_link` only returns a GitHub URL."""
+    (annotations,) = [
+        a
+        for f, a in _REGISTERED_TOOLS
+        if f is guidance_mcp.get_github_issue_creation_link
     ]
     assert annotations["readOnlyHint"] is True
     assert annotations["idempotentHint"] is True

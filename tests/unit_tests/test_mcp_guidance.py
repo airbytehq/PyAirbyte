@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import cast
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -45,6 +46,48 @@ def _airbyte_mcp_app() -> FastMCP:
     from airbyte.mcp.server import app
 
     return app
+
+
+@pytest.mark.parametrize(
+    ("category", "slug"),
+    [
+        pytest.param(
+            guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+            "cloud-mcp-bug-report",
+            id="bug-report",
+        ),
+        pytest.param(
+            guidance.GitHubIssueCategory.CLOUD_MCP_FEATURE_REQUEST,
+            "cloud-mcp-feature-request",
+            id="feature-request",
+        ),
+    ],
+)
+def test_get_github_issue_creation_link(
+    category: guidance.GitHubIssueCategory, slug: str
+) -> None:
+    title = "Bug & regression #42 + edge case? café"
+    description = (
+        "What happened: the `tool+name` call failed & returned #1? Unexpectedly.\n"
+        "Expected: success.\nTool calls: `get_cloud_sync_status`."
+    )
+
+    parsed_url = urlsplit(
+        guidance.get_github_issue_creation_link(category, title, description)
+    )
+    query = parse_qs(parsed_url.query)
+
+    assert parsed_url.scheme == "https"
+    assert parsed_url.netloc == "github.com"
+    assert parsed_url.path == "/airbytehq/PyAirbyte/issues/new"
+    assert set(query) == {"template", "title", "description"}
+    assert query["template"] == [f"{slug}.yml"]
+    assert query["title"] == [title]
+    assert query["description"] == [description]
+
+
+def test_get_github_issue_creation_link_is_listed_by_app() -> None:
+    assert "get_github_issue_creation_link" in _list_tool_names(_airbyte_mcp_app())
 
 
 @pytest.mark.parametrize(
