@@ -192,6 +192,7 @@ class CloudProblem:
 
     status_code: int | None
     slug: str | None  # Last `type`/`title` segment, like `mcp_tool_error_reason`.
+    key: str | None  # Normalized `type` path used to look up the fixed message.
     resource_type: str | None  # `data.resourceType`, a fixed word.
     limit: int | None  # `data.limit`.
     error_id: str | None  # Top-level `errorId` of a non-problem body.
@@ -213,12 +214,37 @@ def _problem_slug(problem: dict[str, Any]) -> str | None:
     return None
 
 
+_PROBLEM_TYPE_PREFIX = "https://reference.airbyte.com/reference/errors"
+
+
+def _problem_key(problem: dict[str, Any]) -> str | None:
+    """Return the normalized `type` path used to look up the fixed message.
+
+    Cloud emits `type` as the bare errors URL (slug in `title`), as the URL
+    plus `#<slug>`, or as `error:<path>`; all three normalize to the same key.
+    """
+    value = problem.get("type")
+    key = value if isinstance(value, str) else ""
+    if key.startswith(_PROBLEM_TYPE_PREFIX):
+        key = key.removeprefix(_PROBLEM_TYPE_PREFIX)
+        if key[:1] in {"#", "/"}:
+            key = key[1:]
+    if key.startswith("error:"):
+        key = key.removeprefix("error:")
+    if key.startswith("409-"):
+        key = key.removeprefix("409-")
+    if not key:
+        title = problem.get("title")
+        key = title if isinstance(title, str) else ""
+    return key or None
+
+
 def parse_cloud_problem(status_code: int | None, body: str | None) -> CloudProblem:
     """Read only the allow-listed fields of a Cloud API error body.
 
     Bodies over 64 KiB or non-JSON give `slug=None`.
     """
-    slug = resource_type = error_id = None
+    slug = key = resource_type = error_id = None
     limit = None
     if body is not None and len(body) <= _MAX_PROBLEM_BODY:
         try:
@@ -227,6 +253,7 @@ def parse_cloud_problem(status_code: int | None, body: str | None) -> CloudProbl
             problem = None
         if isinstance(problem, dict):
             slug = _problem_slug(problem)
+            key = _problem_key(problem)
             data = problem.get("data")
             if isinstance(data, dict):
                 candidate = data.get("resourceType")
@@ -241,6 +268,7 @@ def parse_cloud_problem(status_code: int | None, body: str | None) -> CloudProbl
     return CloudProblem(
         status_code=status_code,
         slug=slug,
+        key=key,
         resource_type=resource_type,
         limit=limit,
         error_id=error_id,
@@ -325,54 +353,52 @@ _CLOUD_ERROR_PROBLEM = (
     "Retry at most once; tell the user if it persists.",
 )
 
-# Each key is the problem slug: the last `type` path segment (or `title` when the
-# type is the generic errors page). `notification/config/required` and
-# `connection/destination-catalog/required` collide on `required`, which takes
-# the generic rejected-value wording.
+# Each key is the normalized `type` path (`error:<path>` -> `<path>`,
+# `.../errors#<slug>` -> `<slug>`, bare errors URL -> `title`).
 _PROBLEM_MESSAGES: dict[str, tuple[str, str]] = {
     "resource-not-found": _RESOURCE_NOT_FOUND_PROBLEM,
-    "catalog-not-found": (
+    "destination/catalog-not-found": (
         "This connection has no destination catalog yet.",
         "Set up the destination catalog before this operation; do not change the ID.",
     ),
-    "subscription-required": (
+    "billing/subscription/subscription-required": (
         "This organization needs an active Airbyte subscription for this operation.",
         "Ask the user to check billing; don't retry.",
     ),
-    "no-active-subscription": (
+    "billing/no-active-subscription": (
         "This organization needs an active Airbyte subscription for this operation.",
         "Ask the user to check billing; don't retry.",
     ),
-    "insufficient-payment-status": (
+    "billing/insufficient-payment-status": (
         "The organization's payment status or credit balance doesn't allow this.",
         "Ask the user to resolve billing; don't retry.",
     ),
-    "insufficient-credit-balance": (
+    "billing/insufficient-credit-balance": (
         "The organization's payment status or credit balance doesn't allow this.",
         "Ask the user to resolve billing; don't retry.",
     ),
     "invalid-api-key": _INVALID_API_KEY_PROBLEM,
-    "error:sso-token-validation": (
+    "sso-token-validation": (
         "The SSO access token is invalid or expired.",
         "Ask the user to sign in again.",
     ),
-    "sso-required": (
+    "auth/sso-required": (
         "This email domain must sign in with SSO.",
         "Ask the user to sign in through SSO.",
     ),
-    "invalid-github-token": (
+    "generate-contribution/invalid-github-token": (
         "The GitHub token is invalid or lacks repo write permission.",
         "Ask the user for a valid token.",
     ),
-    "insufficient-github-token-permissions": (
+    "generate-contribution/insufficient-github-token-permissions": (
         "The GitHub token is invalid or lacks repo write permission.",
         "Ask the user for a valid token.",
     ),
-    "entitlement": (
+    "license/entitlement": (
         "The organization's plan doesn't allow this.",
         "Ask the user; don't retry.",
     ),
-    "error:workspace-limit-for-organization-reached": (
+    "workspace-limit-for-organization-reached": (
         "The organization's plan doesn't allow this.",
         "Ask the user; don't retry.",
     ),
@@ -389,8 +415,8 @@ _PROBLEM_MESSAGES: dict[str, tuple[str, str]] = {
         "The redirect URL is not a valid HTTPS URL.",
         "Fix the configuration and retry.",
     ),
-    "409-state-conflict": _STATE_CONFLICT_PROBLEM,
-    "locked": (
+    "state-conflict": _STATE_CONFLICT_PROBLEM,
+    "connection/locked": (
         "The connection is locked and can't be changed right now.",
         "Don't retry; ask the user.",
     ),
@@ -398,29 +424,29 @@ _PROBLEM_MESSAGES: dict[str, tuple[str, str]] = {
         "Airbyte Cloud is busy with a conflicting change.",
         "Wait and retry once.",
     ),
-    "error:group-managed-by-scim": (
+    "group-managed-by-scim": (
         "This group is managed by SCIM and can't be changed here.",
         "Don't retry; tell the user.",
     ),
-    "runtime-secrets-manager-required": (
+    "mapper-validation/runtime-secrets-manager-required": (
         "This needs a runtime secrets manager configured.",
         "Ask the user.",
     ),
-    "error:failed-precondition": (
+    "failed-precondition": (
         "A required condition for this operation isn't met.",
         "Check the resource's state; ask the user if unclear.",
     ),
-    "error:request-timeout-exceeded": _REQUEST_TIMEOUT_PROBLEM,
+    "request-timeout-exceeded": _REQUEST_TIMEOUT_PROBLEM,
     "unexpected-problem": _UNEXPECTED_PROBLEM,
     "service-unavailable": (
         "Airbyte Cloud is temporarily unavailable.",
         "Wait and retry once.",
     ),
-    "error-adding-organization": (
+    "entitlement-service/error-adding-organization": (
         "Airbyte Cloud is temporarily unavailable.",
         "Wait and retry once.",
     ),
-    "error:tag-limit-for-workspace-reached": (
+    "tag-limit-for-workspace-reached": (
         "The workspace has reached its tag limit.",
         "Delete a tag first or ask the user.",
     ),
@@ -428,12 +454,13 @@ _PROBLEM_MESSAGES: dict[str, tuple[str, str]] = {
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "missing-cron-data",
-            "missing-component",
-            "unsupported-timezone",
-            "invalid-expression",
-            "invalid-timezone",
-            "under-one-hour-not-allowed",
+            "cron-validation/missing-cron-data",
+            "cron-validation/missing-component",
+            "cron-validation/unsupported-timezone",
+            "cron-validation/invalid-expression",
+            "cron-validation/invalid-timezone",
+            "cron-validation/under-one-hour-not-allowed",
+            "basic-schedule-validation/under-one-hour-not-allowed",
         ),
         _SCHEDULE_INVALID_PROBLEM,
     )
@@ -441,10 +468,10 @@ _PROBLEM_MESSAGES.update(
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "error:mapper-validation",
-            "missing-required-param",
-            "invalid-config",
-            "secret-not-found",
+            "mapper-validation",
+            "mapper-validation/missing-required-param",
+            "mapper-validation/invalid-config",
+            "mapper-validation/secret-not-found",
         ),
         _MAPPER_INVALID_PROBLEM,
     )
@@ -452,9 +479,9 @@ _PROBLEM_MESSAGES.update(
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "connection-unsupported",
-            "stream-unsupported",
-            "error:connection-conflicting-destination-stream",
+            "connection-validation/file-transfer/connection-unsupported",
+            "connection-validation/file-transfer/stream-unsupported",
+            "connection-conflicting-destination-stream",
         ),
         _STREAM_SELECTION_PROBLEM,
     )
@@ -462,13 +489,14 @@ _PROBLEM_MESSAGES.update(
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "missing-object-name",
-            "invalid-operation",
-            "missing-required-field",
-            "invalid-additional-field",
-            "missing-primary-key",
-            "invalid-primary-key",
-            "discover-not-supported",
+            "connection/destination-catalog/missing-object-name",
+            "connection/destination-catalog/invalid-operation",
+            "connection/destination-catalog/missing-required-field",
+            "connection/destination-catalog/invalid-additional-field",
+            "connection/destination-catalog/required",
+            "connection/destination-catalog/missing-primary-key",
+            "connection/destination-catalog/invalid-primary-key",
+            "destination/discover-not-supported",
         ),
         _DESTINATION_CATALOG_PROBLEM,
     )
@@ -476,31 +504,35 @@ _PROBLEM_MESSAGES.update(
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "error:tag-invalid-hex-color",
-            "error:tag-name-too-long",
-            "required",
-            "missing-url",
+            "tag-invalid-hex-color",
+            "tag-name-too-long",
+            "notification/config/required",
+            "notification/config/missing-url",
         ),
         _VALUE_REJECTED_PROBLEM,
     )
 )
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
-        ("invalid-request", "rollout-percentage-reached", "not-enough-actors"),
+        (
+            "connector-rollout/invalid-request",
+            "connector-rollout/rollout-percentage-reached",
+            "connector-rollout/not-enough-actors",
+        ),
         _ROLLOUT_REJECTED_PROBLEM,
     )
 )
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "user-already-exists",
-            "error:tag-already-exists",
-            "error:group-already-exists",
-            "error:group-permission-already-exists",
-            "error:group-member-already-exists",
-            "error:dataplane-group-name-already-exists",
-            "error:dataplane-name-already-exists",
-            "connector-image-name-in-use",
+            "auth/user-already-exists",
+            "tag-already-exists",
+            "group-already-exists",
+            "group-permission-already-exists",
+            "group-member-already-exists",
+            "dataplane-group-name-already-exists",
+            "dataplane-name-already-exists",
+            "generate-contribution/connector-image-name-in-use",
         ),
         _ALREADY_EXISTS_PROBLEM,
     )
@@ -510,29 +542,35 @@ _PROBLEM_MESSAGES.update(
         (
             "oauth-callback-failure",
             "invalid-consent-url",
-            "error:generate-contribution",
-            "error:sso-config-retrieval",
-            "error:sso-setup",
-            "error:sso-deletion",
-            "error:sso-credential-update",
-            "error:sso-activation",
-            "invalid-organization-state",
+            "generate-contribution",
+            "sso-config-retrieval",
+            "sso-setup",
+            "sso-deletion",
+            "sso-credential-update",
+            "sso-activation",
+            "entitlement-service/invalid-organization-state",
         ),
         _CLOUD_OPERATION_FAILED_PROBLEM,
     )
 )
 _PROBLEM_MESSAGES.update(
-    dict.fromkeys(("access-denied", "paid-plan-required", "generic"), _DBTCLOUD_PROBLEM)
+    dict.fromkeys(
+        ("dbtcloud/access-denied", "dbtcloud/paid-plan-required", "dbtcloud/generic"),
+        _DBTCLOUD_PROBLEM,
+    )
 )
 _PROBLEM_MESSAGES.update(
-    dict.fromkeys(("endpoint-moved", "not-implemented-in-oss"), _ENDPOINT_UNAVAILABLE_PROBLEM)
+    dict.fromkeys(
+        ("embedded/endpoint-moved", "implementation/not-implemented-in-oss"),
+        _ENDPOINT_UNAVAILABLE_PROBLEM,
+    )
 )
 _PROBLEM_MESSAGES.update(
     dict.fromkeys(
         (
-            "no-cancelable-subscription",
-            "no-scheduled-cancellation-subscription",
-            "no-scheduled-plan-change",
+            "billing/no-cancelable-subscription",
+            "billing/no-scheduled-cancellation-subscription",
+            "billing/no-scheduled-plan-change",
         ),
         (
             "There is no subscription change of this kind to act on.",
@@ -565,19 +603,16 @@ def _status_fallback_message(status_code: int | None) -> tuple[str, str]:
 def describe_cloud_problem(problem: CloudProblem) -> tuple[str, str]:
     """Return (message, guidance) for a parsed Cloud problem."""
     message, guidance = _PROBLEM_MESSAGES.get(
-        problem.slug or "", _status_fallback_message(problem.status_code)
+        problem.key or "", _status_fallback_message(problem.status_code)
     )
-    if problem.slug == "resource-not-found" and problem.resource_type:
+    if problem.key == "resource-not-found" and problem.resource_type:
         message = f"The {problem.resource_type} was not found."
-    elif (
-        problem.slug == "error:workspace-limit-for-organization-reached"
-        and problem.limit is not None
-    ):
+    elif problem.key == "workspace-limit-for-organization-reached" and problem.limit is not None:
         message += f" (limit: {problem.limit} workspaces)"
     if problem.status_code is not None:
         message += (
-            f" (Cloud error: {problem.slug}, HTTP {problem.status_code})"
-            if problem.slug
+            f" (Cloud error: {problem.key}, HTTP {problem.status_code})"
+            if problem.key
             else f" (HTTP {problem.status_code})"
         )
     if (

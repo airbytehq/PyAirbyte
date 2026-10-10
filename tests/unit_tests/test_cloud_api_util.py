@@ -2775,7 +2775,7 @@ def _problem_body(
             400,
             _problem_body("error:cron-validation/invalid-expression"),
             "The connection schedule is invalid. "
-            "(Cloud error: invalid-expression, HTTP 400)",
+            "(Cloud error: cron-validation/invalid-expression, HTTP 400)",
             "Fix the schedule (cron expression, timezone, or frequency) and retry.",
             "invalid-expression",
             id="schedule-invalid",
@@ -2784,7 +2784,7 @@ def _problem_body(
             400,
             _problem_body("error:mapper-validation/secret-not-found"),
             "The mapper configuration is invalid. "
-            "(Cloud error: secret-not-found, HTTP 400)",
+            "(Cloud error: mapper-validation/secret-not-found, HTTP 400)",
             "Fix the mapper configuration and retry. "
             "If a mapper secret is missing, resend the secret values.",
             "secret-not-found",
@@ -2794,7 +2794,7 @@ def _problem_body(
             409,
             _problem_body("error:tag-already-exists"),
             "A resource with this name or membership already exists. "
-            "(Cloud error: error:tag-already-exists, HTTP 409)",
+            "(Cloud error: tag-already-exists, HTTP 409)",
             "Use the existing one or pick another name; don't retry as is.",
             "error:tag-already-exists",
             id="already-exists",
@@ -2973,3 +2973,307 @@ def test_public_api_json_error_context_hides_body_and_response(
     assert error.context["problem_type"] == "bad-request"
     assert error.context["url"] == response.request.url
     assert _INTERNAL_MARKER not in str(error)
+
+
+# Every (status, type, title) default published in problems-api's
+# api-problems.yaml, hard-coded so the test does not read the platform repo.
+_PROBLEM_TYPE_DEFAULTS: list[tuple[int, str, str]] = [
+    (
+        401,
+        "https://reference.airbyte.com/reference/errors#invalid-api-key",
+        "invalid-api-key",
+    ),
+    (403, "https://reference.airbyte.com/reference/errors#forbidden", "forbidden"),
+    (403, "error:auth/sso-required", "SSO Sign-in Required"),
+    (301, "error:embedded/endpoint-moved", "Airbyte Embedded Endpoint Moved"),
+    (403, "error:license/entitlement", "License Entitlement Error"),
+    (409, "error:auth/user-already-exists", "User already exists"),
+    (412, "error:failed-precondition", "Failed Precondition"),
+    (
+        500,
+        "https://reference.airbyte.com/reference/errors#oauth-callback-failure",
+        "oauth-callback-failure",
+    ),
+    (
+        500,
+        "https://reference.airbyte.com/reference/errors#invalid-consent-url",
+        "invalid-consent-url",
+    ),
+    (
+        422,
+        "https://reference.airbyte.com/reference/errors#invalid-redirect-url",
+        "invalid-redirect-url",
+    ),
+    (
+        422,
+        "https://reference.airbyte.com/reference/errors#unprocessable-entity",
+        "unprocessable-entity",
+    ),
+    (400, "https://reference.airbyte.com/reference/errors", "value-not-found"),
+    (
+        409,
+        "https://reference.airbyte.com/reference/errors#409-state-conflict",
+        "state-conflict",
+    ),
+    (
+        409,
+        "https://reference.airbyte.com/reference/errors#409-actor-not-ready",
+        "actor-not-ready",
+    ),
+    (409, "error:connection/locked", "Connection is locked"),
+    (
+        409,
+        "https://reference.airbyte.com/reference/errors#try-again-later",
+        "try-again-later",
+    ),
+    (500, "https://reference.airbyte.com/reference/errors", "unexpected-problem"),
+    (400, "https://reference.airbyte.com/reference/errors#bad-request", "bad-request"),
+    (
+        501,
+        "error:implementation/not-implemented-in-oss",
+        "API not implemented in Airbyte OSS",
+    ),
+    (400, "error:dbtcloud/access-denied", "Incorrect integration credentials"),
+    (
+        401,
+        "error:dbtcloud/paid-plan-required",
+        "Unable to access dbt Cloud integration",
+    ),
+    (401, "error:dbtcloud/generic", "Unable to access dbt Cloud integration"),
+    (400, "error:cron-validation/missing-cron-data", "Cron data is missing"),
+    (400, "error:cron-validation/missing-component", "Cron is missing a component"),
+    (400, "error:cron-validation/unsupported-timezone", "Unsupported cron timezone"),
+    (400, "error:cron-validation/invalid-expression", "Invalid cron expression"),
+    (400, "error:cron-validation/invalid-timezone", "Invalid cron timezone"),
+    (
+        400,
+        "error:cron-validation/under-one-hour-not-allowed",
+        "Cron sync schedules more frequent than once per hour are not allowed",
+    ),
+    (
+        400,
+        "error:basic-schedule-validation/under-one-hour-not-allowed",
+        "Basic sync schedules more frequent than once per hour are not allowed",
+    ),
+    (400, "error:mapper-validation", "Mapper validation failed"),
+    (
+        400,
+        "error:mapper-validation/missing-required-param",
+        "Mapper configuration missing required parameter",
+    ),
+    (400, "error:mapper-validation/invalid-config", "Invalid Mapper Configuration"),
+    (400, "error:mapper-validation/secret-not-found", "Mapper secret not found"),
+    (
+        400,
+        "error:connection-validation/file-transfer/connection-unsupported",
+        "Connection does not support file transfers",
+    ),
+    (
+        400,
+        "error:connection-validation/file-transfer/stream-unsupported",
+        "Stream does not support file transfers",
+    ),
+    (
+        400,
+        "error:connection-conflicting-destination-stream",
+        "Connection contains conflicting stream(s).",
+    ),
+    (
+        409,
+        "error:mapper-validation/runtime-secrets-manager-required",
+        "Runtime Secrets Manager Required",
+    ),
+    (503, "https://reference.airbyte.com/reference/errors", "service-unavailable"),
+    (
+        404,
+        "https://reference.airbyte.com/reference/errors#resource-not-found",
+        "resource-not-found",
+    ),
+    (
+        409,
+        "error:generate-contribution/connector-image-name-in-use",
+        "The image name provided is already in use.",
+    ),
+    (
+        401,
+        "error:generate-contribution/invalid-github-token",
+        "Invalid GitHub token provided.",
+    ),
+    (
+        403,
+        "error:generate-contribution/insufficient-github-token-permissions",
+        "Failed to create fork of Airbyte repository.",
+    ),
+    (
+        500,
+        "error:generate-contribution",
+        "An unexpected error occurred when creating your GitHub contribution.",
+    ),
+    (
+        404,
+        "error:billing/subscription/subscription-required",
+        "A subscription is required for this operation to succeed.",
+    ),
+    (
+        422,
+        "error:billing/insufficient-payment-status",
+        "The payment status of the associated Organization is insufficient.",
+    ),
+    (
+        422,
+        "error:billing/insufficient-credit-balance",
+        "The credit balance of the associated Workspace or Organization is insufficient.",
+    ),
+    (
+        404,
+        "error:billing/no-active-subscription",
+        "The organization doesn't have an active subscription.",
+    ),
+    (
+        400,
+        "error:billing/no-cancelable-subscription",
+        "The organization doesn't have any active cancelable subscription.",
+    ),
+    (
+        400,
+        "error:billing/no-scheduled-cancellation-subscription",
+        "The organization doesn't have any cancelable subscription with a scheduled cancellation.",
+    ),
+    (
+        400,
+        "error:billing/no-scheduled-plan-change",
+        "The organization doesn't have any self-serve subscription with a scheduled plan change.",
+    ),
+    (
+        400,
+        "error:connector-rollout/invalid-request",
+        "Invalid Connector Rollout request",
+    ),
+    (
+        400,
+        "error:connector-rollout/rollout-percentage-reached",
+        "Max rollout percentage already reached",
+    ),
+    (
+        400,
+        "error:connector-rollout/not-enough-actors",
+        "Not Enough Actors for Connector Rollout",
+    ),
+    (
+        409,
+        "error:dataplane-group-name-already-exists",
+        "Data plane group name already exists",
+    ),
+    (409, "error:dataplane-name-already-exists", "Data plane name already exists"),
+    (409, "error:tag-already-exists", "Tag already exists"),
+    (409, "error:group-already-exists", "Group already exists"),
+    (409, "error:group-permission-already-exists", "Group permission already exists"),
+    (409, "error:group-managed-by-scim", "Group managed by SCIM"),
+    (409, "error:group-member-already-exists", "Group member already exists"),
+    (400, "error:tag-invalid-hex-color", "Invalid hex color"),
+    (400, "error:tag-name-too-long", "Tag name too long"),
+    (400, "error:tag-limit-for-workspace-reached", "Tag limit for workspace reached"),
+    (
+        403,
+        "error:workspace-limit-for-organization-reached",
+        "Workspace limit for organization reached",
+    ),
+    (408, "error:request-timeout-exceeded", "Request timeout exceeded"),
+    (400, "error:notification/config/required", "Notification required"),
+    (400, "error:notification/config/missing-url", "Notification missing URL"),
+    (
+        400,
+        "error:destination/discover-not-supported",
+        "Destination does not support discover",
+    ),
+    (404, "error:destination/catalog-not-found", "Destination catalog not found"),
+    (
+        400,
+        "error:connection/destination-catalog/missing-object-name",
+        "Configured stream missing destination object name",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/invalid-operation",
+        "Invalid destination operation configuration",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/missing-required-field",
+        "Configured stream missing required field",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/invalid-additional-field",
+        "Invalid additional field in configured stream",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/required",
+        "Destination catalog is required",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/missing-primary-key",
+        "Primary key required when matching keys are defined",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/invalid-primary-key",
+        "Primary key must match one of the matching keys",
+    ),
+    (500, "error:sso-config-retrieval", "SSO config retrieval error"),
+    (500, "error:sso-setup", "SSO setup configuration error"),
+    (500, "error:sso-deletion", "SSO deletion failed"),
+    (500, "error:sso-credential-update", "SSO credential update failed"),
+    (500, "error:sso-activation", "SSO Activation Error"),
+    (401, "error:sso-token-validation", "SSO Token Validation Failed"),
+    (
+        503,
+        "error:entitlement-service/error-adding-organization",
+        "entitlement-service-error-adding-organization",
+    ),
+    (
+        500,
+        "error:entitlement-service/invalid-organization-state",
+        "entitlement-service-invalid-organization-state",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "problem_type", "title"),
+    [pytest.param(*row, id=row[1]) for row in _PROBLEM_TYPE_DEFAULTS],
+)
+def test_every_published_problem_type_matches_a_fixed_message(
+    status_code: int,
+    problem_type: str,
+    title: str,
+) -> None:
+    """Each published `type`/`title` pair hits a `_PROBLEM_MESSAGES` row."""
+    body = _problem_body(problem_type, title)
+    wrapped = api_util._wrap_sdk_error(_sdk_error(status_code, body))
+
+    if problem_type.endswith("409-actor-not-ready"):
+        assert type(wrapped) is AirbyteConnectorNotReadyError
+        return
+
+    if status_code == 403:
+        assert type(wrapped) is AirbyteMissingResourceError
+        assert wrapped.get_message() == (
+            "The requested resource was not found, or these credentials can't "
+            "access it (HTTP 403)."
+        )
+        assert wrapped.guidance == api_util.FORBIDDEN_RESOURCE_GUIDANCE
+        return
+
+    problem = api_util.parse_cloud_problem(status_code, body)
+    assert problem.key in api_util._PROBLEM_MESSAGES
+    expected_message, expected_guidance = api_util._PROBLEM_MESSAGES[problem.key]
+    # A table hit can never be the status fallback; a few rows (bad-request,
+    # state-conflict, ...) intentionally share the fallback wording anyway.
+    assert wrapped.get_message() == (
+        f"{expected_message} (Cloud error: {problem.key}, HTTP {status_code})"
+    )
+    assert wrapped.guidance == expected_guidance
+    assert _INTERNAL_MARKER not in wrapped.get_message()
