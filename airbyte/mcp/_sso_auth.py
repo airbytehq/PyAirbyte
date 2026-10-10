@@ -25,7 +25,9 @@ startup. This module makes those per-login instead, mirroring the Cloud webapp's
    a `ContextVar`.
 5. Before returning a successful interactive login to the MCP client, the upstream
    access token is checked against Airbyte's linked-user endpoint; unlinked tokens
-   receive an OAuth error redirect instead of a client authorization code.
+   receive an OAuth error redirect instead of a client authorization code. Upstream
+   refreshes repeat the check, so a grant that resolves to no user is dropped and
+   the client signs in again.
 6. Upstream tokens are verified by `MultiRealmTokenVerifier`, which routes on the
    token's `iss` to a per-realm `JWTVerifier` whose JWKS URI comes only from the
    template-fetched discovery document, never from the token itself.
@@ -1208,24 +1210,54 @@ class AirbyteSsoOidcProxy(OIDCProxy):
     ) -> RealmEndpoints | None:
         return await self._endpoints_for_issuer(_peek_issuer(upstream_token_set.access_token))
 
-    async def _endpoints_for_proxy_token(
+    async def _upstream_for_proxy_token(
         self, token: str, *, token_use: str
-    ) -> RealmEndpoints | None:
-        """Resolve the realm behind a FastMCP-issued token via its JTI mapping."""
+    ) -> UpstreamTokenSet | None:
+        """Resolve the upstream token set behind a FastMCP-issued token via its JTI mapping."""
         try:
             jti = self.jwt_issuer.verify_token(token, expected_token_use=token_use)["jti"]
             mapping = await self._jti_mapping_store.get(key=jti)
-            upstream = (
+            return (
                 await self._upstream_token_store.get(key=mapping.upstream_token_id)
                 if mapping
                 else None
             )
         except Exception as exc:
-            logger.debug("Could not resolve the SSO realm for a %s token: %s", token_use, exc)
+            logger.debug("Could not resolve the upstream token for a %s token: %s", token_use, exc)
             return None
+
+    async def _endpoints_for_proxy_token(
+        self, token: str, *, token_use: str
+    ) -> RealmEndpoints | None:
+        """Resolve the realm behind a FastMCP-issued token via its JTI mapping."""
+        upstream = await self._upstream_for_proxy_token(token, token_use=token_use)
         if upstream is None:
             return None
         return await self._endpoints_for_upstream_token(upstream)
+
+    async def _reject_unlinked_refresh(self, upstream_token_set: UpstreamTokenSet) -> None:
+        """Drop a refreshed upstream token that has no linked Airbyte user.
+
+        Logins are checked in `_require_linked_airbyte_user`, but a grant issued before
+        that check (or one whose user was unlinked since) would otherwise keep
+        refreshing into tokens the Cloud API rejects on every call. Removing the stored
+        upstream token invalidates every FastMCP token mapped to it, so the client must
+        sign in again and pass the login check. Lookup outages keep the session: the
+        token was valid before this refresh, and failing closed here would sign every
+        client out during an API incident.
+        """
+        try:
+            linked = await asyncio.to_thread(
+                _token_has_airbyte_user, upstream_token_set.access_token
+            )
+        except (exc.AirbyteCloudError, requests.RequestException):
+            logger.warning("Unable to verify linked Airbyte user on token refresh")
+            return
+        if linked:
+            return
+        await self._upstream_token_store.delete(key=upstream_token_set.upstream_token_id)
+        logger.info("Rejected token refresh: upstream token has no linked Airbyte user")
+        raise TokenError("invalid_grant", UNLINKED_LOGIN_ERROR_DESCRIPTION)
 
     async def _try_transparent_refresh(
         self, upstream_token_set: UpstreamTokenSet
@@ -1234,7 +1266,9 @@ class AirbyteSsoOidcProxy(OIDCProxy):
         # other failed refresh and rejects the token, so the client signs in again.
         endpoints = await self._endpoints_for_upstream_token(upstream_token_set)
         with realm_context(endpoints):
-            return await super()._try_transparent_refresh(upstream_token_set)
+            refreshed = await super()._try_transparent_refresh(upstream_token_set)
+        await self._reject_unlinked_refresh(refreshed)
+        return refreshed
 
     async def exchange_refresh_token(
         self,
@@ -1256,7 +1290,13 @@ class AirbyteSsoOidcProxy(OIDCProxy):
             logger.warning("Refusing token refresh: %s", exc)
             raise TokenError("invalid_grant", f"Upstream refresh failed: {exc}") from exc
         with realm_context(endpoints):
-            return await super().exchange_refresh_token(client, refresh_token, scopes)
+            tokens = await super().exchange_refresh_token(client, refresh_token, scopes)
+        upstream = await self._upstream_for_proxy_token(tokens.access_token, token_use="access")
+        if upstream is None:
+            logger.warning("Refusing token refresh: refreshed upstream token could not be resolved")
+            raise TokenError("invalid_grant", "Upstream refresh could not be verified")
+        await self._reject_unlinked_refresh(upstream)
+        return tokens
 
     async def revoke_token(self, token: SdkAccessToken | RefreshToken) -> None:
         """Revoke against the realm that issued the upstream token.
