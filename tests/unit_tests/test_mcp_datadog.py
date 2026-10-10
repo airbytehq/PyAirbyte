@@ -226,8 +226,12 @@ def _wrapped_sdk_error_with_request(
             ("GET", "/v1/{id}/{id}"),
         ),
         (
-            "https://h/customers/acme/api/public/v1/connections/abc-def",
+            "https://h/customers/users/api/public/v1/connections/abc-def",
             ("GET", "/{id}/{id}/{id}/{id}/v1/connections/{id}"),
+        ),
+        (
+            "https://h/v1/customers/v2/connections/abc",
+            ("GET", "/{id}/{id}/v2/connections/{id}"),
         ),
         (
             "https://api.airbyte.com/v1/workspaces/"
@@ -238,6 +242,10 @@ def _wrapped_sdk_error_with_request(
         (
             "https://api.airbyte.com/v1/sources/initiateOAuth",
             ("GET", "/v1/sources/initiateOAuth"),
+        ),
+        (
+            "https://api.airbyte.com/connections/abc",
+            ("GET", "/{id}/{id}"),
         ),
     ],
 )

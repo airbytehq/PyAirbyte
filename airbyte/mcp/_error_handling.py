@@ -136,12 +136,23 @@ def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
             segments = [
                 segment for segment in urlsplit(str(request.url)).path.split("/") if segment
             ]
-            route = "/" + "/".join(
-                segment
-                if segment in _CLOUD_API_ROUTE_SEGMENTS or re.fullmatch(r"v[0-9]{1,3}", segment)
-                else "{id}"
-                for segment in segments
+            version_index = next(
+                (
+                    index
+                    for index in range(len(segments) - 1, -1, -1)
+                    if re.fullmatch(r"v[0-9]{1,3}", segments[index])
+                ),
+                None,
             )
+            route_segments = []
+            for index, segment in enumerate(segments):
+                if version_index is None or index < version_index:
+                    route_segments.append("{id}")
+                elif index == version_index or segment in _CLOUD_API_ROUTE_SEGMENTS:
+                    route_segments.append(segment)
+                else:
+                    route_segments.append("{id}")
+            route = "/" + "/".join(route_segments)
             if len(route) > _MAX_UPSTREAM_ROUTE_LENGTH:
                 return None
         except Exception:
