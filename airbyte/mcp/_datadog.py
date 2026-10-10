@@ -208,6 +208,11 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
         attrs["error.stack"] = stack
     if route := cloud_error_route(cause):
         attrs[_UPSTREAM_METHOD], attrs[_UPSTREAM_ROUTE] = route
+    try:
+        if message := cloud_error_trace_message(cause):
+            attrs["error.message"] = message
+    except Exception:
+        logger.debug("Datadog Cloud error message unavailable")
     return attrs
 
 
