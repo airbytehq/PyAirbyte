@@ -3277,3 +3277,47 @@ def test_every_published_problem_type_matches_a_fixed_message(
     )
     assert wrapped.guidance == expected_guidance
     assert _INTERNAL_MARKER not in wrapped.get_message()
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected_slug", "expected_key"),
+    [
+        pytest.param(
+            {
+                "type": (
+                    "https://reference.airbyte.com/reference/errors"
+                    "#f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                ),
+                "title": "resource-not-found",
+            },
+            None,
+            None,
+            id="id-like-type-never-reads-title",
+        ),
+        pytest.param(
+            {
+                "type": "https://reference.airbyte.com/reference/errors",
+                "title": "unexpected-problem",
+            },
+            "unexpected-problem",
+            "unexpected-problem",
+            id="generic-type-reads-title",
+        ),
+        pytest.param(
+            {"title": "unexpected-problem"},
+            "unexpected-problem",
+            "unexpected-problem",
+            id="missing-type-reads-title",
+        ),
+    ],
+)
+def test_parse_cloud_problem_title_fallback_only_for_generic_type(
+    problem: dict[str, str],
+    expected_slug: str | None,
+    expected_key: str | None,
+) -> None:
+    """`title` is read only when `type` is absent or the generic errors URL."""
+    parsed = api_util.parse_cloud_problem(None, json.dumps(problem))
+
+    assert parsed.slug == expected_slug
+    assert parsed.key == expected_key

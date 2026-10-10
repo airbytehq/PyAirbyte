@@ -199,19 +199,28 @@ class CloudProblem:
 
 
 def _problem_slug(problem: dict[str, Any]) -> str | None:
-    """Return the problem slug: the last `type` segment, or `title` for the generic type."""
-    for field in ("type", "title"):
-        value = problem.get(field)
+    """Return the problem slug: the last `type` segment; `title` only for the generic type.
+
+    A `type` whose slug is rejected (ID-like, or failing the slug charset) gives
+    `None` rather than a `title` read.
+    """
+
+    def slug_of(value: object) -> str | None:
         if not isinstance(value, str):
-            continue
+            return None
         slug = re.split(r"[/#]", value)[-1]
-        if (
-            slug != _GENERIC_PROBLEM_SLUG
-            and _PROBLEM_SLUG.fullmatch(slug)
-            and not _ID_LIKE.fullmatch(slug)
-        ):
+        if _PROBLEM_SLUG.fullmatch(slug) and not _ID_LIKE.fullmatch(slug):
             return slug
-    return None
+        return None
+
+    slug = slug_of(problem.get("type"))
+    if slug is None:
+        if isinstance(problem.get("type"), str):
+            return None
+        return slug_of(problem.get("title"))
+    if slug == _GENERIC_PROBLEM_SLUG:
+        return slug_of(problem.get("title"))
+    return slug
 
 
 _PROBLEM_TYPE_PREFIX = "https://reference.airbyte.com/reference/errors"
@@ -233,9 +242,11 @@ def _problem_key(problem: dict[str, Any]) -> str | None:
         key = key.removeprefix("error:")
     if key.startswith("409-"):
         key = key.removeprefix("409-")
-    if not key:
+    if key in {"", _GENERIC_PROBLEM_SLUG}:
         title = problem.get("title")
         key = title if isinstance(title, str) else ""
+    if _ID_LIKE.fullmatch(key):
+        return None
     return key or None
 
 

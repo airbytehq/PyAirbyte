@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from typing import Literal
 
 import pytest
@@ -26,6 +27,7 @@ from airbyte.exceptions import (
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     AgentErrorTextMiddleware,
+    redact_agent_text,
     classify_mcp_tool_error,
     format_user_facing_error,
     mcp_tool_error_reason,
@@ -317,3 +319,60 @@ def test_secret_valued_argument_never_shows_a_prefix() -> None:
     assert "sk_live" not in text
     assert "<value of config.api_key>" in text
     assert "stream_with_secret_value" not in text
+
+
+def _tool_stub(fn):
+    return SimpleNamespace(fn=fn, name="test-tool")
+
+
+def _classify_args(stream_name: str, connection_id: str, password: str) -> None:
+    """Hints so `classify_tool` gives HASH/PRESENCE modes like real tools."""
+
+
+@pytest.mark.parametrize(
+    ("arguments", "text", "expected"),
+    [
+        pytest.param(
+            {"stream_name": "user"},
+            "Ask the user; don't retry.",
+            "Ask the user; don't retry.",
+            id="non-secret-word-user",
+        ),
+        pytest.param(
+            {"stream_name": "retry"},
+            "Ask the user; don't retry.",
+            "Ask the user; don't retry.",
+            id="non-secret-word-retry",
+        ),
+        pytest.param(
+            {"stream_name": "users"},
+            "Ask the user; don't retry.",
+            "Ask the user; don't retry.",
+            id="non-secret-word-users",
+        ),
+        pytest.param(
+            {"stream_name": "customer"},
+            "Check the customers table first.",
+            "Check the customers table first.",
+            id="non-secret-token-inside-longer-token",
+        ),
+        pytest.param(
+            {"connection_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"},
+            "Cannot perform destructive operation on "
+            "'f47ac10b-58cc-4372-a567-0e02b2c3d479': Object was not created.",
+            "Cannot perform destructive operation on "
+            "'<value of connection_id>': Object was not created.",
+            id="non-secret-uuid-echo-masked",
+        ),
+        pytest.param(
+            {"password": "abc123secret"},
+            "boom in xxabc123secretyy field",
+            "boom in xx<value of password>yy field",
+            id="secret-substring-masked",
+        ),
+    ],
+)
+def test_redact_agent_text_masks_whole_tokens_only(
+    arguments: dict, text: str, expected: str
+) -> None:
+    assert redact_agent_text(text, arguments, _tool_stub(_classify_args)) == expected

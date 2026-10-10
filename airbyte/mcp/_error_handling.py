@@ -149,19 +149,19 @@ def _collect_leaves(
     path: str,
     *,
     secret: bool,
-    leaves: list[tuple[str, str]],
+    leaves: list[tuple[str, str, bool]],
 ) -> None:
-    """Collect (placeholder path, leaf text) pairs for every value to hide."""
+    """Collect (placeholder path, leaf text, secret) tuples for values to hide."""
     if isinstance(value, bool):
         return  # `true`/`false` are JSON literals, never masked.
     if isinstance(value, (int, float)):
         leaf = str(value)
-        if (secret and _secret_leaf(leaf)) or (not secret and len(leaf) >= 4):  # noqa: PLR2004
-            leaves.append((path, leaf))
+        if (secret and _secret_leaf(leaf)) or (not secret and len(leaf) >= 8):  # noqa: PLR2004
+            leaves.append((path, leaf, secret))
         return
     if isinstance(value, str):
-        if (secret and _secret_leaf(value)) or (not secret and len(value) >= 4):  # noqa: PLR2004
-            leaves.append((path, value))
+        if (secret and _secret_leaf(value)) or (not secret and len(value) >= 8):  # noqa: PLR2004
+            leaves.append((path, value, secret))
         # A JSON-string config may hold nested secrets; index its leaves too.
         if value[:1] in {"{", "["}:
             try:
@@ -207,9 +207,10 @@ def redact_agent_text(
 
     Each parameter is classified by the same rules arg tracing uses, so error
     text never shows a value tracing would not record in clear: secret-class
-    parameters lose every leaf, other parameters lose leaves of four or more
-    characters, and `VALUE` (enum-like) parameters stay clear only when they
-    hold one of the declared choices.
+    parameters lose every leaf, other parameters lose leaves of eight or
+    more characters, and `VALUE` (enum-like) parameters stay clear only when
+    they hold one of the declared choices. Non-secret leaves are masked as
+    whole tokens only, so common words in guidance text stay untouched.
     """
     if arguments:
         func = getattr(tool, "fn", None) if tool is not None else None
@@ -217,7 +218,7 @@ def redact_agent_text(
             classes = classify_tool(func, sorted(arguments), tool=getattr(tool, "name", ""))
         except Exception:
             classes = {}
-        leaves: list[tuple[str, str]] = []
+        leaves: list[tuple[str, str, bool]] = []
         for name, value in arguments.items():
             arg_class = classes.get(name)
             mode = arg_class.mode if arg_class is not None else TraceArg.PRESENCE
@@ -229,11 +230,19 @@ def redact_agent_text(
                 secret = mode in {TraceArg.OMIT, TraceArg.PRESENCE}
             _collect_leaves(value, name, secret=secret, leaves=leaves)
         seen: set[str] = set()
-        for path, leaf in sorted(leaves, key=lambda item: -len(item[1])):
+        for path, leaf, secret in sorted(leaves, key=lambda item: -len(item[1])):
             if leaf in seen:
                 continue
             seen.add(leaf)
-            text = text.replace(leaf, f"<value of {path}>")
+            placeholder = f"<value of {path}>"
+            if secret:
+                text = text.replace(leaf, placeholder)
+            else:
+                text = re.sub(
+                    rf"(?<![A-Za-z0-9_-]){re.escape(leaf)}(?![A-Za-z0-9_-])",
+                    lambda _m: placeholder,
+                    text,
+                )
 
     text = _INPUT_VALUE.sub("input_value=<redacted>", text)
     text = _BEARER_TOKEN.sub("Bearer <redacted>", text)
