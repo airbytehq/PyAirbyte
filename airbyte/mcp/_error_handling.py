@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
+import requests
 from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp_extensions.otel._arg_digests import classify_tool  # noqa: PLC2701
@@ -52,7 +53,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _UPSTREAM_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
-_SAFE_ROUTE_SEGMENT = re.compile(r"(?:[a-z][a-z_-]{0,63}|v[0-9]{1,3})\Z")
+# Literal segments come from path templates in airbyte_api.
+_CLOUD_API_ROUTE_SEGMENTS = frozenset(
+    {
+        "connections",
+        "destinations",
+        "health",
+        "jobs",
+        "organizations",
+        "oauthCredentials",
+        "permissions",
+        "sources",
+        "initiateOAuth",
+        "streams",
+        "tags",
+        "users",
+        "workspaces",
+        "definitions",
+        "declarative_sources",
+    }
+)
 _MAX_UPSTREAM_ROUTE_LENGTH = 200
 
 
@@ -77,6 +97,12 @@ def cloud_error_trace_message(error: BaseException) -> str | None:
     """
     cloud_error: AirbyteCloudApiError | None = None
     for cause in _chain(error):
+        if (
+            isinstance(cause, AirbyteLibError)
+            and isinstance(cause.__cause__, requests.HTTPError)
+            and "problem_type" in (cause.context or {})
+        ):
+            return cause.message
         if isinstance(cause, AirbyteCloudApiError):
             body = error_response_body(cause)
             if body is not None:
@@ -111,7 +137,9 @@ def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
                 segment for segment in urlsplit(str(request.url)).path.split("/") if segment
             ]
             route = "/" + "/".join(
-                segment if _SAFE_ROUTE_SEGMENT.fullmatch(segment) else "{id}"
+                segment
+                if segment in _CLOUD_API_ROUTE_SEGMENTS or re.fullmatch(r"v[0-9]{1,3}", segment)
+                else "{id}"
                 for segment in segments
             )
             if len(route) > _MAX_UPSTREAM_ROUTE_LENGTH:

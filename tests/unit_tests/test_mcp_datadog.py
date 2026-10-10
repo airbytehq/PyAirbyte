@@ -219,11 +219,25 @@ def _wrapped_sdk_error_with_request(
         ),
         (
             "https://api.airbyte.com/v1/jobs/12345/status",
-            ("GET", "/v1/jobs/{id}/status"),
+            ("GET", "/v1/jobs/{id}/{id}"),
         ),
         (
             "https://api.airbyte.com/v1/Connections/MyConnection",
             ("GET", "/v1/{id}/{id}"),
+        ),
+        (
+            "https://h/customers/acme/api/public/v1/connections/abc-def",
+            ("GET", "/{id}/{id}/{id}/{id}/v1/connections/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/workspaces/"
+            "123e4567-e89b-42d3-a456-426614174000/definitions/sources/"
+            "123e4567-e89b-42d3-a456-426614174001",
+            ("GET", "/v1/workspaces/{id}/definitions/sources/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/sources/initiateOAuth",
+            ("GET", "/v1/sources/initiateOAuth"),
         ),
     ],
 )
@@ -255,6 +269,58 @@ def test_cloud_error_route_omits_missing_or_invalid_requests() -> None:
     assert "airbyte.mcp.upstream.route" not in _datadog._exception_attributes(
         weird_method
     )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "problem_type", "expected_message"),
+    [
+        (
+            404,
+            "resource-not-found",
+            "The resource was not found. (Cloud error: resource-not-found, HTTP 404)",
+        ),
+        (
+            403,
+            "forbidden",
+            "The requested resource was not found, or these credentials can't access it "
+            "(HTTP 403).",
+        ),
+    ],
+)
+def test_cloud_error_trace_message_for_config_api_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    problem_type: str,
+    expected_message: str,
+) -> None:
+    response = requests.Response()
+    response.status_code = status_code
+    response.url = "https://config.airbyte.com/v1/workspaces/get"
+    response.request = requests.Request("POST", response.url).prepare()
+    response._content = json.dumps({"type": problem_type, "title": "SENTINEL"}).encode()
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+
+    with pytest.raises(api_util.AirbyteCloudError) as exc_info:
+        api_util._make_config_api_request(
+            path="/workspaces/get",
+            json={"workspaceId": "SENTINEL"},
+            api_root="https://api.airbyte.com/v1",
+            config_api_root="https://config.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=api_util.SecretString("token"),
+        )
+
+    assert isinstance(exc_info.value.__cause__, requests.HTTPError)
+    assert _datadog.cloud_error_trace_message(exc_info.value) == expected_message
+
+
+def test_cloud_error_trace_message_ignores_missing_resource_without_http_error() -> (
+    None
+):
+    error = api_util.AirbyteMissingResourceError(message="resource SENTINEL")
+
+    assert _datadog.cloud_error_trace_message(error) is None
 
 
 @pytest.mark.parametrize(
