@@ -13,7 +13,7 @@ import pytest
 import requests
 import responses
 from airbyte import constants
-from airbyte._util import api_util, meta
+from airbyte._util import api_util, cloud_errors, meta
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -3250,7 +3250,7 @@ def test_every_published_problem_type_matches_a_fixed_message(
     problem_type: str,
     title: str,
 ) -> None:
-    """Each published `type`/`title` pair hits a `_PROBLEM_MESSAGES` row."""
+    """Each published `type`/`title` pair hits a `cloud_errors.yaml` row."""
     body = _problem_body(problem_type, title)
     wrapped = api_util._wrap_sdk_error(_sdk_error(status_code, body))
 
@@ -3267,9 +3267,10 @@ def test_every_published_problem_type_matches_a_fixed_message(
         assert wrapped.guidance == api_util.FORBIDDEN_RESOURCE_GUIDANCE
         return
 
-    problem = api_util.parse_cloud_problem(status_code, body)
-    assert problem.key in api_util._PROBLEM_MESSAGES
-    expected_message, expected_guidance = api_util._PROBLEM_MESSAGES[problem.key]
+    problem = cloud_errors.parse_cloud_error(status_code, body)
+    assert problem.key in cloud_errors._messages()
+    entry = cloud_errors._messages()[problem.key]
+    expected_message, expected_guidance = entry["message"], entry["guidance"]
     # A table hit can never be the status fallback; a few rows (bad-request,
     # state-conflict, ...) intentionally share the fallback wording anyway.
     assert wrapped.get_message() == (
@@ -3311,13 +3312,30 @@ def test_every_published_problem_type_matches_a_fixed_message(
         ),
     ],
 )
-def test_parse_cloud_problem_title_fallback_only_for_generic_type(
+def test_parse_cloud_error_title_fallback_only_for_generic_type(
     problem: dict[str, str],
     expected_slug: str | None,
     expected_key: str | None,
 ) -> None:
     """`title` is read only when `type` is absent or the generic errors URL."""
-    parsed = api_util.parse_cloud_problem(None, json.dumps(problem))
+    parsed = cloud_errors.parse_cloud_error(None, json.dumps(problem))
 
     assert parsed.slug == expected_slug
     assert parsed.key == expected_key
+
+
+def test_cloud_errors_yaml_entries_have_message_and_guidance() -> None:
+    """Every YAML entry is a mapping with only `message` and `guidance` strings."""
+    messages = cloud_errors._messages()
+
+    assert set(messages) > {"status_fallbacks"}
+    for key, entry in messages.items():
+        if key == "status_fallbacks":
+            for status, fallback in entry.items():
+                assert set(fallback) == {"message", "guidance"}
+                assert isinstance(fallback["message"], str) and fallback["message"]
+                assert isinstance(fallback["guidance"], str) and fallback["guidance"]
+            continue
+        assert set(entry) == {"message", "guidance"}
+        assert isinstance(entry["message"], str) and entry["message"]
+        assert isinstance(entry["guidance"], str) and entry["guidance"]

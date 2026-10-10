@@ -17,8 +17,7 @@ import base64
 import copy
 import json
 import logging
-import re
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
@@ -27,6 +26,7 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
+from airbyte._util.cloud_errors import describe_cloud_error, parse_cloud_error
 from airbyte._util.meta import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     get_cloud_api_analytic_source,
@@ -172,469 +172,6 @@ def error_response_body(error: BaseException) -> str | None:
     return None
 
 
-_PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
-# The last path segment of the generic problem `type` URL; `title` is the slug then.
-_GENERIC_PROBLEM_SLUG = "errors"
-# A slug names a kind of problem; one that is or holds an ID names a resource.
-_ID_LIKE = re.compile(r"\d+|.*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*")
-_MAX_PROBLEM_BODY = 65536
-_RESOURCE_TYPE = re.compile(r"[a-z_-]{1,40}")
-_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-
-
-@dataclass(frozen=True)
-class CloudProblem:
-    """The allow-listed fields of an Airbyte Cloud error body.
-
-    `detail`, `data.message` and every other field can quote caller values or
-    server internals, so they are never read for message text.
-    """
-
-    status_code: int | None
-    slug: str | None  # Last `type`/`title` segment, like `mcp_tool_error_reason`.
-    key: str | None  # Normalized `type` path used to look up the fixed message.
-    resource_type: str | None  # `data.resourceType`, a fixed word.
-    limit: int | None  # `data.limit`.
-    error_id: str | None  # Top-level `errorId` of a non-problem body.
-
-
-def _problem_slug(problem: dict[str, Any]) -> str | None:
-    """Return the problem slug: the last `type` segment; `title` only for the generic type.
-
-    A `type` whose slug is rejected (ID-like, or failing the slug charset) gives
-    `None` rather than a `title` read.
-    """
-
-    def slug_of(value: object) -> str | None:
-        if not isinstance(value, str):
-            return None
-        slug = re.split(r"[/#]", value)[-1]
-        if _PROBLEM_SLUG.fullmatch(slug) and not _ID_LIKE.fullmatch(slug):
-            return slug
-        return None
-
-    slug = slug_of(problem.get("type"))
-    if slug is None:
-        if isinstance(problem.get("type"), str):
-            return None
-        return slug_of(problem.get("title"))
-    if slug == _GENERIC_PROBLEM_SLUG:
-        return slug_of(problem.get("title"))
-    return slug
-
-
-_PROBLEM_TYPE_PREFIX = "https://reference.airbyte.com/reference/errors"
-
-
-def _problem_key(problem: dict[str, Any]) -> str | None:
-    """Return the normalized `type` path used to look up the fixed message.
-
-    Cloud emits `type` as the bare errors URL (slug in `title`), as the URL
-    plus `#<slug>`, or as `error:<path>`; all three normalize to the same key.
-    """
-    value = problem.get("type")
-    key = value if isinstance(value, str) else ""
-    if key.startswith(_PROBLEM_TYPE_PREFIX):
-        key = key.removeprefix(_PROBLEM_TYPE_PREFIX)
-        if key[:1] in {"#", "/"}:
-            key = key[1:]
-    if key.startswith("error:"):
-        key = key.removeprefix("error:")
-    if key.startswith("409-"):
-        key = key.removeprefix("409-")
-    if key in {"", _GENERIC_PROBLEM_SLUG}:
-        title = problem.get("title")
-        key = title if isinstance(title, str) else ""
-    if _ID_LIKE.fullmatch(key):
-        return None
-    return key or None
-
-
-def parse_cloud_problem(status_code: int | None, body: str | None) -> CloudProblem:
-    """Read only the allow-listed fields of a Cloud API error body.
-
-    Bodies over 64 KiB or non-JSON give `slug=None`.
-    """
-    slug = key = resource_type = error_id = None
-    limit = None
-    if body is not None and len(body) <= _MAX_PROBLEM_BODY:
-        try:
-            problem = json.loads(body)
-        except (ValueError, RecursionError):
-            problem = None
-        if isinstance(problem, dict):
-            slug = _problem_slug(problem)
-            key = _problem_key(problem)
-            data = problem.get("data")
-            if isinstance(data, dict):
-                candidate = data.get("resourceType")
-                if isinstance(candidate, str) and _RESOURCE_TYPE.fullmatch(candidate):
-                    resource_type = candidate
-                limit_value = data.get("limit")
-                if isinstance(limit_value, int) and not isinstance(limit_value, bool):
-                    limit = limit_value
-            candidate = problem.get("errorId")
-            if isinstance(candidate, str) and _UUID.fullmatch(candidate):
-                error_id = candidate
-    return CloudProblem(
-        status_code=status_code,
-        slug=slug,
-        key=key,
-        resource_type=resource_type,
-        limit=limit,
-        error_id=error_id,
-    )
-
-
-_SCHEDULE_INVALID_PROBLEM = (
-    "The connection schedule is invalid.",
-    "Fix the schedule (cron expression, timezone, or frequency) and retry.",
-)
-_MAPPER_INVALID_PROBLEM = (
-    "The mapper configuration is invalid.",
-    "Fix the mapper configuration and retry. "
-    "If a mapper secret is missing, resend the secret values.",
-)
-_STREAM_SELECTION_PROBLEM = (
-    "The selected streams can't be used with this connection (file transfer is "
-    "unsupported, or a stream collides with another connection).",
-    "Change the selected streams or connection settings and retry.",
-)
-_DESTINATION_CATALOG_PROBLEM = (
-    "The destination catalog settings for a stream are invalid.",
-    "Fix the stream's destination settings (object name, sync mode, fields, "
-    "primary key) and retry.",
-)
-_VALUE_REJECTED_PROBLEM = (
-    "Airbyte Cloud rejected a value in the request.",
-    "Fix the input and retry.",
-)
-_ROLLOUT_REJECTED_PROBLEM = (
-    "The connector rollout request was rejected.",
-    "Don't retry; tell the user.",
-)
-_ALREADY_EXISTS_PROBLEM = (
-    "A resource with this name or membership already exists.",
-    "Use the existing one or pick another name; don't retry as is.",
-)
-_CLOUD_OPERATION_FAILED_PROBLEM = (
-    "Airbyte Cloud failed to complete this operation.",
-    "Don't retry; tell the user.",
-)
-_DBTCLOUD_PROBLEM = (
-    "dbt Cloud rejected the integration credentials, requires a paid plan, " "or the call failed.",
-    "Ask the user to check the dbt Cloud integration.",
-)
-_ENDPOINT_UNAVAILABLE_PROBLEM = (
-    "This operation isn't available at this Airbyte endpoint.",
-    "Don't retry.",
-)
-_RESOURCE_NOT_FOUND_PROBLEM = (
-    "The resource was not found.",
-    "Check the ID; list the resources to find the right one.",
-)
-_INVALID_API_KEY_PROBLEM = (
-    "Airbyte Cloud rejected the credentials.",
-    "Ask the user to check the client ID/secret or token; don't retry.",
-)
-_REQUEST_TIMEOUT_PROBLEM = (
-    "Airbyte Cloud timed out. The change may or may not have been applied.",
-    "Check the resource's current state before retrying; don't blindly retry a create.",
-)
-_STATE_CONFLICT_PROBLEM = (
-    "The resource is in a state that doesn't allow this operation (for example, "
-    "a job is running or already finished).",
-    "Check the resource's current status before retrying.",
-)
-_UNEXPECTED_PROBLEM = (
-    "Airbyte Cloud hit an unexpected error. This is often caused by an invalid " "argument value.",
-    "Check the arguments (ranges, IDs, formats). If they look right, don't retry "
-    "more than once; tell the user.",
-)
-_RATE_LIMITED_PROBLEM = (
-    "Airbyte Cloud is refusing requests from these credentials (rate limited).",
-    "Stop calling Airbyte Cloud tools and tell the user; don't retry.",
-)
-_REQUEST_REJECTED_PROBLEM = (
-    "Airbyte Cloud rejected the request as invalid.",
-    "Check the arguments against the tool description.",
-)
-_CLOUD_ERROR_PROBLEM = (
-    "Airbyte Cloud returned an error.",
-    "Retry at most once; tell the user if it persists.",
-)
-
-# Each key is the normalized `type` path (`error:<path>` -> `<path>`,
-# `.../errors#<slug>` -> `<slug>`, bare errors URL -> `title`).
-_PROBLEM_MESSAGES: dict[str, tuple[str, str]] = {
-    "resource-not-found": _RESOURCE_NOT_FOUND_PROBLEM,
-    "destination/catalog-not-found": (
-        "This connection has no destination catalog yet.",
-        "Set up the destination catalog before this operation; do not change the ID.",
-    ),
-    "billing/subscription/subscription-required": (
-        "This organization needs an active Airbyte subscription for this operation.",
-        "Ask the user to check billing; don't retry.",
-    ),
-    "billing/no-active-subscription": (
-        "This organization needs an active Airbyte subscription for this operation.",
-        "Ask the user to check billing; don't retry.",
-    ),
-    "billing/insufficient-payment-status": (
-        "The organization's payment status or credit balance doesn't allow this.",
-        "Ask the user to resolve billing; don't retry.",
-    ),
-    "billing/insufficient-credit-balance": (
-        "The organization's payment status or credit balance doesn't allow this.",
-        "Ask the user to resolve billing; don't retry.",
-    ),
-    "invalid-api-key": _INVALID_API_KEY_PROBLEM,
-    "sso-token-validation": (
-        "The SSO access token is invalid or expired.",
-        "Ask the user to sign in again.",
-    ),
-    "auth/sso-required": (
-        "This email domain must sign in with SSO.",
-        "Ask the user to sign in through SSO.",
-    ),
-    "generate-contribution/invalid-github-token": (
-        "The GitHub token is invalid or lacks repo write permission.",
-        "Ask the user for a valid token.",
-    ),
-    "generate-contribution/insufficient-github-token-permissions": (
-        "The GitHub token is invalid or lacks repo write permission.",
-        "Ask the user for a valid token.",
-    ),
-    "license/entitlement": (
-        "The organization's plan doesn't allow this.",
-        "Ask the user; don't retry.",
-    ),
-    "workspace-limit-for-organization-reached": (
-        "The organization's plan doesn't allow this.",
-        "Ask the user; don't retry.",
-    ),
-    "value-not-found": (
-        "Airbyte doesn't recognize the connector type name.",
-        "Check the name against the connector list (e.g. `source-postgres`).",
-    ),
-    "bad-request": _REQUEST_REJECTED_PROBLEM,
-    "unprocessable-entity": (
-        "The request body or connector configuration failed validation.",
-        "Fix the configuration and retry.",
-    ),
-    "invalid-redirect-url": (
-        "The redirect URL is not a valid HTTPS URL.",
-        "Fix the configuration and retry.",
-    ),
-    "state-conflict": _STATE_CONFLICT_PROBLEM,
-    "connection/locked": (
-        "The connection is locked and can't be changed right now.",
-        "Don't retry; ask the user.",
-    ),
-    "try-again-later": (
-        "Airbyte Cloud is busy with a conflicting change.",
-        "Wait and retry once.",
-    ),
-    "group-managed-by-scim": (
-        "This group is managed by SCIM and can't be changed here.",
-        "Don't retry; tell the user.",
-    ),
-    "mapper-validation/runtime-secrets-manager-required": (
-        "This needs a runtime secrets manager configured.",
-        "Ask the user.",
-    ),
-    "failed-precondition": (
-        "A required condition for this operation isn't met.",
-        "Check the resource's state; ask the user if unclear.",
-    ),
-    "request-timeout-exceeded": _REQUEST_TIMEOUT_PROBLEM,
-    "unexpected-problem": _UNEXPECTED_PROBLEM,
-    "service-unavailable": (
-        "Airbyte Cloud is temporarily unavailable.",
-        "Wait and retry once.",
-    ),
-    "entitlement-service/error-adding-organization": (
-        "Airbyte Cloud is temporarily unavailable.",
-        "Wait and retry once.",
-    ),
-    "tag-limit-for-workspace-reached": (
-        "The workspace has reached its tag limit.",
-        "Delete a tag first or ask the user.",
-    ),
-}
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "cron-validation/missing-cron-data",
-            "cron-validation/missing-component",
-            "cron-validation/unsupported-timezone",
-            "cron-validation/invalid-expression",
-            "cron-validation/invalid-timezone",
-            "cron-validation/under-one-hour-not-allowed",
-            "basic-schedule-validation/under-one-hour-not-allowed",
-        ),
-        _SCHEDULE_INVALID_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "mapper-validation",
-            "mapper-validation/missing-required-param",
-            "mapper-validation/invalid-config",
-            "mapper-validation/secret-not-found",
-        ),
-        _MAPPER_INVALID_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "connection-validation/file-transfer/connection-unsupported",
-            "connection-validation/file-transfer/stream-unsupported",
-            "connection-conflicting-destination-stream",
-        ),
-        _STREAM_SELECTION_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "connection/destination-catalog/missing-object-name",
-            "connection/destination-catalog/invalid-operation",
-            "connection/destination-catalog/missing-required-field",
-            "connection/destination-catalog/invalid-additional-field",
-            "connection/destination-catalog/required",
-            "connection/destination-catalog/missing-primary-key",
-            "connection/destination-catalog/invalid-primary-key",
-            "destination/discover-not-supported",
-        ),
-        _DESTINATION_CATALOG_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "tag-invalid-hex-color",
-            "tag-name-too-long",
-            "notification/config/required",
-            "notification/config/missing-url",
-        ),
-        _VALUE_REJECTED_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "connector-rollout/invalid-request",
-            "connector-rollout/rollout-percentage-reached",
-            "connector-rollout/not-enough-actors",
-        ),
-        _ROLLOUT_REJECTED_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "auth/user-already-exists",
-            "tag-already-exists",
-            "group-already-exists",
-            "group-permission-already-exists",
-            "group-member-already-exists",
-            "dataplane-group-name-already-exists",
-            "dataplane-name-already-exists",
-            "generate-contribution/connector-image-name-in-use",
-        ),
-        _ALREADY_EXISTS_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "oauth-callback-failure",
-            "invalid-consent-url",
-            "generate-contribution",
-            "sso-config-retrieval",
-            "sso-setup",
-            "sso-deletion",
-            "sso-credential-update",
-            "sso-activation",
-            "entitlement-service/invalid-organization-state",
-        ),
-        _CLOUD_OPERATION_FAILED_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        ("dbtcloud/access-denied", "dbtcloud/paid-plan-required", "dbtcloud/generic"),
-        _DBTCLOUD_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        ("embedded/endpoint-moved", "implementation/not-implemented-in-oss"),
-        _ENDPOINT_UNAVAILABLE_PROBLEM,
-    )
-)
-_PROBLEM_MESSAGES.update(
-    dict.fromkeys(
-        (
-            "billing/no-cancelable-subscription",
-            "billing/no-scheduled-cancellation-subscription",
-            "billing/no-scheduled-plan-change",
-        ),
-        (
-            "There is no subscription change of this kind to act on.",
-            "Don't retry; tell the user.",
-        ),
-    )
-)
-
-
-_STATUS_FALLBACK_PROBLEMS: dict[int, tuple[str, str]] = {
-    HTTPStatus.UNAUTHORIZED: _INVALID_API_KEY_PROBLEM,
-    HTTPStatus.NOT_FOUND: _RESOURCE_NOT_FOUND_PROBLEM,
-    HTTPStatus.REQUEST_TIMEOUT: _REQUEST_TIMEOUT_PROBLEM,
-    HTTPStatus.CONFLICT: _STATE_CONFLICT_PROBLEM,
-    HTTPStatus.TOO_MANY_REQUESTS: _RATE_LIMITED_PROBLEM,
-}
-
-
-def _status_fallback_message(status_code: int | None) -> tuple[str, str]:
-    """Return (message, guidance) for a status without a known problem slug."""
-    if status_code is not None and status_code in _STATUS_FALLBACK_PROBLEMS:
-        return _STATUS_FALLBACK_PROBLEMS[status_code]
-    if status_code is None:
-        return _CLOUD_ERROR_PROBLEM
-    if status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
-        return _REQUEST_REJECTED_PROBLEM
-    return _UNEXPECTED_PROBLEM
-
-
-def describe_cloud_problem(problem: CloudProblem) -> tuple[str, str]:
-    """Return (message, guidance) for a parsed Cloud problem."""
-    message, guidance = _PROBLEM_MESSAGES.get(
-        problem.key or "", _status_fallback_message(problem.status_code)
-    )
-    if problem.key == "resource-not-found" and problem.resource_type:
-        message = f"The {problem.resource_type} was not found."
-    elif problem.key == "workspace-limit-for-organization-reached" and problem.limit is not None:
-        message += f" (limit: {problem.limit} workspaces)"
-    if problem.status_code is not None:
-        message += (
-            f" (Cloud error: {problem.key}, HTTP {problem.status_code})"
-            if problem.key
-            else f" (HTTP {problem.status_code})"
-        )
-    if (
-        problem.status_code is not None
-        and problem.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
-        and problem.error_id
-    ):
-        guidance += f" Error ID: {problem.error_id}."
-    return message, guidance
-
-
 def _is_actor_not_ready_error(error: SDKError) -> bool:
     """Check whether an SDKError contains Airbyte Cloud's actor-not-ready problem."""
     if error.status_code != HTTPStatus.CONFLICT:
@@ -662,7 +199,7 @@ def _wrap_sdk_error(
     full URL context, making it easier to debug API issues like 403 and 404 errors.
     """
     sdk_context = _get_sdk_error_context(error)
-    problem = parse_cloud_problem(error.status_code, error.body)
+    problem = parse_cloud_error(error.status_code, error.body)
     merged_context = {
         **(base_context or {}),
         **sdk_context,
@@ -679,7 +216,7 @@ def _wrap_sdk_error(
 
     status_code = sdk_context.get("status_code")
     is_forbidden = status_code == HTTPStatus.FORBIDDEN
-    message, guidance = describe_cloud_problem(problem)
+    message, guidance = describe_cloud_error(problem)
     error_type = (
         AirbyteMissingResourceError
         if is_forbidden or status_code == HTTPStatus.NOT_FOUND
@@ -2465,7 +2002,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
             "selected_stream_names": selected_stream_names,
         }
         if e.status_code == HTTPStatus.BAD_REQUEST:
-            wrapped_message, _ = describe_cloud_problem(parse_cloud_problem(e.status_code, e.body))
+            wrapped_message, _ = describe_cloud_error(parse_cloud_error(e.status_code, e.body))
             raise AirbyteLibInputError(
                 message=wrapped_message,
                 guidance=(
@@ -2814,8 +2351,8 @@ def _make_config_api_request(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
-            problem = parse_cloud_problem(response.status_code, response.text)
-            message, guidance = describe_cloud_problem(problem)
+            problem = parse_cloud_error(response.status_code, response.text)
+            message, guidance = describe_cloud_error(problem)
             error_context = {
                 "full_url": full_url,
                 "config_api_root": config_api_root,
@@ -2901,8 +2438,8 @@ def _get_public_api_json(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
-            problem = parse_cloud_problem(response.status_code, response.text)
-            message, guidance = describe_cloud_problem(problem)
+            problem = parse_cloud_error(response.status_code, response.text)
+            message, guidance = describe_cloud_error(problem)
             error_context = {
                 "full_url": full_url,
                 "path": path,

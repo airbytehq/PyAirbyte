@@ -1,0 +1,273 @@
+# Agent-facing messages for Airbyte Cloud problem types.
+# Keys are normalized problem types (see `_problem_key` in cloud_errors.py).
+auth/sso-required:
+  guidance: Ask the user to sign in through SSO.
+  message: This email domain must sign in with SSO.
+auth/user-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+bad-request:
+  guidance: Check the arguments against the tool description.
+  message: Airbyte Cloud rejected the request as invalid.
+basic-schedule-validation/under-one-hour-not-allowed:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+billing/insufficient-credit-balance:
+  guidance: Ask the user to resolve billing; don't retry.
+  message: The organization's payment status or credit balance doesn't allow this.
+billing/insufficient-payment-status:
+  guidance: Ask the user to resolve billing; don't retry.
+  message: The organization's payment status or credit balance doesn't allow this.
+billing/no-active-subscription:
+  guidance: Ask the user to check billing; don't retry.
+  message: This organization needs an active Airbyte subscription for this operation.
+billing/no-cancelable-subscription:
+  guidance: Don't retry; tell the user.
+  message: There is no subscription change of this kind to act on.
+billing/no-scheduled-cancellation-subscription:
+  guidance: Don't retry; tell the user.
+  message: There is no subscription change of this kind to act on.
+billing/no-scheduled-plan-change:
+  guidance: Don't retry; tell the user.
+  message: There is no subscription change of this kind to act on.
+billing/subscription/subscription-required:
+  guidance: Ask the user to check billing; don't retry.
+  message: This organization needs an active Airbyte subscription for this operation.
+connection-conflicting-destination-stream:
+  guidance: Change the selected streams or connection settings and retry.
+  message: The selected streams can't be used with this connection (file transfer is unsupported, or a stream collides with another connection).
+connection-validation/file-transfer/connection-unsupported:
+  guidance: Change the selected streams or connection settings and retry.
+  message: The selected streams can't be used with this connection (file transfer is unsupported, or a stream collides with another connection).
+connection-validation/file-transfer/stream-unsupported:
+  guidance: Change the selected streams or connection settings and retry.
+  message: The selected streams can't be used with this connection (file transfer is unsupported, or a stream collides with another connection).
+connection/destination-catalog/invalid-additional-field:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/destination-catalog/invalid-operation:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/destination-catalog/invalid-primary-key:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/destination-catalog/missing-object-name:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/destination-catalog/missing-primary-key:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/destination-catalog/missing-required-field:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/destination-catalog/required:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+connection/locked:
+  guidance: Don't retry; ask the user.
+  message: The connection is locked and can't be changed right now.
+connector-rollout/invalid-request:
+  guidance: Don't retry; tell the user.
+  message: The connector rollout request was rejected.
+connector-rollout/not-enough-actors:
+  guidance: Don't retry; tell the user.
+  message: The connector rollout request was rejected.
+connector-rollout/rollout-percentage-reached:
+  guidance: Don't retry; tell the user.
+  message: The connector rollout request was rejected.
+cron-validation/invalid-expression:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+cron-validation/invalid-timezone:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+cron-validation/missing-component:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+cron-validation/missing-cron-data:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+cron-validation/under-one-hour-not-allowed:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+cron-validation/unsupported-timezone:
+  guidance: Fix the schedule (cron expression, timezone, or frequency) and retry.
+  message: The connection schedule is invalid.
+dataplane-group-name-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+dataplane-name-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+dbtcloud/access-denied:
+  guidance: Ask the user to check the dbt Cloud integration.
+  message: dbt Cloud rejected the integration credentials, requires a paid plan, or the call failed.
+dbtcloud/generic:
+  guidance: Ask the user to check the dbt Cloud integration.
+  message: dbt Cloud rejected the integration credentials, requires a paid plan, or the call failed.
+dbtcloud/paid-plan-required:
+  guidance: Ask the user to check the dbt Cloud integration.
+  message: dbt Cloud rejected the integration credentials, requires a paid plan, or the call failed.
+destination/catalog-not-found:
+  guidance: Set up the destination catalog before this operation; do not change the ID.
+  message: This connection has no destination catalog yet.
+destination/discover-not-supported:
+  guidance: Fix the stream's destination settings (object name, sync mode, fields, primary key) and retry.
+  message: The destination catalog settings for a stream are invalid.
+embedded/endpoint-moved:
+  guidance: Don't retry.
+  message: This operation isn't available at this Airbyte endpoint.
+entitlement-service/error-adding-organization:
+  guidance: Wait and retry once.
+  message: Airbyte Cloud is temporarily unavailable.
+entitlement-service/invalid-organization-state:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+failed-precondition:
+  guidance: Check the resource's state; ask the user if unclear.
+  message: A required condition for this operation isn't met.
+generate-contribution:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+generate-contribution/connector-image-name-in-use:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+generate-contribution/insufficient-github-token-permissions:
+  guidance: Ask the user for a valid token.
+  message: The GitHub token is invalid or lacks repo write permission.
+generate-contribution/invalid-github-token:
+  guidance: Ask the user for a valid token.
+  message: The GitHub token is invalid or lacks repo write permission.
+group-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+group-managed-by-scim:
+  guidance: Don't retry; tell the user.
+  message: This group is managed by SCIM and can't be changed here.
+group-member-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+group-permission-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+implementation/not-implemented-in-oss:
+  guidance: Don't retry.
+  message: This operation isn't available at this Airbyte endpoint.
+invalid-api-key:
+  guidance: Ask the user to check the client ID/secret or token; don't retry.
+  message: Airbyte Cloud rejected the credentials.
+invalid-consent-url:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+invalid-redirect-url:
+  guidance: Fix the configuration and retry.
+  message: The redirect URL is not a valid HTTPS URL.
+license/entitlement:
+  guidance: Ask the user; don't retry.
+  message: The organization's plan doesn't allow this.
+mapper-validation:
+  guidance: Fix the mapper configuration and retry. If a mapper secret is missing, resend the secret values.
+  message: The mapper configuration is invalid.
+mapper-validation/invalid-config:
+  guidance: Fix the mapper configuration and retry. If a mapper secret is missing, resend the secret values.
+  message: The mapper configuration is invalid.
+mapper-validation/missing-required-param:
+  guidance: Fix the mapper configuration and retry. If a mapper secret is missing, resend the secret values.
+  message: The mapper configuration is invalid.
+mapper-validation/runtime-secrets-manager-required:
+  guidance: Ask the user.
+  message: This needs a runtime secrets manager configured.
+mapper-validation/secret-not-found:
+  guidance: Fix the mapper configuration and retry. If a mapper secret is missing, resend the secret values.
+  message: The mapper configuration is invalid.
+notification/config/missing-url:
+  guidance: Fix the input and retry.
+  message: Airbyte Cloud rejected a value in the request.
+notification/config/required:
+  guidance: Fix the input and retry.
+  message: Airbyte Cloud rejected a value in the request.
+oauth-callback-failure:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+request-timeout-exceeded:
+  guidance: Check the resource's current state before retrying; don't blindly retry a create.
+  message: Airbyte Cloud timed out. The change may or may not have been applied.
+resource-not-found:
+  guidance: Check the ID; list the resources to find the right one.
+  message: The resource was not found.
+service-unavailable:
+  guidance: Wait and retry once.
+  message: Airbyte Cloud is temporarily unavailable.
+sso-activation:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+sso-config-retrieval:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+sso-credential-update:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+sso-deletion:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+sso-setup:
+  guidance: Don't retry; tell the user.
+  message: Airbyte Cloud failed to complete this operation.
+sso-token-validation:
+  guidance: Ask the user to sign in again.
+  message: The SSO access token is invalid or expired.
+state-conflict:
+  guidance: Check the resource's current status before retrying.
+  message: The resource is in a state that doesn't allow this operation (for example, a job is running or already finished).
+status_fallbacks:
+  401:
+    guidance: Ask the user to check the client ID/secret or token; don't retry.
+    message: Airbyte Cloud rejected the credentials.
+  404:
+    guidance: Check the ID; list the resources to find the right one.
+    message: The resource was not found.
+  408:
+    guidance: Check the resource's current state before retrying; don't blindly retry a create.
+    message: Airbyte Cloud timed out. The change may or may not have been applied.
+  409:
+    guidance: Check the resource's current status before retrying.
+    message: The resource is in a state that doesn't allow this operation (for example, a job is running or already finished).
+  429:
+    guidance: Stop calling Airbyte Cloud tools and tell the user; don't retry.
+    message: Airbyte Cloud is refusing requests from these credentials (rate limited).
+  4xx:
+    guidance: Check the arguments against the tool description.
+    message: Airbyte Cloud rejected the request as invalid.
+  5xx:
+    guidance: Check the arguments (ranges, IDs, formats). If they look right, don't retry more than once; tell the user.
+    message: Airbyte Cloud hit an unexpected error. This is often caused by an invalid argument value.
+  default:
+    guidance: Retry at most once; tell the user if it persists.
+    message: Airbyte Cloud returned an error.
+tag-already-exists:
+  guidance: Use the existing one or pick another name; don't retry as is.
+  message: A resource with this name or membership already exists.
+tag-invalid-hex-color:
+  guidance: Fix the input and retry.
+  message: Airbyte Cloud rejected a value in the request.
+tag-limit-for-workspace-reached:
+  guidance: Delete a tag first or ask the user.
+  message: The workspace has reached its tag limit.
+tag-name-too-long:
+  guidance: Fix the input and retry.
+  message: Airbyte Cloud rejected a value in the request.
+try-again-later:
+  guidance: Wait and retry once.
+  message: Airbyte Cloud is busy with a conflicting change.
+unexpected-problem:
+  guidance: Check the arguments (ranges, IDs, formats). If they look right, don't retry more than once; tell the user.
+  message: Airbyte Cloud hit an unexpected error. This is often caused by an invalid argument value.
+unprocessable-entity:
+  guidance: Fix the configuration and retry.
+  message: The request body or connector configuration failed validation.
+value-not-found:
+  guidance: Check the name against the connector list (e.g. `source-postgres`).
+  message: Airbyte doesn't recognize the connector type name.
+workspace-limit-for-organization-reached:
+  guidance: Ask the user; don't retry.
+  message: The organization's plan doesn't allow this.

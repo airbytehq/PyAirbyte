@@ -16,11 +16,8 @@ from fastmcp_extensions.otel._arg_digests import classify_tool  # noqa: PLC2701
 from fastmcp_extensions.otel._extras import _chain, declared_parameters  # noqa: PLC2701
 from fastmcp_extensions.otel.models import TraceArg
 
-from airbyte._util.api_util import (
-    describe_cloud_problem,
-    error_response_body,
-    parse_cloud_problem,
-)
+from airbyte._util.api_util import error_response_body
+from airbyte._util.cloud_errors import describe_cloud_error, parse_cloud_error
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteConnectionSyncError,
@@ -93,7 +90,7 @@ def mcp_tool_error_reason(error: BaseException) -> str | None:
         (body for body in map(error_response_body, _chain(error)) if body is not None),
         None,
     )
-    return parse_cloud_problem(None, body).slug
+    return parse_cloud_error(None, body).slug
 
 
 def agent_error_text(error: ToolError) -> str:
@@ -102,9 +99,7 @@ def agent_error_text(error: ToolError) -> str:
     if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)
     if isinstance(cause, SDKError):
-        message, guidance = describe_cloud_problem(
-            parse_cloud_problem(cause.status_code, cause.body)
-        )
+        message, guidance = describe_cloud_error(parse_cloud_error(cause.status_code, cause.body))
         return f"{message} {guidance}"
     return str(error)
 
@@ -240,7 +235,7 @@ def redact_agent_text(
             else:
                 text = re.sub(
                     rf"(?<![A-Za-z0-9_-]){re.escape(leaf)}(?![A-Za-z0-9_-])",
-                    lambda _m: placeholder,
+                    lambda _m, p=placeholder: p,
                     text,
                 )
 
