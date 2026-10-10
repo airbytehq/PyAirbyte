@@ -235,7 +235,7 @@ def redact_agent_text(
             else:
                 text = re.sub(
                     rf"(?<![A-Za-z0-9_-]){re.escape(leaf)}(?![A-Za-z0-9_-])",
-                    lambda _m, p=placeholder: p,
+                    placeholder.replace("\\", "\\\\"),
                     text,
                 )
 

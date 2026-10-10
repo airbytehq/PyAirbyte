@@ -3339,3 +3339,61 @@ def test_cloud_errors_yaml_entries_have_message_and_guidance() -> None:
         assert set(entry) == {"message", "guidance"}
         assert isinstance(entry["message"], str) and entry["message"]
         assert isinstance(entry["guidance"], str) and entry["guidance"]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "absent", "suffix"),
+    [
+        pytest.param(
+            500,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors",
+                title="password=hunter2-secret-value",
+            ),
+            ("hunter2", "password"),
+            "(HTTP 500)",
+            id="unknown-title-never-relays",
+        ),
+        pytest.param(
+            500,
+            _problem_body("error:some/unknown-thing contains sk_live_abc"),
+            ("sk_live", "unknown-thing"),
+            "(HTTP 500)",
+            id="unknown-type-never-relays",
+        ),
+        pytest.param(
+            500,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors",
+                title="unexpected-problem",
+            ),
+            (),
+            "(Cloud error: unexpected-problem, HTTP 500)",
+            id="known-key-shown",
+        ),
+        pytest.param(
+            None,
+            _problem_body("error:some/unknown-thing contains sk_live_abc"),
+            ("sk_live", "unknown-thing"),
+            None,
+            id="unknown-key-no-status-no-suffix",
+        ),
+    ],
+)
+def test_describe_cloud_error_suffix_only_for_known_keys(
+    status_code: int | None,
+    body: str,
+    absent: tuple[str, ...],
+    suffix: str | None,
+) -> None:
+    """An unmatched `type`/`title` is never echoed into agent-facing text."""
+    problem = cloud_errors.parse_cloud_error(status_code, body)
+    message, guidance = cloud_errors.describe_cloud_error(problem)
+
+    for needle in absent:
+        assert needle not in message
+        assert needle not in guidance
+    if suffix is None:
+        assert "(Cloud error:" not in message and "(HTTP" not in message
+    else:
+        assert message.endswith(suffix)

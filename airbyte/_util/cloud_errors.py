@@ -161,6 +161,9 @@ def describe_cloud_error(problem: CloudErrorInfo) -> tuple[str, str]:
         message, guidance = _status_fallback_message(problem.status_code)
     else:
         message, guidance = entry["message"], entry["guidance"]
+    # `key` is raw `type`/`title` text and can quote caller input, so it is
+    # shown only when it matched a fixed message row.
+    known_key = entry is not None
     if problem.key == "resource-not-found" and problem.resource_type:
         message = f"The {problem.resource_type} was not found."
     elif problem.key == "workspace-limit-for-organization-reached" and problem.limit is not None:
@@ -168,7 +171,7 @@ def describe_cloud_error(problem: CloudErrorInfo) -> tuple[str, str]:
     if problem.status_code is not None:
         message += (
             f" (Cloud error: {problem.key}, HTTP {problem.status_code})"
-            if problem.key
+            if known_key
             else f" (HTTP {problem.status_code})"
         )
     if (
