@@ -9,6 +9,7 @@ import sys
 from collections.abc import Iterator
 from typing import Any
 
+import ddtrace  # noqa: F401
 import pytest
 
 from airbyte.mcp import _logging, http_main
@@ -22,22 +23,27 @@ from airbyte.mcp._logging import (
 
 @pytest.fixture
 def restore_logging() -> Iterator[None]:
-    """Restore the root and fastmcp logger state mutated by `configure_logging`."""
+    """Restore the logger state mutated by `configure_logging`."""
     root = logging.getLogger()
-    fastmcp_logger = logging.getLogger("fastmcp")
-    saved = (
-        root.handlers[:],
-        root.level,
-        fastmcp_logger.handlers[:],
-        fastmcp_logger.propagate,
-    )
+    logger_names = ("fastmcp", "ddtrace", *_logging._JSON_LOGGER_LEVELS)
+    logger_states = {
+        name: (
+            logging.getLogger(name).handlers[:],
+            logging.getLogger(name).level,
+            logging.getLogger(name).propagate,
+        )
+        for name in logger_names
+    }
+    root_handlers = root.handlers[:]
+    root_level = root.level
     yield
-    (
-        root.handlers[:],
-        root.level,
-        fastmcp_logger.handlers[:],
-        fastmcp_logger.propagate,
-    ) = saved
+    root.handlers[:] = root_handlers
+    root.setLevel(root_level)
+    for name, (handlers, level, propagate) in logger_states.items():
+        logger = logging.getLogger(name)
+        logger.handlers[:] = handlers
+        logger.setLevel(level)
+        logger.propagate = propagate
 
 
 def _record(**kwargs: Any) -> logging.LogRecord:
@@ -92,6 +98,7 @@ def test_json_formatter_renders_standard_fields() -> None:
 
     assert payload["message"] == "hello world"
     assert payload["severity"] == "WARNING"
+    assert payload["levelname"] == payload["severity"]
     assert payload["logger"] == {"name": "airbyte.mcp.test"}
     assert payload["dd.trace_id"] == "abc123"
     assert payload["dd.span_id"] == "456"
@@ -112,6 +119,7 @@ def test_json_formatter_keeps_traceback_in_one_line() -> None:
 
     assert "\n" not in output
     assert payload["severity"] == "ERROR"
+    assert payload["levelname"] == payload["severity"]
     assert payload["error"]["kind"] == "RuntimeError"
     assert payload["error"]["message"] == "boom"
     assert "Traceback" in payload["error"]["stack"]
@@ -136,6 +144,36 @@ def test_configure_json_logging_routes_everything_to_root(
     lines = capsys.readouterr().out.splitlines()
     messages = [json.loads(line)["message"] for line in lines]
     assert messages == ["from fastmcp", "from uvicorn"]
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_configure_json_logging_clears_ddtrace_handler() -> None:
+    ddtrace_logger = logging.getLogger("ddtrace")
+    ddtrace_logger.addHandler(logging.StreamHandler())
+    ddtrace_logger.propagate = False
+
+    configure_logging("json")
+
+    assert ddtrace_logger.handlers == []
+    assert ddtrace_logger.propagate is True
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_quiet_logger_levels_apply_only_in_json_mode() -> None:
+    loggers = {name: logging.getLogger(name) for name in _logging._JSON_LOGGER_LEVELS}
+    for logger in loggers.values():
+        logger.setLevel(logging.DEBUG)
+
+    configure_logging("json")
+
+    assert {
+        name: logger.level for name, logger in loggers.items()
+    } == _logging._JSON_LOGGER_LEVELS
+
+    for logger in loggers.values():
+        logger.setLevel(logging.DEBUG)
+    assert configure_logging("text") == {}
+    assert all(logger.level == logging.DEBUG for logger in loggers.values())
 
 
 @pytest.mark.usefixtures("restore_logging")
