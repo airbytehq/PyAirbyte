@@ -157,7 +157,11 @@ from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
 )
-from airbyte.mcp._logging import configure_logging, resolve_log_format
+from airbyte.mcp._logging import (
+    apply_json_logger_overrides,
+    configure_logging,
+    resolve_log_format,
+)
 from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
@@ -284,10 +288,13 @@ def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     from airbyte.mcp._otel import SessionIdHeaderDigest, install  # noqa: PLC0415
 
-    uvicorn_config = configure_logging(resolve_log_format())
+    log_format = resolve_log_format()
+    uvicorn_config = configure_logging(log_format)
     set_hosted_mcp_mode()
     app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
+    if log_format == "json":
+        apply_json_logger_overrides()
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the

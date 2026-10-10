@@ -37,7 +37,25 @@ LOG_FORMATS: tuple[LogFormat, ...] = ("text", "json")
 
 # Loggers that install their own handlers with `propagate = False`, which would
 # bypass the root JSON handler.
-_SELF_HANDLED_LOGGERS = ("fastmcp",)
+_SELF_HANDLED_LOGGERS = ("fastmcp", "ddtrace")
+
+_JSON_LOGGER_LEVELS = {
+    "mcp.server.streamable_http": logging.WARNING,
+    "ddtrace.contrib.internal.grpc.aio_client_interceptor": logging.ERROR,
+}
+
+_JSON_DROPPED_MESSAGES = {
+    "ddtrace.llmobs._llmobs": frozenset({"Failed to extract trace/span ID from request headers."}),
+}
+
+
+class _DroppedMessageFilter(logging.Filter):
+    def __init__(self, messages: frozenset[str]) -> None:
+        super().__init__()
+        self.messages = messages
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.msg not in self.messages
 
 
 def resolve_log_format() -> LogFormat:
@@ -51,12 +69,14 @@ def resolve_log_format() -> LogFormat:
 
 
 def _add_severity(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDict:
-    """Add the stdlib level name as `severity`.
+    """Add stdlib level names for Datadog and Cloud Logging.
 
-    Datadog's status remapper and Cloud Logging both read `severity`, and the
-    stdlib names (`DEBUG` ... `CRITICAL`) are valid values for each.
+    Datadog's Python pipeline sets status from `levelname`, and Cloud Logging
+    reads `severity`.
     """
-    event_dict["severity"] = event_dict["_record"].levelname
+    levelname = event_dict["_record"].levelname
+    event_dict["levelname"] = levelname
+    event_dict["severity"] = levelname
     return event_dict
 
 
@@ -116,6 +136,24 @@ def _build_json_formatter() -> logging.Formatter:
     )
 
 
+def apply_json_logger_overrides() -> None:
+    """Must also run after tracing install because importing ddtrace reinstalls its handler."""
+    for name in _SELF_HANDLED_LOGGERS:
+        logger = logging.getLogger(name)
+        logger.handlers.clear()
+        logger.propagate = True
+
+    for name, level in _JSON_LOGGER_LEVELS.items():
+        logging.getLogger(name).setLevel(level)
+
+    for name, messages in _JSON_DROPPED_MESSAGES.items():
+        logger = logging.getLogger(name)
+        if not any(
+            isinstance(logger_filter, _DroppedMessageFilter) for logger_filter in logger.filters
+        ):
+            logger.addFilter(_DroppedMessageFilter(messages))
+
+
 def configure_logging(log_format: LogFormat) -> dict[str, Any]:
     """Configure process-wide logging and return matching uvicorn overrides.
 
@@ -135,9 +173,6 @@ def configure_logging(log_format: LogFormat) -> dict[str, Any]:
     root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
 
-    for name in _SELF_HANDLED_LOGGERS:
-        logger = logging.getLogger(name)
-        logger.handlers.clear()
-        logger.propagate = True
+    apply_json_logger_overrides()
 
     return {"log_config": None}

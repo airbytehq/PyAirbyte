@@ -9,12 +9,14 @@ import sys
 from collections.abc import Iterator
 from typing import Any
 
+import ddtrace  # noqa: F401
 import pytest
 
 from airbyte.mcp import _logging, http_main
 from airbyte.mcp._logging import (
     LOG_FORMAT_ENV,
     _build_json_formatter,
+    apply_json_logger_overrides,
     configure_logging,
     resolve_log_format,
 )
@@ -22,22 +24,34 @@ from airbyte.mcp._logging import (
 
 @pytest.fixture
 def restore_logging() -> Iterator[None]:
-    """Restore the root and fastmcp logger state mutated by `configure_logging`."""
+    """Restore the logger state mutated by `configure_logging`."""
     root = logging.getLogger()
-    fastmcp_logger = logging.getLogger("fastmcp")
-    saved = (
-        root.handlers[:],
-        root.level,
-        fastmcp_logger.handlers[:],
-        fastmcp_logger.propagate,
+    logger_names = (
+        "fastmcp",
+        "ddtrace",
+        *_logging._JSON_LOGGER_LEVELS,
+        *_logging._JSON_DROPPED_MESSAGES,
     )
+    logger_states = {
+        name: (
+            logging.getLogger(name).handlers[:],
+            logging.getLogger(name).level,
+            logging.getLogger(name).propagate,
+            logging.getLogger(name).filters[:],
+        )
+        for name in logger_names
+    }
+    root_handlers = root.handlers[:]
+    root_level = root.level
     yield
-    (
-        root.handlers[:],
-        root.level,
-        fastmcp_logger.handlers[:],
-        fastmcp_logger.propagate,
-    ) = saved
+    root.handlers[:] = root_handlers
+    root.setLevel(root_level)
+    for name, (handlers, level, propagate, filters) in logger_states.items():
+        logger = logging.getLogger(name)
+        logger.handlers[:] = handlers
+        logger.setLevel(level)
+        logger.propagate = propagate
+        logger.filters[:] = filters
 
 
 def _record(**kwargs: Any) -> logging.LogRecord:
@@ -92,6 +106,7 @@ def test_json_formatter_renders_standard_fields() -> None:
 
     assert payload["message"] == "hello world"
     assert payload["severity"] == "WARNING"
+    assert payload["levelname"] == payload["severity"]
     assert payload["logger"] == {"name": "airbyte.mcp.test"}
     assert payload["dd.trace_id"] == "abc123"
     assert payload["dd.span_id"] == "456"
@@ -112,6 +127,7 @@ def test_json_formatter_keeps_traceback_in_one_line() -> None:
 
     assert "\n" not in output
     assert payload["severity"] == "ERROR"
+    assert payload["levelname"] == payload["severity"]
     assert payload["error"]["kind"] == "RuntimeError"
     assert payload["error"]["message"] == "boom"
     assert "Traceback" in payload["error"]["stack"]
@@ -139,6 +155,82 @@ def test_configure_json_logging_routes_everything_to_root(
 
 
 @pytest.mark.usefixtures("restore_logging")
+def test_configure_json_logging_clears_ddtrace_handler() -> None:
+    ddtrace_logger = logging.getLogger("ddtrace")
+    ddtrace_logger.addHandler(logging.StreamHandler())
+    ddtrace_logger.propagate = False
+
+    configure_logging("json")
+
+    assert ddtrace_logger.handlers == []
+    assert ddtrace_logger.propagate is True
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_json_logger_filter_drops_only_missing_header_warning(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    logger = logging.getLogger("ddtrace.llmobs._llmobs")
+    logger.setLevel(logging.WARNING)
+
+    configure_logging("json")
+
+    logger.warning("Failed to extract trace/span ID from request headers.")
+    logger.warning("Failed to flush LLMObs spans and evaluation metrics.")
+
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["message"] == "Failed to flush LLMObs spans and evaluation metrics."
+    assert payload["levelname"] == "WARNING"
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_json_logger_overrides_are_idempotent_and_text_mode_does_not_add_filter() -> (
+    None
+):
+    logger = logging.getLogger("ddtrace.llmobs._llmobs")
+    assert not any(
+        isinstance(logger_filter, _logging._DroppedMessageFilter)
+        for logger_filter in logger.filters
+    )
+
+    assert configure_logging("text") == {}
+    assert not any(
+        isinstance(logger_filter, _logging._DroppedMessageFilter)
+        for logger_filter in logger.filters
+    )
+
+    apply_json_logger_overrides()
+    apply_json_logger_overrides()
+    assert (
+        sum(
+            isinstance(logger_filter, _logging._DroppedMessageFilter)
+            for logger_filter in logger.filters
+        )
+        == 1
+    )
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_quiet_logger_levels_apply_only_in_json_mode() -> None:
+    loggers = {name: logging.getLogger(name) for name in _logging._JSON_LOGGER_LEVELS}
+    for logger in loggers.values():
+        logger.setLevel(logging.DEBUG)
+
+    configure_logging("json")
+
+    assert {
+        name: logger.level for name, logger in loggers.items()
+    } == _logging._JSON_LOGGER_LEVELS
+
+    for logger in loggers.values():
+        logger.setLevel(logging.DEBUG)
+    assert configure_logging("text") == {}
+    assert all(logger.level == logging.DEBUG for logger in loggers.values())
+
+
+@pytest.mark.usefixtures("restore_logging")
 def test_configure_text_logging_leaves_uvicorn_defaults() -> None:
     assert configure_logging("text") == {}
 
@@ -158,6 +250,33 @@ def test_main_passes_uvicorn_config(monkeypatch: pytest.MonkeyPatch) -> None:
     http_main.main()
 
     assert captured["uvicorn_config"] is sentinel
+
+
+@pytest.mark.usefixtures("restore_logging")
+def test_main_reapplies_json_logger_overrides_after_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    ddtrace_logger = logging.getLogger("ddtrace")
+    monkeypatch.setenv(LOG_FORMAT_ENV, "json")
+    monkeypatch.setattr(http_main.app, "instructions", http_main.app.instructions)
+    monkeypatch.setattr(http_main.app, "middleware", list(http_main.app.middleware))
+    monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
+
+    def install_with_ddtrace_handler(app: Any) -> None:
+        ddtrace_logger.addHandler(logging.StreamHandler())
+        ddtrace_logger.propagate = False
+
+    monkeypatch.setattr("airbyte.mcp._otel.install", install_with_ddtrace_handler)
+    monkeypatch.setattr(
+        http_main, "run_mcp_http_server", lambda app, **kwargs: captured.update(kwargs)
+    )
+
+    http_main.main()
+
+    assert captured["uvicorn_config"] == {"log_config": None}
+    assert ddtrace_logger.handlers == []
+    assert ddtrace_logger.propagate is True
 
 
 def test_main_fails_fast_on_invalid_format(monkeypatch: pytest.MonkeyPatch) -> None:
