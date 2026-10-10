@@ -366,6 +366,28 @@ def test_exception_attributes_classify_without_error_text(
     assert "SENTINEL" not in json.dumps(attrs)
 
 
+def test_exception_attributes_export_frames_without_error_text() -> None:
+    def raise_chained() -> None:
+        try:
+            raise ValueError("SENTINEL-MSG inner private response")
+        except ValueError as cause:
+            raise RuntimeError("SENTINEL-MSG outer private response") from cause
+
+    with pytest.raises(RuntimeError) as raised:
+        raise_chained()
+
+    attrs = _datadog._exception_attributes(raised.value)
+    stack = attrs["error.stack"]
+    lines = stack.splitlines()
+
+    assert lines[0] == "RuntimeError"
+    assert "caused by ValueError" in lines
+    assert any(line.startswith(f"  {__name__}:") for line in lines)
+    assert "SENTINEL" not in stack
+    assert "inner private response" not in stack
+    assert "outer private response" not in stack
+
+
 def test_fastmcp_rejections_are_classified_like_the_otel_backend() -> None:
     # FastMCP chains its own `ValidationError` from pydantic's; only a
     # `ToolError` wrapper is removed, so the FastMCP class is what is classified.
@@ -1000,10 +1022,13 @@ def _native_http_contract():
         escaped = next(span for span in reversed(spans) if span.span_type == "llm")
         assert escaped.error and escaped.get_tag("error.type") == "ValueError"
         assert escaped.get_tag("error.message") is None
-        assert escaped.get_tag("error.stack") is None
+        escaped_stack = escaped.get_tag("error.stack")
+        assert escaped_stack and escaped_stack.startswith("ValueError\n")
+        assert private_payload not in escaped_stack
         escaped_metadata = escaped._get_ctx_item("_llmobs.cached_event")["meta"][
             "metadata"
         ]
+        assert "error.stack" not in escaped_metadata
         assert escaped_metadata["outcome"] == "exception"
         assert escaped_metadata["error_type"] == "ValueError"
         assert escaped_metadata["error.category"] == "unclassified"
@@ -1085,7 +1110,8 @@ def _native_http_contract():
                 metadata["error_type"] == span.get_tag("error.type") == "CancelledError"
             )
             assert metadata["intent"] == "Preserve safe metadata on cancellation"
-            assert span.get_tag("error.stack") is None
+            stack = span.get_tag("error.stack")
+            assert stack and stack.startswith("CancelledError\n")
 
     try:
         with (

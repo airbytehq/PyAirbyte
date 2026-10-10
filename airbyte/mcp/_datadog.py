@@ -19,7 +19,10 @@ from fastmcp.server.middleware import Middleware
 from fastmcp.telemetry import suppress_fastmcp_telemetry
 from fastmcp_extensions._telemetry_middleware import unwrap_tool_error  # noqa: PLC2701
 from fastmcp_extensions.otel._arg_digests import ArgTracer, is_arg_key  # noqa: PLC2701
-from fastmcp_extensions.otel._extras import error_attributes  # noqa: PLC2701
+from fastmcp_extensions.otel._extras import (
+    error_attributes,  # noqa: PLC2701
+    error_stack,  # noqa: PLC2701
+)
 from fastmcp_extensions.otel.middleware import arg_trace_attributes
 from mcp.types import (
     CallToolResult,
@@ -191,12 +194,15 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
     else:
         outcome = "unknown_tool" if unknown_tool else "exception"
     error_type = type(cause).__name__
-    return {
+    attrs = {
         "airbyte.mcp.outcome": outcome,
         "airbyte.mcp.error_type": error_type,
         "error.type": error_type,
         **_error_classification(cause, unknown_tool=unknown_tool),
     }
+    if (stack := error_stack(cause)) is not None:
+        attrs["error.stack"] = stack
+    return attrs
 
 
 def _error_classification(
