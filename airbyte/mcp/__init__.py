@@ -345,8 +345,10 @@ Every event carries the same context: `is_hosted_mcp`, `edition` (`cloud` or
 `session_id`, `application_name`, `mcp_client_name`, `mcp_client_version`,
 `mcp_protocol_version`, `organization_id` and `workspace_id`. Over hosted HTTP,
 `session_id` is the SHA-256 digest of the client-echoed `Mcp-Session-Id`, and client
-info is recovered from the session token minted on `initialize`. Over stdio,
-`session_id` is a random ID for the server process. `X-Airbyte-Application-Name` is
+info is recovered from the session token minted on `initialize`. A non-hosted server
+run over HTTP (e.g. `app.run(transport="http")`) reports its FastMCP transport
+(`streamable-http` or `sse`) and the SHA-256 digest of its FastMCP session ID. Over
+stdio, `session_id` is a random ID for the server process. `X-Airbyte-Application-Name` is
 stripped and lowercased, other characters are replaced with `-`, and the result is
 capped at 128 characters (e.g. `io.airbyte.coral-support-agent`); it is reported as
 `application_name`. Organization
