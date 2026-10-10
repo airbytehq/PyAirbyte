@@ -172,6 +172,13 @@ def error_response_body(error: BaseException) -> str | None:
     return None
 
 
+def sdk_error_response(error: BaseException) -> tuple[int | None, str | None] | None:
+    """Return the status code and body carried by an SDKError."""
+    if isinstance(error, SDKError):
+        return error.status_code, error.body
+    return None
+
+
 def _is_actor_not_ready_error(error: SDKError) -> bool:
     """Check whether an SDKError contains Airbyte Cloud's actor-not-ready problem."""
     if error.status_code != HTTPStatus.CONFLICT:

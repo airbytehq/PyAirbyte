@@ -309,5 +309,5 @@ def test_update_interval_api_failure_is_reported(
         status=400,
     )
 
-    with pytest.raises(ToolError, match="status 400"):
+    with pytest.raises(ToolError, match="HTTP 400"):
         asyncio.run(_update(server, interval_hours=24))

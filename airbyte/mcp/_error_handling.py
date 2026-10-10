@@ -9,14 +9,13 @@ import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from airbyte_api.errors import SDKError
 from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp_extensions.otel._arg_digests import classify_tool  # noqa: PLC2701
 from fastmcp_extensions.otel._extras import _chain, declared_parameters  # noqa: PLC2701
 from fastmcp_extensions.otel.models import TraceArg
 
-from airbyte._util.api_util import error_response_body
+from airbyte._util.api_util import error_response_body, sdk_error_response
 from airbyte._util.cloud_errors import describe_cloud_error, parse_cloud_error
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
@@ -98,8 +97,10 @@ def agent_error_text(error: ToolError) -> str:
     cause = error.__cause__
     if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)
-    if isinstance(cause, SDKError):
-        message, guidance = describe_cloud_error(parse_cloud_error(cause.status_code, cause.body))
+    sdk_response = sdk_error_response(cause) if cause is not None else None
+    if sdk_response is not None:
+        status_code, body = sdk_response
+        message, guidance = describe_cloud_error(parse_cloud_error(status_code, body))
         return f"{message} {guidance}"
     return str(error)
 
