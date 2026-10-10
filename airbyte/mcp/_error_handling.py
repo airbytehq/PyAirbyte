@@ -16,9 +16,14 @@ from fastmcp_extensions.otel._extras import _chain, declared_parameters  # noqa:
 from fastmcp_extensions.otel.models import TraceArg
 
 from airbyte._util.api_util import error_response_body, sdk_error_response
-from airbyte._util.cloud_errors import describe_cloud_error, parse_cloud_error
+from airbyte._util.cloud_errors import (
+    describe_cloud_error,
+    is_valid_problem_slug,
+    parse_cloud_error,
+)
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
+    AirbyteCloudApiError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
@@ -55,8 +60,19 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
 """Expected errors returned to MCP clients as concise message and guidance text."""
 
 
+def _cloud_api_error_text(error: AirbyteCloudApiError) -> str:
+    """Return fixed Cloud error text, retaining direct-access guidance when present."""
+    message, table_guidance = describe_cloud_error(
+        parse_cloud_error(error.status_code, error_response_body(error))
+    )
+    guidance = error.guidance if error.guidance is not None else table_guidance
+    return f"{message} {guidance}".rstrip()
+
+
 def format_user_facing_error(error: BaseException) -> str:
     """Return the error message followed by its guidance, when present."""
+    if isinstance(error, AirbyteCloudApiError):
+        return _cloud_api_error_text(error)
     if not isinstance(error, AirbyteLibError):
         return str(error)
     text = error.get_message()
@@ -89,12 +105,21 @@ def mcp_tool_error_reason(error: BaseException) -> str | None:
         (body for body in map(error_response_body, _chain(error)) if body is not None),
         None,
     )
-    return parse_cloud_error(None, body).slug
+    if body is not None:
+        return parse_cloud_error(None, body).slug
+    for cause in _chain(error):
+        if isinstance(cause, AirbyteLibError):
+            problem_type = (cause.context or {}).get("problem_type")
+            if isinstance(problem_type, str):
+                return problem_type if is_valid_problem_slug(problem_type) else None
+    return None
 
 
 def agent_error_text(error: ToolError) -> str:
     """Return the text an agent sees for a tool error before redaction."""
     cause = error.__cause__
+    if isinstance(cause, AirbyteCloudApiError):
+        return _cloud_api_error_text(cause)
     if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)
     sdk_response = sdk_error_response(cause) if cause is not None else None
@@ -181,17 +206,17 @@ def _allowed_choices(
     tool: Tool | None,
     name: str,
     arg_class: Any,  # noqa: ANN401
-) -> frozenset[Any]:
+) -> tuple[Any, ...]:
     """Return the declared `enum`/`const` choices of a parameter, if any."""
     if tool is not None:
         schema = declared_parameters(tool).get(name)
         if isinstance(schema, Mapping):
             if isinstance(schema.get("enum"), list):
-                return frozenset(schema["enum"])
+                return tuple(schema["enum"])
             if "const" in schema:
-                return frozenset({schema["const"]})
+                return (schema["const"],)
     allowed = getattr(arg_class, "allowed", None)
-    return frozenset(allowed) if allowed else frozenset()
+    return tuple(allowed) if allowed is not None else ()
 
 
 def redact_agent_text(
@@ -203,10 +228,10 @@ def redact_agent_text(
 
     Each parameter is classified by the same rules arg tracing uses, so error
     text never shows a value tracing would not record in clear: secret-class
-    parameters lose every leaf, other parameters lose leaves of eight or
-    more characters, and `VALUE` (enum-like) parameters stay clear only when
-    they hold one of the declared choices. Non-secret leaves are masked as
-    whole tokens only, so common words in guidance text stay untouched.
+    parameters lose every leaf, other parameters lose leaves of eight or more
+    characters, and `VALUE` (enum-like) parameters stay clear only when they
+    hold one of the declared choices. Secret leaves shorter than four
+    characters and non-secret leaves are masked as whole tokens.
     """
     if arguments:
         func = getattr(tool, "fn", None) if tool is not None else None
@@ -219,7 +244,7 @@ def redact_agent_text(
             arg_class = classes.get(name)
             mode = arg_class.mode if arg_class is not None else TraceArg.PRESENCE
             if mode is TraceArg.VALUE:
-                if value in _allowed_choices(tool, name, arg_class):
+                if any(value == choice for choice in _allowed_choices(tool, name, arg_class)):
                     continue
                 secret = False
             else:
@@ -231,7 +256,7 @@ def redact_agent_text(
                 continue
             seen.add(leaf)
             placeholder = f"<value of {path}>"
-            if secret:
+            if secret and len(leaf) >= 4:  # noqa: PLR2004
                 text = text.replace(leaf, placeholder)
             else:
                 text = re.sub(

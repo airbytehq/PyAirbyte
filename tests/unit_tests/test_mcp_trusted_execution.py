@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -280,6 +281,26 @@ def test_local_helpers_reject_when_untrusted(
     _set_trusted(monkeypatch, enabled=False)
     with pytest.raises(AirbyteTrustedExecutionRequiredError):
         call_helper()
+
+
+def test_run_sql_query_log_omits_exception_text(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingCache:
+        def run_sql_query(self, sql_query: str, max_records: int) -> None:
+            raise RuntimeError("SENTINEL_SQL_ERROR")
+
+    monkeypatch.setattr(local, "raise_if_untrusted_execution_context", lambda _: None)
+    monkeypatch.setattr(local, "get_default_cache", FailingCache)
+
+    with caplog.at_level(logging.WARNING, logger=local.logger.name):
+        local.run_sql_query("SELECT 1", 10)
+
+    assert "SENTINEL_SQL_ERROR" not in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is None
 
 
 @pytest.mark.parametrize("enabled", [False, True], ids=["disabled", "enabled"])

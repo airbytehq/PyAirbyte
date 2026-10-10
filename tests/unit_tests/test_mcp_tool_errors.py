@@ -27,6 +27,7 @@ from airbyte.exceptions import (
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     AgentErrorTextMiddleware,
+    agent_error_text,
     redact_agent_text,
     classify_mcp_tool_error,
     format_user_facing_error,
@@ -122,6 +123,52 @@ def test_format_user_facing_error() -> None:
     assert format_user_facing_error(ValueError("plain")) == "plain"
 
 
+def test_direct_cloud_api_error_uses_fixed_table_message_in_agent_text() -> None:
+    error = AirbyteCloudApiError(
+        status_code=404,
+        message="Request failed at https://config.example/connections/secret-id",
+        context={
+            "full_url": "https://config.example/connections/secret-id",
+            "response_text": json.dumps({
+                "type": "https://reference.airbyte.com/reference/errors#resource-not-found",
+                "data": {
+                    "resourceType": "connection",
+                    "message": "SENTINEL_RESPONSE_TEXT",
+                },
+            }),
+        },
+    )
+    with pytest.raises(ToolError) as exc_info:
+        raise ToolError("unformatted error") from error
+
+    text = agent_error_text(exc_info.value)
+
+    assert "The connection was not found." in text
+    assert "resource-not-found, HTTP 404" in text
+    assert "https://config.example" not in text
+    assert "SENTINEL_RESPONSE_TEXT" not in text
+    assert "response_text" not in text
+
+
+def test_format_direct_cloud_api_error_keeps_fixed_forbidden_guidance() -> None:
+    guidance = (
+        "Authentication succeeded but access was denied; the workspace or connector "
+        "may not be enabled for agent access in Airbyte Cloud."
+    )
+    error = AirbyteCloudApiError(
+        status_code=403,
+        message="Request failed at https://config.example/connections/secret-id",
+        guidance=guidance,
+        context={"full_url": "https://config.example/connections/secret-id"},
+    )
+
+    text = format_user_facing_error(error)
+
+    assert guidance in text
+    assert "https://config.example" not in text
+    assert "full_url" not in text
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
@@ -181,6 +228,24 @@ def test_mcp_tool_error_reason_is_never_an_id(
     assert mcp_tool_error_reason(error) == expected
 
 
+def test_mcp_tool_error_reason_uses_validated_context_problem_type() -> None:
+    error = AirbyteCloudApiError(context={"problem_type": "try-again-later"})
+    error.__cause__ = requests.HTTPError("request failed")
+    assert mcp_tool_error_reason(error) == "try-again-later"
+
+
+@pytest.mark.parametrize(
+    "problem_type",
+    [
+        "97953b90-8f3a-4c1e-9d2b-0a1b2c3d4e5f",
+        "password=hunter2",
+    ],
+)
+def test_mcp_tool_error_reason_rejects_invalid_context_slug(problem_type: str) -> None:
+    error = AirbyteCloudApiError(context={"problem_type": problem_type})
+    assert mcp_tool_error_reason(error) is None
+
+
 def _server_with_agent_error_text():
     """Build a test server wired like `airbyte.mcp.server.app`."""
     server = mcp_server(
@@ -236,6 +301,26 @@ def test_enum_typo_is_masked_with_parameter_name() -> None:
     text = _call_error(server, "with_mode", {"mode": "incrimental-typo-value"})
 
     assert "incrimental-typo-value" not in text
+    assert "input_value" not in text
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(["a"], id="list"),
+        pytest.param({"k": "v"}, id="dict"),
+    ],
+)
+def test_unhashable_literal_argument_is_redacted(value: object) -> None:
+    server = _server_with_agent_error_text()
+
+    @server.tool
+    def with_mode(mode: Literal["a"]) -> str:
+        return str(mode)
+
+    text = _call_error(server, "with_mode", {"mode": value})
+
+    assert repr(value) not in text
     assert "input_value" not in text
 
 
@@ -376,3 +461,25 @@ def test_redact_agent_text_masks_whole_tokens_only(
     arguments: dict, text: str, expected: str
 ) -> None:
     assert redact_agent_text(text, arguments, _tool_stub(_classify_args)) == expected
+
+
+def test_short_secret_is_masked_as_a_whole_token() -> None:
+    assert (
+        redact_agent_text(
+            "Ask the user for a valid value",
+            {"password": "a"},
+            _tool_stub(_classify_args),
+        )
+        == "Ask the user for <value of password> valid value"
+    )
+
+
+def test_long_secret_is_masked_inside_a_token() -> None:
+    assert (
+        redact_agent_text(
+            "Request failed with pw=hunter2xyz;",
+            {"password": "hunter2xyz"},
+            _tool_stub(_classify_args),
+        )
+        == "Request failed with pw=<value of password>;"
+    )

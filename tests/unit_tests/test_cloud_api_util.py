@@ -3306,22 +3306,51 @@ def test_every_published_problem_type_matches_a_fixed_message(
         ),
         pytest.param(
             {"title": "unexpected-problem"},
+            None,
             "unexpected-problem",
-            "unexpected-problem",
-            id="missing-type-reads-title",
+            id="missing-type-does-not-set-slug",
+        ),
+        pytest.param(
+            {"title": "password=hunter2"},
+            None,
+            "password=hunter2",
+            id="missing-type-does-not-set-untrusted-slug",
+        ),
+        pytest.param(
+            {"type": 123, "title": "try-again-later"},
+            None,
+            "try-again-later",
+            id="non-string-type-does-not-set-slug",
         ),
     ],
 )
 def test_parse_cloud_error_title_fallback_only_for_generic_type(
-    problem: dict[str, str],
+    problem: dict[str, Any],
     expected_slug: str | None,
     expected_key: str | None,
 ) -> None:
-    """`title` is read only when `type` is absent or the generic errors URL."""
+    """Only a generic string `type` permits a title slug."""
     parsed = cloud_errors.parse_cloud_error(None, json.dumps(problem))
 
     assert parsed.slug == expected_slug
     assert parsed.key == expected_key
+
+
+def test_resource_type_in_agent_text_must_be_allowlisted() -> None:
+    body = _problem_body(
+        "https://reference.airbyte.com/reference/errors#resource-not-found",
+        data={"resourceType": "secretvalue"},
+    )
+    problem = cloud_errors.parse_cloud_error(404, body)
+
+    message, _ = cloud_errors.describe_cloud_error(problem)
+
+    assert problem.resource_type is None
+    assert (
+        message
+        == "The resource was not found. (Cloud error: resource-not-found, HTTP 404)"
+    )
+    assert "secretvalue" not in message
 
 
 def test_cloud_errors_yaml_entries_have_message_and_guidance() -> None:

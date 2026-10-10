@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from fastmcp_extensions import TraceArg, register_mcp_tools
+from fastmcp_extensions.otel._extras import error_stack  # noqa: PLC2701
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
@@ -509,7 +510,12 @@ def read_source_stream_records(
         print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
 
     except Exception as ex:
-        logger.exception("Error reading records from source '%s'", source_connector_name)
+        logger.warning(
+            "Error reading records from source '%s' (%s)\n%s",
+            source_connector_name,
+            type(ex).__name__,
+            error_stack(ex) or "",
+        )
         # If any error occurs, we print the error message to stderr and return an empty list.
         return (
             f"Error reading records from source '{source_connector_name}': "
@@ -623,7 +629,12 @@ def get_stream_previews(
             on_error="ignore",
         )
     except Exception as ex:
-        logger.exception("Error getting stream previews from source '%s'", source_name)
+        logger.warning(
+            "Error getting stream previews from source '%s' (%s)\n%s",
+            source_name,
+            type(ex).__name__,
+            error_stack(ex) or "",
+        )
         return {
             "ERROR": f"Error getting stream previews from source '{source_name}': "
             f"{format_user_facing_error(ex)}"
@@ -875,7 +886,11 @@ def run_sql_query(
             max_records=max_records,
         )
     except Exception as ex:
-        logger.exception("Error running SQL query")
+        logger.warning(
+            "Error running SQL query (%s)\n%s",
+            type(ex).__name__,
+            error_stack(ex) or "",
+        )
         return [
             {
                 "ERROR": f"Error running SQL query: {format_user_facing_error(ex)}",

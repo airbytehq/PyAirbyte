@@ -27,9 +27,29 @@ _GENERIC_PROBLEM_SLUG = "errors"
 # A slug names a kind of problem; one that is or holds an ID names a resource.
 _ID_LIKE = re.compile(r"\d+|.*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*")
 _MAX_PROBLEM_BODY = 65536
-_RESOURCE_TYPE = re.compile(r"[a-z_-]{1,40}")
+_RESOURCE_TYPES = frozenset(
+    {
+        "source",
+        "destination",
+        "connection",
+        "workspace",
+        "organization",
+        "job",
+        "user",
+        "permission",
+        "source_definition",
+        "destination_definition",
+    }
+)
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _PROBLEM_TYPE_PREFIX = "https://reference.airbyte.com/reference/errors"
+
+
+def is_valid_problem_slug(value: object) -> bool:
+    """Return whether a problem slug is safe to export."""
+    return isinstance(value, str) and bool(
+        _PROBLEM_SLUG.fullmatch(value) and not _ID_LIKE.fullmatch(value)
+    )
 
 
 @dataclass(frozen=True)
@@ -59,15 +79,16 @@ def _problem_slug(problem: dict[str, Any]) -> str | None:
         if not isinstance(value, str):
             return None
         slug = re.split(r"[/#]", value)[-1]
-        if _PROBLEM_SLUG.fullmatch(slug) and not _ID_LIKE.fullmatch(slug):
+        if is_valid_problem_slug(slug):
             return slug
         return None
 
-    slug = slug_of(problem.get("type"))
+    problem_type = problem.get("type")
+    if not isinstance(problem_type, str):
+        return None
+    slug = slug_of(problem_type)
     if slug is None:
-        if isinstance(problem.get("type"), str):
-            return None
-        return slug_of(problem.get("title"))
+        return None
     if slug == _GENERIC_PROBLEM_SLUG:
         return slug_of(problem.get("title"))
     return slug
@@ -115,7 +136,7 @@ def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorIn
             data = problem.get("data")
             if isinstance(data, dict):
                 candidate = data.get("resourceType")
-                if isinstance(candidate, str) and _RESOURCE_TYPE.fullmatch(candidate):
+                if isinstance(candidate, str) and candidate in _RESOURCE_TYPES:
                     resource_type = candidate
                 limit_value = data.get("limit")
                 if isinstance(limit_value, int) and not isinstance(limit_value, bool):
