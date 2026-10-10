@@ -13,6 +13,7 @@ import pytest
 import requests
 from airbyte_api.errors import SDKError
 from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
+from fastmcp_extensions.tool_filters import ToolUnavailableError
 
 from airbyte._util import api_util, meta
 from airbyte.exceptions import (
@@ -1021,7 +1022,9 @@ def _native_http_contract():
             )
         escaped = next(span for span in reversed(spans) if span.span_type == "llm")
         assert escaped.error and escaped.get_tag("error.type") == "ValueError"
-        assert escaped.get_tag("error.message") is None
+        assert escaped.get_tag("error.message") == (
+            "tool resulted in an error (unclassified)"
+        )
         escaped_stack = escaped.get_tag("error.stack")
         assert escaped_stack and escaped_stack.startswith("ValueError\n")
         assert private_payload not in escaped_stack
@@ -1042,6 +1045,36 @@ def _native_http_contract():
             escaped_metadata["organization_id"]
             == "87654321-4321-4321-4321-abcdef123456"
         )
+
+        async def unavailable_tool(_ctx):
+            raise ToolUnavailableError()
+
+        with pytest.raises(ToolUnavailableError):
+            await _datadog._DatadogRequestMiddleware()(
+                SimpleNamespace(
+                    method="tools/call",
+                    params={"name": "blocked_tool", "arguments": {}},
+                ),
+                unavailable_tool,
+            )
+        unavailable = next(span for span in reversed(spans) if span.span_type == "llm")
+        assert unavailable.get_tag("error.message") == (
+            "tool resulted in an error (tool_unavailable)"
+        )
+
+        async def fail_request(_ctx):
+            raise RuntimeError("private request failure")
+
+        with pytest.raises(RuntimeError, match="private request failure"):
+            await _datadog._DatadogRequestMiddleware()(
+                SimpleNamespace(method="tools/list", params={}),
+                fail_request,
+            )
+        failed_request = next(
+            span for span in reversed(spans) if span.span_type == "llm"
+        )
+        assert failed_request.get_tag("error.message") is None
+
         # Cancellation must propagate and restore the previous Datadog context.
         with tracer.trace("cancellation-parent") as parent:
             before = tracer.current_span()

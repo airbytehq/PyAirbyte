@@ -748,6 +748,8 @@ class _DatadogRequestMiddleware:
                     if error := sys.exc_info()[1]:
                         span.error = 1
                         _annotate_attributes(span, _exception_attributes(error))
+                        if tool_call:
+                            span.set_tag("error.message", _tool_error_message(span))
                     span.__exit__(None, None, None)
             except Exception:
                 logger.debug("Datadog span completion failed")
