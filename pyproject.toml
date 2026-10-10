@@ -46,7 +46,7 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=4.0.9,<5.0",
-    # TK-TODO: Needs a release and re-pin before merging. IGNORE:TK
+    # TK-TODO: Needs a release and re-pin before merging
     "fastmcp-extensions==0.34.0.dev14838020136172",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "httpx",  # Transitive dependency of fastmcp, imported directly
