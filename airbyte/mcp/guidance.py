@@ -11,7 +11,9 @@
 __all__: list[str] = []
 
 import contextlib
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from enum import StrEnum
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
+from urllib.parse import quote, urlencode
 
 import requests
 from fastmcp import Context, FastMCP
@@ -56,6 +58,23 @@ KAPA_RETRIEVAL_API_URL_ENV_VAR = "KAPA_RETRIEVAL_API_URL"
 _KAPA_TIMEOUT_SECONDS = 30.0
 
 KNOWLEDGE_SEARCH_CAPABILITY = "io.airbyte/knowledge-search"
+GITHUB_ISSUES_REPO = "airbytehq/PyAirbyte"
+MAX_GITHUB_ISSUE_URL_LENGTH = 8000
+
+
+class GitHubIssueCategory(StrEnum):
+    """Issue categories, each matching an issue form in `.github/ISSUE_TEMPLATE/`."""
+
+    CLOUD_MCP_BUG_REPORT = "cloud-mcp-bug-report"
+    CLOUD_MCP_FEATURE_REQUEST = "cloud-mcp-feature-request"
+
+
+class GitHubIssueCreationLink(BaseModel):
+    """A pre-filled GitHub issue creation link."""
+
+    url: str
+    warning: str | None = None
+
 
 KAPA_API_KEY_CONFIG_ARG = MCPServerConfigArg(
     name="kapa_api_key",
@@ -331,6 +350,58 @@ def get_api_docs_urls(
         return get_connector_api_docs_urls(connector_name)
     except exc.AirbyteConnectorNotRegisteredError:
         return "Connector not found."
+
+
+@mcp_tool(read_only=True, idempotent=True)
+def get_github_issue_creation_link(
+    category: Annotated[
+        GitHubIssueCategory,
+        Field(description="The GitHub issue form to use for the Airbyte Cloud MCP server."),
+        TraceArg.VALUE,
+    ],
+    title: Annotated[
+        str,
+        Field(description="A short, specific issue title.", min_length=1, max_length=200),
+        TraceArg.FINGERPRINT,
+    ],
+    description: Annotated[
+        str,
+        Field(
+            description=(
+                "A Markdown description of what happened, what was expected, "
+                "and the tool calls involved."
+            ),
+            min_length=1,
+        ),
+        TraceArg.FINGERPRINT,
+    ],
+) -> GitHubIssueCreationLink:
+    """Create a link to a pre-filled public GitHub issue for the Airbyte Cloud MCP server.
+
+    Use this when a user encounters a bug in this server's tools or asks for a capability it
+    lacks. Always give the returned URL to the user as a clickable link. If `warning` is set, the
+    link may be too long to open; follow its guidance. This tool does not file anything: the user
+    must be signed in to GitHub to review and submit the issue under their own account. Issues are
+    public, so never include secrets, credentials, connector config values, or customer data. Draft
+    the description in Markdown with what happened, what was expected, and the tool calls involved.
+    """
+    url = f"https://github.com/{GITHUB_ISSUES_REPO}/issues/new?" + urlencode(
+        {
+            "template": f"{category.value}.yml",
+            "title": title,
+            "description": description,
+        },
+        quote_via=cast(Any, quote),
+    )
+    warning = None
+    if len(url) > MAX_GITHUB_ISSUE_URL_LENGTH:
+        warning = (
+            f"This link is {len(url)} characters after URL encoding, above the "
+            f"{MAX_GITHUB_ISSUE_URL_LENGTH}-character limit some browsers and servers enforce. "
+            "Give the user the link anyway. If it fails to open, shorten the description and "
+            "create a new link."
+        )
+    return GitHubIssueCreationLink(url=url, warning=warning)
 
 
 def register_guidance_tools(app: FastMCP) -> None:

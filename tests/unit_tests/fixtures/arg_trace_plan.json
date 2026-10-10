@@ -138,6 +138,11 @@
     "workspace_id": "omit"
   },
   "get_default_cloud_context": {},
+  "get_github_issue_creation_link": {
+    "category": "value allowed=[\"cloud-mcp-bug-report\",\"cloud-mcp-feature-request\"]",
+    "description": "fingerprint",
+    "title": "fingerprint"
+  },
   "get_source_stream_json_schema": {
     "config": "presence",
     "config_file": "fingerprint",
