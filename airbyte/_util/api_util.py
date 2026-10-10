@@ -71,6 +71,9 @@ ACTOR_NOT_READY_ERROR_MESSAGE = (
     "The source or destination is still a draft: a person has not finished its setup in "
     "Airbyte Cloud (HTTP 409 actor-not-ready)."
 )
+FORBIDDEN_RESOURCE_MESSAGE = (
+    "The requested resource was not found, or these credentials can't access it (HTTP 403)."
+)
 ACTOR_NOT_READY_MCP_GUIDANCE = (
     "This is expected right after creating a connector with `defer_credentials=True`. "
     "Don't retry yet. Ask the user to open the connector's settings page, complete "
@@ -197,6 +200,16 @@ def _is_actor_not_ready_error(error: SDKError) -> bool:
     )
 
 
+def sdk_error_message(error: SDKError) -> str:
+    """Return the fixed message an SDKError is reported with; never Cloud body text."""
+    if _is_actor_not_ready_error(error):
+        return ACTOR_NOT_READY_ERROR_MESSAGE
+    if error.status_code == HTTPStatus.FORBIDDEN:
+        return FORBIDDEN_RESOURCE_MESSAGE
+    message, _ = describe_cloud_error(parse_cloud_error(error.status_code, error.body))
+    return message
+
+
 def _wrap_sdk_error(
     error: SDKError, base_context: dict[str, Any] | None = None
 ) -> AirbyteCloudError:
@@ -223,19 +236,14 @@ def _wrap_sdk_error(
 
     status_code = sdk_context.get("status_code")
     is_forbidden = status_code == HTTPStatus.FORBIDDEN
-    message, guidance = describe_cloud_error(problem)
+    _, guidance = describe_cloud_error(problem)
     error_type = (
         AirbyteMissingResourceError
         if is_forbidden or status_code == HTTPStatus.NOT_FOUND
         else AirbyteCloudError
     )
     return error_type(
-        message=(
-            "The requested resource was not found, or these credentials can't access it "
-            "(HTTP 403)."
-            if is_forbidden
-            else message
-        ),
+        message=sdk_error_message(error),
         guidance=FORBIDDEN_RESOURCE_GUIDANCE if is_forbidden else guidance,
         context=merged_context,
     )

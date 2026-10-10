@@ -36,6 +36,8 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     classify_mcp_tool_error,
+    cloud_error_route,
+    cloud_error_trace_message,
     mcp_tool_error_reason,
 )
 from airbyte.mcp._otel import _arg_key, _env, _flag
@@ -83,6 +85,8 @@ _ARG_PREFIX = "airbyte.mcp"
 _ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
 _TOOL_ERROR_MESSAGE = "tool resulted in an error"
 _STATUS_CODE = "airbyte.mcp.upstream.status_code"
+_UPSTREAM_METHOD = "airbyte.mcp.upstream.method"
+_UPSTREAM_ROUTE = "airbyte.mcp.upstream.route"
 
 
 def _build_tool_maps() -> None:
@@ -202,6 +206,13 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
     }
     if (stack := error_stack(cause)) is not None:
         attrs["error.stack"] = stack
+    if route := cloud_error_route(cause):
+        attrs[_UPSTREAM_METHOD], attrs[_UPSTREAM_ROUTE] = route
+    try:
+        if message := cloud_error_trace_message(cause):
+            attrs["error.message"] = message
+    except Exception:
+        logger.debug("Datadog Cloud error message unavailable")
     return attrs
 
 
@@ -244,6 +255,15 @@ def _tool_error_message(span: Span) -> str:
         if detail
     )
     return f"{_TOOL_ERROR_MESSAGE} ({details})" if details else _TOOL_ERROR_MESSAGE
+
+
+def _raised_tool_error_message(error: BaseException, span: Span) -> str:
+    """Return a fixed Cloud message when available, falling back to the span summary."""
+    try:
+        message = cloud_error_trace_message(error)
+    except Exception:
+        message = None
+    return message if message is not None else _tool_error_message(span)
 
 
 class _StripMetaTraceContextMiddleware:
@@ -520,14 +540,14 @@ class _DatadogIntentMiddleware(IntentCaptureMiddleware):
                 logger.debug("Datadog tool attributes unavailable")
 
 
-def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
+def _annotate_attributes(
+    span: Span, source: Mapping[str, str | bool], *, llmobs: bool = True
+) -> None:
     """Keep native APM attributes and LLM metadata consistent.
 
     Argument records pass the OTel backend's export validation: ints become
     metrics, and the validated records also reach LLM metadata.
     """
-    from ddtrace.llmobs import LLMObs  # noqa: PLC0415
-
     attrs = dict(source)
     arg_attrs = {key: attrs.pop(key) for key in list(attrs) if is_arg_key(_ARG_PREFIX, key)}
     tool = attrs.get("gen_ai.tool.name")
@@ -553,13 +573,14 @@ def _annotate_attributes(span: Span, source: Mapping[str, str | bool]) -> None:
     metadata.update({key.removeprefix("airbyte.mcp."): value for key, value in accepted.items()})
     if "gen_ai.tool.call.id" in attrs:
         metadata["tool_id"] = attrs["gen_ai.tool.call.id"]
-    LLMObs.annotate(span, metadata=metadata)
+    if llmobs:
+        from ddtrace.llmobs import LLMObs  # noqa: PLC0415
+
+        LLMObs.annotate(span, metadata=metadata)
 
 
-def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
+def _annotate_request(span: Span, ctx: ServerRequestContext[Any], *, llmobs: bool = True) -> None:
     """Annotate protocol identity without copying tool arguments into the SDK."""
-    from ddtrace.llmobs import LLMObs  # noqa: PLC0415
-
     request_types = {
         "initialize": InitializeRequest,
         "tools/list": ListToolsRequest,
@@ -605,26 +626,31 @@ def _annotate_request(span: Span, ctx: ServerRequestContext[Any]) -> None:
             )
         except Exception:
             logger.debug("Early tool scope unavailable")
-    _annotate_attributes(span, attrs)
+    _annotate_attributes(span, attrs, llmobs=llmobs)
     session = attrs.get("airbyte.mcp.session_id")
     if session:
         tags["mcp_session_id"] = session
-    LLMObs.annotate(
-        span,
-        tags=tags,
-        metadata={"pyairbyte.version": get_version()},
-        # Seed scalar payloads so the processor can replace Input even if the
-        # tool fails before the metadata middleware runs. Never seed raw data.
-        input_data=REDACTED if tool_call else None,
-        output_data=REDACTED if tool_call else None,
-    )
-    if not tool_call:
-        request = (
-            request_types[ctx.method]
-            .model_validate({"method": ctx.method, "params": params})
-            .model_dump(exclude={"params": {"meta": "_dd_trace_context"}})
+    if llmobs:
+        from ddtrace.llmobs import LLMObs  # noqa: PLC0415
+
+        LLMObs.annotate(
+            span,
+            tags=tags,
+            metadata={"pyairbyte.version": get_version()},
+            # Seed scalar payloads so the processor can replace Input even if the
+            # tool fails before the metadata middleware runs. Never seed raw data.
+            input_data=REDACTED if tool_call else None,
+            output_data=REDACTED if tool_call else None,
         )
-        LLMObs.annotate(span, input_data=request)
+        if not tool_call:
+            request = (
+                request_types[ctx.method]
+                .model_validate({"method": ctx.method, "params": params})
+                .model_dump(exclude={"params": {"meta": "_dd_trace_context"}})
+            )
+            LLMObs.annotate(span, input_data=request)
+    else:
+        span.set_tags(tags)
 
 
 class _DatadogRequestMiddleware:
@@ -667,8 +693,8 @@ class _DatadogRequestMiddleware:
         from ddtrace import tracer  # noqa: PLC0415
         from ddtrace.llmobs import LLMObs  # noqa: PLC0415
 
-        # Native server instrumentation covered initialize/call. Listing is an
-        # explicit addition; other operations retain deployment HTTP tracing.
+        # Use APM spans for lifecycle methods and LLM Obs spans for tool calls.
+        # Other operations retain deployment HTTP tracing.
         if ctx.method not in {"initialize", "tools/list", "tools/call"}:
             return await call_next(ctx)
         span = None
@@ -696,17 +722,16 @@ class _DatadogRequestMiddleware:
                 except Exception:
                     logger.debug("Datadog MCP distributed context unavailable")
             name = str(params.get("name", "unknown_tool")) if tool_call else f"mcp.{ctx.method}"
-            start = LLMObs.tool if tool_call else LLMObs.task
-            span = start(name=name)
-            # LLMObs retains its display name independently of these APM fields.
-            span.name = f"mcp.{ctx.method}"
+            if tool_call:
+                span = LLMObs.tool(name=name)
+                span.name = f"mcp.{ctx.method}"
+            else:
+                span = tracer.trace(f"mcp.{ctx.method}", resource="server_request")
             if tool_call:
                 # Per-tool APM trace metrics group by resource; keep it bounded.
                 span.resource = name if name in _TOOL_MODULES else "unknown_tool"
-            else:
-                span.resource = "server_request"
             span.set_metric("_dd.measured", 1)
-            _annotate_request(span, ctx)
+            _annotate_request(span, ctx, llmobs=tool_call)
         except Exception:
             logger.debug("Datadog request attributes unavailable")
         try:
@@ -719,7 +744,7 @@ class _DatadogRequestMiddleware:
                         "tools/list": ListToolsResult,
                         "tools/call": CallToolResult,
                     }[ctx.method].model_validate(result)
-                    output = REDACTED if tool_call else response.model_dump(mode="json")
+                    output = REDACTED
                     if tool_call and getattr(response, "is_error", False):
                         span.error = 1
                         error_type = span.get_tag("airbyte.mcp.error_type") or "ToolError"
@@ -732,11 +757,15 @@ class _DatadogRequestMiddleware:
                         # A returned error result raised nothing to classify.
                         if span.get_tag("airbyte.mcp.error.category") is None:
                             error_attrs.update(_error_classification(None))
-                        _annotate_attributes(span, error_attrs)
-                        span.set_tag("error.message", _tool_error_message(span))
+                        _annotate_attributes(span, error_attrs, llmobs=tool_call)
+                        if span.get_tag("error.message") is None:
+                            span.set_tag("error.message", _tool_error_message(span))
                     else:
-                        _annotate_attributes(span, {"airbyte.mcp.outcome": "success"})
-                    LLMObs.annotate(span, output_data=output)
+                        _annotate_attributes(
+                            span, {"airbyte.mcp.outcome": "success"}, llmobs=tool_call
+                        )
+                    if tool_call:
+                        LLMObs.annotate(span, output_data=output)
                 except Exception:
                     logger.debug("Datadog response attributes unavailable")
             return result
@@ -747,9 +776,9 @@ class _DatadogRequestMiddleware:
                     # and traceback, which can contain arguments and results.
                     if error := sys.exc_info()[1]:
                         span.error = 1
-                        _annotate_attributes(span, _exception_attributes(error))
+                        _annotate_attributes(span, _exception_attributes(error), llmobs=tool_call)
                         if tool_call:
-                            span.set_tag("error.message", _tool_error_message(span))
+                            span.set_tag("error.message", _raised_tool_error_message(error, span))
                     span.__exit__(None, None, None)
             except Exception:
                 logger.debug("Datadog span completion failed")

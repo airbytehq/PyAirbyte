@@ -8,14 +8,21 @@ import logging
 import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
+import requests
 from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp_extensions.otel._arg_digests import classify_tool  # noqa: PLC2701
 from fastmcp_extensions.otel._extras import _chain, declared_parameters  # noqa: PLC2701
 from fastmcp_extensions.otel.models import TraceArg
 
-from airbyte._util.api_util import error_response_body, sdk_error_response
+from airbyte._util.api_util import (
+    SDKError,
+    error_response_body,
+    sdk_error_message,
+    sdk_error_response,
+)
 from airbyte._util.cloud_errors import (
     describe_cloud_error,
     is_valid_problem_slug,
@@ -45,6 +52,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_UPSTREAM_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
+# Literal segments come from path templates in airbyte_api.
+_CLOUD_API_ROUTE_SEGMENTS = frozenset(
+    {
+        "connections",
+        "destinations",
+        "health",
+        "jobs",
+        "organizations",
+        "oauthCredentials",
+        "permissions",
+        "sources",
+        "initiateOAuth",
+        "streams",
+        "tags",
+        "users",
+        "workspaces",
+        "definitions",
+        "declarative_sources",
+    }
+)
+_MAX_UPSTREAM_ROUTE_LENGTH = 200
+
 
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteLibInputError,
@@ -58,6 +88,78 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteMissingResourceError,
 )
 """Expected errors returned to MCP clients as concise message and guidance text."""
+
+
+def cloud_error_trace_message(error: BaseException) -> str | None:
+    """Return the fixed Cloud error message for a failed call's span, if any.
+
+    Only the message half: guidance can carry Cloud's error ID.
+    """
+    cloud_error: AirbyteCloudApiError | None = None
+    for cause in _chain(error):
+        if (
+            isinstance(cause, AirbyteLibError)
+            and isinstance(cause.__cause__, requests.HTTPError)
+            and "problem_type" in (cause.context or {})
+        ):
+            return cause.message
+        if isinstance(cause, AirbyteCloudApiError):
+            body = error_response_body(cause)
+            if body is not None:
+                message, _ = describe_cloud_error(parse_cloud_error(cause.status_code, body))
+                return message
+            cloud_error = cause
+        elif isinstance(cause, SDKError):
+            return sdk_error_message(cause)
+
+    if cloud_error is not None:
+        message, _ = describe_cloud_error(parse_cloud_error(cloud_error.status_code, None))
+        return message
+    return None
+
+
+def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
+    """Return a bounded HTTP method and sanitized path for an upstream SDK error."""
+    for cause in _chain(error):
+        if not isinstance(cause, SDKError):
+            continue
+        try:
+            response = getattr(cause, "raw_response", None)
+            request = getattr(response, "request", None)
+            if request is None:
+                continue
+
+            method = request.method.upper()
+            if method not in _UPSTREAM_METHODS:
+                return None
+
+            segments = [
+                segment for segment in urlsplit(str(request.url)).path.split("/") if segment
+            ]
+            version_index = next(
+                (
+                    index
+                    for index in range(len(segments) - 1, -1, -1)
+                    if re.fullmatch(r"v[0-9]{1,3}", segments[index])
+                ),
+                None,
+            )
+            route_segments: list[str] = []
+            for index, segment in enumerate(segments):
+                if version_index is None or index < version_index:
+                    route_segments.append("{id}")
+                elif index == version_index or segment in _CLOUD_API_ROUTE_SEGMENTS:
+                    route_segments.append(segment)
+                else:
+                    route_segments.append("{id}")
+            route = "/" + "/".join(route_segments)
+            if len(route) > _MAX_UPSTREAM_ROUTE_LENGTH:
+                return None
+        except Exception:
+            return None
+        else:
+            return method, route
+    return None
 
 
 def _cloud_api_error_text(error: AirbyteCloudApiError) -> str:

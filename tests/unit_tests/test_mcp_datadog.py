@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Native Datadog payload policy and real HTTP/LLM span contracts."""
 
+import asyncio
 import json
 import os
 import subprocess
@@ -69,7 +70,7 @@ def test_datadog_initialize_tags_use_client_info(
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
     monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
     monkeypatch.setattr(_datadog, "_request_trace_attributes", lambda: {})
-    monkeypatch.setattr(_datadog, "_annotate_attributes", lambda *_: None)
+    monkeypatch.setattr(_datadog, "_annotate_attributes", lambda *_, **__: None)
     annotations: list[dict[str, object]] = []
     monkeypatch.setattr(
         "ddtrace.llmobs.LLMObs.annotate",
@@ -196,6 +197,138 @@ def _problem(problem_type: str, title: str) -> str:
         "detail": "SENTINEL detail",
         "data": {"message": "ConfigNotFoundException: SENTINEL-workspace"},
     })
+
+
+def _wrapped_sdk_error_with_request(
+    method: str, url: str, status_code: int = 403
+) -> ToolError:
+    error = _wrapped_sdk_error(status_code, _problem("forbidden", "Forbidden"))
+    sdk_error = error.__cause__.__cause__
+    assert isinstance(sdk_error, SDKError)
+    sdk_error.raw_response.request = requests.Request(method, url).prepare()
+    return error
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://user:pw@api.airbyte.com/v1/connections/"
+            "123e4567-e89b-42d3-a456-426614174000?x=secret",
+            ("GET", "/v1/connections/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/jobs/12345/status",
+            ("GET", "/v1/jobs/{id}/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/Connections/MyConnection",
+            ("GET", "/v1/{id}/{id}"),
+        ),
+        (
+            "https://h/customers/users/api/public/v1/connections/abc-def",
+            ("GET", "/{id}/{id}/{id}/{id}/v1/connections/{id}"),
+        ),
+        (
+            "https://h/v1/customers/v2/connections/abc",
+            ("GET", "/{id}/{id}/v2/connections/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/workspaces/"
+            "123e4567-e89b-42d3-a456-426614174000/definitions/sources/"
+            "123e4567-e89b-42d3-a456-426614174001",
+            ("GET", "/v1/workspaces/{id}/definitions/sources/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/sources/initiateOAuth",
+            ("GET", "/v1/sources/initiateOAuth"),
+        ),
+        (
+            "https://api.airbyte.com/connections/abc",
+            ("GET", "/{id}/{id}"),
+        ),
+    ],
+)
+def test_cloud_error_route_sanitizes_request_url(
+    url: str, expected: tuple[str, str]
+) -> None:
+    error = _wrapped_sdk_error_with_request("GET", url)
+
+    assert _datadog.cloud_error_route(error) == expected
+    assert "user:pw" not in str(expected)
+    assert "secret" not in str(expected)
+
+
+def test_cloud_error_route_omits_missing_or_invalid_requests() -> None:
+    without_request = _wrapped_sdk_error(403, _problem("forbidden", "Forbidden"))
+    weird_method = _wrapped_sdk_error_with_request(
+        "CONNECT", "https://api.airbyte.com/v1/connections/123"
+    )
+
+    assert _datadog.cloud_error_route(without_request) is None
+    assert _datadog.cloud_error_route(RuntimeError("private")) is None
+    assert _datadog.cloud_error_route(weird_method) is None
+    assert "airbyte.mcp.upstream.method" not in _datadog._exception_attributes(
+        RuntimeError("private")
+    )
+    assert "airbyte.mcp.upstream.method" not in _datadog._exception_attributes(
+        without_request
+    )
+    assert "airbyte.mcp.upstream.route" not in _datadog._exception_attributes(
+        weird_method
+    )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "problem_type", "expected_message"),
+    [
+        (
+            404,
+            "resource-not-found",
+            "The resource was not found. (Cloud error: resource-not-found, HTTP 404)",
+        ),
+        (
+            403,
+            "forbidden",
+            "The requested resource was not found, or these credentials can't access it "
+            "(HTTP 403).",
+        ),
+    ],
+)
+def test_cloud_error_trace_message_for_config_api_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    problem_type: str,
+    expected_message: str,
+) -> None:
+    response = requests.Response()
+    response.status_code = status_code
+    response.url = "https://config.airbyte.com/v1/workspaces/get"
+    response.request = requests.Request("POST", response.url).prepare()
+    response._content = json.dumps({"type": problem_type, "title": "SENTINEL"}).encode()
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+
+    with pytest.raises(api_util.AirbyteCloudError) as exc_info:
+        api_util._make_config_api_request(
+            path="/workspaces/get",
+            json={"workspaceId": "SENTINEL"},
+            api_root="https://api.airbyte.com/v1",
+            config_api_root="https://config.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=api_util.SecretString("token"),
+        )
+
+    assert isinstance(exc_info.value.__cause__, requests.HTTPError)
+    assert _datadog.cloud_error_trace_message(exc_info.value) == expected_message
+
+
+def test_cloud_error_trace_message_ignores_missing_resource_without_http_error() -> (
+    None
+):
+    error = api_util.AirbyteMissingResourceError(message="resource SENTINEL")
+
+    assert _datadog.cloud_error_trace_message(error) is None
 
 
 @pytest.mark.parametrize(
@@ -358,12 +491,15 @@ def test_exception_attributes_classify_without_error_text(
     error: BaseException, expected: dict[str, str]
 ) -> None:
     attrs = _datadog._exception_attributes(error)
-
-    assert attrs == {
+    expected_attrs = {
         "airbyte.mcp.outcome": "exception",
         "error.type": expected["airbyte.mcp.error_type"],
         **expected,
     }
+    if message := _datadog.cloud_error_trace_message(error):
+        expected_attrs["error.message"] = message
+
+    assert attrs == expected_attrs
     assert "SENTINEL" not in json.dumps(attrs)
 
 
@@ -415,6 +551,92 @@ def test_returned_tool_error_is_classified_as_tool_error() -> None:
         "airbyte.mcp.error.category": "tool_error",
         "airbyte.mcp.error.fault": "unknown",
     }
+
+
+@pytest.mark.parametrize(
+    ("method", "params", "result"),
+    [
+        (
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "agent", "version": "1"},
+            },
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "serverInfo": {"name": "airbyte", "version": "1"},
+            },
+        ),
+        ("tools/list", {}, {"tools": []}),
+    ],
+)
+def test_non_tool_requests_create_apm_spans_without_llmobs(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    params: dict[str, object],
+    result: dict[str, object],
+) -> None:
+    from ddtrace import tracer
+    from ddtrace.llmobs import LLMObs
+
+    class Span:
+        def __init__(self) -> None:
+            self.tags: dict[str, str] = {}
+            self.metrics: dict[str, int] = {}
+            self.error = 0
+
+        def set_tag(self, key: str, value: str) -> None:
+            self.tags[key] = value
+
+        def set_tags(self, tags: dict[str, str]) -> None:
+            self.tags.update(tags)
+
+        def get_tag(self, key: str) -> str | None:
+            return self.tags.get(key)
+
+        def set_metric(self, key: str, value: int) -> None:
+            self.metrics[key] = value
+
+        def get_metric(self, key: str) -> int | None:
+            return self.metrics.get(key)
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    span = Span()
+    trace_calls: list[tuple[str, str]] = []
+    annotate_calls: list[object] = []
+    monkeypatch.setattr(LLMObs, "_instance", None)
+    monkeypatch.setattr(
+        LLMObs, "annotate", lambda *args, **kwargs: annotate_calls.append(args)
+    )
+
+    def trace(name: str, *, resource: str) -> Span:
+        trace_calls.append((name, resource))
+        span.name = name
+        span.resource = resource
+        return span
+
+    monkeypatch.setattr(tracer, "trace", trace)
+
+    async def call_next(_ctx: object) -> dict[str, object]:
+        return result
+
+    returned = asyncio.run(
+        _datadog._DatadogRequestMiddleware()(
+            SimpleNamespace(method=method, params=params), call_next
+        )
+    )
+
+    assert returned == result
+    assert trace_calls == [(f"mcp.{method}", "server_request")]
+    assert span.name == f"mcp.{method}"
+    assert span.resource == "server_request"
+    assert span.tags["airbyte.mcp.outcome"] == "success"
+    assert span.tags["mcp_method"] == method
+    assert annotate_calls == []
 
 
 @pytest.mark.parametrize(
@@ -823,6 +1045,18 @@ def _native_http_contract():
         )
 
     @app.tool()
+    def raised_cloud_sdk_error() -> str:
+        request_url = (
+            "https://api.airbyte.com/v1/connections/"
+            "123e4567-e89b-42d3-a456-426614174000?x=1"
+        )
+        response = requests.Response()
+        response.status_code = 403
+        response.url = request_url
+        response.request = requests.Request("GET", request_url).prepare()
+        raise SDKError("private response text", 403, "{}", response)
+
+    @app.tool()
     async def handle_error() -> str:
         from fastmcp.exceptions import ToolError
 
@@ -871,6 +1105,7 @@ def _native_http_contract():
                         },
                     ),
                     ("tools/list", {}),
+                    ("tools/call", {"name": "raised_cloud_sdk_error", "arguments": {}}),
                     *[
                         (
                             "tools/call",
@@ -907,6 +1142,65 @@ def _native_http_contract():
                     )
                     assert response.status_code == 200
                     responses.append((method, params, response.json()))
+                lifecycle_spans = [
+                    span
+                    for span in spans
+                    if span.name in {"mcp.initialize", "mcp.tools/list"}
+                ]
+                assert {span.name for span in lifecycle_spans} == {
+                    "mcp.initialize",
+                    "mcp.tools/list",
+                }
+                for lifecycle_span in lifecycle_spans:
+                    assert lifecycle_span.resource == "server_request"
+                    assert lifecycle_span.span_type != "llm"
+                    assert lifecycle_span.get_tag("airbyte.mcp.outcome") == "success"
+                    assert lifecycle_span._get_ctx_item("_llmobs.cached_event") is None
+                initialize_span = next(
+                    span for span in lifecycle_spans if span.name == "mcp.initialize"
+                )
+                assert initialize_span.get_tag("client_name") == "custom-agent"
+                assert initialize_span.get_tag("client_version") == "custom-agent_1.2"
+                assert (
+                    initialize_span.get_tag("airbyte.mcp.mcp_protocol_version")
+                    == "2025-11-25"
+                )
+                assert (
+                    initialize_span.get_tag("mcp_session_id")
+                    == (client_properties["session_id"])
+                )
+                assert responses[2][2]["result"]["isError"]
+                cloud_span = next(
+                    span
+                    for span in reversed(spans)
+                    if span.get_tag("airbyte.mcp.upstream.route")
+                    == "/v1/connections/{id}"
+                )
+                cloud_metadata = cloud_span._get_ctx_item("_llmobs.cached_event")[
+                    "meta"
+                ]["metadata"]
+                cloud_uuid = "123e4567-e89b-42d3-a456-426614174000"
+                assert cloud_span.get_tag("error.message") == (
+                    api_util.FORBIDDEN_RESOURCE_MESSAGE
+                )
+                assert cloud_span.get_tag("airbyte.mcp.upstream.method") == "GET"
+                assert cloud_span.get_tag("airbyte.mcp.upstream.route") == (
+                    "/v1/connections/{id}"
+                )
+                assert cloud_uuid not in json.dumps(cloud_span.get_tags())
+                assert "x=1" not in json.dumps(cloud_span.get_tags())
+                assert cloud_uuid not in json.dumps(cloud_metadata)
+                assert "x=1" not in json.dumps(cloud_metadata)
+                assert "error.message" not in cloud_metadata
+                returned_error_span = next(
+                    span
+                    for span in reversed(spans)
+                    if span.get_tag("airbyte.mcp.outcome") == "tool_error"
+                    and span.get_tag("error.type") == "ToolError"
+                )
+                assert returned_error_span.get_tag("error.message").startswith(
+                    "tool resulted in an error ("
+                )
                 # Telemetry failures must not abort dispatch or replace its result.
                 for target in ("tool", "annotate"):
                     before = len(calls)
@@ -1062,6 +1356,85 @@ def _native_http_contract():
             "tool resulted in an error (tool_unavailable)"
         )
 
+        async def raised_tool_message(error: BaseException) -> str | None:
+            async def fail_tool(_ctx):
+                raise error
+
+            with pytest.raises(type(error)):
+                await _datadog._DatadogRequestMiddleware()(
+                    SimpleNamespace(
+                        method="tools/call",
+                        params={"name": "failed_cloud_tool", "arguments": {}},
+                    ),
+                    fail_tool,
+                )
+            span = next(span for span in reversed(spans) if span.span_type == "llm")
+            return span.get_tag("error.message")
+
+        forbidden_message = await raised_tool_message(
+            _wrapped_sdk_error(
+                403,
+                _problem(
+                    "https://reference.airbyte.com/reference/errors#forbidden",
+                    "forbidden",
+                ),
+            )
+        )
+        assert forbidden_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+
+        upstream_uuid = "123e4567-e89b-42d3-a456-426614174000"
+        upstream_query = "x=secret-query"
+        upstream_message = await raised_tool_message(
+            _wrapped_sdk_error_with_request(
+                "GET",
+                f"https://user:pw@api.airbyte.com/v1/connections/{upstream_uuid}"
+                f"?{upstream_query}",
+            )
+        )
+        assert upstream_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+        upstream_span = next(
+            span for span in reversed(spans) if span.span_type == "llm"
+        )
+        assert upstream_span.get_tag("airbyte.mcp.upstream.method") == "GET"
+        assert upstream_span.get_tag("airbyte.mcp.upstream.route") == (
+            "/v1/connections/{id}"
+        )
+        upstream_metadata = upstream_span._get_ctx_item("_llmobs.cached_event")["meta"][
+            "metadata"
+        ]
+        assert upstream_uuid not in json.dumps(upstream_span.get_tags())
+        assert upstream_uuid not in json.dumps(upstream_metadata)
+        assert upstream_query not in json.dumps(upstream_span.get_tags())
+        assert upstream_query not in json.dumps(upstream_metadata)
+
+        unexpected_problem = json.loads(
+            _problem(_GENERIC_PROBLEM_TYPE, "unexpected-problem")
+        )
+        error_id = "123e4567-e89b-42d3-a456-426614174000"
+        unexpected_problem["errorId"] = error_id
+        unexpected_message = await raised_tool_message(
+            _wrapped_sdk_error(500, json.dumps(unexpected_problem))
+        )
+        assert unexpected_message is not None
+        assert unexpected_message.endswith(
+            "(Cloud error: unexpected-problem, HTTP 500)"
+        )
+        assert error_id not in unexpected_message
+        assert "Error ID" not in unexpected_message
+
+        hostile_title = "password=SENTINEL-cloud-title"
+        hostile_message = await raised_tool_message(
+            _wrapped_sdk_error(500, _problem(_GENERIC_PROBLEM_TYPE, hostile_title))
+        )
+        assert hostile_message is not None
+        assert hostile_message.endswith("(HTTP 500)")
+        assert hostile_title not in hostile_message
+
+        runtime_message = await raised_tool_message(
+            RuntimeError("private runtime message")
+        )
+        assert runtime_message == "tool resulted in an error (unclassified)"
+
         async def fail_request(_ctx):
             raise RuntimeError("private request failure")
 
@@ -1071,8 +1444,11 @@ def _native_http_contract():
                 fail_request,
             )
         failed_request = next(
-            span for span in reversed(spans) if span.span_type == "llm"
+            span for span in reversed(spans) if span.name == "mcp.tools/list"
         )
+        assert failed_request.error
+        assert failed_request.get_tag("airbyte.mcp.outcome") == "exception"
+        assert failed_request.get_tag("error.type") == "RuntimeError"
         assert failed_request.get_tag("error.message") is None
 
         # Cancellation must propagate and restore the previous Datadog context.
@@ -1182,8 +1558,8 @@ def _native_http_contract():
             "private synthetic result",
         ):
             assert secret not in serialized_native
-        primary = native[:7]
-        assert len(primary) == 7
+        primary = native[:6]
+        assert len(primary) == 6
         lookup = {span.span_id: span for span in spans}
         for span in primary:
             assert lookup[span.parent_id].name == "starlette.request"
@@ -1194,23 +1570,22 @@ def _native_http_contract():
             assert metadata["auth_method"] == "client_credentials"
             assert metadata["mcp_protocol_version"] == "2025-11-25"
             assert metadata["session_id"] == client_properties["session_id"]
-        assert [event["meta"]["span"]["kind"] for event in events] == [
-            "task",
-            "task",
-            "tool",
-            "tool",
-            "tool",
-            "tool",
-            "tool",
+        assert [event["meta"]["span"]["kind"] for event in events] == ["tool"] * 6
+        assert [event["name"] for event in events] == [
+            "raised_cloud_sdk_error",
+            "execute_external_api_query",
+            "execute_external_api_query",
+            "execute_external_api_query",
+            "run_sql_query",
+            "unknown_tool",
         ]
-        assert events[0]["name"] == "mcp.initialize"
-        assert "client_name:custom-agent" in events[0]["tags"]
-        assert "client_version:custom-agent_1.2" in events[0]["tags"]
         assert [span.resource for span in primary] == [
-            "server_request",
-            "server_request",
-        ] + ["execute_external_api_query"] * 3 + ["run_sql_query", "unknown_tool"]
-        for index in (2, 3, 4):
+            "unknown_tool",
+            *(["execute_external_api_query"] * 3),
+            "run_sql_query",
+            "unknown_tool",
+        ]
+        for index in (1, 2, 3):
             span, event = primary[index], events[index]
             assert json.loads(event["meta"]["input"]["value"]) == {
                 "method": "tools/call",
@@ -1229,7 +1604,7 @@ def _native_http_contract():
             entity = "Custom Entities/東京" * 12
             # Only bounded approved telemetry leaves the process; execution
             # receives the original argument.
-            assert entities[index - 2] == entity
+            assert entities[index - 1] == entity
             assert event["meta"]["metadata"]["agent.entity_type"] == entity
             assert span.get_tag("airbyte.mcp.agent.entity_type") == entity
             assert (
@@ -1247,7 +1622,7 @@ def _native_http_contract():
             assert span.get_tag("airbyte.mcp.client_version") == "v" * 256
             assert (
                 event["meta"]["metadata"]["tool_id"]
-                == hashlib.sha256(str(index + 1).encode()).hexdigest()
+                == hashlib.sha256(str(index + 3).encode()).hexdigest()
             )
             assert "mcp_tool_kind:server" in event["tags"]
             assert (
@@ -1266,14 +1641,10 @@ def _native_http_contract():
                 for s in spans
             )
         assert (
-            json.loads(responses[2][2]["result"]["content"][0]["text"])
-            == private_arguments
-        )
-        assert (
             json.loads(responses[3][2]["result"]["content"][0]["text"])
             == private_arguments
         )
-        assert primary[2].error == 0
+        assert primary[2].error == 1
         tool_records = [
             record for record in records if record.name == "execute_external_api_query"
         ]
@@ -1286,14 +1657,14 @@ def _native_http_contract():
                 == "44444444-4444-4444-4444-444444444444"
             )
         assert (
-            events[5]["meta"]["metadata"]["organization_id"]
+            events[4]["meta"]["metadata"]["organization_id"]
             == "33333333-3333-3333-3333-333333333333"
         )
-        assert "workspace_id" not in events[5]["meta"]["metadata"]
+        assert "workspace_id" not in events[4]["meta"]["metadata"]
         for index, outcome, error_type in (
-            (2, "success", None),
-            (3, "tool_error", "ToolError"),
-            (4, "exception", "ValueError"),
+            (1, "success", None),
+            (2, "tool_error", "ToolError"),
+            (3, "exception", "ValueError"),
         ):
             span, event = primary[index], events[index]
             assert bool(span.error) is (error_type is not None)
@@ -1301,18 +1672,18 @@ def _native_http_contract():
             assert span.get_tag("airbyte.mcp.outcome") == outcome
             assert event["meta"]["metadata"]["outcome"] == outcome
             assert event["meta"]["metadata"].get("error_type") == error_type
-        assert events[4]["meta"]["metadata"]["error_type"] == "ValueError"
-        assert events[3]["meta"]["metadata"]["error.category"] == "tool_error"
-        assert events[4]["meta"]["metadata"]["error.category"] == "unclassified"
-        assert primary[3].get_tag("error.message") == (
+        assert events[3]["meta"]["metadata"]["error_type"] == "ValueError"
+        assert events[2]["meta"]["metadata"]["error.category"] == "tool_error"
+        assert events[3]["meta"]["metadata"]["error.category"] == "unclassified"
+        assert primary[2].get_tag("error.message") == (
             "tool resulted in an error (tool_error)"
         )
-        assert events[5]["meta"]["output"]["value"] == "[REDACTED]"
+        assert events[4]["meta"]["output"]["value"] == "[REDACTED]"
         assert (
-            responses[5][2]["result"]["content"][0]["text"]
+            responses[6][2]["result"]["content"][0]["text"]
             == "private synthetic result"
         )
-        assert events[6]["name"] == "unknown_tool" and primary[6].error
+        assert events[5]["name"] == "unknown_tool" and primary[5].error
         for span_id, correlation in correlations[:3]:
             assert str(span_id) == correlation["dd.span_id"]
         asyncio.run(_native_distributed_context_contract(app))

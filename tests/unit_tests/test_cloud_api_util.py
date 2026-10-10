@@ -2921,21 +2921,18 @@ def test_wrap_sdk_error_describes_cloud_problem(
 
 
 def test_wrap_sdk_error_403_keeps_fixed_forbidden_text() -> None:
-    wrapped = api_util._wrap_sdk_error(
-        _sdk_error(
-            403,
-            _problem_body(
-                "https://reference.airbyte.com/reference/errors#forbidden",
-                data={"message": _INTERNAL_MARKER},
-            ),
-        )
+    error = _sdk_error(
+        403,
+        _problem_body(
+            "https://reference.airbyte.com/reference/errors#forbidden",
+            data={"message": _INTERNAL_MARKER},
+        ),
     )
+    wrapped = api_util._wrap_sdk_error(error)
 
     assert type(wrapped) is AirbyteMissingResourceError
-    assert wrapped.get_message() == (
-        "The requested resource was not found, or these credentials can't "
-        "access it (HTTP 403)."
-    )
+    assert wrapped.get_message() == api_util.FORBIDDEN_RESOURCE_MESSAGE
+    assert api_util.sdk_error_message(error) == api_util.FORBIDDEN_RESOURCE_MESSAGE
     assert wrapped.guidance == api_util.FORBIDDEN_RESOURCE_GUIDANCE
     assert wrapped.context["problem_type"] == "forbidden"
     assert _INTERNAL_MARKER not in str(wrapped)
