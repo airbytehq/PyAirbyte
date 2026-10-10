@@ -255,7 +255,7 @@ def redact_agent_text(
             if leaf in seen:
                 continue
             seen.add(leaf)
-            placeholder = f"<value of {path}>"
+            placeholder = f"<value of {path.split('.', maxsplit=1)[0]}>"
             if secret and len(leaf) >= 4:  # noqa: PLR2004
                 text = text.replace(leaf, placeholder)
             else:

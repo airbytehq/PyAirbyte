@@ -402,8 +402,28 @@ def test_secret_valued_argument_never_shows_a_prefix() -> None:
 
     assert secret not in text
     assert "sk_live" not in text
-    assert "<value of config.api_key>" in text
+    assert "<value of config>" in text
     assert "stream_with_secret_value" not in text
+
+
+def test_redaction_placeholder_does_not_expose_nested_mapping_key() -> None:
+    server = _server_with_agent_error_text()
+    hostile_key = "password-or-injected-text"
+    secret = "sk_live_FAKE1234567890"
+
+    @server.tool
+    def read_records(config: dict[str, str]) -> str:
+        raise AirbyteLibInputError(message=f"Failed to read key {config[hostile_key]}")
+
+    text = _call_error(
+        server,
+        "read_records",
+        {"config": {hostile_key: secret}},
+    )
+
+    assert secret not in text
+    assert hostile_key not in text
+    assert "<value of config>" in text
 
 
 def _tool_stub(fn):

@@ -294,8 +294,13 @@ def test_run_sql_query_log_omits_exception_text(
     monkeypatch.setattr(local, "raise_if_untrusted_execution_context", lambda _: None)
     monkeypatch.setattr(local, "get_default_cache", FailingCache)
 
-    with caplog.at_level(logging.WARNING, logger=local.logger.name):
+    monkeypatch.setattr(local.logger, "propagate", False)
+    local.logger.addHandler(caplog.handler)
+    try:
+        caplog.set_level(logging.WARNING, logger=local.logger.name)
         local.run_sql_query("SELECT 1", 10)
+    finally:
+        local.logger.removeHandler(caplog.handler)
 
     assert "SENTINEL_SQL_ERROR" not in caplog.text
     assert "RuntimeError" in caplog.text

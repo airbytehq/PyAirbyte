@@ -360,11 +360,32 @@ def test_datadog_metadata_exporter_maps_only_approved_tool_attributes() -> None:
                     },
                 )
 
+        span = _tool_span(spans, "echo")
+        span = ReadableSpan(
+            name=span.name,
+            context=span.context,
+            parent=span.parent,
+            resource=span.resource,
+            attributes={
+                **(span.attributes or {}),
+                "airbyte.mcp.error.category": "upstream",
+                "airbyte.mcp.error.fault": True,
+                "airbyte.mcp.error.reason": "rate_limited",
+                "airbyte.mcp.error.cause_types": ("SDKError", "HTTPError"),
+                "airbyte.mcp.upstream.status_code": 503,
+                "airbyte.mcp.error.stack": "RuntimeError",
+            },
+            events=span.events,
+            links=span.links,
+            kind=span.kind,
+            status=span.status,
+            start_time=span.start_time,
+            end_time=span.end_time,
+            instrumentation_scope=span.instrumentation_scope,
+        )
         collector = _Collector()
         assert (
-            observability._DatadogMetadataExporter(collector).export([
-                _tool_span(spans, "echo")
-            ])
+            observability._DatadogMetadataExporter(collector).export([span])
             == SpanExportResult.SUCCESS
         )
         attributes = collector.spans[0].attributes or {}
@@ -375,6 +396,12 @@ def test_datadog_metadata_exporter_maps_only_approved_tool_attributes() -> None:
         assert metadata["workspace_id"] == WORKSPACE_ID
         assert metadata["organization_id"] == ORGANIZATION_ID
         assert metadata["auth_method"] == "bearer"
+        assert metadata["error.category"] == "upstream"
+        assert metadata["error.fault"] is True
+        assert metadata["error.reason"] == "rate_limited"
+        assert metadata["error.cause_types"] == ["SDKError", "HTTPError"]
+        assert metadata["upstream.status_code"] == 503
+        assert "error.stack" not in metadata
         assert metadata["arg.value"] == attributes["airbyte.mcp.arg.value"]
         assert metadata["arg_hash_status"] == attributes["airbyte.mcp.arg_hash_status"]
         assert json.loads(attributes["gen_ai.tool.call.arguments"]) == {
