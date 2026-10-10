@@ -1,5 +1,20 @@
-# Agent-facing messages for Airbyte Cloud problem types.
-# Keys are normalized problem types (see `_problem_key` in cloud_errors.py).
+# Agent-facing messages for Airbyte Cloud problem types, used by
+# `describe_cloud_error` in cloud_errors.py.
+#
+# Maintaining this file:
+# - Keys are normalized problem types: the bare path, like `connection/locked`,
+#   without the `https://reference.airbyte.com/reference/errors` URL, `#`,
+#   `error:` or `409-` prefix (see `_problem_key`). Keep keys sorted.
+# - Each entry has exactly `message` (what went wrong) and `guidance` (one
+#   recovery step: retry later, fix input, ask the user, or don't retry).
+# - Write fixed text only. Never copy in Cloud's `detail`, `data.message` or
+#   other body fields; they can quote caller secrets or server internals.
+# - Problem types missing here fall back to `status_fallbacks` by HTTP status,
+#   and the raw type is not shown to the agent.
+# - When adding a type, also add it to
+#   `test_every_published_problem_type_matches_a_fixed_message`.
+#   `test_cloud_errors_yaml_entries_have_message_and_guidance` checks the shape.
+# - 403 and actor-not-ready are handled in api_util.py, not here.
 auth/sso-required:
   message: This email domain must sign in with SSO.
   guidance: Ask the user to sign in through SSO.

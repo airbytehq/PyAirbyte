@@ -25,6 +25,15 @@ As a general rule (with rare exceptions), there shouldn't be anything that you c
 the MCP tools which you couldn't also do with the public Python interface. (Hence the framing
 as a "presentation" layer on top of the core modules.)
 
+## Agent-facing Cloud Error Messages
+
+When an Airbyte Cloud API call fails, the text the agent sees comes from the fixed table in
+`airbyte/_util/cloud_errors.yaml`, keyed by Cloud's problem type. Never build that text from
+Cloud's `detail`, `data.message` or other response fields, because they can quote secrets or
+server internals. To support a new problem type, add a `message` and a `guidance` entry
+to the YAML file and add the type to `test_every_published_problem_type_matches_a_fixed_message`.
+The header of the YAML file lists the remaining rules.
+
 ## 🚀 Releasing
 
 This project uses [`semantic-pr-release-drafter`](https://github.com/airbytehq/semantic-pr-release-drafter) for automated release management. To release, simply click "`Edit`" on the latest release draft from the [releases page](https://github.com/airbytehq/PyAirbyte/releases), and then click "`Publish release`". This publish operation will trigger all necessary downstream publish operations.

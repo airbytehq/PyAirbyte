@@ -19,3 +19,8 @@ Key conventions:
 - Make any capped agent preview explicit, because the agent cannot see the user-facing UI.
 - Verify the server-side payload contract.
 - Capture human-reviewable evidence with MCPJam or Goose Desktop when retesting is requested, including the rendered widget and any important UI interaction.
+
+## Agent-facing Cloud Error Messages
+
+Cloud API error text shown to agents comes from `airbyte/_util/cloud_errors.yaml`. Read its
+header and the matching section in `CONTRIBUTING.md` before you change it.
