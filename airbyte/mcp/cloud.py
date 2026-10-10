@@ -847,8 +847,8 @@ def create_connection_on_cloud(
         except AirbyteMissingResourceError as ex:
             raise AirbyteMissingResourceError(
                 message=(
-                    f"`{arg_name}` '{connector.connector_id}' was not found in workspace "
-                    f"'{workspace.workspace_id}', or these credentials can't access it."
+                    f"`{arg_name}` '{connector.connector_id}' was not found in the "
+                    "configured workspace, or these credentials can't access it."
                 ),
                 guidance=api_util.FORBIDDEN_RESOURCE_GUIDANCE,
                 resource_type=arg_name.removesuffix("_id"),

@@ -10,8 +10,18 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+import requests
+from airbyte_api.errors import SDKError
+from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
+from fastmcp_extensions.tool_filters import ToolUnavailableError
 
-from airbyte._util import meta
+from airbyte._util import api_util, meta
+from airbyte.exceptions import (
+    AirbyteCloudApiError,
+    AirbyteConnectionSyncError,
+    AirbyteConnectionSyncTimeoutError,
+    AirbyteSafeModeError,
+)
 from airbyte.mcp import _datadog, _telemetry
 from airbyte.version import get_version
 
@@ -161,6 +171,279 @@ def test_outbound_mcp_payloads_are_fully_redacted():
     )
     _datadog.redact_tool_span(span)
     assert span.input == span.output == [{"content": "[REDACTED]", "role": ""}]
+
+
+_GENERIC_PROBLEM_TYPE = "https://reference.airbyte.com/reference/errors"
+
+
+def _wrapped_sdk_error(status_code: int, body: str) -> ToolError:
+    """Mirror `api_util`'s `raise _wrap_sdk_error(e) from e` inside a FastMCP ToolError."""
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://api.airbyte.com/v1/connections/SENTINEL-url"
+    sdk_error = SDKError("API error SENTINEL", status_code, body, raw_response)
+    wrapped = api_util._wrap_sdk_error(sdk_error, {"connection_id": "SENTINEL-id"})
+    wrapped.__cause__ = sdk_error
+    tool_error = ToolError("tool SENTINEL")
+    tool_error.__cause__ = wrapped
+    return tool_error
+
+
+def _problem(problem_type: str, title: str) -> str:
+    return json.dumps({
+        "type": problem_type,
+        "title": title,
+        "detail": "SENTINEL detail",
+        "data": {"message": "ConfigNotFoundException: SENTINEL-workspace"},
+    })
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            _wrapped_sdk_error(
+                500, _problem(_GENERIC_PROBLEM_TYPE, "unexpected-problem")
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteCloudError",
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "500",
+                "airbyte.mcp.error.reason": "unexpected-problem",
+            },
+            id="server-error-uses-title-of-generic-problem",
+        ),
+        pytest.param(
+            _wrapped_sdk_error(
+                400,
+                _problem(
+                    "error:connection-conflicting-destination-stream",
+                    "Connection contains conflicting stream(s).",
+                ),
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteCloudError",
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "400",
+                "airbyte.mcp.error.reason": "error:connection-conflicting-destination-stream",
+            },
+            id="specific-problem-type",
+        ),
+        pytest.param(
+            _wrapped_sdk_error(
+                409,
+                _problem(f"{_GENERIC_PROBLEM_TYPE}#409-actor-not-ready", "SENTINEL"),
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteConnectorNotReadyError",
+                "airbyte.mcp.error.category": "user_error",
+                "airbyte.mcp.error.fault": "caller",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "409",
+                "airbyte.mcp.error.reason": "409-actor-not-ready",
+            },
+            id="problem-type-fragment",
+        ),
+        pytest.param(
+            _wrapped_sdk_error(404, "SENTINEL not json"),
+            {
+                "airbyte.mcp.error_type": "AirbyteMissingResourceError",
+                "airbyte.mcp.error.category": "user_error",
+                "airbyte.mcp.error.fault": "caller",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "404",
+            },
+            id="non-json-body-has-no-problem-type",
+        ),
+        pytest.param(
+            _wrapped_sdk_error(500, json.dumps(["SENTINEL"])),
+            {
+                "airbyte.mcp.error_type": "AirbyteCloudError",
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "500",
+            },
+            id="non-object-body-has-no-problem-type",
+        ),
+        pytest.param(
+            _wrapped_sdk_error(
+                500, _problem("SENTINEL Free Text", "SENTINEL Free Text")
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteCloudError",
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "500",
+            },
+            id="free-text-problem-is-not-exported",
+        ),
+        pytest.param(
+            _wrapped_sdk_error(
+                500,
+                json.dumps({"type": "too-big", "detail": "SENTINEL" * 10000}),
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteCloudError",
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.error.cause_types": '["SDKError"]',
+                "airbyte.mcp.upstream.status_code": "500",
+            },
+            id="oversized-body-is-not-parsed",
+        ),
+        pytest.param(
+            AirbyteCloudApiError(
+                message="SENTINEL message",
+                status_code=403,
+                context={"response_text": _problem(_GENERIC_PROBLEM_TYPE, "forbidden")},
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteCloudApiError",
+                "airbyte.mcp.error.category": "auth",
+                "airbyte.mcp.error.fault": "caller",
+                "airbyte.mcp.upstream.status_code": "403",
+                "airbyte.mcp.error.reason": "forbidden",
+            },
+            id="config-api-error-response-text",
+        ),
+        pytest.param(
+            AirbyteSafeModeError(message="SENTINEL message"),
+            {
+                "airbyte.mcp.error_type": "AirbyteSafeModeError",
+                "airbyte.mcp.error.category": "user_error",
+                "airbyte.mcp.error.fault": "caller",
+            },
+            id="user-facing-error",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncError(
+                connection_id="SENTINEL", job_id=1, job_status="failed"
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteConnectionSyncError",
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+            },
+            id="failed-sync-job",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncTimeoutError(
+                connection_id="SENTINEL", job_id=1, job_status="running", timeout=5
+            ),
+            {
+                "airbyte.mcp.error_type": "AirbyteConnectionSyncTimeoutError",
+                "airbyte.mcp.error.category": "upstream_timeout",
+                "airbyte.mcp.error.fault": "upstream",
+            },
+            id="timed-out-sync-job",
+        ),
+        pytest.param(
+            ValueError("SENTINEL message"),
+            {
+                "airbyte.mcp.error_type": "ValueError",
+                "airbyte.mcp.error.category": "unclassified",
+                "airbyte.mcp.error.fault": "unknown",
+            },
+            id="unexpected-error",
+        ),
+    ],
+)
+def test_exception_attributes_classify_without_error_text(
+    error: BaseException, expected: dict[str, str]
+) -> None:
+    attrs = _datadog._exception_attributes(error)
+
+    assert attrs == {
+        "airbyte.mcp.outcome": "exception",
+        "error.type": expected["airbyte.mcp.error_type"],
+        **expected,
+    }
+    assert "SENTINEL" not in json.dumps(attrs)
+
+
+def test_exception_attributes_export_frames_without_error_text() -> None:
+    def raise_chained() -> None:
+        try:
+            raise ValueError("SENTINEL-MSG inner private response")
+        except ValueError as cause:
+            raise RuntimeError("SENTINEL-MSG outer private response") from cause
+
+    with pytest.raises(RuntimeError) as raised:
+        raise_chained()
+
+    attrs = _datadog._exception_attributes(raised.value)
+    stack = attrs["error.stack"]
+    lines = stack.splitlines()
+
+    assert lines[0] == "RuntimeError"
+    assert "caused by ValueError" in lines
+    assert any(line.startswith(f"  {__name__}:") for line in lines)
+    assert "SENTINEL" not in stack
+    assert "inner private response" not in stack
+    assert "outer private response" not in stack
+
+
+def test_fastmcp_rejections_are_classified_like_the_otel_backend() -> None:
+    # FastMCP chains its own `ValidationError` from pydantic's; only a
+    # `ToolError` wrapper is removed, so the FastMCP class is what is classified.
+    invalid = ValidationError("SENTINEL")
+    invalid.__cause__ = ValueError("SENTINEL")
+    attrs = _datadog._exception_attributes(invalid)
+    assert (attrs["airbyte.mcp.outcome"], attrs["airbyte.mcp.error.category"]) == (
+        "exception",
+        "invalid_arguments",
+    )
+
+    attrs = _datadog._exception_attributes(NotFoundError("SENTINEL"))
+    assert attrs == {
+        "airbyte.mcp.outcome": "unknown_tool",
+        "airbyte.mcp.error_type": "NotFoundError",
+        "error.type": "NotFoundError",
+        "airbyte.mcp.error.category": "unknown_tool",
+        "airbyte.mcp.error.fault": "caller",
+    }
+
+
+def test_returned_tool_error_is_classified_as_tool_error() -> None:
+    assert _datadog._error_classification(None) == {
+        "airbyte.mcp.error.category": "tool_error",
+        "airbyte.mcp.error.fault": "unknown",
+    }
+
+
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        pytest.param(
+            {
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.upstream.status_code": 500,
+                "airbyte.mcp.error.reason": "unexpected-problem",
+            },
+            "tool resulted in an error (upstream_error, HTTP 500, unexpected-problem)",
+            id="full",
+        ),
+        pytest.param(
+            {"airbyte.mcp.error.category": "user_error"},
+            "tool resulted in an error (user_error)",
+            id="category-only",
+        ),
+        pytest.param({}, "tool resulted in an error", id="unclassified"),
+    ],
+)
+def test_tool_error_message_uses_classification_tags(
+    tags: dict[str, str | int], expected: str
+) -> None:
+    # The status is a metric on the span; every other detail is a tag.
+    span = cast(Any, SimpleNamespace(get_tag=tags.get, get_metric=tags.get))
+
+    assert _datadog._tool_error_message(span) == expected
 
 
 @pytest.mark.parametrize("conflict", ["otel_requests", "native_mcp"])
@@ -533,6 +816,13 @@ def _native_http_contract():
         return "private synthetic result"
 
     @app.tool()
+    def fail_tool() -> str:
+        response = SimpleNamespace(status_code=500)
+        raise RuntimeError(private_payload) from requests.HTTPError(
+            private_payload, response=response
+        )
+
+    @app.tool()
     async def handle_error() -> str:
         from fastmcp.exceptions import ToolError
 
@@ -687,6 +977,29 @@ def _native_http_contract():
                 )
                 assert metadata["outcome"] == "success"
 
+                # On a real span the upstream status is a numeric metric, which
+                # the error message still finds, and the cause types are JSON.
+                response = await client.post(
+                    "/mcp",
+                    headers={"accept": "application/json, text/event-stream"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 41,
+                        "method": "tools/call",
+                        "params": {"name": "fail_tool", "arguments": {}},
+                    },
+                )
+                assert response.json()["result"]["isError"]
+                failed = [span for span in spans if span.span_type == "llm"][-1]
+                assert failed.get_metric("airbyte.mcp.upstream.status_code") == 500
+                assert failed.get_tag("airbyte.mcp.upstream.status_code") is None
+                assert (
+                    failed.get_tag("airbyte.mcp.error.cause_types") == '["HTTPError"]'
+                )
+                assert failed.get_tag("error.message") == (
+                    "tool resulted in an error (upstream_error, HTTP 500)"
+                )
+
         # An exception escaping the protocol boundary must retain its class/status
         # without exporting a payload-containing message or traceback.
         async def fail(_ctx):
@@ -709,13 +1022,19 @@ def _native_http_contract():
             )
         escaped = next(span for span in reversed(spans) if span.span_type == "llm")
         assert escaped.error and escaped.get_tag("error.type") == "ValueError"
-        assert escaped.get_tag("error.message") is None
-        assert escaped.get_tag("error.stack") is None
+        assert escaped.get_tag("error.message") == (
+            "tool resulted in an error (unclassified)"
+        )
+        escaped_stack = escaped.get_tag("error.stack")
+        assert escaped_stack and escaped_stack.startswith("ValueError\n")
+        assert private_payload not in escaped_stack
         escaped_metadata = escaped._get_ctx_item("_llmobs.cached_event")["meta"][
             "metadata"
         ]
+        assert "error.stack" not in escaped_metadata
         assert escaped_metadata["outcome"] == "exception"
         assert escaped_metadata["error_type"] == "ValueError"
+        assert escaped_metadata["error.category"] == "unclassified"
         assert escaped_metadata["auth_method"] == "client_credentials"
         assert escaped_metadata["mcp_protocol_version"] == "2025-11-25"
         assert escaped_metadata["session_id"] == client_properties["session_id"]
@@ -726,6 +1045,36 @@ def _native_http_contract():
             escaped_metadata["organization_id"]
             == "87654321-4321-4321-4321-abcdef123456"
         )
+
+        async def unavailable_tool(_ctx):
+            raise ToolUnavailableError()
+
+        with pytest.raises(ToolUnavailableError):
+            await _datadog._DatadogRequestMiddleware()(
+                SimpleNamespace(
+                    method="tools/call",
+                    params={"name": "blocked_tool", "arguments": {}},
+                ),
+                unavailable_tool,
+            )
+        unavailable = next(span for span in reversed(spans) if span.span_type == "llm")
+        assert unavailable.get_tag("error.message") == (
+            "tool resulted in an error (tool_unavailable)"
+        )
+
+        async def fail_request(_ctx):
+            raise RuntimeError("private request failure")
+
+        with pytest.raises(RuntimeError, match="private request failure"):
+            await _datadog._DatadogRequestMiddleware()(
+                SimpleNamespace(method="tools/list", params={}),
+                fail_request,
+            )
+        failed_request = next(
+            span for span in reversed(spans) if span.span_type == "llm"
+        )
+        assert failed_request.get_tag("error.message") is None
+
         # Cancellation must propagate and restore the previous Datadog context.
         with tracer.trace("cancellation-parent") as parent:
             before = tracer.current_span()
@@ -794,7 +1143,8 @@ def _native_http_contract():
                 metadata["error_type"] == span.get_tag("error.type") == "CancelledError"
             )
             assert metadata["intent"] == "Preserve safe metadata on cancellation"
-            assert span.get_tag("error.stack") is None
+            stack = span.get_tag("error.stack")
+            assert stack and stack.startswith("CancelledError\n")
 
     try:
         with (
@@ -952,6 +1302,11 @@ def _native_http_contract():
             assert event["meta"]["metadata"]["outcome"] == outcome
             assert event["meta"]["metadata"].get("error_type") == error_type
         assert events[4]["meta"]["metadata"]["error_type"] == "ValueError"
+        assert events[3]["meta"]["metadata"]["error.category"] == "tool_error"
+        assert events[4]["meta"]["metadata"]["error.category"] == "unclassified"
+        assert primary[3].get_tag("error.message") == (
+            "tool resulted in an error (tool_error)"
+        )
         assert events[5]["meta"]["output"]["value"] == "[REDACTED]"
         assert (
             responses[5][2]["result"]["content"][0]["text"]
@@ -1029,3 +1384,24 @@ def test_native_arg_records_use_upstream_validation(monkeypatch) -> None:
     assert metadata["arg.prompt"] == tags["airbyte.mcp.arg.prompt"]
     assert "arg.forged" not in metadata
     assert "private" not in json.dumps([tags, metadata])
+
+
+def test_agent_error_text_sits_outside_user_facing_and_telemetry_middleware() -> None:
+    from fastmcp.server.middleware import Middleware
+    from fastmcp_extensions import UserFacingErrorMiddleware
+
+    from airbyte.mcp import server as real_server
+    from airbyte.mcp._error_handling import AgentErrorTextMiddleware
+
+    kinds = [type(middleware) for middleware in real_server.app.middleware]
+    agent_index = kinds.index(AgentErrorTextMiddleware)
+    user_facing_index = kinds.index(UserFacingErrorMiddleware)
+    assert agent_index < user_facing_index
+    telemetry_indexes = [
+        index
+        for index, middleware in enumerate(real_server.app.middleware)
+        if index != agent_index
+        and isinstance(middleware, Middleware)
+        and "telemetry" in type(middleware).__name__.lower()
+    ]
+    assert all(index > agent_index for index in telemetry_indexes)

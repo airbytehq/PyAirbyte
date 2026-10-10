@@ -39,7 +39,7 @@ from airbyte.secrets.hydration import hydrate_secrets
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterable
     from typing import IO
 
     from airbyte._executors.base import Executor
@@ -50,6 +50,16 @@ if TYPE_CHECKING:
 
 
 MAX_LOG_LINES = 20
+
+
+def _json_path_from_absolute_path(path: Iterable[object]) -> str:
+    json_path = "$"
+    for part in path:
+        if isinstance(part, str):
+            json_path += f".{part}"
+        elif isinstance(part, int):
+            json_path += f"[{part}]"
+    return json_path
 
 
 class ConnectorBase(abc.ABC):
@@ -185,11 +195,13 @@ class ConnectorBase(abc.ABC):
         except jsonschema.ValidationError as ex:
             validation_ex = exc.AirbyteConnectorValidationFailedError(
                 connector_name=self.name,
-                message="The provided config is not valid.",
+                message=(
+                    f"The provided config is not valid at "
+                    f"`{_json_path_from_absolute_path(ex.absolute_path)}` "
+                    f"(failed the `{ex.validator}` rule)."
+                ),
                 context={
-                    "error_message": ex.message,
                     "error_path": ex.path,
-                    "error_instance": ex.instance,
                     "error_schema": ex.schema,
                 },
             )

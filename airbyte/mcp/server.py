@@ -62,6 +62,7 @@ from fastmcp_extensions import (
     OIDCAuthConfig,
     TelemetryConfig,
     TelemetrySinks,
+    UserFacingErrorMiddleware,
     build_mcp_auth,
     mcp_server,
 )
@@ -82,6 +83,7 @@ from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
+    AgentErrorTextMiddleware,
     format_user_facing_error,
 )
 from airbyte.mcp._policy_middleware import PolicyGuardMiddleware
@@ -570,6 +572,17 @@ app = mcp_server(
     user_facing_error_formatter=format_user_facing_error,
 )
 """The Airbyte MCP Server application instance."""
+
+# Rewrites and masks agent-facing error text; must run outside (before) the
+# user-facing and telemetry middleware so they still see the original error.
+app.middleware.insert(
+    next(
+        index
+        for index, middleware in enumerate(app.middleware)
+        if isinstance(middleware, UserFacingErrorMiddleware)
+    ),
+    AgentErrorTextMiddleware(),
+)
 
 app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
 app.add_middleware(PolicyGuardMiddleware())

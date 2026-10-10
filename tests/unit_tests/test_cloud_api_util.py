@@ -13,7 +13,7 @@ import pytest
 import requests
 import responses
 from airbyte import constants
-from airbyte._util import api_util, meta
+from airbyte._util import api_util, cloud_errors, meta
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -115,7 +115,7 @@ def test_set_connection_interval_schedule_reports_api_failure() -> None:
             json={"message": "schedule rejected"},
             status=400,
         )
-        with pytest.raises(AirbyteCloudError, match="status 400"):
+        with pytest.raises(AirbyteCloudError, match="HTTP 400"):
             api_util.set_connection_interval_schedule(
                 connection_id="connection-id",
                 interval_hours=24,
@@ -278,15 +278,17 @@ def _list_workspaces_response(
         pytest.param(
             404,
             AirbyteMissingResourceError,
-            "API error occurred: Workspace lookup failed.",
-            None,
+            "The resource was not found. (HTTP 404)",
+            "Check the ID; list the resources to find the right one.",
             id="not_found",
         ),
         pytest.param(
             500,
             AirbyteCloudError,
-            "API error occurred: Workspace lookup failed.",
-            None,
+            "Airbyte Cloud hit an unexpected error. This is often caused by an "
+            "invalid argument value. (HTTP 500)",
+            "Check the arguments (ranges, IDs, formats). If they look right, "
+            "don't retry more than once; tell the user.",
             id="server_error",
         ),
     ],
@@ -1268,7 +1270,42 @@ def test_get_connection_fallback_404_raises_missing_resource_error() -> None:
 
     assert len(responses.calls) == 2
     assert exc_info.value.context["status_code"] == 404
-    assert exc_info.value.guidance is None
+    assert exc_info.value.guidance == (
+        "Check the ID; list the resources to find the right one."
+    )
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("lookup", "definitions_path"),
+    [
+        pytest.param(api_util.get_source_definition, "sources", id="source"),
+        pytest.param(
+            api_util.get_destination_definition, "destinations", id="destination"
+        ),
+    ],
+)
+def test_get_definition_wraps_sdk_errors(
+    lookup: Callable[..., models.DefinitionResponse], definitions_path: str
+) -> None:
+    """A missing definition raises the missing-resource error, chained to the SDK error."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    url = f"{api_root}/workspaces/workspace-id/definitions/{definitions_path}/definition-id"
+    responses.get(url, status=404, json={"message": "Not found"})
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        lookup(
+            definition_id="definition-id",
+            workspace_id="workspace-id",
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 404
+    assert exc_info.value.context["definition_id"] == "definition-id"
 
 
 @responses.activate
@@ -2066,8 +2103,10 @@ def test_update_connector_builder_project_payload(
         pytest.param(
             500,
             AirbyteCloudError,
-            "API request failed with status 500",
-            None,
+            "Airbyte Cloud hit an unexpected error. This is often caused by an "
+            "invalid argument value. (HTTP 500)",
+            "Check the arguments (ranges, IDs, formats). If they look right, "
+            "don't retry more than once; tell the user.",
             id="server-error",
         ),
     ],
@@ -2106,8 +2145,9 @@ def test_config_api_request_maps_forbidden_as_missing_resource(
     assert error.context["full_url"] == "https://config.airbyte.com/v1/workspaces/get"
     assert error.context["config_api_root"] == "https://config.airbyte.com/v1"
     assert error.context["url"] == response.request.url
-    assert error.context["body"] == response.request.body
-    assert error.context["response"] is response.__dict__
+    assert "body" not in error.context
+    assert "response" not in error.context
+    assert error.context["problem_type"] is None
     assert isinstance(error.__cause__, requests.HTTPError)
     assert error.__cause__.response is response
     assert (
@@ -2259,10 +2299,10 @@ def _call_create_connection() -> None:
     )
 
 
-def test_create_connection_400_raises_input_error_with_api_message(
+def test_create_connection_400_raises_input_error_without_api_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A 400 surfaces the API's `data.message` as an `AirbyteLibInputError`."""
+    """A 400 raises `AirbyteLibInputError`; `data.message` is never relayed."""
     api_message = (
         "No streams found with name [no_such_stream] and namespace [null]. "
         "Please call the https://reference.airbyte.com/reference/getstreamproperties "
@@ -2294,7 +2334,11 @@ def test_create_connection_400_raises_input_error_with_api_message(
     with pytest.raises(AirbyteLibInputError) as exc_info:
         _call_create_connection()
 
-    assert exc_info.value.get_message() == api_message
+    assert exc_info.value.get_message() == (
+        "Airbyte Cloud rejected the request as invalid. "
+        "(Cloud error: bad-request, HTTP 400)"
+    )
+    assert api_message not in str(exc_info.value)
     assert exc_info.value.context["source_id"] == "source-id"
     assert exc_info.value.context["destination_id"] == "destination-id"
     assert exc_info.value.context["status_code"] == 400
@@ -2329,7 +2373,7 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
         _call_create_connection()
 
     assert exc_info.value.get_message() == (
-        "The Airbyte API rejected the connection request (HTTP 400)."
+        "Airbyte Cloud rejected the request as invalid. (HTTP 400)"
     )
     assert exc_info.value.__cause__ is sdk_error
 
@@ -2659,3 +2703,726 @@ def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
         )
 
     assert type(exc_info.value) is AirbyteCloudError
+
+
+_INTERNAL_MARKER = "INTERNAL_MARKER select x from y"
+
+
+def _sdk_error(status_code: int, body: str | None) -> SDKError:
+    """Create an SDKError like the Speakeasy SDK raises on a non-2xx status."""
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://api.airbyte.com/v1/resources/resource-id"
+    return SDKError(
+        f"API error occurred: Status {status_code}", status_code, body, raw_response
+    )
+
+
+def _problem_body(
+    problem_type: str | None = None,
+    title: str | None = None,
+    data: dict[str, Any] | None = None,
+    **extra: Any,
+) -> str:
+    """Build a Cloud problem body like the public API returns."""
+    return json.dumps({
+        "type": problem_type,
+        "title": title,
+        "detail": _INTERNAL_MARKER,
+        "data": data,
+        **extra,
+    })
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "expected_message", "expected_guidance", "problem_type"),
+    [
+        pytest.param(
+            400,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors#bad-request",
+                data={"message": _INTERNAL_MARKER},
+            ),
+            "Airbyte Cloud rejected the request as invalid. "
+            "(Cloud error: bad-request, HTTP 400)",
+            "Check the arguments against the tool description.",
+            "bad-request",
+            id="bad-request",
+        ),
+        pytest.param(
+            404,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors#resource-not-found",
+                data={"resourceType": "source", "resourceId": _INTERNAL_MARKER},
+            ),
+            "The source was not found. (Cloud error: resource-not-found, HTTP 404)",
+            "Check the ID; list the resources to find the right one.",
+            "resource-not-found",
+            id="resource-not-found-with-type",
+        ),
+        pytest.param(
+            401,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors#invalid-api-key"
+            ),
+            "Airbyte Cloud rejected the credentials. "
+            "(Cloud error: invalid-api-key, HTTP 401)",
+            "Ask the user to check the client ID/secret or token; don't retry.",
+            "invalid-api-key",
+            id="invalid-api-key",
+        ),
+        pytest.param(
+            400,
+            _problem_body("error:cron-validation/invalid-expression"),
+            "The connection schedule is invalid. "
+            "(Cloud error: cron-validation/invalid-expression, HTTP 400)",
+            "Fix the schedule (cron expression, timezone, or frequency) and retry.",
+            "invalid-expression",
+            id="schedule-invalid",
+        ),
+        pytest.param(
+            400,
+            _problem_body("error:mapper-validation/secret-not-found"),
+            "The mapper configuration is invalid. "
+            "(Cloud error: mapper-validation/secret-not-found, HTTP 400)",
+            "Fix the mapper configuration and retry. "
+            "If a mapper secret is missing, resend the secret values.",
+            "secret-not-found",
+            id="mapper-secret-not-found",
+        ),
+        pytest.param(
+            409,
+            _problem_body("error:tag-already-exists"),
+            "A resource with this name or membership already exists. "
+            "(Cloud error: tag-already-exists, HTTP 409)",
+            "Use the existing one or pick another name; don't retry as is.",
+            "error:tag-already-exists",
+            id="already-exists",
+        ),
+        pytest.param(
+            503,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors",
+                title="service-unavailable",
+            ),
+            "Airbyte Cloud is temporarily unavailable. "
+            "(Cloud error: service-unavailable, HTTP 503)",
+            "Wait and retry once.",
+            "service-unavailable",
+            id="service-unavailable",
+        ),
+        pytest.param(
+            429,
+            '{"message":"You are being rate limited."}',
+            "Airbyte Cloud is refusing requests from these credentials "
+            "(rate limited). (HTTP 429)",
+            "Stop calling Airbyte Cloud tools and tell the user; don't retry.",
+            None,
+            id="load-shed-429",
+        ),
+        pytest.param(
+            401,
+            '{"message":"Unauthorized"}',
+            "Airbyte Cloud rejected the credentials. (HTTP 401)",
+            "Ask the user to check the client ID/secret or token; don't retry.",
+            None,
+            id="non-problem-401",
+        ),
+        pytest.param(
+            408,
+            "not json",
+            "Airbyte Cloud timed out. The change may or may not have been "
+            "applied. (HTTP 408)",
+            "Check the resource's current state before retrying; don't blindly "
+            "retry a create.",
+            None,
+            id="timeout-fallback",
+        ),
+        pytest.param(
+            409,
+            "not json",
+            "The resource is in a state that doesn't allow this operation "
+            "(for example, a job is running or already finished). (HTTP 409)",
+            "Check the resource's current status before retrying.",
+            None,
+            id="conflict-fallback",
+        ),
+        pytest.param(
+            422,
+            "not json",
+            "Airbyte Cloud rejected the request as invalid. (HTTP 422)",
+            "Check the arguments against the tool description.",
+            None,
+            id="other-4xx-fallback",
+        ),
+        pytest.param(
+            500,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors",
+                title="unexpected-problem",
+                data={"message": _INTERNAL_MARKER},
+            ),
+            "Airbyte Cloud hit an unexpected error. This is often caused by an "
+            "invalid argument value. (Cloud error: unexpected-problem, HTTP 500)",
+            "Check the arguments (ranges, IDs, formats). If they look right, "
+            "don't retry more than once; tell the user.",
+            "unexpected-problem",
+            id="unexpected-problem-hides-message",
+        ),
+        pytest.param(
+            500,
+            '{"errorId":"123e4567-e89b-42d3-a456-426614174000"}',
+            "Airbyte Cloud hit an unexpected error. This is often caused by an "
+            "invalid argument value. (HTTP 500)",
+            "Check the arguments (ranges, IDs, formats). If they look right, "
+            "don't retry more than once; tell the user. "
+            "Error ID: 123e4567-e89b-42d3-a456-426614174000.",
+            None,
+            id="error-id-relayed-for-5xx",
+        ),
+        pytest.param(
+            500,
+            '{"errorId":"not-a-uuid"}',
+            "Airbyte Cloud hit an unexpected error. This is often caused by an "
+            "invalid argument value. (HTTP 500)",
+            "Check the arguments (ranges, IDs, formats). If they look right, "
+            "don't retry more than once; tell the user.",
+            None,
+            id="error-id-ignored-unless-uuid",
+        ),
+        pytest.param(
+            500,
+            json.dumps({"type": "too-big", "x": "y" * 70000}),
+            "Airbyte Cloud hit an unexpected error. This is often caused by an "
+            "invalid argument value. (HTTP 500)",
+            "Check the arguments (ranges, IDs, formats). If they look right, "
+            "don't retry more than once; tell the user.",
+            None,
+            id="oversized-body-falls-back",
+        ),
+    ],
+)
+def test_wrap_sdk_error_describes_cloud_problem(
+    status_code: int,
+    body: str,
+    expected_message: str,
+    expected_guidance: str,
+    problem_type: str | None,
+) -> None:
+    """Each Cloud problem maps to its fixed message; `data.message` never relays."""
+    wrapped = api_util._wrap_sdk_error(_sdk_error(status_code, body))
+
+    assert wrapped.get_message() == expected_message
+    assert wrapped.guidance == expected_guidance
+    assert wrapped.context["problem_type"] == problem_type
+    assert wrapped.context["status_code"] == status_code
+    assert _INTERNAL_MARKER not in wrapped.get_message()
+    assert _INTERNAL_MARKER not in (wrapped.guidance or "")
+
+
+def test_wrap_sdk_error_403_keeps_fixed_forbidden_text() -> None:
+    wrapped = api_util._wrap_sdk_error(
+        _sdk_error(
+            403,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors#forbidden",
+                data={"message": _INTERNAL_MARKER},
+            ),
+        )
+    )
+
+    assert type(wrapped) is AirbyteMissingResourceError
+    assert wrapped.get_message() == (
+        "The requested resource was not found, or these credentials can't "
+        "access it (HTTP 403)."
+    )
+    assert wrapped.guidance == api_util.FORBIDDEN_RESOURCE_GUIDANCE
+    assert wrapped.context["problem_type"] == "forbidden"
+    assert _INTERNAL_MARKER not in str(wrapped)
+
+
+def test_public_api_json_error_context_hides_body_and_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw-HTTP helpers keep URL/status/slug in context, never bodies."""
+    response = requests.Response()
+    response.status_code = 400
+    response.url = "https://api.airbyte.com/v1/connections/connection-id"
+    response._content = json.dumps({
+        "type": "https://reference.airbyte.com/reference/errors#bad-request",
+        "data": {"message": _INTERNAL_MARKER},
+    }).encode()
+    response.request = requests.Request("GET", response.url).prepare()
+    request = Mock(return_value=response)
+    monkeypatch.setattr(api_util.requests, "get", request)
+    monkeypatch.setattr(api_util, "get_bearer_token", lambda **_: SecretString("token"))
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util._get_public_api_json(
+            api_root="https://api.airbyte.com/v1",
+            path="/connections/connection-id",
+            params=None,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    error = exc_info.value
+    assert "body" not in error.context
+    assert "response" not in error.context
+    assert error.context["problem_type"] == "bad-request"
+    assert error.context["url"] == response.request.url
+    assert _INTERNAL_MARKER not in str(error)
+
+
+# Every (status, type, title) default published in problems-api's
+# api-problems.yaml, hard-coded so the test does not read the platform repo.
+_PROBLEM_TYPE_DEFAULTS: list[tuple[int, str, str]] = [
+    (
+        401,
+        "https://reference.airbyte.com/reference/errors#invalid-api-key",
+        "invalid-api-key",
+    ),
+    (403, "https://reference.airbyte.com/reference/errors#forbidden", "forbidden"),
+    (403, "error:auth/sso-required", "SSO Sign-in Required"),
+    (301, "error:embedded/endpoint-moved", "Airbyte Embedded Endpoint Moved"),
+    (403, "error:license/entitlement", "License Entitlement Error"),
+    (409, "error:auth/user-already-exists", "User already exists"),
+    (412, "error:failed-precondition", "Failed Precondition"),
+    (
+        500,
+        "https://reference.airbyte.com/reference/errors#oauth-callback-failure",
+        "oauth-callback-failure",
+    ),
+    (
+        500,
+        "https://reference.airbyte.com/reference/errors#invalid-consent-url",
+        "invalid-consent-url",
+    ),
+    (
+        422,
+        "https://reference.airbyte.com/reference/errors#invalid-redirect-url",
+        "invalid-redirect-url",
+    ),
+    (
+        422,
+        "https://reference.airbyte.com/reference/errors#unprocessable-entity",
+        "unprocessable-entity",
+    ),
+    (400, "https://reference.airbyte.com/reference/errors", "value-not-found"),
+    (
+        409,
+        "https://reference.airbyte.com/reference/errors#409-state-conflict",
+        "state-conflict",
+    ),
+    (
+        409,
+        "https://reference.airbyte.com/reference/errors#409-actor-not-ready",
+        "actor-not-ready",
+    ),
+    (409, "error:connection/locked", "Connection is locked"),
+    (
+        409,
+        "https://reference.airbyte.com/reference/errors#try-again-later",
+        "try-again-later",
+    ),
+    (500, "https://reference.airbyte.com/reference/errors", "unexpected-problem"),
+    (400, "https://reference.airbyte.com/reference/errors#bad-request", "bad-request"),
+    (
+        501,
+        "error:implementation/not-implemented-in-oss",
+        "API not implemented in Airbyte OSS",
+    ),
+    (400, "error:dbtcloud/access-denied", "Incorrect integration credentials"),
+    (
+        401,
+        "error:dbtcloud/paid-plan-required",
+        "Unable to access dbt Cloud integration",
+    ),
+    (401, "error:dbtcloud/generic", "Unable to access dbt Cloud integration"),
+    (400, "error:cron-validation/missing-cron-data", "Cron data is missing"),
+    (400, "error:cron-validation/missing-component", "Cron is missing a component"),
+    (400, "error:cron-validation/unsupported-timezone", "Unsupported cron timezone"),
+    (400, "error:cron-validation/invalid-expression", "Invalid cron expression"),
+    (400, "error:cron-validation/invalid-timezone", "Invalid cron timezone"),
+    (
+        400,
+        "error:cron-validation/under-one-hour-not-allowed",
+        "Cron sync schedules more frequent than once per hour are not allowed",
+    ),
+    (
+        400,
+        "error:basic-schedule-validation/under-one-hour-not-allowed",
+        "Basic sync schedules more frequent than once per hour are not allowed",
+    ),
+    (400, "error:mapper-validation", "Mapper validation failed"),
+    (
+        400,
+        "error:mapper-validation/missing-required-param",
+        "Mapper configuration missing required parameter",
+    ),
+    (400, "error:mapper-validation/invalid-config", "Invalid Mapper Configuration"),
+    (400, "error:mapper-validation/secret-not-found", "Mapper secret not found"),
+    (
+        400,
+        "error:connection-validation/file-transfer/connection-unsupported",
+        "Connection does not support file transfers",
+    ),
+    (
+        400,
+        "error:connection-validation/file-transfer/stream-unsupported",
+        "Stream does not support file transfers",
+    ),
+    (
+        400,
+        "error:connection-conflicting-destination-stream",
+        "Connection contains conflicting stream(s).",
+    ),
+    (
+        409,
+        "error:mapper-validation/runtime-secrets-manager-required",
+        "Runtime Secrets Manager Required",
+    ),
+    (503, "https://reference.airbyte.com/reference/errors", "service-unavailable"),
+    (
+        404,
+        "https://reference.airbyte.com/reference/errors#resource-not-found",
+        "resource-not-found",
+    ),
+    (
+        409,
+        "error:generate-contribution/connector-image-name-in-use",
+        "The image name provided is already in use.",
+    ),
+    (
+        401,
+        "error:generate-contribution/invalid-github-token",
+        "Invalid GitHub token provided.",
+    ),
+    (
+        403,
+        "error:generate-contribution/insufficient-github-token-permissions",
+        "Failed to create fork of Airbyte repository.",
+    ),
+    (
+        500,
+        "error:generate-contribution",
+        "An unexpected error occurred when creating your GitHub contribution.",
+    ),
+    (
+        404,
+        "error:billing/subscription/subscription-required",
+        "A subscription is required for this operation to succeed.",
+    ),
+    (
+        422,
+        "error:billing/insufficient-payment-status",
+        "The payment status of the associated Organization is insufficient.",
+    ),
+    (
+        422,
+        "error:billing/insufficient-credit-balance",
+        "The credit balance of the associated Workspace or Organization is insufficient.",
+    ),
+    (
+        404,
+        "error:billing/no-active-subscription",
+        "The organization doesn't have an active subscription.",
+    ),
+    (
+        400,
+        "error:billing/no-cancelable-subscription",
+        "The organization doesn't have any active cancelable subscription.",
+    ),
+    (
+        400,
+        "error:billing/no-scheduled-cancellation-subscription",
+        "The organization doesn't have any cancelable subscription with a scheduled cancellation.",
+    ),
+    (
+        400,
+        "error:billing/no-scheduled-plan-change",
+        "The organization doesn't have any self-serve subscription with a scheduled plan change.",
+    ),
+    (
+        400,
+        "error:connector-rollout/invalid-request",
+        "Invalid Connector Rollout request",
+    ),
+    (
+        400,
+        "error:connector-rollout/rollout-percentage-reached",
+        "Max rollout percentage already reached",
+    ),
+    (
+        400,
+        "error:connector-rollout/not-enough-actors",
+        "Not Enough Actors for Connector Rollout",
+    ),
+    (
+        409,
+        "error:dataplane-group-name-already-exists",
+        "Data plane group name already exists",
+    ),
+    (409, "error:dataplane-name-already-exists", "Data plane name already exists"),
+    (409, "error:tag-already-exists", "Tag already exists"),
+    (409, "error:group-already-exists", "Group already exists"),
+    (409, "error:group-permission-already-exists", "Group permission already exists"),
+    (409, "error:group-managed-by-scim", "Group managed by SCIM"),
+    (409, "error:group-member-already-exists", "Group member already exists"),
+    (400, "error:tag-invalid-hex-color", "Invalid hex color"),
+    (400, "error:tag-name-too-long", "Tag name too long"),
+    (400, "error:tag-limit-for-workspace-reached", "Tag limit for workspace reached"),
+    (
+        403,
+        "error:workspace-limit-for-organization-reached",
+        "Workspace limit for organization reached",
+    ),
+    (408, "error:request-timeout-exceeded", "Request timeout exceeded"),
+    (400, "error:notification/config/required", "Notification required"),
+    (400, "error:notification/config/missing-url", "Notification missing URL"),
+    (
+        400,
+        "error:destination/discover-not-supported",
+        "Destination does not support discover",
+    ),
+    (404, "error:destination/catalog-not-found", "Destination catalog not found"),
+    (
+        400,
+        "error:connection/destination-catalog/missing-object-name",
+        "Configured stream missing destination object name",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/invalid-operation",
+        "Invalid destination operation configuration",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/missing-required-field",
+        "Configured stream missing required field",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/invalid-additional-field",
+        "Invalid additional field in configured stream",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/required",
+        "Destination catalog is required",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/missing-primary-key",
+        "Primary key required when matching keys are defined",
+    ),
+    (
+        400,
+        "error:connection/destination-catalog/invalid-primary-key",
+        "Primary key must match one of the matching keys",
+    ),
+    (500, "error:sso-config-retrieval", "SSO config retrieval error"),
+    (500, "error:sso-setup", "SSO setup configuration error"),
+    (500, "error:sso-deletion", "SSO deletion failed"),
+    (500, "error:sso-credential-update", "SSO credential update failed"),
+    (500, "error:sso-activation", "SSO Activation Error"),
+    (401, "error:sso-token-validation", "SSO Token Validation Failed"),
+    (
+        503,
+        "error:entitlement-service/error-adding-organization",
+        "entitlement-service-error-adding-organization",
+    ),
+    (
+        500,
+        "error:entitlement-service/invalid-organization-state",
+        "entitlement-service-invalid-organization-state",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "problem_type", "title"),
+    [pytest.param(*row, id=row[1]) for row in _PROBLEM_TYPE_DEFAULTS],
+)
+def test_every_published_problem_type_matches_a_fixed_message(
+    status_code: int,
+    problem_type: str,
+    title: str,
+) -> None:
+    """Each published `type`/`title` pair hits a `cloud_errors.yaml` row."""
+    body = _problem_body(problem_type, title)
+    wrapped = api_util._wrap_sdk_error(_sdk_error(status_code, body))
+
+    if problem_type.endswith("409-actor-not-ready"):
+        assert type(wrapped) is AirbyteConnectorNotReadyError
+        return
+
+    if status_code == 403:
+        assert type(wrapped) is AirbyteMissingResourceError
+        assert wrapped.get_message() == (
+            "The requested resource was not found, or these credentials can't "
+            "access it (HTTP 403)."
+        )
+        assert wrapped.guidance == api_util.FORBIDDEN_RESOURCE_GUIDANCE
+        return
+
+    problem = cloud_errors.parse_cloud_error(status_code, body)
+    assert problem.key in cloud_errors._messages()
+    entry = cloud_errors._messages()[problem.key]
+    expected_message, expected_guidance = entry["message"], entry["guidance"]
+    # A table hit can never be the status fallback; a few rows (bad-request,
+    # state-conflict, ...) intentionally share the fallback wording anyway.
+    assert wrapped.get_message() == (
+        f"{expected_message} (Cloud error: {problem.key}, HTTP {status_code})"
+    )
+    assert wrapped.guidance == expected_guidance
+    assert _INTERNAL_MARKER not in wrapped.get_message()
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected_slug", "expected_key"),
+    [
+        pytest.param(
+            {
+                "type": (
+                    "https://reference.airbyte.com/reference/errors"
+                    "#f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                ),
+                "title": "resource-not-found",
+            },
+            None,
+            None,
+            id="id-like-type-never-reads-title",
+        ),
+        pytest.param(
+            {
+                "type": "https://reference.airbyte.com/reference/errors",
+                "title": "unexpected-problem",
+            },
+            "unexpected-problem",
+            "unexpected-problem",
+            id="generic-type-reads-title",
+        ),
+        pytest.param(
+            {"title": "unexpected-problem"},
+            None,
+            "unexpected-problem",
+            id="missing-type-does-not-set-slug",
+        ),
+        pytest.param(
+            {"title": "password=hunter2"},
+            None,
+            "password=hunter2",
+            id="missing-type-does-not-set-untrusted-slug",
+        ),
+        pytest.param(
+            {"type": 123, "title": "try-again-later"},
+            None,
+            "try-again-later",
+            id="non-string-type-does-not-set-slug",
+        ),
+    ],
+)
+def test_parse_cloud_error_title_fallback_only_for_generic_type(
+    problem: dict[str, Any],
+    expected_slug: str | None,
+    expected_key: str | None,
+) -> None:
+    """Only a generic string `type` permits a title slug."""
+    parsed = cloud_errors.parse_cloud_error(None, json.dumps(problem))
+
+    assert parsed.slug == expected_slug
+    assert parsed.key == expected_key
+
+
+def test_resource_type_in_agent_text_must_be_allowlisted() -> None:
+    body = _problem_body(
+        "https://reference.airbyte.com/reference/errors#resource-not-found",
+        data={"resourceType": "secretvalue"},
+    )
+    problem = cloud_errors.parse_cloud_error(404, body)
+
+    message, _ = cloud_errors.describe_cloud_error(problem)
+
+    assert problem.resource_type is None
+    assert (
+        message
+        == "The resource was not found. (Cloud error: resource-not-found, HTTP 404)"
+    )
+    assert "secretvalue" not in message
+
+
+def test_cloud_errors_yaml_entries_have_message_and_guidance() -> None:
+    """Every YAML entry is a mapping with only `message` and `guidance` strings."""
+    messages = cloud_errors._messages()
+
+    assert set(messages) > {"status_fallbacks"}
+    for key, entry in messages.items():
+        if key == "status_fallbacks":
+            for status, fallback in entry.items():
+                assert set(fallback) == {"message", "guidance"}
+                assert isinstance(fallback["message"], str) and fallback["message"]
+                assert isinstance(fallback["guidance"], str) and fallback["guidance"]
+            continue
+        assert set(entry) == {"message", "guidance"}
+        assert isinstance(entry["message"], str) and entry["message"]
+        assert isinstance(entry["guidance"], str) and entry["guidance"]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "absent", "suffix"),
+    [
+        pytest.param(
+            500,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors",
+                title="password=hunter2-secret-value",
+            ),
+            ("hunter2", "password"),
+            "(HTTP 500)",
+            id="unknown-title-never-relays",
+        ),
+        pytest.param(
+            500,
+            _problem_body("error:some/unknown-thing contains sk_live_abc"),
+            ("sk_live", "unknown-thing"),
+            "(HTTP 500)",
+            id="unknown-type-never-relays",
+        ),
+        pytest.param(
+            500,
+            _problem_body(
+                "https://reference.airbyte.com/reference/errors",
+                title="unexpected-problem",
+            ),
+            (),
+            "(Cloud error: unexpected-problem, HTTP 500)",
+            id="known-key-shown",
+        ),
+        pytest.param(
+            None,
+            _problem_body("error:some/unknown-thing contains sk_live_abc"),
+            ("sk_live", "unknown-thing"),
+            None,
+            id="unknown-key-no-status-no-suffix",
+        ),
+    ],
+)
+def test_describe_cloud_error_suffix_only_for_known_keys(
+    status_code: int | None,
+    body: str,
+    absent: tuple[str, ...],
+    suffix: str | None,
+) -> None:
+    """An unmatched `type`/`title` is never echoed into agent-facing text."""
+    problem = cloud_errors.parse_cloud_error(status_code, body)
+    message, guidance = cloud_errors.describe_cloud_error(problem)
+
+    for needle in absent:
+        assert needle not in message
+        assert needle not in guidance
+    if suffix is None:
+        assert "(Cloud error:" not in message and "(HTTP" not in message
+    else:
+        assert message.endswith(suffix)
