@@ -144,7 +144,7 @@ def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
                 ),
                 None,
             )
-            route_segments = []
+            route_segments: list[str] = []
             for index, segment in enumerate(segments):
                 if version_index is None or index < version_index:
                     route_segments.append("{id}")
