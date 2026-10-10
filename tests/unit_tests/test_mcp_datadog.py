@@ -1351,3 +1351,24 @@ def test_native_arg_records_use_upstream_validation(monkeypatch) -> None:
     assert metadata["arg.prompt"] == tags["airbyte.mcp.arg.prompt"]
     assert "arg.forged" not in metadata
     assert "private" not in json.dumps([tags, metadata])
+
+
+def test_agent_error_text_sits_outside_user_facing_and_telemetry_middleware() -> None:
+    from fastmcp.server.middleware import Middleware
+    from fastmcp_extensions import UserFacingErrorMiddleware
+
+    from airbyte.mcp import server as real_server
+    from airbyte.mcp._error_handling import AgentErrorTextMiddleware
+
+    kinds = [type(middleware) for middleware in real_server.app.middleware]
+    agent_index = kinds.index(AgentErrorTextMiddleware)
+    user_facing_index = kinds.index(UserFacingErrorMiddleware)
+    assert agent_index < user_facing_index
+    telemetry_indexes = [
+        index
+        for index, middleware in enumerate(real_server.app.middleware)
+        if index != agent_index
+        and isinstance(middleware, Middleware)
+        and "telemetry" in type(middleware).__name__.lower()
+    ]
+    assert all(index > agent_index for index in telemetry_indexes)

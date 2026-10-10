@@ -185,11 +185,12 @@ class ConnectorBase(abc.ABC):
         except jsonschema.ValidationError as ex:
             validation_ex = exc.AirbyteConnectorValidationFailedError(
                 connector_name=self.name,
-                message="The provided config is not valid.",
+                message=(
+                    f"The provided config is not valid at `{ex.json_path}` "
+                    f"(failed the `{ex.validator}` rule)."
+                ),
                 context={
-                    "error_message": ex.message,
                     "error_path": ex.path,
-                    "error_instance": ex.instance,
                     "error_schema": ex.schema,
                 },
             )

@@ -10,8 +10,8 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import logging
 import sys
-import traceback
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
@@ -30,6 +30,7 @@ from airbyte.caches.util import get_default_cache
 from airbyte.destinations.util import get_destination
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._error_handling import format_user_facing_error
 from airbyte.mcp._guards import raise_if_untrusted_execution_context
 from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.registry import get_connector_metadata
@@ -41,6 +42,9 @@ from airbyte.sources.base import Source
 
 if TYPE_CHECKING:
     from airbyte.caches.duckdb import DuckDBCache
+
+
+logger = logging.getLogger(__name__)
 
 
 _CONFIG_HELP = """
@@ -193,7 +197,9 @@ def validate_connector_config(
             manifest_path=manifest_path,
         )
     except Exception as ex:
-        return False, f"Failed to get connector '{connector_name}': {ex}"
+        return False, (
+            f"Failed to get connector '{connector_name}': " f"{format_user_facing_error(ex)}"
+        )
 
     try:
         config_dict = resolve_connector_config(
@@ -204,12 +210,17 @@ def validate_connector_config(
         )
         source.set_config(config_dict)
     except Exception as ex:
-        return False, f"Failed to resolve configuration for {connector_name}: {ex}"
+        return False, (
+            f"Failed to resolve configuration for {connector_name}: "
+            f"{format_user_facing_error(ex)}"
+        )
 
     try:
         source.check()
     except Exception as ex:
-        return False, f"Configuration for {connector_name} is invalid: {ex}"
+        return False, (
+            f"Configuration for {connector_name} is invalid: " f"{format_user_facing_error(ex)}"
+        )
 
     return True, f"Configuration for {connector_name} is valid!"
 
@@ -498,10 +509,11 @@ def read_source_stream_records(
         print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
 
     except Exception as ex:
-        tb_str = traceback.format_exc()
+        logger.exception("Error reading records from source '%s'", source_connector_name)
         # If any error occurs, we print the error message to stderr and return an empty list.
         return (
-            f"Error reading records from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+            f"Error reading records from source '{source_connector_name}': "
+            f"{format_user_facing_error(ex)}"
         )
 
     else:
@@ -611,10 +623,10 @@ def get_stream_previews(
             on_error="ignore",
         )
     except Exception as ex:
-        tb_str = traceback.format_exc()
+        logger.exception("Error getting stream previews from source '%s'", source_name)
         return {
             "ERROR": f"Error getting stream previews from source '{source_name}': "
-            f"{ex!r}, {ex!s}\n{tb_str}"
+            f"{format_user_facing_error(ex)}"
         }
 
     result: dict[str, list[dict[str, Any]] | str] = {}
@@ -863,11 +875,10 @@ def run_sql_query(
             max_records=max_records,
         )
     except Exception as ex:
-        tb_str = traceback.format_exc()
+        logger.exception("Error running SQL query")
         return [
             {
-                "ERROR": f"Error running SQL query: {ex!r}, {ex!s}",
-                "TRACEBACK": tb_str,
+                "ERROR": f"Error running SQL query: {format_user_facing_error(ex)}",
                 "SQL_QUERY": sql_query,
             }
         ]

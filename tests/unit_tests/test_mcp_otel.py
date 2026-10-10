@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastmcp import Client, FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp_extensions import (
     TelemetryConfig,
     ToolCallTelemetryMiddleware,
@@ -20,6 +21,7 @@ from fastmcp_extensions import (
     mcp_server,
     register_tool_call_telemetry,
 )
+from fastmcp_extensions import UserFacingErrorMiddleware
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
@@ -28,9 +30,16 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.util.types import AttributeValue
 
 from airbyte._util import meta
+from airbyte.exceptions import AirbyteConnectionSyncError
 from airbyte.constants import CLOUD_API_ROOT
 from airbyte.mcp import _otel as observability
-from airbyte.mcp._error_handling import classify_mcp_tool_error, mcp_tool_error_reason
+from airbyte.mcp._error_handling import (
+    MCP_TOOL_USER_FACING_ERRORS,
+    AgentErrorTextMiddleware,
+    classify_mcp_tool_error,
+    format_user_facing_error,
+    mcp_tool_error_reason,
+)
 from airbyte.mcp import _scope
 from airbyte.mcp._scope import (
     CallScopeMiddleware,
@@ -492,3 +501,221 @@ def test_argument_hmac_key_validation_is_private_and_warns_once(
         assert observability._arg_key() is None
     assert caplog.text.count("AIRBYTE_MCP_TELEMETRY_HMAC_KEY is invalid") == 1
     assert "private-invalid-key!" not in caplog.text
+
+
+# -- T6: error telemetry facts are unchanged by the agent-facing text layer ----
+#
+# Expected values captured on the pre-change base commit (d74eeb30) by running
+# the same scenario; the new middleware is outermost so classification sees the
+# same innermost cause.
+
+
+def _wrapped_sdk_error(status: int, body: str) -> tuple[Exception, Exception]:
+    import requests
+    from airbyte_api.errors import SDKError
+
+    from airbyte._util import api_util
+
+    raw = requests.Response()
+    raw.status_code = status
+    raw.url = "https://api.airbyte.com/v1/x"
+    sdk = SDKError("API error occurred", status, body, raw)
+    return sdk, api_util._wrap_sdk_error(sdk)
+
+
+_ERROR_CASES: dict[str, tuple[Exception | None, Exception]] = {
+    "forbidden": _wrapped_sdk_error(
+        403, '{"type":"https://reference.airbyte.com/reference/errors#forbidden"}'
+    ),
+    "bad_request": _wrapped_sdk_error(
+        400, '{"type":"https://reference.airbyte.com/reference/errors#bad-request"}'
+    ),
+    "load_shed": _wrapped_sdk_error(429, '{"message":"You are being rate limited."}'),
+    "unexpected": _wrapped_sdk_error(
+        500,
+        '{"type":"https://reference.airbyte.com/reference/errors",'
+        '"title":"unexpected-problem"}',
+    ),
+    "unavailable": _wrapped_sdk_error(503, '{"type":"error:service-unavailable"}'),
+    "not_ready": _wrapped_sdk_error(
+        409,
+        '{"type":"https://reference.airbyte.com/reference/errors#409-actor-not-ready"}',
+    ),
+    "sync_failed": (
+        None,
+        AirbyteConnectionSyncError(connection_id="c", job_id=1, job_status="failed"),
+    ),
+    "runtime": (None, RuntimeError("boom with SECRET-ARG-VALUE")),
+}
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        pytest.param(
+            "forbidden",
+            {
+                "airbyte.mcp.error.category": "user_error",
+                "airbyte.mcp.error.fault": "caller",
+                "airbyte.mcp.upstream.status_code": 403,
+                "airbyte.mcp.error.reason": "forbidden",
+            },
+            id="forbidden",
+        ),
+        pytest.param(
+            "bad_request",
+            {
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.upstream.status_code": 400,
+                "airbyte.mcp.error.reason": "bad-request",
+            },
+            id="bad-request",
+        ),
+        pytest.param(
+            "load_shed",
+            {
+                "airbyte.mcp.error.category": "rate_limited",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.upstream.status_code": 429,
+            },
+            id="load-shed",
+        ),
+        pytest.param(
+            "unexpected",
+            {
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.upstream.status_code": 500,
+                "airbyte.mcp.error.reason": "unexpected-problem",
+            },
+            id="unexpected",
+        ),
+        pytest.param(
+            "unavailable",
+            {
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+                "airbyte.mcp.upstream.status_code": 503,
+                "airbyte.mcp.error.reason": "error:service-unavailable",
+            },
+            id="unavailable",
+        ),
+        pytest.param(
+            "not_ready",
+            {
+                "airbyte.mcp.error.category": "user_error",
+                "airbyte.mcp.error.fault": "caller",
+                "airbyte.mcp.upstream.status_code": 409,
+                "airbyte.mcp.error.reason": "409-actor-not-ready",
+            },
+            id="not-ready",
+        ),
+        pytest.param(
+            "sync_failed",
+            {
+                "airbyte.mcp.error.category": "upstream_error",
+                "airbyte.mcp.error.fault": "upstream",
+            },
+            id="sync-failed",
+        ),
+        pytest.param(
+            "runtime",
+            {
+                "airbyte.mcp.error.category": "unclassified",
+                "airbyte.mcp.error.fault": "unknown",
+            },
+            id="runtime",
+        ),
+        pytest.param(
+            "bad_arg",
+            {
+                "airbyte.mcp.error.category": "invalid_arguments",
+                "airbyte.mcp.error.fault": "caller",
+            },
+            id="bad-arg",
+        ),
+    ],
+)
+def test_error_telemetry_facts_unchanged(
+    case: str, expected: Mapping[str, object]
+) -> None:
+    async def scenario() -> None:
+        app = mcp_server(
+            display_name="t6",
+            telemetry=TelemetryConfig(package_name="airbyte"),
+            user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
+            user_facing_error_formatter=format_user_facing_error,
+        )
+        app.middleware.insert(
+            next(
+                index
+                for index, middleware in enumerate(app.middleware)
+                if isinstance(middleware, UserFacingErrorMiddleware)
+            ),
+            AgentErrorTextMiddleware(),
+        )
+
+        @app.tool()
+        def tool() -> str:
+            if case == "bad_arg":
+                return "x"
+            cause, wrapped = _ERROR_CASES[case]
+            if cause is not None:
+                raise wrapped from cause
+            raise wrapped
+
+        @app.tool()
+        def bad_arg_tool(count: int) -> str:
+            return "x"
+
+        register_tool_call_telemetry(
+            app,
+            TelemetryConfig(
+                package_name="airbyte",
+                tool_tracing=ToolTracingConfig(
+                    attribute_prefix="airbyte.mcp",
+                    error_classifier=classify_mcp_tool_error,
+                    error_reason=mcp_tool_error_reason,
+                ),
+            ),
+        )
+
+        with capture_tool_spans() as spans:
+            async with Client(app) as client:
+                with pytest.raises(ToolError):
+                    if case == "bad_arg":
+                        await client.call_tool(
+                            "bad_arg_tool", {"count": "sk_live_FAKE1234567890"}
+                        )
+                    else:
+                        await client.call_tool("tool")
+
+        tool_name = "bad_arg_tool" if case == "bad_arg" else "tool"
+        attributes = _tool_span(spans, tool_name).attributes or {}
+        for key, value in expected.items():
+            assert attributes.get(key) == value, f"{key}: {attributes.get(key)}"
+        if "airbyte.mcp.error.reason" not in expected:
+            assert "airbyte.mcp.error.reason" not in attributes
+
+    asyncio.run(scenario())
+
+
+def test_agent_error_text_sits_outside_user_facing_and_telemetry_middleware() -> None:
+    from fastmcp_extensions import (
+        ToolCallTelemetryMiddleware,
+        UserFacingErrorMiddleware,
+    )
+
+    from airbyte.mcp import server as real_server
+    from airbyte.mcp._error_handling import AgentErrorTextMiddleware
+
+    kinds = [type(middleware) for middleware in real_server.app.middleware]
+    agent_index = kinds.index(AgentErrorTextMiddleware)
+    assert agent_index < kinds.index(UserFacingErrorMiddleware)
+    telemetry_indexes = [
+        index
+        for index, middleware in enumerate(real_server.app.middleware)
+        if isinstance(middleware, ToolCallTelemetryMiddleware)
+    ]
+    assert telemetry_indexes and all(index > agent_index for index in telemetry_indexes)
