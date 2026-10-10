@@ -1062,6 +1062,60 @@ def _native_http_contract():
             "tool resulted in an error (tool_unavailable)"
         )
 
+        async def raised_tool_message(error: BaseException) -> str | None:
+            async def fail_tool(_ctx):
+                raise error
+
+            with pytest.raises(type(error)):
+                await _datadog._DatadogRequestMiddleware()(
+                    SimpleNamespace(
+                        method="tools/call",
+                        params={"name": "failed_cloud_tool", "arguments": {}},
+                    ),
+                    fail_tool,
+                )
+            span = next(span for span in reversed(spans) if span.span_type == "llm")
+            return span.get_tag("error.message")
+
+        forbidden_message = await raised_tool_message(
+            _wrapped_sdk_error(
+                403,
+                _problem(
+                    "https://reference.airbyte.com/reference/errors#forbidden",
+                    "forbidden",
+                ),
+            )
+        )
+        assert forbidden_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+
+        unexpected_problem = json.loads(
+            _problem(_GENERIC_PROBLEM_TYPE, "unexpected-problem")
+        )
+        error_id = "123e4567-e89b-42d3-a456-426614174000"
+        unexpected_problem["errorId"] = error_id
+        unexpected_message = await raised_tool_message(
+            _wrapped_sdk_error(500, json.dumps(unexpected_problem))
+        )
+        assert unexpected_message is not None
+        assert unexpected_message.endswith(
+            "(Cloud error: unexpected-problem, HTTP 500)"
+        )
+        assert error_id not in unexpected_message
+        assert "Error ID" not in unexpected_message
+
+        hostile_title = "password=SENTINEL-cloud-title"
+        hostile_message = await raised_tool_message(
+            _wrapped_sdk_error(500, _problem(_GENERIC_PROBLEM_TYPE, hostile_title))
+        )
+        assert hostile_message is not None
+        assert hostile_message.endswith("(HTTP 500)")
+        assert hostile_title not in hostile_message
+
+        runtime_message = await raised_tool_message(
+            RuntimeError("private runtime message")
+        )
+        assert runtime_message == "tool resulted in an error (unclassified)"
+
         async def fail_request(_ctx):
             raise RuntimeError("private request failure")
 

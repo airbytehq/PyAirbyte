@@ -36,6 +36,7 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     classify_mcp_tool_error,
+    cloud_error_trace_message,
     mcp_tool_error_reason,
 )
 from airbyte.mcp._otel import _arg_key, _env, _flag
@@ -244,6 +245,15 @@ def _tool_error_message(span: Span) -> str:
         if detail
     )
     return f"{_TOOL_ERROR_MESSAGE} ({details})" if details else _TOOL_ERROR_MESSAGE
+
+
+def _raised_tool_error_message(error: BaseException, span: Span) -> str:
+    """Return a fixed Cloud message when available, falling back to the span summary."""
+    try:
+        message = cloud_error_trace_message(error)
+    except Exception:
+        message = None
+    return message if message is not None else _tool_error_message(span)
 
 
 class _StripMetaTraceContextMiddleware:
@@ -749,7 +759,7 @@ class _DatadogRequestMiddleware:
                         span.error = 1
                         _annotate_attributes(span, _exception_attributes(error))
                         if tool_call:
-                            span.set_tag("error.message", _tool_error_message(span))
+                            span.set_tag("error.message", _raised_tool_error_message(error, span))
                     span.__exit__(None, None, None)
             except Exception:
                 logger.debug("Datadog span completion failed")

@@ -15,7 +15,12 @@ from fastmcp_extensions.otel._arg_digests import classify_tool  # noqa: PLC2701
 from fastmcp_extensions.otel._extras import _chain, declared_parameters  # noqa: PLC2701
 from fastmcp_extensions.otel.models import TraceArg
 
-from airbyte._util.api_util import error_response_body, sdk_error_response
+from airbyte._util.api_util import (
+    SDKError,
+    error_response_body,
+    sdk_error_message,
+    sdk_error_response,
+)
 from airbyte._util.cloud_errors import (
     describe_cloud_error,
     is_valid_problem_slug,
@@ -58,6 +63,28 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteMissingResourceError,
 )
 """Expected errors returned to MCP clients as concise message and guidance text."""
+
+
+def cloud_error_trace_message(error: BaseException) -> str | None:
+    """Return the fixed Cloud error message for a failed call's span, if any.
+
+    Only the message half: guidance can carry Cloud's error ID.
+    """
+    cloud_error: AirbyteCloudApiError | None = None
+    for cause in _chain(error):
+        if isinstance(cause, AirbyteCloudApiError):
+            body = error_response_body(cause)
+            if body is not None:
+                message, _ = describe_cloud_error(parse_cloud_error(cause.status_code, body))
+                return message
+            cloud_error = cause
+        elif isinstance(cause, SDKError):
+            return sdk_error_message(cause)
+
+    if cloud_error is not None:
+        message, _ = describe_cloud_error(parse_cloud_error(cloud_error.status_code, None))
+        return message
+    return None
 
 
 def _cloud_api_error_text(error: AirbyteCloudApiError) -> str:
