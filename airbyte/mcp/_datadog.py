@@ -36,6 +36,7 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     classify_mcp_tool_error,
+    cloud_error_route,
     cloud_error_trace_message,
     mcp_tool_error_reason,
 )
@@ -84,6 +85,8 @@ _ARG_PREFIX = "airbyte.mcp"
 _ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
 _TOOL_ERROR_MESSAGE = "tool resulted in an error"
 _STATUS_CODE = "airbyte.mcp.upstream.status_code"
+_UPSTREAM_METHOD = "airbyte.mcp.upstream.method"
+_UPSTREAM_ROUTE = "airbyte.mcp.upstream.route"
 
 
 def _build_tool_maps() -> None:
@@ -203,6 +206,8 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
     }
     if (stack := error_stack(cause)) is not None:
         attrs["error.stack"] = stack
+    if route := cloud_error_route(cause):
+        attrs[_UPSTREAM_METHOD], attrs[_UPSTREAM_ROUTE] = route
     return attrs
 
 

@@ -201,6 +201,8 @@ class _DatadogMetadataExporter(SpanExporter):
                 "error.reason",
                 "error.cause_types",
                 "upstream.status_code",
+                "upstream.method",
+                "upstream.route",
                 "outcome",
                 "auth_method",
                 "mcp_protocol_version",

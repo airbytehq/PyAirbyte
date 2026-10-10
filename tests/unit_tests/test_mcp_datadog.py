@@ -198,6 +198,64 @@ def _problem(problem_type: str, title: str) -> str:
     })
 
 
+def _wrapped_sdk_error_with_request(
+    method: str, url: str, status_code: int = 403
+) -> ToolError:
+    error = _wrapped_sdk_error(status_code, _problem("forbidden", "Forbidden"))
+    sdk_error = error.__cause__.__cause__
+    assert isinstance(sdk_error, SDKError)
+    sdk_error.raw_response.request = requests.Request(method, url).prepare()
+    return error
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://user:pw@api.airbyte.com/v1/connections/"
+            "123e4567-e89b-42d3-a456-426614174000?x=secret",
+            ("GET", "/v1/connections/{id}"),
+        ),
+        (
+            "https://api.airbyte.com/v1/jobs/12345/status",
+            ("GET", "/v1/jobs/{id}/status"),
+        ),
+        (
+            "https://api.airbyte.com/v1/Connections/MyConnection",
+            ("GET", "/v1/{id}/{id}"),
+        ),
+    ],
+)
+def test_cloud_error_route_sanitizes_request_url(
+    url: str, expected: tuple[str, str]
+) -> None:
+    error = _wrapped_sdk_error_with_request("GET", url)
+
+    assert _datadog.cloud_error_route(error) == expected
+    assert "user:pw" not in str(expected)
+    assert "secret" not in str(expected)
+
+
+def test_cloud_error_route_omits_missing_or_invalid_requests() -> None:
+    without_request = _wrapped_sdk_error(403, _problem("forbidden", "Forbidden"))
+    weird_method = _wrapped_sdk_error_with_request(
+        "CONNECT", "https://api.airbyte.com/v1/connections/123"
+    )
+
+    assert _datadog.cloud_error_route(without_request) is None
+    assert _datadog.cloud_error_route(RuntimeError("private")) is None
+    assert _datadog.cloud_error_route(weird_method) is None
+    assert "airbyte.mcp.upstream.method" not in _datadog._exception_attributes(
+        RuntimeError("private")
+    )
+    assert "airbyte.mcp.upstream.method" not in _datadog._exception_attributes(
+        without_request
+    )
+    assert "airbyte.mcp.upstream.route" not in _datadog._exception_attributes(
+        weird_method
+    )
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
@@ -823,6 +881,18 @@ def _native_http_contract():
         )
 
     @app.tool()
+    def raised_cloud_sdk_error() -> str:
+        request_url = (
+            "https://api.airbyte.com/v1/connections/"
+            "123e4567-e89b-42d3-a456-426614174000?x=1"
+        )
+        response = requests.Response()
+        response.status_code = 403
+        response.url = request_url
+        response.request = requests.Request("GET", request_url).prepare()
+        raise SDKError("private response text", 403, "{}", response)
+
+    @app.tool()
     async def handle_error() -> str:
         from fastmcp.exceptions import ToolError
 
@@ -871,6 +941,7 @@ def _native_http_contract():
                         },
                     ),
                     ("tools/list", {}),
+                    ("tools/call", {"name": "raised_cloud_sdk_error", "arguments": {}}),
                     *[
                         (
                             "tools/call",
@@ -1087,6 +1158,31 @@ def _native_http_contract():
             )
         )
         assert forbidden_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+
+        upstream_uuid = "123e4567-e89b-42d3-a456-426614174000"
+        upstream_query = "x=secret-query"
+        upstream_message = await raised_tool_message(
+            _wrapped_sdk_error_with_request(
+                "GET",
+                f"https://user:pw@api.airbyte.com/v1/connections/{upstream_uuid}"
+                f"?{upstream_query}",
+            )
+        )
+        assert upstream_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+        upstream_span = next(
+            span for span in reversed(spans) if span.span_type == "llm"
+        )
+        assert upstream_span.get_tag("airbyte.mcp.upstream.method") == "GET"
+        assert upstream_span.get_tag("airbyte.mcp.upstream.route") == (
+            "/v1/connections/{id}"
+        )
+        upstream_metadata = upstream_span._get_ctx_item("_llmobs.cached_event")["meta"][
+            "metadata"
+        ]
+        assert upstream_uuid not in json.dumps(upstream_span.get_tags())
+        assert upstream_uuid not in json.dumps(upstream_metadata)
+        assert upstream_query not in json.dumps(upstream_span.get_tags())
+        assert upstream_query not in json.dumps(upstream_metadata)
 
         unexpected_problem = json.loads(
             _problem(_GENERIC_PROBLEM_TYPE, "unexpected-problem")

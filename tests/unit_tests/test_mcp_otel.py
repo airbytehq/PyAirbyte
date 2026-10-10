@@ -373,6 +373,8 @@ def test_datadog_metadata_exporter_maps_only_approved_tool_attributes() -> None:
                 "airbyte.mcp.error.reason": "rate_limited",
                 "airbyte.mcp.error.cause_types": ("SDKError", "HTTPError"),
                 "airbyte.mcp.upstream.status_code": 503,
+                "airbyte.mcp.upstream.method": "GET",
+                "airbyte.mcp.upstream.route": "/v1/connections/{id}",
                 "airbyte.mcp.error.stack": "RuntimeError",
             },
             events=span.events,
@@ -401,6 +403,8 @@ def test_datadog_metadata_exporter_maps_only_approved_tool_attributes() -> None:
         assert metadata["error.reason"] == "rate_limited"
         assert metadata["error.cause_types"] == ["SDKError", "HTTPError"]
         assert metadata["upstream.status_code"] == 503
+        assert metadata["upstream.method"] == "GET"
+        assert metadata["upstream.route"] == "/v1/connections/{id}"
         assert "error.stack" not in metadata
         assert metadata["arg.value"] == attributes["airbyte.mcp.arg.value"]
         assert metadata["arg_hash_status"] == attributes["airbyte.mcp.arg_hash_status"]

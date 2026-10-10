@@ -8,6 +8,7 @@ import logging
 import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
@@ -50,6 +51,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_UPSTREAM_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
+_SAFE_ROUTE_SEGMENT = re.compile(r"(?:[a-z][a-z_-]{0,63}|v[0-9]{1,3})\Z")
+_MAX_UPSTREAM_ROUTE_LENGTH = 200
+
 
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteLibInputError,
@@ -84,6 +89,37 @@ def cloud_error_trace_message(error: BaseException) -> str | None:
     if cloud_error is not None:
         message, _ = describe_cloud_error(parse_cloud_error(cloud_error.status_code, None))
         return message
+    return None
+
+
+def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
+    """Return a bounded HTTP method and sanitized path for an upstream SDK error."""
+    for cause in _chain(error):
+        if not isinstance(cause, SDKError):
+            continue
+        try:
+            response = getattr(cause, "raw_response", None)
+            request = getattr(response, "request", None)
+            if request is None:
+                continue
+
+            method = request.method.upper()
+            if method not in _UPSTREAM_METHODS:
+                return None
+
+            segments = [
+                segment for segment in urlsplit(str(request.url)).path.split("/") if segment
+            ]
+            route = "/" + "/".join(
+                segment if _SAFE_ROUTE_SEGMENT.fullmatch(segment) else "{id}"
+                for segment in segments
+            )
+            if len(route) > _MAX_UPSTREAM_ROUTE_LENGTH:
+                return None
+        except Exception:
+            return None
+        else:
+            return method, route
     return None
 
 
