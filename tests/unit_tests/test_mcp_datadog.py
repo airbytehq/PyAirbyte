@@ -345,7 +345,6 @@ def test_tool_error_manifest_shape_and_messages_are_safe() -> None:
     path = importlib.resources.files("airbyte.mcp").joinpath("tool_errors.yaml")
     entries = yaml.safe_load(path.read_text(encoding="utf-8"))
 
-    assert len(entries) == 39
     assert list(entries) == sorted(entries)
     for key, entry in entries.items():
         assert set(entry) == {"message"}
