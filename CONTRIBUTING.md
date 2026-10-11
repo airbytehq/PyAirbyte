@@ -34,6 +34,10 @@ server internals. To support a new problem type, add a `message` and a `guidance
 to the YAML file and add the type to `test_every_published_problem_type_matches_a_fixed_message`.
 The header of the YAML file lists the remaining rules.
 
+Non-Cloud MCP tool failures use fixed Datadog trace messages from
+`airbyte/mcp/tool_errors.yaml`, keyed by exception class. This catalog affects traces only;
+it does not change the error text returned to agents.
+
 ## 🚀 Releasing
 
 This project uses [`semantic-pr-release-drafter`](https://github.com/airbytehq/semantic-pr-release-drafter) for automated release management. To release, simply click "`Edit`" on the latest release draft from the [releases page](https://github.com/airbytehq/PyAirbyte/releases), and then click "`Publish release`". This publish operation will trigger all necessary downstream publish operations.

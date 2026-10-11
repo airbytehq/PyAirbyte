@@ -24,3 +24,4 @@ Key conventions:
 
 Cloud API error text shown to agents comes from `airbyte/_util/cloud_errors.yaml`. Read its
 header and the matching section in `CONTRIBUTING.md` before you change it.
+Non-Cloud MCP trace messages come from `airbyte/mcp/tool_errors.yaml`; that manifest is trace-only.

@@ -1,0 +1,99 @@
+# Fixed span messages for MCP tool errors that are not Airbyte Cloud API errors,
+# used by `tool_error_trace_message` in airbyte/mcp/_error_handling.py.
+# Cloud API errors take their span message from airbyte/_util/cloud_errors.yaml
+# first; this table covers everything else (policy refusals, bad input,
+# missing context, lookups that found nothing, unknown tools).
+#
+# Maintaining this file:
+# - Keys are fully qualified exception class names (`module.ClassName`). For
+#   each exception in the cause chain, outermost first, the first class in its
+#   MRO that has an entry wins, so a base-class entry covers its subclasses.
+#   Keep keys sorted.
+# - Each entry has exactly `message`: one sentence saying what went wrong.
+# - Write fixed text only. Never include IDs, names, argument values, URLs or
+#   exception text; these messages are exported to Datadog as `error.message`.
+# - This text goes to traces only. What the agent sees is unchanged and still
+#   comes from the exception's message and guidance.
+# - Exceptions with no entry here (e.g. a bare `ValueError`) keep the short
+#   `tool resulted in an error (...)` summary built from classification tags.
+# - When adding an exception class to airbyte/exceptions.py, add an entry or
+#   confirm that a base-class entry fits;
+#   `test_every_airbyte_exception_has_a_specific_tool_error_message` checks this.
+airbyte.exceptions.AirbyteAgentsUnavailableError:
+  message: The Airbyte Agents API isn't available on this deployment.
+airbyte.exceptions.AirbyteCloudConnectionError:
+  message: An operation on the Airbyte Cloud connection failed.
+airbyte.exceptions.AirbyteCloudError:
+  message: An Airbyte Cloud request failed or returned an incomplete response.
+airbyte.exceptions.AirbyteConnectionSyncActiveError:
+  message: A sync is running on this connection, so the change was rejected.
+airbyte.exceptions.AirbyteConnectionSyncError:
+  message: The sync job failed.
+airbyte.exceptions.AirbyteConnectionSyncTimeoutError:
+  message: Timed out waiting for the sync job to finish.
+airbyte.exceptions.AirbyteConnectorCheckFailedError:
+  message: The connector's connection check failed.
+airbyte.exceptions.AirbyteConnectorError:
+  message: The connector failed.
+airbyte.exceptions.AirbyteConnectorInUseError:
+  message: The source or destination is still used by connections, so it can't be deleted.
+airbyte.exceptions.AirbyteConnectorNotReadyError:
+  message: The source or destination is a draft that still needs setup in Airbyte Cloud.
+airbyte.exceptions.AirbyteConnectorRegistryError:
+  message: The connector wasn't found in the connector registry or can't be installed from it.
+airbyte.exceptions.AirbyteDeferredSetupError:
+  message: Airbyte Cloud created the connector without acknowledging draft mode.
+airbyte.exceptions.AirbyteDuplicateResourcesError:
+  message: A resource with this name already exists.
+airbyte.exceptions.AirbyteExternalAccessDisabledError:
+  message: External access is disabled for this MCP server or request.
+airbyte.exceptions.AirbyteExternalAccessNotEnabledError:
+  message: The connector isn't enabled for external access.
+airbyte.exceptions.AirbyteLibError:
+  message: PyAirbyte raised an error.
+airbyte.exceptions.AirbyteLibInputError:
+  message: An argument value was invalid.
+airbyte.exceptions.AirbyteLibInternalError:
+  message: PyAirbyte hit an internal error.
+airbyte.exceptions.AirbyteLibNameNormalizationError:
+  message: A table or column name couldn't be normalized.
+airbyte.exceptions.AirbyteLibNoStreamsSelectedError:
+  message: No streams were selected.
+airbyte.exceptions.AirbyteLibSecretNotFoundError:
+  message: A required secret was not found.
+airbyte.exceptions.AirbyteMCPError:
+  message: The MCP server refused the request.
+airbyte.exceptions.AirbyteMissingResourceError:
+  message: The requested Airbyte resource was not found.
+airbyte.exceptions.AirbyteMissingWorkspaceContextError:
+  message: No workspace was given, and no default workspace was available.
+airbyte.exceptions.AirbyteMultipleResourcesError:
+  message: More than one resource matched, so the lookup was ambiguous.
+airbyte.exceptions.AirbyteNoCloudCredentialsError:
+  message: No Airbyte Cloud credentials were provided.
+airbyte.exceptions.AirbytePipelineChangesDisabledError:
+  message: Pipeline changes are disabled for this MCP server or request.
+airbyte.exceptions.AirbyteSafeModeError:
+  message: Safe mode blocked a destructive operation on a resource this session didn't create.
+airbyte.exceptions.AirbyteStateNotFoundError:
+  message: The requested stream state was not found.
+airbyte.exceptions.AirbyteStreamNotFoundError:
+  message: The requested stream was not found.
+airbyte.exceptions.AirbyteSubprocessError:
+  message: A connector subprocess failed.
+airbyte.exceptions.AirbyteTrustedExecutionRequiredError:
+  message: This operation needs trusted execution, which is disabled on this server.
+airbyte.exceptions.AirbyteWorkspaceMismatchError:
+  message: The resource belongs to a different workspace than the one passed.
+airbyte.exceptions.AirbyteWorkspaceNotEmptyError:
+  message: The workspace still has connections, so it can't be deleted.
+asyncio.exceptions.CancelledError:
+  message: The tool call was cancelled.
+builtins.NotImplementedError:
+  message: This operation isn't supported for this resource type yet.
+fastmcp.exceptions.DisabledError:
+  message: The requested tool is disabled on this server.
+fastmcp.exceptions.NotFoundError:
+  message: The requested tool doesn't exist on this server.
+fastmcp.exceptions.ValidationError:
+  message: The tool arguments failed validation.
