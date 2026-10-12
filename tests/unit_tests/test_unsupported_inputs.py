@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Unit tests for the removed-env-var startup guard and the `pyab` entry point."""
+"""Unit tests for the removed-env-var startup guard and the `pyab` CLI."""
 
 from __future__ import annotations
 
@@ -51,15 +51,10 @@ def test_check_unsupported_env_vars_is_generic(
     assert exc_info.value.guidance == "use X"
 
 
-def test_pyab_main_fails_on_unsupported_env_var(
+def test_pyab_cli_fails_on_unsupported_env_var(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that the `pyab` CLI entry point runs the env-var guard first."""
+    """Test that every `pyab` CLI command runs the env-var guard first."""
     monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, "1")
-    monkeypatch.setattr(
-        pyab,
-        "cli",
-        lambda *_args, **_kwargs: pytest.fail("cli() must not be called"),
-    )
     with pytest.raises(AirbyteLibInputError):
-        pyab.main()
+        pyab.cli(["benchmark"], exit_on_error=False)

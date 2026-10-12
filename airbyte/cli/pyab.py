@@ -67,7 +67,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 import yaml
-from cyclopts import App, Parameter
+from cyclopts import App, ArgumentCollection, Parameter
 
 from airbyte._util.destination_smoke_tests import run_destination_smoke_test
 from airbyte._util.unsupported_inputs import check_unsupported_env_vars
@@ -78,6 +78,8 @@ from airbyte.sources.util import get_benchmark_source, get_source
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
@@ -360,11 +362,21 @@ def _resolve_destination_job(
     )
 
 
+def _check_unsupported_env_vars_hook(
+    apps: Sequence[App],  # noqa: ARG001
+    commands: tuple[str, ...],  # noqa: ARG001
+    arguments: ArgumentCollection,  # noqa: ARG001
+) -> None:
+    """Fail any CLI command when a removed env var is set."""
+    check_unsupported_env_vars()
+
+
 cli = App(
     name="pyab",  # pyrefly: ignore[unexpected-keyword]
     help="PyAirbyte CLI.",  # pyrefly: ignore[unexpected-keyword]
     help_format="plaintext",  # pyrefly: ignore[unexpected-keyword]
     version_flags=[],  # pyrefly: ignore[unexpected-keyword]
+    config=[_check_unsupported_env_vars_hook],  # pyrefly: ignore[unexpected-keyword]
 )
 
 
@@ -776,11 +788,5 @@ def destination_smoke_test(  # noqa: PLR0913
         sys.exit(1)
 
 
-def main() -> None:
-    """Run the PyAirbyte CLI."""
-    check_unsupported_env_vars()
-    cli()
-
-
 if __name__ == "__main__":
-    main()
+    cli()
