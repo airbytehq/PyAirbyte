@@ -13,12 +13,15 @@ from fastmcp.exceptions import ToolError
 from fastmcp_extensions import mcp_server
 
 from airbyte.constants import (
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_READONLY_MODE_ENV_VAR,
 )
 from airbyte.exceptions import (
+    AirbyteDestructiveToolsDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteLibInputError,
     AirbytePipelineChangesDisabledError,
@@ -45,6 +48,7 @@ class _FakeFastMCP:
 @pytest.fixture(autouse=True)
 def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for env_var in (
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
         MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
         MCP_READONLY_MODE_ENV_VAR,
@@ -199,6 +203,82 @@ def test_policy_guard_middleware(
     fastmcp_context = SimpleNamespace(fastmcp=_FakeFastMCP(tool))
     context = SimpleNamespace(
         fastmcp_context=fastmcp_context,
+        message=SimpleNamespace(name=tool_name),
+    )
+
+    async def call_next(_context: Any) -> str:
+        return "called"
+
+    async def invoke() -> str:
+        return await PolicyGuardMiddleware().on_call_tool(context, call_next)
+
+    if expected_error is None:
+        assert asyncio.run(invoke()) == "called"
+    else:
+        with pytest.raises(expected_error):
+            asyncio.run(invoke())
+
+
+@pytest.mark.parametrize(
+    ("environment", "request_config", "destructive_hint", "expected_error"),
+    [
+        pytest.param(
+            {MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR: "0"},
+            {},
+            True,
+            AirbyteDestructiveToolsDisabledError,
+            id="env-deny",
+        ),
+        pytest.param(
+            {},
+            {MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS: "0"},
+            True,
+            AirbyteDestructiveToolsDisabledError,
+            id="header-deny",
+        ),
+        pytest.param(
+            {MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR: "1"},
+            {MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS: "0"},
+            True,
+            AirbyteDestructiveToolsDisabledError,
+            id="header-narrows-env-allow",
+        ),
+        pytest.param({}, {}, True, None, id="unset-default-allows"),
+        pytest.param(
+            {MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR: "0"},
+            {},
+            False,
+            None,
+            id="non-destructive-unaffected",
+        ),
+    ],
+)
+def test_destructive_tools_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    environment: dict[str, str],
+    request_config: dict[str, str],
+    destructive_hint: bool,
+    expected_error: type[Exception] | None,
+) -> None:
+    """Destructive-annotated tools are blocked when destructive tools are denied."""
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_mcp_config",
+        lambda _app, key, **_kwargs: request_config.get(key),
+    )
+    for env_var, value in environment.items():
+        monkeypatch.setenv(env_var, value)
+
+    tool_name = "destructive_tool"
+    tool = SimpleNamespace(
+        name=tool_name,
+        annotations=SimpleNamespace(
+            read_only_hint=True,
+            destructive_hint=destructive_hint,
+        ),
+    )
+    context = SimpleNamespace(
+        fastmcp_context=SimpleNamespace(fastmcp=_FakeFastMCP(tool)),
         message=SimpleNamespace(name=tool_name),
     )
 

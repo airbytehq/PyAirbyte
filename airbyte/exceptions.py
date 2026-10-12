@@ -357,6 +357,16 @@ class AirbytePipelineChangesDisabledError(AirbyteMCPError):
 
 
 @dataclass
+class AirbyteDestructiveToolsDisabledError(AirbyteMCPError):
+    """A destructive operation was blocked by MCP policy."""
+
+    guidance: str | None = (
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=1` and ensure the "
+        "`X-MCP-Allow-Destructive-Tools` request header is not `0`."
+    )
+
+
+@dataclass
 class AirbyteExternalAccessDisabledError(AirbyteMCPError):
     """An external-access operation was blocked by MCP policy."""
 

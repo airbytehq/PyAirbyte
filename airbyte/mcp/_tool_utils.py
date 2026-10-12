@@ -31,6 +31,7 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_TOOLS,  # noqa: PLC2701
 )
 from fastmcp_extensions.tool_filters import (
+    ANNOTATION_DESTRUCTIVE_HINT,
     ANNOTATION_READ_ONLY_HINT,
     CONFIG_INCLUDE_MODULES,
     CONFIG_TRUSTED_EXECUTION,
@@ -48,11 +49,14 @@ from airbyte.constants import (
     CLOUD_MCP_SAFE_MODE_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_HEADER,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
     MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_API_URL,
@@ -170,7 +174,7 @@ def check_if_demo_mode_guards() -> None:
             "- `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=0`: block SQL and API "
             "passthrough tools.\n"
             "- `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: only expose read-only tools.\n"
-            "- `MCP_NO_DESTRUCTIVE_TOOLS=1`: hide destructive tools.\n"
+            "- `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=0`: hide destructive tools.\n"
             f"{demo_mode_line}"
         ),
     )
@@ -194,7 +198,7 @@ def check_legacy_safe_mode_header() -> None:
             "destinations, and connections.\n"
             "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
             "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
-            "- `X-MCP-No-Destructive-Tools: 1`: hide destructive tools.\n"
+            "- `X-MCP-Allow-Destructive-Tools: 0`: hide destructive tools.\n"
         ),
     )
 
@@ -261,6 +265,15 @@ ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
     required=False,
 )
 """Config arg for permission to run external-access Cloud tools."""
+
+ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+    http_header_key=MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    env_var=MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run destructive Cloud tools."""
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
@@ -555,6 +568,14 @@ def airbyte_external_access_filter(tool: Tool, app: FastMCP) -> bool:
     return not (get_tool_policy(tool).external_access and external_access_allowed(app) is False)
 
 
+def airbyte_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide destructive-annotated tools when destructive tools are disabled."""
+    return not (
+        get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, default=False)
+        and destructive_tools_allowed(app) is False
+    )
+
+
 def _resolve_policy(
     app_or_ctx: FastMCP | Context,
     config_name: str,
@@ -590,6 +611,15 @@ def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
         app_or_ctx,
         MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    )
+
+
+def destructive_tools_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Resolve the destructive-tools setting."""
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
     )
 
 

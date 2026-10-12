@@ -306,6 +306,9 @@ MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHAN
 MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS"
 """Environment variable controlling access to external-access Cloud tools."""
 
+MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS"
+"""Environment variable controlling access to destructive Cloud tools."""
+
 MCP_LOCAL_DEMO_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE"
 """Environment variable enabling opt-in local demo mode for STDIO MCP sessions."""
 
@@ -390,6 +393,9 @@ MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
 MCP_CONFIG_ALLOW_EXTERNAL_ACCESS: str = "allow_external_access"
 """Config arg name for external-access permission."""
 
+MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS: str = "allow_destructive_tools"
+"""Config arg name for the Cloud destructive-tools permission."""
+
 MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
 """Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
 
@@ -433,6 +439,9 @@ MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
 
 MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
 """HTTP header key for narrowing external-access permission."""
+
+MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER: str = "X-MCP-Allow-Destructive-Tools"
+"""HTTP header key for narrowing destructive-tools permission."""
 
 # Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing

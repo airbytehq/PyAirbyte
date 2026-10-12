@@ -145,7 +145,9 @@ Pipeline changes and external access can be controlled independently. The
 `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS` environment variable and
 `X-MCP-Allow-External-Access` request header control external-access tools, such as
 `execute_external_api_query`, which can run connector passthrough queries, search, and inspect
-external data or skill documentation.
+external data or skill documentation. The `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS`
+environment variable and `X-MCP-Allow-Destructive-Tools` request header control
+destructive-annotated tools.
 
 Each setting accepts `1`, `true`, or `yes` to allow, and `0`, `false`, or `no` to deny. An
 explicit environment denial cannot be overridden by a request header. An environment allow can

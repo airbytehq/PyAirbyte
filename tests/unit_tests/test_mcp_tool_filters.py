@@ -11,8 +11,10 @@ from fastmcp_extensions import ToolTraits
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
     MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_EXCLUDE_MODULES,
@@ -43,6 +45,7 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
     monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
     for env_var in (
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
         MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
         MCP_READONLY_MODE_ENV_VAR,
@@ -315,3 +318,36 @@ def test_external_access_filter(
     )
 
     assert _tool_utils.airbyte_external_access_filter(tool, APP) is visible
+
+
+@pytest.mark.parametrize(
+    ("env_value", "header", "destructive", "visible"),
+    [
+        pytest.param("0", None, True, False, id="env-deny"),
+        pytest.param(None, "0", True, False, id="header-deny"),
+        pytest.param("1", "0", True, False, id="header-narrows-env-allow"),
+        pytest.param(None, None, True, True, id="unset-default-allows"),
+        pytest.param("0", None, False, True, id="non-destructive-unaffected"),
+    ],
+)
+def test_destructive_tools_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    env_value: str | None,
+    header: str | None,
+    destructive: bool,
+    visible: bool,
+) -> None:
+    if env_value is None:
+        monkeypatch.delenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, env_value)
+    if header is not None:
+        mcp_config[MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS] = header
+    tool = _policy_tool(
+        "destructive-tool",
+        pipeline_change=False,
+        destructive_hint=destructive,
+    )
+
+    assert _tool_utils.airbyte_destructive_tools_filter(tool, APP) is visible

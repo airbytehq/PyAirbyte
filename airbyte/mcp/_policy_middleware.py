@@ -6,10 +6,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from fastmcp.server.middleware import Middleware
-from fastmcp_extensions.tool_filters import ANNOTATION_READ_ONLY_HINT, get_annotation
+from fastmcp_extensions.tool_filters import (
+    ANNOTATION_DESTRUCTIVE_HINT,
+    ANNOTATION_READ_ONLY_HINT,
+    get_annotation,
+)
 from mcp.types import Tool
 
 from airbyte.exceptions import (
+    AirbyteDestructiveToolsDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbytePipelineChangesDisabledError,
     AirbyteReadOnlyModeError,
@@ -17,6 +22,7 @@ from airbyte.exceptions import (
 from airbyte.mcp._tool_utils import (
     airbyte_readonly_mode_enabled,
     check_legacy_safe_mode_header,
+    destructive_tools_allowed,
     external_access_allowed,
     get_tool_policy,
     pipeline_changes_allowed,
@@ -64,6 +70,13 @@ class PolicyGuardMiddleware(Middleware):
         if policy.external_access and external_access_allowed(fastmcp_context) is False:
             raise AirbyteExternalAccessDisabledError(
                 message="External-access tools are disabled by the MCP server policy."
+            )
+        if (
+            get_annotation(cast(Tool, tool), ANNOTATION_DESTRUCTIVE_HINT, default=False)
+            and destructive_tools_allowed(fastmcp_context) is False
+        ):
+            raise AirbyteDestructiveToolsDisabledError(
+                message="Destructive tools are disabled by the MCP server policy."
             )
         return await call_next(context)
 
