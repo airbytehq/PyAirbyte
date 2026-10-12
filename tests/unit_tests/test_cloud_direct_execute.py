@@ -342,7 +342,10 @@ def test_execute_error_handling(
         assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
         assert exc_info.value.connector_id == "source-1"
         assert exc_info.value.connector_name == "GitHub Issues"
-        assert exc_info.value.enablement_url == source.connector_url
+        assert (
+            exc_info.value.enablement_url
+            == f"{source.connector_url}/enable-direct-access?skip-consent-screen=false"
+        )
         assert exc_info.value.guidance == AirbyteExternalAccessNotEnabledError.guidance
     else:
         assert isinstance(exc_info.value, AirbyteCloudError)
@@ -372,7 +375,10 @@ def test_execute_error_sets_enablement_url_without_connector_info(
     ):
         source.execute_api_query("issues")
 
-    assert exc_info.value.enablement_url == source.connector_url
+    assert (
+        exc_info.value.enablement_url
+        == f"{source.connector_url}/enable-direct-access?skip-consent-screen=false"
+    )
     assert exc_info.value.guidance == AirbyteExternalAccessNotEnabledError.guidance
 
 
