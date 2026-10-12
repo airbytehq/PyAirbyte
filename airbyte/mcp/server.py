@@ -108,7 +108,7 @@ from airbyte.mcp._tool_utils import (
     airbyte_external_access_filter,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
-    check_legacy_safe_mode_env,
+    check_if_demo_mode_guards,
     validate_airbyte_domains,
 )
 from airbyte.mcp._user_identity import (
@@ -613,7 +613,7 @@ def main() -> None:
     It should not be called directly; instead, consult the MCP client documentation
     for instructions on how to connect to the server.
     """
-    check_legacy_safe_mode_env()
+    check_if_demo_mode_guards()
     print("Starting Airbyte MCP server.", file=sys.stderr)
     try:
         asyncio.run(app.run_stdio_async())

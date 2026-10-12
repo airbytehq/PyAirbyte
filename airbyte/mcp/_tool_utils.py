@@ -144,7 +144,7 @@ def check_guid_created_in_session(guid: str) -> None:
         )
 
 
-def check_legacy_safe_mode_env() -> None:
+def check_if_demo_mode_guards() -> None:
     """Fail fast if the removed `AIRBYTE_CLOUD_MCP_SAFE_MODE` env var is set.
 
     Raises `AirbyteLibInputError` if the variable is present in the environment

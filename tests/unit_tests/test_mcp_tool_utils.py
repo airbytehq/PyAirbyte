@@ -27,7 +27,7 @@ from airbyte.mcp._tool_utils import (
     ToolPolicy,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
-    check_legacy_safe_mode_env,
+    check_if_demo_mode_guards,
     check_legacy_safe_mode_header,
     mcp_tool,
     register_guid_created_in_session,
@@ -152,16 +152,16 @@ def test_check_guid_created_in_session_passes_when_hosted(
     check_guid_created_in_session("any-guid-at-all")
 
 
-def test_check_legacy_safe_mode_env_passes_when_unset(
+def test_check_if_demo_mode_guards_passes_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that startup check passes when the legacy env var is unset."""
     monkeypatch.delenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, raising=False)
-    check_legacy_safe_mode_env()
+    check_if_demo_mode_guards()
 
 
 @pytest.mark.parametrize("value", ["1", "0", ""])
-def test_check_legacy_safe_mode_env_raises_on_stdio(
+def test_check_if_demo_mode_guards_raises_on_stdio(
     monkeypatch: pytest.MonkeyPatch,
     value: str,
 ) -> None:
@@ -169,7 +169,7 @@ def test_check_legacy_safe_mode_env_raises_on_stdio(
     monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, value)
     monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: False)
     with pytest.raises(AirbyteLibInputError) as exc_info:
-        check_legacy_safe_mode_env()
+        check_if_demo_mode_guards()
     assert "no longer supported" in str(exc_info.value)
     guidance = exc_info.value.guidance or ""
     bullets = [line for line in guidance.splitlines() if line.startswith("- ")]
@@ -177,14 +177,14 @@ def test_check_legacy_safe_mode_env_raises_on_stdio(
     assert "not recommended except for demos" in bullets[-1]
 
 
-def test_check_legacy_safe_mode_env_raises_when_hosted(
+def test_check_if_demo_mode_guards_raises_when_hosted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that the hosted guidance omits the STDIO-only demo mode bullet."""
     monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, "1")
     monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
     with pytest.raises(AirbyteLibInputError) as exc_info:
-        check_legacy_safe_mode_env()
+        check_if_demo_mode_guards()
     assert "DEMO" not in (exc_info.value.guidance or "")
 
 

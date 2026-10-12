@@ -163,7 +163,7 @@ from airbyte.mcp._logging import (
     resolve_log_format,
 )
 from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
-from airbyte.mcp._tool_utils import check_legacy_safe_mode_env
+from airbyte.mcp._tool_utils import check_if_demo_mode_guards
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
     HostOriginGuardMiddleware,
@@ -292,7 +292,7 @@ def main() -> None:
     log_format = resolve_log_format()
     uvicorn_config = configure_logging(log_format)
     set_hosted_mcp_mode()
-    check_legacy_safe_mode_env()
+    check_if_demo_mode_guards()
     app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
     if log_format == "json":
