@@ -13,7 +13,6 @@ from fastmcp.exceptions import ToolError
 from fastmcp_extensions import mcp_server
 
 from airbyte.constants import (
-    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
@@ -43,7 +42,6 @@ class _FakeFastMCP:
 @pytest.fixture(autouse=True)
 def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for env_var in (
-        CLOUD_MCP_SAFE_MODE_ENV_VAR,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
         MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
         MCP_READONLY_MODE_ENV_VAR,
@@ -111,19 +109,7 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             "external_query",
             ToolPolicy(pipeline_change=False, external_access=True),
             False,
-            {CLOUD_MCP_SAFE_MODE_ENV_VAR: "1"},
-            {},
-            AirbyteExternalAccessDisabledError,
-            id="explicit-safe-mode-default-denial",
-        ),
-        pytest.param(
-            "external_query",
-            ToolPolicy(pipeline_change=False, external_access=True),
-            False,
-            {
-                CLOUD_MCP_SAFE_MODE_ENV_VAR: "1",
-                MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: "1",
-            },
+            {MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: "1"},
             {},
             None,
             id="explicit-external-access-allow",
@@ -135,16 +121,7 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             {},
             {},
             None,
-            id="unset-safe-mode-default-pass-through",
-        ),
-        pytest.param(
-            "external_query",
-            ToolPolicy(pipeline_change=False, external_access=True),
-            False,
-            {CLOUD_MCP_SAFE_MODE_ENV_VAR: "auto"},
-            {},
-            None,
-            id="auto-safe-mode-default-pass-through",
+            id="unset-default-pass-through",
         ),
         pytest.param(
             "external_query",

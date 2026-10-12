@@ -214,7 +214,7 @@ def test_main_sets_hosted_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         assert local_only not in instructions
     assert "get_default_cloud_context" in instructions
-    assert "Safe mode (default)" in instructions
+    assert "Deletion guard" in instructions
     assert "Read-only mode" in instructions
     assert "list_cloud_organizations" in instructions
 

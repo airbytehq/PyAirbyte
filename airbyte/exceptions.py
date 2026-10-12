@@ -332,13 +332,6 @@ class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     feature: str | None = None
 
 
-class AirbyteSafeModeError(AirbyteMCPError):
-    """A destructive operation was blocked by MCP safe mode.
-
-    Safe mode only allows destructive operations on objects created in the current session.
-    """
-
-
 @dataclass
 class AirbytePipelineChangesDisabledError(AirbyteMCPError):
     """A pipeline-changing operation was blocked by MCP policy."""
@@ -357,8 +350,7 @@ class AirbyteExternalAccessDisabledError(AirbyteMCPError):
     guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` and ensure the "
         "`X-MCP-Allow-External-Access` request header is not `0`. Disabled pipeline changes "
-        "(including legacy read-only mode) and an explicit `AIRBYTE_CLOUD_MCP_SAFE_MODE=1` "
-        "also disable external access when this setting is unset."
+        "(including legacy read-only mode) also disable external access when this setting is unset."
     )
 
 

@@ -179,8 +179,7 @@ _INSTRUCTIONS_LOCAL_MODE = """
 _INSTRUCTIONS_SAFETY = """
 
 Safety features:
-- Safe mode (default): Restricts destructive operations to objects created in
-  the current session
+- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name
 - Read-only mode: Disables all write operations for cloud resources"""
 
 

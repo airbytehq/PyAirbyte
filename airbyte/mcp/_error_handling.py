@@ -41,7 +41,6 @@ from airbyte.exceptions import (
     AirbyteMCPError,
     AirbyteMissingResourceError,
     AirbytePipelineChangesDisabledError,
-    AirbyteSafeModeError,
 )
 
 
@@ -79,7 +78,6 @@ _MAX_UPSTREAM_ROUTE_LENGTH = 200
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteLibInputError,
     AirbyteMCPError,
-    AirbyteSafeModeError,
     AirbytePipelineChangesDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,

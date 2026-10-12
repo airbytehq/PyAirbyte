@@ -21,7 +21,6 @@ from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
-    AirbyteSafeModeError,
 )
 from airbyte.mcp import _datadog, _telemetry
 from airbyte.version import get_version
@@ -444,15 +443,6 @@ def test_cloud_error_trace_message_ignores_missing_resource_without_http_error()
                 "airbyte.mcp.error.reason": "forbidden",
             },
             id="config-api-error-response-text",
-        ),
-        pytest.param(
-            AirbyteSafeModeError(message="SENTINEL message"),
-            {
-                "airbyte.mcp.error_type": "AirbyteSafeModeError",
-                "airbyte.mcp.error.category": "user_error",
-                "airbyte.mcp.error.fault": "caller",
-            },
-            id="user-facing-error",
         ),
         pytest.param(
             AirbyteConnectionSyncError(

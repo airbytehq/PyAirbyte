@@ -69,7 +69,6 @@ from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteConnectorNotRegisteredError,
-    AirbyteDeferredSetupError,
     AirbyteLibError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -89,9 +88,7 @@ from airbyte.mcp._docs_results import (
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
-    check_guid_created_in_session,
     mcp_tool,
-    register_guid_created_in_session,
 )
 from airbyte.mcp._trace_attributes import agent_action_attributes
 from airbyte.mcp._user_identity import forget_cached_airbyte_user
@@ -692,7 +689,6 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
         else workspace.deploy_destination(name=name, destination=connector, unique=unique)
     )
 
-    register_guid_created_in_session(deployed.connector_id)
     return (
         f"Successfully deployed {resolved_type.value} '{name}' with ID "
         f"'{deployed.connector_id}' and URL: {deployed.connector_url}"
@@ -728,28 +724,22 @@ def _deploy_deferred_to_cloud(
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed: CloudSource | CloudDestination
-    try:
-        if connector_type == ConnectorType.SOURCE:
-            deployed = workspace.deploy_source(
-                name=name,
-                source=config_dict,
-                unique=unique,
-                definition_id=metadata.definition_id,
-                defer_credentials=True,
-            )
-        else:
-            deployed = workspace.deploy_destination(
-                name=name,
-                destination=config_dict,
-                unique=unique,
-                definition_id=metadata.definition_id,
-                defer_credentials=True,
-            )
-    except AirbyteDeferredSetupError as ex:
-        if ex.actor_id is not None:
-            register_guid_created_in_session(ex.actor_id)
-        raise
-    register_guid_created_in_session(deployed.connector_id)
+    if connector_type == ConnectorType.SOURCE:
+        deployed = workspace.deploy_source(
+            name=name,
+            source=config_dict,
+            unique=unique,
+            definition_id=metadata.definition_id,
+            defer_credentials=True,
+        )
+    else:
+        deployed = workspace.deploy_destination(
+            name=name,
+            destination=config_dict,
+            unique=unique,
+            definition_id=metadata.definition_id,
+            defer_credentials=True,
+        )
     return DeferredDeployResult(
         connector_id=deployed.connector_id,
         connector_type=connector_type,
@@ -868,7 +858,6 @@ def create_connection_on_cloud(
         table_prefix=table_prefix,
     )
 
-    register_guid_created_in_session(deployed_connection.connection_id)
     result = (
         f"Successfully created connection '{connection_name}' "
         f"with ID '{deployed_connection.connection_id}' and "
@@ -957,7 +946,6 @@ def deploy_noop_destination_to_cloud(
         destination=destination,
         unique=unique,
     )
-    register_guid_created_in_session(deployed_destination.connector_id)
     return (
         f"Successfully deployed No-op Destination "
         f"with ID '{deployed_destination.connector_id}' and "
@@ -1169,7 +1157,6 @@ def cancel_cloud_sync(
     """Cancel a running sync job on an Airbyte Cloud connection."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
-    # Deliberately omit check_guid_created_in_session: cancelling a sync is reversible.
     sync_result = connection.cancel_sync(job_id=job_id)
     return SyncJobResult(
         job_id=sync_result.job_id,
@@ -3030,7 +3017,6 @@ def publish_custom_source_definition(
         pre_validate=pre_validate,
         testing_values=testing_values_dict,
     )
-    register_guid_created_in_session(custom_source.definition_id)
     return (
         "Successfully published custom YAML source definition:\n"
         + _get_custom_source_definition_description(
@@ -3268,8 +3254,6 @@ def update_custom_source_definition(
     At least one of name, manifest_yaml, testing_values, or testing_values_secret_name must be
     provided.
     """
-    check_guid_created_in_session(definition_id)
-
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
     if (
@@ -3361,7 +3345,6 @@ def permanently_delete_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    check_guid_created_in_session(definition_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
@@ -3427,7 +3410,6 @@ def permanently_delete_cloud_connector(
     The provided name must match the actual name of the connector for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
     """
-    check_guid_created_in_session(connector_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connector = _get_cloud_connector(workspace, connector_id, connector_type)
     actual_name: str = cast(str, connector.name)
@@ -3511,7 +3493,6 @@ def permanently_delete_cloud_connection(
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
     """
-    check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     actual_name: str = cast(str, connection.name)
@@ -3625,7 +3606,6 @@ def update_cloud_connector_config(
     This is a destructive operation that can break existing connections if the
     configuration is changed incorrectly. Use with caution.
     """
-    check_guid_created_in_session(connector_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connector = _get_typed_cloud_connector(workspace, connector_id, connector_type)
 
@@ -3703,7 +3683,6 @@ def set_cloud_connection_table_prefix(
     This is a destructive operation that can break downstream dependencies if the
     table prefix is changed incorrectly. Use with caution.
     """
-    check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     connection.set_table_prefix(prefix=prefix)
@@ -3747,7 +3726,6 @@ def set_cloud_connection_selected_streams(
     This is a destructive operation that can break existing connections if the
     stream selection is changed incorrectly. Use with caution.
     """
-    check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -3849,8 +3827,6 @@ def update_cloud_connection(
     At least one setting must be provided. `interval_hours`, `cron_expression`, and
     `manual_schedule=True` are mutually exclusive.
     """
-    check_guid_created_in_session(connection_id)
-
     # Validate that at least one setting is provided
     if (
         enabled is None

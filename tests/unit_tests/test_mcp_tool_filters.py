@@ -11,7 +11,6 @@ from fastmcp_extensions import ToolTraits
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
-    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
@@ -44,7 +43,6 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
     monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
     for env_var in (
-        CLOUD_MCP_SAFE_MODE_ENV_VAR,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
         MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
         MCP_READONLY_MODE_ENV_VAR,
@@ -254,22 +252,17 @@ def test_pipeline_change_filter(
         "header",
         "pipeline_env",
         "legacy_readonly",
-        "safe_mode",
         "visible",
     ),
     [
-        pytest.param("0", None, None, None, None, False, id="external-env-deny"),
-        pytest.param(
-            "1", "0", None, None, None, False, id="header-narrows-external-allow"
-        ),
-        pytest.param("0", "1", None, None, None, False, id="external-env-deny-wins"),
-        pytest.param(None, "0", None, None, None, False, id="external-header-deny"),
-        pytest.param("1", None, None, None, "1", True, id="explicit-external-allow"),
-        pytest.param(None, None, None, None, "1", False, id="explicit-safe-mode-deny"),
-        pytest.param(None, None, "0", None, None, False, id="pipeline-deny-default"),
-        pytest.param(None, None, None, "1", None, False, id="legacy-readonly-default"),
-        pytest.param(None, None, None, None, None, True, id="unset-default-allows"),
-        pytest.param(None, None, None, None, "auto", True, id="auto-safe-mode-allows"),
+        pytest.param("0", None, None, None, False, id="external-env-deny"),
+        pytest.param("1", "0", None, None, False, id="header-narrows-external-allow"),
+        pytest.param("0", "1", None, None, False, id="external-env-deny-wins"),
+        pytest.param(None, "0", None, None, False, id="external-header-deny"),
+        pytest.param("1", None, None, "1", True, id="explicit-external-allow"),
+        pytest.param(None, None, "0", None, False, id="pipeline-deny-default"),
+        pytest.param(None, None, None, "1", False, id="legacy-readonly-default"),
+        pytest.param(None, None, None, None, True, id="unset-default-allows"),
     ],
 )
 def test_external_access_filter(
@@ -279,14 +272,12 @@ def test_external_access_filter(
     header: str | None,
     pipeline_env: str | None,
     legacy_readonly: str | None,
-    safe_mode: str | None,
     visible: bool,
 ) -> None:
     for env_var, value in (
         (MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR, external_env),
         (MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, pipeline_env),
         (MCP_READONLY_MODE_ENV_VAR, legacy_readonly),
-        (CLOUD_MCP_SAFE_MODE_ENV_VAR, safe_mode),
     ):
         if value is None:
             monkeypatch.delenv(env_var, raising=False)

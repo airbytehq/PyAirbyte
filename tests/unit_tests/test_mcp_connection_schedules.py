@@ -63,7 +63,6 @@ def schedule_backend(
     )
     patch = MagicMock(return_value=_connection_response())
     monkeypatch.setattr(api_util, "patch_connection", patch)
-    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", False)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
         http.post(
             "https://config.example/custom/web_backend/connections/update",
@@ -265,23 +264,6 @@ def test_update_existing_settings_remain_supported(
         assert kwargs["schedule"].schedule_type == models.ScheduleTypeEnum.MANUAL
     else:
         assert kwargs["status"] == "active"
-    assert _connection_api_calls(http) == []
-
-
-def test_update_interval_obeys_safe_mode(
-    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Safe mode blocks interval updates to connections outside the current session."""
-    server, http, lookup, patch = schedule_backend
-    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
-    monkeypatch.setattr(_tool_utils, "_GUIDS_CREATED_IN_SESSION", set())
-
-    with pytest.raises(ToolError, match="not created in this session"):
-        asyncio.run(_update(server, interval_hours=24))
-
-    lookup.assert_not_called()
-    patch.assert_not_called()
     assert _connection_api_calls(http) == []
 
 

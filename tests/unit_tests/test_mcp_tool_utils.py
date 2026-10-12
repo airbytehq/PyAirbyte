@@ -9,7 +9,6 @@ from unittest.mock import patch
 import pytest
 from fastmcp_extensions import MCPServerConfigArg
 
-from airbyte.exceptions import AirbyteSafeModeError
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
     ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
@@ -18,13 +17,10 @@ from airbyte.mcp._tool_utils import (
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
-    _GUIDS_CREATED_IN_SESSION,
     _TOOL_POLICIES,
     ToolPolicy,
     _resolve_transport_bearer_token,
-    check_guid_created_in_session,
     mcp_tool,
-    register_guid_created_in_session,
 )
 from airbyte.mcp import server as server_module
 
@@ -97,59 +93,6 @@ def test_resolve_transport_bearer_token(
         mock_get_http_headers.assert_not_called()
     else:
         mock_get_http_headers.assert_called_once_with(include={"authorization"})
-
-
-@pytest.fixture(autouse=True)
-def clear_session_guids() -> None:
-    """Clear the session GUIDs before each test."""
-    _GUIDS_CREATED_IN_SESSION.clear()
-
-
-def test_register_guid_created_in_session() -> None:
-    """Test that GUIDs can be registered as created in session."""
-    assert "test-guid-123" not in _GUIDS_CREATED_IN_SESSION
-    register_guid_created_in_session("test-guid-123")
-    assert "test-guid-123" in _GUIDS_CREATED_IN_SESSION
-
-
-def test_check_guid_created_in_session_passes_for_registered_guid() -> None:
-    """Test that check passes for GUIDs registered in session."""
-    register_guid_created_in_session("test-guid-456")
-    # Should not raise
-    check_guid_created_in_session("test-guid-456")
-
-
-def test_check_guid_created_in_session_raises_for_unregistered_guid() -> None:
-    """Test that check raises AirbyteSafeModeError for unregistered GUIDs when safe mode is enabled."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
-        with pytest.raises(AirbyteSafeModeError) as exc_info:
-            check_guid_created_in_session("unregistered-guid")
-        assert "unregistered-guid" in str(exc_info.value)
-        assert "not created in this session" in str(exc_info.value)
-
-
-def test_check_guid_created_in_session_passes_when_safe_mode_disabled() -> None:
-    """Test that check passes for any GUID when safe mode is disabled."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False):
-        # Should not raise even for unregistered GUID
-        check_guid_created_in_session("any-guid-at-all")
-
-
-def test_multiple_guids_can_be_registered() -> None:
-    """Test that multiple GUIDs can be registered in the same session."""
-    guids = ["guid-1", "guid-2", "guid-3"]
-    for guid in guids:
-        register_guid_created_in_session(guid)
-
-    for guid in guids:
-        assert guid in _GUIDS_CREATED_IN_SESSION
-
-
-def test_duplicate_guid_registration_is_idempotent() -> None:
-    """Test that registering the same GUID multiple times is safe."""
-    register_guid_created_in_session("duplicate-guid")
-    register_guid_created_in_session("duplicate-guid")
-    assert "duplicate-guid" in _GUIDS_CREATED_IN_SESSION
 
 
 @pytest.mark.parametrize(
