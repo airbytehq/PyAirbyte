@@ -171,7 +171,11 @@ def test_check_if_demo_mode_guards_raises_on_stdio(
     with pytest.raises(AirbyteLibInputError) as exc_info:
         check_if_demo_mode_guards()
     assert "no longer supported" in str(exc_info.value)
-    guidance = exc_info.value.guidance or ""
+    guidance = exc_info.value.guidance
+    assert isinstance(guidance, str)
+    assert guidance.startswith(
+        "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these alternatives:\n"
+    )
     bullets = [line for line in guidance.splitlines() if line.startswith("- ")]
     assert "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE" in bullets[-1]
     assert "not recommended except for demos" in bullets[-1]
@@ -207,7 +211,11 @@ def test_check_legacy_safe_mode_header_raises_when_present(
     with pytest.raises(AirbyteLibInputError) as exc_info:
         check_legacy_safe_mode_header()
     assert "X-MCP-Safe-Mode" in str(exc_info.value)
-    guidance = exc_info.value.guidance or ""
+    guidance = exc_info.value.guidance
+    assert isinstance(guidance, str)
+    assert guidance.startswith(
+        "Remove the `X-MCP-Safe-Mode` header and consider using one of these alternatives:\n"
+    )
     assert "X-MCP-Allow-Pipeline-Changes" in guidance
     assert "DEMO" not in guidance
 

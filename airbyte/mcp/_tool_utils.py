@@ -163,6 +163,8 @@ def check_if_demo_mode_guards() -> None:
     raise AirbyteLibInputError(
         message="`AIRBYTE_CLOUD_MCP_SAFE_MODE` is no longer supported.",
         guidance=(
+            "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these "
+            "alternatives:\n"
             "- `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=0`: block changes to "
             "sources, destinations, and connections.\n"
             "- `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=0`: block SQL and API "
@@ -170,7 +172,6 @@ def check_if_demo_mode_guards() -> None:
             "- `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: only expose read-only tools.\n"
             "- `MCP_NO_DESTRUCTIVE_TOOLS=1`: hide destructive tools.\n"
             f"{demo_mode_line}"
-            "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` to start the server."
         ),
     )
 
@@ -187,12 +188,13 @@ def check_legacy_safe_mode_header() -> None:
     raise AirbyteLibInputError(
         message="The `X-MCP-Safe-Mode` header is no longer supported.",
         guidance=(
+            "Remove the `X-MCP-Safe-Mode` header and consider using one of these "
+            "alternatives:\n"
             "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
             "destinations, and connections.\n"
             "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
             "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
             "- `X-MCP-No-Destructive-Tools: 1`: hide destructive tools.\n"
-            "Remove the `X-MCP-Safe-Mode` header."
         ),
     )
 
