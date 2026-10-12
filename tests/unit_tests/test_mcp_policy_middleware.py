@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
-from fastmcp_extensions import mcp_server
+from fastmcp_extensions import ToolTraits, mcp_server
 
 from airbyte.constants import (
     MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
@@ -45,6 +45,10 @@ class _FakeFastMCP:
         return self.tool
 
 
+_MW_TOOL_MODULES: dict[str, str] = {}
+"""Tool-name -> mcp_module map for the `get_tool_traits` stub, cleared per test."""
+
+
 @pytest.fixture(autouse=True)
 def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for env_var in (
@@ -55,6 +59,12 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.delenv(env_var, raising=False)
     monkeypatch.setattr(_tool_utils, "_TOOL_POLICIES", {})
+    _MW_TOOL_MODULES.clear()
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_tool_traits",
+        lambda _app, name: ToolTraits(mcp_module=_MW_TOOL_MODULES.get(name, "cloud")),
+    )
 
 
 @pytest.mark.parametrize(
@@ -293,6 +303,50 @@ def test_destructive_tools_guard(
     else:
         with pytest.raises(expected_error):
             asyncio.run(invoke())
+
+
+def test_local_tools_bypass_cloud_policy_guards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local-module tools are not blocked by Cloud read-only/destructive policies."""
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_mcp_config",
+        lambda _app, key, **_kwargs: None,
+    )
+
+    async def call_next(_context: Any) -> str:
+        return "called"
+
+    async def call(tool_name: str, annotations: SimpleNamespace) -> str:
+        tool = SimpleNamespace(name=tool_name, annotations=annotations)
+        context = SimpleNamespace(
+            fastmcp_context=SimpleNamespace(fastmcp=_FakeFastMCP(tool)),
+            message=SimpleNamespace(name=tool_name),
+        )
+        return await PolicyGuardMiddleware().on_call_tool(context, call_next)
+
+    _MW_TOOL_MODULES["destination_smoke_test"] = "local"
+    _MW_TOOL_MODULES["sync_connector"] = "local"
+    for tool_name in ("destination_smoke_test", "sync_connector"):
+        _tool_utils._TOOL_POLICIES[tool_name] = ToolPolicy(pipeline_change=False)
+
+    monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
+    assert (
+        asyncio.run(
+            call(
+                "destination_smoke_test",
+                SimpleNamespace(destructive_hint=True),
+            )
+        )
+        == "called"
+    )
+
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    assert (
+        asyncio.run(call("sync_connector", SimpleNamespace(read_only_hint=False)))
+        == "called"
+    )
 
 
 def test_unsupported_mcp_header_blocks_list_and_call(

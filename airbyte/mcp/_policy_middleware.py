@@ -20,6 +20,7 @@ from airbyte.exceptions import (
     AirbyteReadOnlyModeError,
 )
 from airbyte.mcp._tool_utils import (
+    _is_cloud_tool,
     airbyte_readonly_mode_enabled,
     check_unsupported_mcp_headers,
     destructive_tools_allowed,
@@ -56,8 +57,11 @@ class PolicyGuardMiddleware(Middleware):
         if tool is None:
             return await call_next(context)
 
-        if airbyte_readonly_mode_enabled() and not get_annotation(
-            cast(Tool, tool), ANNOTATION_READ_ONLY_HINT, default=False
+        cloud_tool = _is_cloud_tool(fastmcp_context.fastmcp, cast(Tool, tool))
+        if (
+            cloud_tool
+            and airbyte_readonly_mode_enabled()
+            and not get_annotation(cast(Tool, tool), ANNOTATION_READ_ONLY_HINT, default=False)
         ):
             raise AirbyteReadOnlyModeError(
                 message="Read-only mode is enabled; only read-only tools are available."
@@ -72,7 +76,8 @@ class PolicyGuardMiddleware(Middleware):
                 message="External-access tools are disabled by the MCP server policy."
             )
         if (
-            get_annotation(cast(Tool, tool), ANNOTATION_DESTRUCTIVE_HINT, default=False)
+            cloud_tool
+            and get_annotation(cast(Tool, tool), ANNOTATION_DESTRUCTIVE_HINT, default=False)
             and destructive_tools_allowed(fastmcp_context) is False
         ):
             raise AirbyteDestructiveToolsDisabledError(

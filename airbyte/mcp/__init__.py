@@ -123,10 +123,7 @@ Read-only mode is not enabled by default and is controlled by the
 `AIRBYTE_CLOUD_MCP_READONLY_MODE` environment variable.
 
 When enabled, only read-only Cloud tools are available. Write and destructive operations are
-disabled.
-
-This mode does allow running syncs on existing connectors, since sync operations
-are not considered to be modifications of the Airbyte Cloud workspace.
+disabled. Running and cancelling syncs are also disabled.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
 

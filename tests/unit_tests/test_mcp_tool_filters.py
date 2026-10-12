@@ -34,6 +34,9 @@ from mcp.types import Tool
 APP = cast(FastMCP, object())
 """Stand-in for the app; the filter only passes it to `get_mcp_config`, which is patched."""
 
+_TOOL_MODULES: dict[str, str] = {}
+"""Tool-name -> mcp_module map for the `get_tool_traits` stub, cleared per test."""
+
 
 def _tool(name: str) -> Tool:
     """Return a tool-like object named for the module it belongs to."""
@@ -60,11 +63,12 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     )
     # `mcp_module` is internal state (never on the wire), so stub the traits
     # registry lookup with a tool-name -> module map.
+    _TOOL_MODULES.clear()
     monkeypatch.setattr(
         _tool_utils,
         "get_tool_traits",
         lambda _app, name: ToolTraits(
-            mcp_module=name if name != "unannotated" else None
+            mcp_module=_TOOL_MODULES.get(name, name if name != "unannotated" else None)
         ),
     )
     return config
@@ -200,7 +204,9 @@ def _policy_tool(
     external_access: bool = False,
     read_only_hint: bool = False,
     destructive_hint: bool = False,
+    module: str = "cloud",
 ) -> Tool:
+    _TOOL_MODULES[name] = module
     if pipeline_change is not None or external_access:
         _tool_utils._TOOL_POLICIES[name] = _tool_utils.ToolPolicy(
             pipeline_change=bool(pipeline_change),
@@ -351,3 +357,29 @@ def test_destructive_tools_filter(
     )
 
     assert _tool_utils.airbyte_destructive_tools_filter(tool, APP) is visible
+
+
+def test_local_tools_unaffected_by_readonly_and_destructive_policies(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """Local-module tools stay visible under Cloud read-only and destructive policies."""
+    assert not mcp_config
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
+
+    destructive_local_tool = _policy_tool(
+        "destination_smoke_test",
+        pipeline_change=False,
+        destructive_hint=True,
+        module="local",
+    )
+    assert _tool_utils.airbyte_destructive_tools_filter(destructive_local_tool, APP)
+    assert _tool_utils.airbyte_readonly_mode_filter(destructive_local_tool, APP)
+
+    non_readonly_local_tool = _policy_tool(
+        "sync_connector",
+        pipeline_change=False,
+        module="local",
+    )
+    assert _tool_utils.airbyte_readonly_mode_filter(non_readonly_local_tool, APP)

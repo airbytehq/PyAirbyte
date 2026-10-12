@@ -531,10 +531,26 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module
 
 
+_CLOUD_MCP_MODULES = frozenset({"cloud", "interactive"})
+"""MCP tool modules backed by Airbyte Cloud APIs.
+
+Cloud-scoped policies (read-only mode, destructive tools) apply to these modules
+only; local-operation tools are unaffected.
+"""
+
+
+def _is_cloud_tool(app: FastMCP, tool: Tool) -> bool:
+    """Return whether the tool belongs to a Cloud-backed MCP module."""
+    mcp_module = get_tool_traits(app, tool.name).mcp_module
+    return _normalize_mcp_module(str(mcp_module or "")) in _CLOUD_MCP_MODULES
+
+
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Hide non-read-only tools in read-only mode and pipeline-changing tools when disabled."""
-    if airbyte_readonly_mode_enabled() and not get_annotation(
-        tool, ANNOTATION_READ_ONLY_HINT, default=False
+    """Hide non-read-only Cloud tools and pipeline-changing tools when disabled."""
+    if (
+        airbyte_readonly_mode_enabled()
+        and _is_cloud_tool(app, tool)
+        and not get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False)
     ):
         return False
     return not (pipeline_changes_allowed(app) is False and get_tool_policy(tool).pipeline_change)
@@ -546,9 +562,10 @@ def airbyte_external_access_filter(tool: Tool, app: FastMCP) -> bool:
 
 
 def airbyte_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
-    """Hide destructive-annotated tools when destructive tools are disabled."""
+    """Hide destructive-annotated Cloud tools when destructive tools are disabled."""
     return not (
-        get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, default=False)
+        _is_cloud_tool(app, tool)
+        and get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, default=False)
         and destructive_tools_allowed(app) is False
     )
 
