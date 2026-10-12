@@ -356,8 +356,7 @@ class AirbyteExternalAccessDisabledError(AirbyteMCPError):
 
     guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` and ensure the "
-        "`X-MCP-Allow-External-Access` request header is not `0`. Disabled pipeline changes "
-        "(including read-only mode) also disable external access when this setting is unset."
+        "`X-MCP-Allow-External-Access` request header is not `0`."
     )
 
 

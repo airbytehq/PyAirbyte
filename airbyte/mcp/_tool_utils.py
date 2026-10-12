@@ -576,19 +576,12 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 
 
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
-    """Resolve explicit permission first, then derive the external-access default.
-
-    If external access is not explicitly configured, it is denied when pipeline
-    changes are disabled and left unset otherwise.
-    """
-    explicit_value = _resolve_policy(
+    """Resolve the external-access setting, independent of pipeline-change policy."""
+    return _resolve_policy(
         app_or_ctx,
         MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     )
-    if explicit_value is not None:
-        return explicit_value
-    return False if pipeline_changes_allowed(app_or_ctx) is False else None
 
 
 def _insiders_mode(app: FastMCP) -> bool | None:

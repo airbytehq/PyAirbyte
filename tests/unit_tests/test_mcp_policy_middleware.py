@@ -15,6 +15,7 @@ from fastmcp_extensions import mcp_server
 from airbyte.constants import (
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_READONLY_MODE_ENV_VAR,
 )
 from airbyte.exceptions import (
@@ -130,8 +131,26 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             False,
             {MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: "0"},
             {},
-            AirbyteExternalAccessDisabledError,
-            id="pipeline-changes-disabled-default-denial",
+            None,
+            id="pipeline-changes-disabled-pass-through",
+        ),
+        pytest.param(
+            "external_query",
+            ToolPolicy(pipeline_change=False, external_access=True),
+            False,
+            {MCP_READONLY_MODE_ENV_VAR: "1"},
+            {},
+            None,
+            id="read-only-mode-pass-through",
+        ),
+        pytest.param(
+            "external_query",
+            ToolPolicy(pipeline_change=False, external_access=True),
+            False,
+            {},
+            {MCP_CONFIG_ALLOW_PIPELINE_CHANGES: "0"},
+            None,
+            id="pipeline-header-deny-pass-through",
         ),
     ],
 )

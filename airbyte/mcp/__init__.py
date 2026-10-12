@@ -152,9 +152,8 @@ explicit environment denial cannot be overridden by a request header. An environ
 be narrowed by a request header denial. If the environment setting is unset, the request header
 decides. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
 
-When external access is unset, it is disabled if pipeline changes are disabled;
-otherwise external-access tools remain available. Explicitly allowing external access
-overrides these calculated defaults. Running or cancelling a sync is not a pipeline change.
+The two settings are independent: disabling pipeline changes does not affect
+external-access tools. Running or cancelling a sync is not a pipeline change.
 
 ## Authentication for Remote (HTTP) Servers
 
