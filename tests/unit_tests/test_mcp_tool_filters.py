@@ -263,9 +263,7 @@ def test_pipeline_change_filter(
         pytest.param(
             None, None, "0", None, True, id="pipeline-deny-external-unaffected"
         ),
-        pytest.param(
-            None, None, None, "1", True, id="legacy-readonly-external-unaffected"
-        ),
+        pytest.param(None, None, None, "1", True, id="readonly-external-unaffected"),
         pytest.param(None, None, None, None, True, id="unset-default-allows"),
     ],
 )
