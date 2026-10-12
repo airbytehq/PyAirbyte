@@ -175,3 +175,15 @@ Inside each module page, primitives are grouped by kind (`## Tools`,
 (`<a id="name"></a>`) above its H3 so links like
 `cloud.md#deploy_connector_to_cloud` resolve in both pdoc and Docusaurus.
 Regenerate after any change to MCP tool signatures, descriptions, or schemas.
+
+## Removing Environment Variables and MCP Headers
+
+Never silently ignore a removed env var or MCP request header. Add it to
+`UNSUPPORTED_ENV_VARS` in `airbyte/_util/unsupported_inputs.py` (checked at
+startup of the `pyab` CLI and both MCP servers) or `UNSUPPORTED_MCP_HEADERS` in
+`airbyte/mcp/_tool_utils.py`, mapped to guidance that names the replacement settings.
+
+- Env vars fail at startup. Headers fail on tool listing and tool calls.
+- Any value counts as set, including empty or `0`.
+- Remove all other docs references to the removed setting. The map entry is the only
+  place it stays.

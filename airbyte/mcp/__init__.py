@@ -123,10 +123,7 @@ Read-only mode is not enabled by default and is controlled by the
 `AIRBYTE_CLOUD_MCP_READONLY_MODE` environment variable.
 
 When enabled, only read-only Cloud tools are available. Write and destructive operations are
-disabled.
-
-This mode does allow running syncs on existing connectors, since sync operations
-are not considered to be modifications of the Airbyte Cloud workspace.
+disabled. Running and cancelling syncs are also disabled.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
 
@@ -145,16 +142,18 @@ Pipeline changes and external access can be controlled independently. The
 `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS` environment variable and
 `X-MCP-Allow-External-Access` request header control external-access tools, such as
 `execute_external_api_query`, which can run connector passthrough queries, search, and inspect
-external data or skill documentation.
+external data or skill documentation. The `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS`
+environment variable and `X-MCP-Allow-Destructive-Tools` request header control
+destructive-annotated tools.
 
 Each setting accepts `1`, `true`, or `yes` to allow, and `0`, `false`, or `no` to deny. An
 explicit environment denial cannot be overridden by a request header. An environment allow can
 be narrowed by a request header denial. If the environment setting is unset, the request header
 decides. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
 
-When external access is unset, it is disabled if pipeline changes are disabled;
-otherwise external-access tools remain available. Explicitly allowing external access
-overrides these calculated defaults. Running or cancelling a sync is not a pipeline change.
+Read-only mode blocks both pipeline changes and running or cancelling syncs. However, running
+or cancelling a sync is _not_ considered a pipeline change, so those tools stay available when
+pipeline changes are disabled, unless read-only mode is also enabled.
 
 ## Authentication for Remote (HTTP) Servers
 

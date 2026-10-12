@@ -79,6 +79,7 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_MCP_TRACKING_KEY
+from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._error_handling import (
@@ -94,6 +95,7 @@ from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_READONLY_MODE_CONFIG_ARG,
+    ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG,
     ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
     ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
     API_URL_CONFIG_ARG,
@@ -105,10 +107,10 @@ from airbyte.mcp._tool_utils import (
     ORGANIZATION_ID_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
     WORKSPACE_ID_CONFIG_ARG,
+    airbyte_destructive_tools_filter,
     airbyte_external_access_filter,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
-    check_if_demo_mode_guards,
     validate_airbyte_domains,
 )
 from airbyte.mcp._user_identity import (
@@ -534,6 +536,7 @@ app = mcp_server(
         AIRBYTE_READONLY_MODE_CONFIG_ARG,
         ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
         ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
+        ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG,
         AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
         AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
         INSIDERS_CONFIG_ARG,
@@ -554,6 +557,7 @@ app = mcp_server(
     tool_filters=[
         airbyte_readonly_mode_filter,
         airbyte_external_access_filter,
+        airbyte_destructive_tools_filter,
         airbyte_module_filter,
     ],
     auth=_create_auth(),
@@ -613,7 +617,7 @@ def main() -> None:
     It should not be called directly; instead, consult the MCP client documentation
     for instructions on how to connect to the server.
     """
-    check_if_demo_mode_guards()
+    check_unsupported_env_vars()
     print("Starting Airbyte MCP server.", file=sys.stderr)
     try:
         asyncio.run(app.run_stdio_async())

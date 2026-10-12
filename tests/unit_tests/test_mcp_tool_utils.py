@@ -10,7 +10,6 @@ import pytest
 from fastmcp_extensions import MCPServerConfigArg
 
 from airbyte.constants import (
-    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
 )
 from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
@@ -27,8 +26,7 @@ from airbyte.mcp._tool_utils import (
     ToolPolicy,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
-    check_if_demo_mode_guards,
-    check_legacy_safe_mode_header,
+    check_unsupported_mcp_headers,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -152,64 +150,24 @@ def test_check_guid_created_in_session_passes_when_hosted(
     check_guid_created_in_session("any-guid-at-all")
 
 
-def test_check_if_demo_mode_guards_passes_when_unset(
+def test_check_unsupported_mcp_headers_passes_when_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that startup check passes when the legacy env var is unset."""
-    monkeypatch.delenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, raising=False)
-    check_if_demo_mode_guards()
-
-
-@pytest.mark.parametrize("value", ["1", "0", ""])
-def test_check_if_demo_mode_guards_raises_on_stdio(
-    monkeypatch: pytest.MonkeyPatch,
-    value: str,
-) -> None:
-    """Test that any value of the legacy env var fails startup on STDIO."""
-    monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, value)
-    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: False)
-    with pytest.raises(AirbyteLibInputError) as exc_info:
-        check_if_demo_mode_guards()
-    assert "no longer supported" in str(exc_info.value)
-    guidance = exc_info.value.guidance
-    assert isinstance(guidance, str)
-    assert guidance.startswith(
-        "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these alternatives:\n"
-    )
-    bullets = [line for line in guidance.splitlines() if line.startswith("- ")]
-    assert "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE" in bullets[-1]
-    assert "not recommended except for demos" in bullets[-1]
-
-
-def test_check_if_demo_mode_guards_raises_when_hosted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that the hosted guidance omits the STDIO-only demo mode bullet."""
-    monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, "1")
-    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
-    with pytest.raises(AirbyteLibInputError) as exc_info:
-        check_if_demo_mode_guards()
-    assert "DEMO" not in (exc_info.value.guidance or "")
-
-
-def test_check_legacy_safe_mode_header_passes_when_absent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that the header check passes when the legacy header is absent."""
+    """Test that the header check passes when no listed header is sent."""
     monkeypatch.setattr("airbyte.mcp._tool_utils.get_http_headers", lambda **_: {})
-    check_legacy_safe_mode_header()
+    check_unsupported_mcp_headers()
 
 
-def test_check_legacy_safe_mode_header_raises_when_present(
+def test_check_unsupported_mcp_headers_raises_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that the removed header fails the request with migration guidance."""
+    """Test that a listed header fails the request with mapped guidance."""
     monkeypatch.setattr(
         "airbyte.mcp._tool_utils.get_http_headers",
         lambda **_: {"x-mcp-safe-mode": "1"},
     )
     with pytest.raises(AirbyteLibInputError) as exc_info:
-        check_legacy_safe_mode_header()
+        check_unsupported_mcp_headers()
     assert "X-MCP-Safe-Mode" in str(exc_info.value)
     guidance = exc_info.value.guidance
     assert isinstance(guidance, str)
@@ -217,7 +175,24 @@ def test_check_legacy_safe_mode_header_raises_when_present(
         "Remove the `X-MCP-Safe-Mode` header and consider using one of these alternatives:\n"
     )
     assert "X-MCP-Allow-Pipeline-Changes" in guidance
-    assert "DEMO" not in guidance
+
+
+def test_check_unsupported_mcp_headers_is_generic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the header guard works for any name added to the map."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.UNSUPPORTED_MCP_HEADERS",
+        {"X-Custom-Removed": "use Y"},
+    )
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.get_http_headers",
+        lambda **_: {"x-custom-removed": "1"},
+    )
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_unsupported_mcp_headers()
+    assert "X-Custom-Removed" in str(exc_info.value)
+    assert exc_info.value.guidance == "use Y"
 
 
 def test_multiple_guids_can_be_registered() -> None:

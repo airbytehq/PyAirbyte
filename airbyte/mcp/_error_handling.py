@@ -36,6 +36,7 @@ from airbyte.exceptions import (
     AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
     AirbyteConnectorNotReadyError,
+    AirbyteDestructiveToolsDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteLibError,
     AirbyteLibInputError,
@@ -43,6 +44,7 @@ from airbyte.exceptions import (
     AirbyteMCPError,
     AirbyteMissingResourceError,
     AirbytePipelineChangesDisabledError,
+    AirbyteReadOnlyModeError,
 )
 
 
@@ -90,6 +92,8 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteMCPError,
     AirbyteLocalDemoModeError,
     AirbytePipelineChangesDisabledError,
+    AirbyteReadOnlyModeError,
+    AirbyteDestructiveToolsDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,
     AirbyteConnectorNotReadyError,

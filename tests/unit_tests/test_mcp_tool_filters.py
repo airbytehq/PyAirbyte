@@ -11,8 +11,10 @@ from fastmcp_extensions import ToolTraits
 from fastmcp_extensions.tool_filters import CONFIG_INCLUDE_MODULES
 
 from airbyte.constants import (
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
     MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_EXCLUDE_MODULES,
@@ -32,6 +34,9 @@ from mcp.types import Tool
 APP = cast(FastMCP, object())
 """Stand-in for the app; the filter only passes it to `get_mcp_config`, which is patched."""
 
+_TOOL_MODULES: dict[str, str] = {}
+"""Tool-name -> mcp_module map for the `get_tool_traits` stub, cleared per test."""
+
 
 def _tool(name: str) -> Tool:
     """Return a tool-like object named for the module it belongs to."""
@@ -43,6 +48,7 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Patch `get_mcp_config` so tests can set MCP config values directly."""
     monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
     for env_var in (
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
         MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
         MCP_READONLY_MODE_ENV_VAR,
@@ -57,11 +63,12 @@ def mcp_config(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     )
     # `mcp_module` is internal state (never on the wire), so stub the traits
     # registry lookup with a tool-name -> module map.
+    _TOOL_MODULES.clear()
     monkeypatch.setattr(
         _tool_utils,
         "get_tool_traits",
         lambda _app, name: ToolTraits(
-            mcp_module=name if name != "unannotated" else None
+            mcp_module=_TOOL_MODULES.get(name, name if name != "unannotated" else None)
         ),
     )
     return config
@@ -174,13 +181,32 @@ def test_sync_tools_stay_visible_when_pipeline_changes_are_disabled(
         assert _tool_utils.airbyte_readonly_mode_filter(tool, APP)
 
 
+def test_non_read_only_tools_hidden_in_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """Read-only mode hides non-read-only tools but keeps read-only-annotated tools."""
+    assert not mcp_config
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+        tool = _policy_tool(tool_name, pipeline_change=False)
+        assert not _tool_utils.airbyte_readonly_mode_filter(tool, APP)
+    read_only_tool = _policy_tool(
+        "list_cloud_workspaces", pipeline_change=False, read_only_hint=True
+    )
+    assert _tool_utils.airbyte_readonly_mode_filter(read_only_tool, APP)
+
+
 def _policy_tool(
     name: str,
     *,
     pipeline_change: bool | None,
     external_access: bool = False,
     read_only_hint: bool = False,
+    destructive_hint: bool = False,
+    module: str = "cloud",
 ) -> Tool:
+    _TOOL_MODULES[name] = module
     if pipeline_change is not None or external_access:
         _tool_utils._TOOL_POLICIES[name] = _tool_utils.ToolPolicy(
             pipeline_change=bool(pipeline_change),
@@ -190,7 +216,10 @@ def _policy_tool(
         Tool,
         SimpleNamespace(
             name=name,
-            annotations=SimpleNamespace(read_only_hint=read_only_hint),
+            annotations=SimpleNamespace(
+                read_only_hint=read_only_hint,
+                destructive_hint=destructive_hint,
+            ),
         ),
     )
 
@@ -260,8 +289,10 @@ def test_pipeline_change_filter(
         pytest.param("0", "1", None, None, False, id="external-env-deny-wins"),
         pytest.param(None, "0", None, None, False, id="external-header-deny"),
         pytest.param("1", None, None, "1", True, id="explicit-external-allow"),
-        pytest.param(None, None, "0", None, False, id="pipeline-deny-default"),
-        pytest.param(None, None, None, "1", False, id="legacy-readonly-default"),
+        pytest.param(
+            None, None, "0", None, True, id="pipeline-deny-external-unaffected"
+        ),
+        pytest.param(None, None, None, "1", True, id="readonly-external-unaffected"),
         pytest.param(None, None, None, None, True, id="unset-default-allows"),
     ],
 )
@@ -286,7 +317,94 @@ def test_external_access_filter(
     if header is not None:
         mcp_config[MCP_CONFIG_ALLOW_EXTERNAL_ACCESS] = header
     tool = _policy_tool(
-        "external-access-tool", pipeline_change=False, external_access=True
+        "external-access-tool",
+        pipeline_change=False,
+        external_access=True,
+        read_only_hint=True,
     )
 
     assert _tool_utils.airbyte_external_access_filter(tool, APP) is visible
+
+
+@pytest.mark.parametrize(
+    ("env_value", "header", "destructive", "visible"),
+    [
+        pytest.param("0", None, True, False, id="env-deny"),
+        pytest.param(None, "0", True, False, id="header-deny"),
+        pytest.param("1", "0", True, False, id="header-narrows-env-allow"),
+        pytest.param(None, None, True, True, id="unset-default-allows"),
+        pytest.param("0", None, False, True, id="non-destructive-unaffected"),
+    ],
+)
+def test_destructive_tools_filter(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    env_value: str | None,
+    header: str | None,
+    destructive: bool,
+    visible: bool,
+) -> None:
+    if env_value is None:
+        monkeypatch.delenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, env_value)
+    if header is not None:
+        mcp_config[MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS] = header
+    tool = _policy_tool(
+        "destructive-tool",
+        pipeline_change=False,
+        destructive_hint=destructive,
+    )
+
+    assert _tool_utils.airbyte_destructive_tools_filter(tool, APP) is visible
+
+
+def test_local_tools_unaffected_by_readonly_and_destructive_policies(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """Local-module tools stay visible under Cloud read-only and destructive policies."""
+    assert not mcp_config
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
+
+    # No `ToolPolicy` registration: the tools exercise the real default
+    # (non-read-only -> pipeline_change=True).
+    destructive_local_tool = _policy_tool(
+        "destination_smoke_test",
+        pipeline_change=None,
+        destructive_hint=True,
+        module="local",
+    )
+    assert _tool_utils.airbyte_destructive_tools_filter(destructive_local_tool, APP)
+    assert _tool_utils.airbyte_readonly_mode_filter(destructive_local_tool, APP)
+
+    non_readonly_local_tool = _policy_tool(
+        "sync_connector",
+        pipeline_change=None,
+        module="local",
+    )
+    assert _tool_utils.airbyte_readonly_mode_filter(non_readonly_local_tool, APP)
+
+
+def test_real_server_keeps_local_tools_listed_under_cloud_denials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real registrations: local tools survive Cloud denials; Cloud tools do not."""
+    import asyncio
+
+    from airbyte.mcp.server import app as airbyte_app
+
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
+
+    def visible(name: str) -> bool:
+        tool = cast(Tool, asyncio.run(airbyte_app.get_tool(name)))
+        return _tool_utils.airbyte_readonly_mode_filter(
+            tool, airbyte_app
+        ) and _tool_utils.airbyte_destructive_tools_filter(tool, airbyte_app)
+
+    assert visible("destination_smoke_test")
+    assert not visible("run_cloud_sync")

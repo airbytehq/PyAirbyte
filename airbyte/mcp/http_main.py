@@ -152,6 +152,7 @@ from fastmcp_extensions import (
     run_mcp_http_server,
 )
 
+from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
@@ -163,7 +164,6 @@ from airbyte.mcp._logging import (
     resolve_log_format,
 )
 from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
-from airbyte.mcp._tool_utils import check_if_demo_mode_guards
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
     HostOriginGuardMiddleware,
@@ -292,7 +292,7 @@ def main() -> None:
     log_format = resolve_log_format()
     uvicorn_config = configure_logging(log_format)
     set_hosted_mcp_mode()
-    check_if_demo_mode_guards()
+    check_unsupported_env_vars()
     app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
     if log_format == "json":

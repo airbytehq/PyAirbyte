@@ -31,6 +31,7 @@ from fastmcp_extensions.decorators import (
     _REGISTERED_TOOLS,  # noqa: PLC2701
 )
 from fastmcp_extensions.tool_filters import (
+    ANNOTATION_DESTRUCTIVE_HINT,
     ANNOTATION_READ_ONLY_HINT,
     CONFIG_INCLUDE_MODULES,
     CONFIG_TRUSTED_EXECUTION,
@@ -45,14 +46,16 @@ from airbyte.constants import (
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
-    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_HEADER,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
     MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_API_URL,
@@ -144,59 +147,37 @@ def check_guid_created_in_session(guid: str) -> None:
         )
 
 
-def check_if_demo_mode_guards() -> None:
-    """Fail fast if the removed `AIRBYTE_CLOUD_MCP_SAFE_MODE` env var is set.
+UNSUPPORTED_MCP_HEADERS: dict[str, str] = {
+    MCP_LEGACY_SAFE_MODE_HEADER: (
+        "Remove the `X-MCP-Safe-Mode` header and consider using one of these "
+        "alternatives:\n"
+        "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
+        "destinations, and connections.\n"
+        "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
+        "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
+        "- `X-MCP-Allow-Destructive-Tools: 0`: hide destructive tools.\n"
+    ),
+}
+"""Removed MCP request headers, mapped to replacement guidance.
 
-    Raises `AirbyteLibInputError` if the variable is present in the environment
-    with any value, including an empty string.
-    """
-    if CLOUD_MCP_SAFE_MODE_ENV_VAR not in os.environ:
-        return
-    demo_mode_line = (
-        ""
-        if is_hosted_mcp_mode()
-        else (
-            "- `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1`: only allow changes to "
-            "resources created in this session (not recommended except for demos).\n"
-        )
-    )
-    raise AirbyteLibInputError(
-        message="`AIRBYTE_CLOUD_MCP_SAFE_MODE` is no longer supported.",
-        guidance=(
-            "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these "
-            "alternatives:\n"
-            "- `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=0`: block changes to "
-            "sources, destinations, and connections.\n"
-            "- `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=0`: block SQL and API "
-            "passthrough tools.\n"
-            "- `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: only expose read-only tools.\n"
-            "- `MCP_NO_DESTRUCTIVE_TOOLS=1`: hide destructive tools.\n"
-            f"{demo_mode_line}"
-        ),
-    )
+Tool listing and calls fail if any is sent.
+"""
 
 
-def check_legacy_safe_mode_header() -> None:
-    """Fail fast if the removed `X-MCP-Safe-Mode` request header is present.
+def check_unsupported_mcp_headers() -> None:
+    """Fail fast if a removed MCP request header is present.
 
-    Raises `AirbyteLibInputError` if the header is present with any value.
-    Outside an HTTP request there are no headers, so this is a no-op.
+    Raises `AirbyteLibInputError` on the first name in `UNSUPPORTED_MCP_HEADERS`
+    sent with any value. Outside an HTTP request there are no headers, so this
+    is a no-op.
     """
     headers = get_http_headers()
-    if MCP_LEGACY_SAFE_MODE_HEADER.lower() not in headers:
-        return
-    raise AirbyteLibInputError(
-        message="The `X-MCP-Safe-Mode` header is no longer supported.",
-        guidance=(
-            "Remove the `X-MCP-Safe-Mode` header and consider using one of these "
-            "alternatives:\n"
-            "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
-            "destinations, and connections.\n"
-            "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
-            "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
-            "- `X-MCP-No-Destructive-Tools: 1`: hide destructive tools.\n"
-        ),
-    )
+    for name, guidance in UNSUPPORTED_MCP_HEADERS.items():
+        if name.lower() in headers:
+            raise AirbyteLibInputError(
+                message=f"The `{name}` header is no longer supported.",
+                guidance=guidance,
+            )
 
 
 # =============================================================================
@@ -261,6 +242,15 @@ ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
     required=False,
 )
 """Config arg for permission to run external-access Cloud tools."""
+
+ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+    http_header_key=MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    env_var=MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run destructive Cloud tools."""
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
@@ -541,14 +531,47 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module
 
 
+_CLOUD_MCP_MODULES = frozenset({"cloud", "interactive"})
+"""MCP tool modules backed by Airbyte Cloud APIs.
+
+Cloud-scoped policies (pipeline changes, read-only mode, destructive tools)
+apply to these modules only; local-operation tools are unaffected.
+"""
+
+
+def _is_cloud_tool(app: FastMCP, tool: Tool) -> bool:
+    """Return whether the tool belongs to a Cloud-backed MCP module."""
+    mcp_module = get_tool_traits(app, tool.name).mcp_module
+    return _normalize_mcp_module(str(mcp_module or "")) in _CLOUD_MCP_MODULES
+
+
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Hide pipeline-changing tools when pipeline changes are disabled."""
-    return not (pipeline_changes_allowed(app) is False and get_tool_policy(tool).pipeline_change)
+    """Hide non-read-only Cloud tools and pipeline-changing tools when disabled."""
+    if (
+        airbyte_readonly_mode_enabled()
+        and _is_cloud_tool(app, tool)
+        and not get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False)
+    ):
+        return False
+    return not (
+        _is_cloud_tool(app, tool)
+        and pipeline_changes_allowed(app) is False
+        and get_tool_policy(tool).pipeline_change
+    )
 
 
 def airbyte_external_access_filter(tool: Tool, app: FastMCP) -> bool:
     """Hide external-access tools when external access is disabled."""
     return not (get_tool_policy(tool).external_access and external_access_allowed(app) is False)
+
+
+def airbyte_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide destructive-annotated Cloud tools when destructive tools are disabled."""
+    return not (
+        _is_cloud_tool(app, tool)
+        and get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, default=False)
+        and destructive_tools_allowed(app) is False
+    )
 
 
 def _resolve_policy(
@@ -565,8 +588,13 @@ def _resolve_policy(
     return request_value
 
 
+def airbyte_readonly_mode_enabled() -> bool:
+    """Return whether `AIRBYTE_CLOUD_MCP_READONLY_MODE` is set (env-only today)."""
+    return _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True
+
+
 def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
-    if _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True:
+    if airbyte_readonly_mode_enabled():
         return False
     return _resolve_policy(
         app_or_ctx,
@@ -576,19 +604,21 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 
 
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
-    """Resolve explicit permission first, then derive the external-access default.
-
-    If external access is not explicitly configured, it is denied when pipeline
-    changes are disabled and left unset otherwise.
-    """
-    explicit_value = _resolve_policy(
+    """Resolve the external-access setting."""
+    return _resolve_policy(
         app_or_ctx,
         MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     )
-    if explicit_value is not None:
-        return explicit_value
-    return False if pipeline_changes_allowed(app_or_ctx) is False else None
+
+
+def destructive_tools_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Resolve the destructive-tools setting."""
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    )
 
 
 def _insiders_mode(app: FastMCP) -> bool | None:
