@@ -295,10 +295,10 @@ def test_destructive_tools_guard(
             asyncio.run(invoke())
 
 
-def test_legacy_safe_mode_header_blocks_list_and_call(
+def test_unsupported_mcp_header_blocks_list_and_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The removed `X-MCP-Safe-Mode` header fails both list_tools and call_tool."""
+    """A removed request header fails both list_tools and call_tool."""
     monkeypatch.setattr(
         _tool_utils,
         "get_http_headers",

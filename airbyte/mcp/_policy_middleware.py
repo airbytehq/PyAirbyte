@@ -21,7 +21,7 @@ from airbyte.exceptions import (
 )
 from airbyte.mcp._tool_utils import (
     airbyte_readonly_mode_enabled,
-    check_legacy_safe_mode_header,
+    check_unsupported_mcp_headers,
     destructive_tools_allowed,
     external_access_allowed,
     get_tool_policy,
@@ -47,7 +47,7 @@ class PolicyGuardMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Reject calls denied by effective pipeline or external-access settings."""
-        check_legacy_safe_mode_header()
+        check_unsupported_mcp_headers()
         fastmcp_context = context.fastmcp_context
         if fastmcp_context is None:
             return await call_next(context)
@@ -85,6 +85,6 @@ class PolicyGuardMiddleware(Middleware):
         context: MiddlewareContext[ListToolsRequest],
         call_next: CallNext[ListToolsRequest, Sequence[FastMCPTool]],
     ) -> Sequence[FastMCPTool]:
-        """Reject listings when the removed `X-MCP-Safe-Mode` header is present."""
-        check_legacy_safe_mode_header()
+        """Reject listings when a removed MCP request header is present."""
+        check_unsupported_mcp_headers()
         return await call_next(context)
