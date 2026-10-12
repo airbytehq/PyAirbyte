@@ -576,7 +576,7 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 
 
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
-    """Resolve the external-access setting, independent of pipeline-change policy."""
+    """Resolve the external-access setting."""
     return _resolve_policy(
         app_or_ctx,
         MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
