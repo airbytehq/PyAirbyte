@@ -578,8 +578,8 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
     """Resolve explicit permission first, then derive the external-access default.
 
-    Disabled pipeline changes disable external access when no explicit permission
-    is configured; otherwise the result remains unset.
+    If external access is not explicitly configured, it is denied when pipeline
+    changes are disabled and left unset otherwise.
     """
     explicit_value = _resolve_policy(
         app_or_ctx,
