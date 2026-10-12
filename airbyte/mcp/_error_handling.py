@@ -38,6 +38,7 @@ from airbyte.exceptions import (
     AirbyteExternalAccessDisabledError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteLocalDemoModeError,
     AirbyteMCPError,
     AirbyteMissingResourceError,
     AirbytePipelineChangesDisabledError,
@@ -78,6 +79,7 @@ _MAX_UPSTREAM_ROUTE_LENGTH = 200
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteLibInputError,
     AirbyteMCPError,
+    AirbyteLocalDemoModeError,
     AirbytePipelineChangesDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,

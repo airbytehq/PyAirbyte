@@ -2,6 +2,8 @@
 """MCP tool utility functions for config args and tool filters.
 
 This module provides:
+- Local demo mode: opt-in STDIO-only tracking that restricts changes to resources
+  created in the current session.
 - Config args and filters for backward compatibility with legacy Airbyte env vars.
 """
 
@@ -36,6 +38,7 @@ from fastmcp_extensions.tool_filters import (
 )
 from mcp.types import Tool
 
+from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -67,13 +70,14 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import AirbyteLibInputError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
 
 
 if TYPE_CHECKING:
@@ -93,6 +97,50 @@ AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE
 
 When set, the workspace_id parameter is hidden from cloud tools.
 """
+
+_GUIDS_CREATED_IN_SESSION: set[str] = set()
+
+
+def local_demo_mode_enabled() -> bool:
+    """Return whether local demo mode is active for this session.
+
+    Local demo mode is opt-in via `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE` and only
+    applies to local (STDIO) sessions; it is ignored over the hosted HTTP transport.
+    """
+    return (
+        _str_to_bool(os.environ.get(MCP_LOCAL_DEMO_MODE_ENV_VAR)) is True
+        and not is_hosted_mcp_mode()
+    )
+
+
+def register_guid_created_in_session(guid: str) -> None:
+    """Register a GUID as created in this session.
+
+    Args:
+        guid: The GUID to register
+    """
+    _GUIDS_CREATED_IN_SESSION.add(guid)
+
+
+def check_guid_created_in_session(guid: str) -> None:
+    """Check if a GUID was created in this session.
+
+    This is a no-op unless local demo mode is enabled.
+
+    Raises `AirbyteLocalDemoModeError` if local demo mode is enabled and the GUID
+    was not created in this session.
+
+    Args:
+        guid: The GUID to check
+    """
+    if local_demo_mode_enabled() and guid not in _GUIDS_CREATED_IN_SESSION:
+        raise AirbyteLocalDemoModeError(
+            message=(
+                f"Cannot modify '{guid}': local demo mode only allows changes "
+                "to resources created in this session."
+            ),
+        )
+
 
 # =============================================================================
 # Backward-Compatible Config Args

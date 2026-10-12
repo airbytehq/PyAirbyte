@@ -879,6 +879,7 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
         return workspace
 
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", fake_get_cloud_workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
     result = tool(
         cast(Context, object()),
@@ -935,6 +936,7 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
         **{deleter: delete},
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
     if in_use:
         with pytest.raises(AirbyteConnectorInUseError) as exc_info:
@@ -1079,6 +1081,7 @@ def test_set_cloud_connection_selected_streams_surfaces_library_error(
     )
     workspace = SimpleNamespace(get_connection=lambda **_: connection)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
     with pytest.raises(AirbyteLibInputError) as exc_info:
         cloud_mcp.set_cloud_connection_selected_streams(
@@ -1149,6 +1152,10 @@ def test_deploy_connector_to_cloud_routes_by_type(
     monkeypatch.setattr(
         cloud_mcp, "resolve_connector_config", lambda **_: {"resolved": True}
     )
+    registered: list[str] = []
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", registered.append
+    )
     result = cloud_mcp.deploy_connector_to_cloud(
         cast(Context, object()),
         name="My Connector",
@@ -1166,6 +1173,7 @@ def test_deploy_connector_to_cloud_routes_by_type(
     assert deploy_calls[0]["name"] == "My Connector"
     assert deploy_calls[0]["unique"] is True
     assert deploy_calls[0][connector_type.value] is connector
+    assert registered == ["deployed-id"]
     assert f"deployed {connector_type.value} 'My Connector'" in result
     assert "deployed-id" in result
 
@@ -1241,6 +1249,9 @@ def _patch_deploy_connection_workspace(
 ) -> _DeployConnectionWorkspace:
     workspace = _DeployConnectionWorkspace(missing_ids=missing_ids)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", lambda *args: None
+    )
     return workspace
 
 

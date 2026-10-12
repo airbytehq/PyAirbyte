@@ -332,6 +332,13 @@ class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     feature: str | None = None
 
 
+class AirbyteLocalDemoModeError(AirbyteMCPError):
+    """A change was blocked by MCP local demo mode.
+
+    Local demo mode only allows changes to resources created in the current session.
+    """
+
+
 @dataclass
 class AirbytePipelineChangesDisabledError(AirbyteMCPError):
     """A pipeline-changing operation was blocked by MCP policy."""

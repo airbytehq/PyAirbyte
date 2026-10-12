@@ -669,11 +669,15 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     assert call[connector_type] == {"count": 10}
 
 
-def test_mcp_deploy_deferred_propagates_unacknowledged_actor_error(
+def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
     workspace_like: _WorkspaceLike,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A deferral-acknowledgement failure propagates to the caller."""
+    """An actor created without deferral acknowledgement is still tracked for session cleanup."""
+    registered: list[str] = []
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", registered.append
+    )
 
     def _unacknowledged(**kwargs: Any) -> _DeployedLike:  # noqa: ANN401
         raise exc.AirbyteDeferredSetupError(
@@ -694,6 +698,8 @@ def test_mcp_deploy_deferred_propagates_unacknowledged_actor_error(
             unique=True,
             defer_credentials=True,
         )
+
+    assert registered == [ACTOR_ID]
 
 
 def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
