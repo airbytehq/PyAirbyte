@@ -1,9 +1,9 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""MCP tool utility functions for safe mode and config args.
+"""MCP tool utility functions for config args and tool filters.
 
 This module provides:
-- Safe mode functionality for MCP tools, allowing tracking of resources created
-  during a session to prevent accidental deletion of pre-existing resources.
+- Local demo mode: opt-in STDIO-only tracking that restricts changes to resources
+  created in the current session.
 - Config args and filters for backward compatibility with legacy Airbyte env vars.
 """
 
@@ -38,6 +38,7 @@ from fastmcp_extensions.tool_filters import (
 )
 from mcp.types import Tool
 
+from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -70,13 +71,15 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_LEGACY_SAFE_MODE_HEADER,
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import AirbyteLibInputError, AirbyteSafeModeError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
 
 
 if TYPE_CHECKING:
@@ -88,15 +91,8 @@ if TYPE_CHECKING:
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 
 # =============================================================================
-# Safe Mode Configuration
+# Environment-Derived Flags
 # =============================================================================
-
-AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
-"""Whether safe mode is enabled for cloud operations.
-
-When enabled (default), destructive operations are only allowed on resources
-created during the current session.
-"""
 
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 """Whether the AIRBYTE_CLOUD_WORKSPACE_ID environment variable is set.
@@ -105,6 +101,18 @@ When set, the workspace_id parameter is hidden from cloud tools.
 """
 
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
+
+
+def local_demo_mode_enabled() -> bool:
+    """Return whether local demo mode is active for this session.
+
+    Local demo mode is opt-in via `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE` and only
+    applies to local (STDIO) sessions; it is ignored over the hosted HTTP transport.
+    """
+    return (
+        _str_to_bool(os.environ.get(MCP_LOCAL_DEMO_MODE_ENV_VAR)) is True
+        and not is_hosted_mcp_mode()
+    )
 
 
 def register_guid_created_in_session(guid: str) -> None:
@@ -119,22 +127,76 @@ def register_guid_created_in_session(guid: str) -> None:
 def check_guid_created_in_session(guid: str) -> None:
     """Check if a GUID was created in this session.
 
-    This is a no-op if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "0".
+    This is a no-op unless local demo mode is enabled.
 
-    Raises `AirbyteSafeModeError` if the GUID was not created in this session and
-    AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
+    Raises `AirbyteLocalDemoModeError` if local demo mode is enabled and the GUID
+    was not created in this session.
 
     Args:
         guid: The GUID to check
     """
-    if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
-        raise AirbyteSafeModeError(
+    if local_demo_mode_enabled() and guid not in _GUIDS_CREATED_IN_SESSION:
+        raise AirbyteLocalDemoModeError(
             message=(
-                f"Cannot perform destructive operation on '{guid}': "
-                f"Object was not created in this session. "
-                f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+                f"Cannot modify '{guid}': local demo mode only allows changes "
+                "to resources created in this session."
             ),
         )
+
+
+def check_if_demo_mode_guards() -> None:
+    """Fail fast if the removed `AIRBYTE_CLOUD_MCP_SAFE_MODE` env var is set.
+
+    Raises `AirbyteLibInputError` if the variable is present in the environment
+    with any value, including an empty string.
+    """
+    if CLOUD_MCP_SAFE_MODE_ENV_VAR not in os.environ:
+        return
+    demo_mode_line = (
+        ""
+        if is_hosted_mcp_mode()
+        else (
+            "- `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1`: only allow changes to "
+            "resources created in this session (not recommended except for demos).\n"
+        )
+    )
+    raise AirbyteLibInputError(
+        message="`AIRBYTE_CLOUD_MCP_SAFE_MODE` is no longer supported.",
+        guidance=(
+            "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these "
+            "alternatives:\n"
+            "- `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=0`: block changes to "
+            "sources, destinations, and connections.\n"
+            "- `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=0`: block SQL and API "
+            "passthrough tools.\n"
+            "- `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: only expose read-only tools.\n"
+            "- `MCP_NO_DESTRUCTIVE_TOOLS=1`: hide destructive tools.\n"
+            f"{demo_mode_line}"
+        ),
+    )
+
+
+def check_legacy_safe_mode_header() -> None:
+    """Fail fast if the removed `X-MCP-Safe-Mode` request header is present.
+
+    Raises `AirbyteLibInputError` if the header is present with any value.
+    Outside an HTTP request there are no headers, so this is a no-op.
+    """
+    headers = get_http_headers()
+    if MCP_LEGACY_SAFE_MODE_HEADER.lower() not in headers:
+        return
+    raise AirbyteLibInputError(
+        message="The `X-MCP-Safe-Mode` header is no longer supported.",
+        guidance=(
+            "Remove the `X-MCP-Safe-Mode` header and consider using one of these "
+            "alternatives:\n"
+            "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
+            "destinations, and connections.\n"
+            "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
+            "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
+            "- `X-MCP-No-Destructive-Tools: 1`: hide destructive tools.\n"
+        ),
+    )
 
 
 # =============================================================================
@@ -151,7 +213,7 @@ AIRBYTE_READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
     default="0",
     required=False,
 )
-"""Config arg for legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
+"""Config arg for the AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
 
 AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_EXCLUDE_MODULES,
@@ -516,8 +578,8 @@ def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
 def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
     """Resolve explicit permission first, then derive the external-access default.
 
-    Disabled pipeline changes and explicitly enabled safe mode disable external access
-    when no explicit permission is configured; otherwise the result remains unset.
+    If external access is not explicitly configured, it is denied when pipeline
+    changes are disabled and left unset otherwise.
     """
     explicit_value = _resolve_policy(
         app_or_ctx,
@@ -526,12 +588,7 @@ def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
     )
     if explicit_value is not None:
         return explicit_value
-    explicitly_enabled_safe_mode = _str_to_bool(os.environ.get(CLOUD_MCP_SAFE_MODE_ENV_VAR)) is True
-    return (
-        False
-        if pipeline_changes_allowed(app_or_ctx) is False or explicitly_enabled_safe_mode
-        else None
-    )
+    return False if pipeline_changes_allowed(app_or_ctx) is False else None
 
 
 def _insiders_mode(app: FastMCP) -> bool | None:

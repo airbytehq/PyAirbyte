@@ -108,6 +108,7 @@ from airbyte.mcp._tool_utils import (
     airbyte_external_access_filter,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
+    check_if_demo_mode_guards,
     validate_airbyte_domains,
 )
 from airbyte.mcp._user_identity import (
@@ -179,8 +180,7 @@ _INSTRUCTIONS_LOCAL_MODE = """
 _INSTRUCTIONS_SAFETY = """
 
 Safety features:
-- Safe mode (default): Restricts destructive operations to objects created in
-  the current session
+- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name
 - Read-only mode: Disables all write operations for cloud resources"""
 
 
@@ -613,6 +613,7 @@ def main() -> None:
     It should not be called directly; instead, consult the MCP client documentation
     for instructions on how to connect to the server.
     """
+    check_if_demo_mode_guards()
     print("Starting Airbyte MCP server.", file=sys.stderr)
     try:
         asyncio.run(app.run_stdio_async())

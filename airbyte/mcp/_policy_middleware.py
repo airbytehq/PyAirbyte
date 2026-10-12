@@ -12,6 +12,7 @@ from airbyte.exceptions import (
     AirbytePipelineChangesDisabledError,
 )
 from airbyte.mcp._tool_utils import (
+    check_legacy_safe_mode_header,
     external_access_allowed,
     get_tool_policy,
     pipeline_changes_allowed,
@@ -19,9 +20,11 @@ from airbyte.mcp._tool_utils import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fastmcp.server.middleware import CallNext, MiddlewareContext
-    from fastmcp.tools import ToolResult
-    from mcp.types import CallToolRequestParams
+    from fastmcp.tools import Tool, ToolResult
+    from mcp.types import CallToolRequestParams, ListToolsRequest
 
 
 class PolicyGuardMiddleware(Middleware):
@@ -33,6 +36,7 @@ class PolicyGuardMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Reject calls denied by effective pipeline or external-access settings."""
+        check_legacy_safe_mode_header()
         fastmcp_context = context.fastmcp_context
         if fastmcp_context is None:
             return await call_next(context)
@@ -50,4 +54,13 @@ class PolicyGuardMiddleware(Middleware):
             raise AirbyteExternalAccessDisabledError(
                 message="External-access tools are disabled by the MCP server policy."
             )
+        return await call_next(context)
+
+    async def on_list_tools(
+        self,
+        context: MiddlewareContext[ListToolsRequest],
+        call_next: CallNext[ListToolsRequest, Sequence[Tool]],
+    ) -> Sequence[Tool]:
+        """Reject listings when the removed `X-MCP-Safe-Mode` header is present."""
+        check_legacy_safe_mode_header()
         return await call_next(context)

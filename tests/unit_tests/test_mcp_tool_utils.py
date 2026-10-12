@@ -9,7 +9,11 @@ from unittest.mock import patch
 import pytest
 from fastmcp_extensions import MCPServerConfigArg
 
-from airbyte.exceptions import AirbyteSafeModeError
+from airbyte.constants import (
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
+)
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
     ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
@@ -23,6 +27,8 @@ from airbyte.mcp._tool_utils import (
     ToolPolicy,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
+    check_if_demo_mode_guards,
+    check_legacy_safe_mode_header,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -112,27 +118,106 @@ def test_register_guid_created_in_session() -> None:
     assert "test-guid-123" in _GUIDS_CREATED_IN_SESSION
 
 
-def test_check_guid_created_in_session_passes_for_registered_guid() -> None:
-    """Test that check passes for GUIDs registered in session."""
-    register_guid_created_in_session("test-guid-456")
-    # Should not raise
-    check_guid_created_in_session("test-guid-456")
+def test_check_guid_created_in_session_passes_when_demo_mode_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that check passes for any GUID when local demo mode is unset."""
+    monkeypatch.delenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, raising=False)
+    # Should not raise even for unregistered GUID
+    check_guid_created_in_session("any-guid-at-all")
 
 
-def test_check_guid_created_in_session_raises_for_unregistered_guid() -> None:
-    """Test that check raises AirbyteSafeModeError for unregistered GUIDs when safe mode is enabled."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
-        with pytest.raises(AirbyteSafeModeError) as exc_info:
-            check_guid_created_in_session("unregistered-guid")
-        assert "unregistered-guid" in str(exc_info.value)
-        assert "not created in this session" in str(exc_info.value)
+def test_check_guid_created_in_session_local_demo_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that local demo mode blocks unregistered GUIDs and allows registered ones."""
+    monkeypatch.setenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, "1")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: False)
+    register_guid_created_in_session("registered-guid")
+    # Should not raise for a GUID registered in this session
+    check_guid_created_in_session("registered-guid")
+
+    with pytest.raises(AirbyteLocalDemoModeError) as exc_info:
+        check_guid_created_in_session("unregistered-guid")
+    assert "unregistered-guid" in str(exc_info.value)
 
 
-def test_check_guid_created_in_session_passes_when_safe_mode_disabled() -> None:
-    """Test that check passes for any GUID when safe mode is disabled."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False):
-        # Should not raise even for unregistered GUID
-        check_guid_created_in_session("any-guid-at-all")
+def test_check_guid_created_in_session_passes_when_hosted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that local demo mode is ignored over the hosted HTTP transport."""
+    monkeypatch.setenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, "1")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
+    # Should not raise even for unregistered GUID
+    check_guid_created_in_session("any-guid-at-all")
+
+
+def test_check_if_demo_mode_guards_passes_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that startup check passes when the legacy env var is unset."""
+    monkeypatch.delenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, raising=False)
+    check_if_demo_mode_guards()
+
+
+@pytest.mark.parametrize("value", ["1", "0", ""])
+def test_check_if_demo_mode_guards_raises_on_stdio(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    """Test that any value of the legacy env var fails startup on STDIO."""
+    monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, value)
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: False)
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_if_demo_mode_guards()
+    assert "no longer supported" in str(exc_info.value)
+    guidance = exc_info.value.guidance
+    assert isinstance(guidance, str)
+    assert guidance.startswith(
+        "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these alternatives:\n"
+    )
+    bullets = [line for line in guidance.splitlines() if line.startswith("- ")]
+    assert "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE" in bullets[-1]
+    assert "not recommended except for demos" in bullets[-1]
+
+
+def test_check_if_demo_mode_guards_raises_when_hosted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the hosted guidance omits the STDIO-only demo mode bullet."""
+    monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, "1")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_if_demo_mode_guards()
+    assert "DEMO" not in (exc_info.value.guidance or "")
+
+
+def test_check_legacy_safe_mode_header_passes_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the header check passes when the legacy header is absent."""
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_http_headers", lambda **_: {})
+    check_legacy_safe_mode_header()
+
+
+def test_check_legacy_safe_mode_header_raises_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the removed header fails the request with migration guidance."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.get_http_headers",
+        lambda **_: {"x-mcp-safe-mode": "1"},
+    )
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_legacy_safe_mode_header()
+    assert "X-MCP-Safe-Mode" in str(exc_info.value)
+    guidance = exc_info.value.guidance
+    assert isinstance(guidance, str)
+    assert guidance.startswith(
+        "Remove the `X-MCP-Safe-Mode` header and consider using one of these alternatives:\n"
+    )
+    assert "X-MCP-Allow-Pipeline-Changes" in guidance
+    assert "DEMO" not in guidance
 
 
 def test_multiple_guids_can_be_registered() -> None:

@@ -298,7 +298,7 @@ def is_hosted_mcp_mode() -> bool:
 
 
 MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
-"""Legacy environment variable that disables pipeline-changing MCP tools when truthy."""
+"""Environment variable that disables pipeline-changing MCP tools when truthy."""
 
 MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES"
 """Environment variable controlling access to Cloud pipeline-changing tools."""
@@ -306,8 +306,15 @@ MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHAN
 MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS"
 """Environment variable controlling access to external-access Cloud tools."""
 
+MCP_LOCAL_DEMO_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE"
+"""Environment variable enabling opt-in local demo mode for STDIO MCP sessions."""
+
 CLOUD_MCP_SAFE_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_SAFE_MODE"
-"""Environment variable controlling safe mode for destructive Cloud operations."""
+"""Removed legacy env var; setting it fails MCP server startup."""
+
+MCP_LEGACY_SAFE_MODE_HEADER: str = "X-MCP-Safe-Mode"
+"""Removed legacy header; sending it fails the request."""
+
 
 MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
 """Environment variable to disable specific MCP tool domains.
@@ -375,7 +382,7 @@ boundary: every insiders tool authorizes each call against the Airbyte API.
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
-"""Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+"""Config arg name for the AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
 
 MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
 """Config arg name for the Cloud pipeline-change permission."""

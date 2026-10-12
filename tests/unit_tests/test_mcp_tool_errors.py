@@ -33,7 +33,6 @@ from airbyte.mcp._error_handling import (
     format_user_facing_error,
     mcp_tool_error_reason,
 )
-from airbyte.mcp._tool_utils import check_guid_created_in_session
 from fastmcp_extensions import UserFacingErrorMiddleware, mcp_server
 
 
@@ -367,8 +366,9 @@ def test_user_facing_error_echoed_id_is_masked() -> None:
 
     @server.tool
     def unsafe(connection_id: str) -> str:
-        check_guid_created_in_session(connection_id)
-        return "done"
+        raise AirbyteLibInputError(
+            message=f"Cannot perform destructive operation on {connection_id}"
+        )
 
     text = _call_error(
         server,

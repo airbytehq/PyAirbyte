@@ -39,10 +39,10 @@ from airbyte.exceptions import (
     AirbyteExternalAccessDisabledError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteLocalDemoModeError,
     AirbyteMCPError,
     AirbyteMissingResourceError,
     AirbytePipelineChangesDisabledError,
-    AirbyteSafeModeError,
 )
 
 
@@ -88,7 +88,7 @@ _NON_AIRBYTE_TOOL_ERROR_MESSAGES: dict[type[BaseException], str] = {
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteLibInputError,
     AirbyteMCPError,
-    AirbyteSafeModeError,
+    AirbyteLocalDemoModeError,
     AirbytePipelineChangesDisabledError,
     AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,

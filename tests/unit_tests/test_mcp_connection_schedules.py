@@ -18,7 +18,10 @@ from fastmcp.exceptions import ToolError
 
 from airbyte._util import api_util
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.constants import MCP_READONLY_MODE_ENV_VAR
+from airbyte.constants import (
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
+    MCP_READONLY_MODE_ENV_VAR,
+)
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp import _tool_utils
 from airbyte.mcp import cloud as cloud_mcp
@@ -63,7 +66,7 @@ def schedule_backend(
     )
     patch = MagicMock(return_value=_connection_response())
     monkeypatch.setattr(api_util, "patch_connection", patch)
-    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", False)
+    monkeypatch.delenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, raising=False)
     with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
         http.post(
             "https://config.example/custom/web_backend/connections/update",
@@ -268,16 +271,17 @@ def test_update_existing_settings_remain_supported(
     assert _connection_api_calls(http) == []
 
 
-def test_update_interval_obeys_safe_mode(
+def test_update_interval_obeys_local_demo_mode(
     schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Safe mode blocks interval updates to connections outside the current session."""
+    """Local demo mode blocks interval updates to connections outside the current session."""
     server, http, lookup, patch = schedule_backend
-    monkeypatch.setattr(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True)
+    monkeypatch.setenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, "1")
+    monkeypatch.setattr(_tool_utils, "is_hosted_mcp_mode", lambda: False)
     monkeypatch.setattr(_tool_utils, "_GUIDS_CREATED_IN_SESSION", set())
 
-    with pytest.raises(ToolError, match="not created in this session"):
+    with pytest.raises(ToolError, match="local demo mode only allows changes"):
         asyncio.run(_update(server, interval_hours=24))
 
     lookup.assert_not_called()

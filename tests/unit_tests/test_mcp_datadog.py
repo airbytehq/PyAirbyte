@@ -25,9 +25,9 @@ from airbyte.exceptions import (
     AirbyteConnectionSyncTimeoutError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteLocalDemoModeError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
-    AirbyteSafeModeError,
 )
 from airbyte.mcp import _datadog, _error_handling, _telemetry
 from airbyte.version import get_version
@@ -409,9 +409,9 @@ def test_non_airbyte_exception_classes_use_fixed_trace_messages(
     ("error", "expected"),
     [
         pytest.param(
-            AirbyteSafeModeError(message="Blocked for 'abc-secret-id-123'."),
-            "A destructive operation was blocked by MCP safe mode.",
-            id="safe-mode",
+            AirbyteLocalDemoModeError(message="Blocked for 'abc-secret-id-123'."),
+            "A change was blocked by MCP local demo mode.",
+            id="local-demo-mode",
         ),
         pytest.param(
             AirbyteMissingWorkspaceContextError(),
@@ -425,8 +425,8 @@ def test_non_airbyte_exception_classes_use_fixed_trace_messages(
         ),
         pytest.param(
             ToolError("outer wrapper"),
-            "A destructive operation was blocked by MCP safe mode.",
-            id="wrapped-safe-mode",
+            "A change was blocked by MCP local demo mode.",
+            id="wrapped-local-demo-mode",
         ),
         pytest.param(
             NotFoundError("Unknown tool: foo"),
@@ -444,7 +444,7 @@ def test_tool_error_trace_message_uses_fixed_exception_class_messages(
     error: BaseException, expected: str
 ) -> None:
     if isinstance(error, ToolError):
-        error.__cause__ = AirbyteSafeModeError(message="wrapped secret abc-123")
+        error.__cause__ = AirbyteLocalDemoModeError(message="wrapped secret abc-123")
     message = _error_handling.tool_error_trace_message(error)
 
     assert message == expected
@@ -596,9 +596,9 @@ def test_tool_error_trace_message_ignores_unlisted_exceptions() -> None:
             id="config-api-error-response-text",
         ),
         pytest.param(
-            AirbyteSafeModeError(message="SENTINEL message"),
+            AirbyteLocalDemoModeError(message="SENTINEL message"),
             {
-                "airbyte.mcp.error_type": "AirbyteSafeModeError",
+                "airbyte.mcp.error_type": "AirbyteLocalDemoModeError",
                 "airbyte.mcp.error.category": "user_error",
                 "airbyte.mcp.error.fault": "caller",
             },
@@ -845,9 +845,15 @@ def test_native_datadog_http_contract_in_fresh_process():
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("DD_", "OTEL_", "AIRBYTE_MCP_"))
+        and key
+        not in {
+            "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE",
+            "AIRBYTE_CLOUD_MCP_SAFE_MODE",
+        }
     }
     env.update(
         DO_NOT_TRACK="1",
+        AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE="1",
         DD_TRACE_HTTPX_ENABLED="false",
         DD_TRACE_MCP_ENABLED="false",
         DD_TRACE_REQUESTS_ENABLED="true",
@@ -1157,7 +1163,9 @@ def _native_http_contract():
 
     def capture_exception_text(error):
         cause = _datadog.unwrap_tool_error(error)
-        if isinstance(cause, (AirbyteSafeModeError, ValidationError, NotFoundError)):
+        if isinstance(
+            cause, (AirbyteLocalDemoModeError, ValidationError, NotFoundError)
+        ):
             exception_texts.setdefault(type(cause).__name__, str(cause))
         return original_exception_attributes(error)
 
@@ -1216,7 +1224,7 @@ def _native_http_contract():
         return "private synthetic result"
 
     @app.tool()
-    def safe_mode_blocker(guid: str) -> str:
+    def local_demo_mode_blocker(guid: str) -> str:
         _tool_utils.check_guid_created_in_session(guid)
         return "unreachable"
 
@@ -1315,7 +1323,7 @@ def _native_http_contract():
                     (
                         "tools/call",
                         {
-                            "name": "safe_mode_blocker",
+                            "name": "local_demo_mode_blocker",
                             "arguments": {"guid": "abc-secret-id-123"},
                         },
                     ),
@@ -1419,10 +1427,10 @@ def _native_http_contract():
                     unknown_tool_span.get_tag("error.message")
                     == "The requested tool doesn't exist on this server."
                 )
-                safe_span = next(
+                local_demo_span = next(
                     span
                     for span in spans
-                    if span.get_tag("error.type") == "AirbyteSafeModeError"
+                    if span.get_tag("error.type") == "AirbyteLocalDemoModeError"
                 )
                 validation_span = next(
                     span
@@ -1430,15 +1438,15 @@ def _native_http_contract():
                     if span.get_tag("error.type") == "ValidationError"
                 )
                 assert (
-                    safe_span.get_tag("error.message")
-                    == "A destructive operation was blocked by MCP safe mode."
+                    local_demo_span.get_tag("error.message")
+                    == "A change was blocked by MCP local demo mode."
                 )
                 assert (
                     validation_span.get_tag("error.message")
                     == "The tool arguments failed validation."
                 )
                 for span, exception_name in (
-                    (safe_span, "AirbyteSafeModeError"),
+                    (local_demo_span, "AirbyteLocalDemoModeError"),
                     (validation_span, "ValidationError"),
                     (unknown_tool_span, "NotFoundError"),
                 ):
@@ -1448,17 +1456,16 @@ def _native_http_contract():
                         for value in span.get_tags().values()
                     )
                 for span, private_text in (
-                    (safe_span, "abc-secret-id-123"),
+                    (local_demo_span, "abc-secret-id-123"),
                     (validation_span, "private-invalid-type"),
                 ):
                     assert private_text not in json.dumps(span.get_tags())
-                safe_mode_text = responses[8][2]["result"]["content"][0]["text"]
-                assert safe_mode_text == (
-                    "Cannot perform destructive operation on '<value of guid>': "
-                    "Object was not created in this session. "
-                    "AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+                local_demo_text = responses[8][2]["result"]["content"][0]["text"]
+                assert local_demo_text == (
+                    "Cannot modify '<value of guid>': local demo mode only allows "
+                    "changes to resources created in this session."
                 )
-                assert "abc-secret-id-123" not in safe_mode_text
+                assert "abc-secret-id-123" not in local_demo_text
                 assert str(ValueError(private_payload)) not in json.dumps(
                     value_error_span.get_tags()
                 )
@@ -1802,7 +1809,7 @@ def _native_http_contract():
                 "resolve_call_workspace_organization_id",
                 new=AsyncMock(return_value="44444444-4444-4444-4444-444444444444"),
             ),
-            patch.object(_tool_utils, "AIRBYTE_CLOUD_MCP_SAFE_MODE", True),
+            patch.object(_tool_utils, "is_hosted_mcp_mode", return_value=False),
             patch.object(
                 _datadog,
                 "_exception_attributes",
