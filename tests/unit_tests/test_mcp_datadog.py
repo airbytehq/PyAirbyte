@@ -2,12 +2,9 @@
 """Native Datadog payload policy and real HTTP/LLM span contracts."""
 
 import asyncio
-import importlib
-import importlib.resources
 import inspect
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,9 +13,8 @@ from typing import Any, cast
 
 import pytest
 import requests
-import yaml
 from airbyte_api.errors import SDKError
-from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
+from fastmcp.exceptions import DisabledError, NotFoundError, ToolError, ValidationError
 from fastmcp_extensions.tool_filters import ToolUnavailableError
 
 from airbyte._util import api_util, meta
@@ -341,85 +337,114 @@ def test_cloud_error_trace_message_ignores_missing_resource_without_http_error()
     assert _error_handling.cloud_error_trace_message(error) is None
 
 
-def test_tool_error_manifest_shape_and_messages_are_safe() -> None:
-    path = importlib.resources.files("airbyte.mcp").joinpath("tool_errors.yaml")
-    entries = yaml.safe_load(path.read_text(encoding="utf-8"))
-
-    assert list(entries) == sorted(entries)
-    for key, entry in entries.items():
-        assert set(entry) == {"message"}
-        message = entry["message"]
-        assert isinstance(message, str) and message.strip()
-        module_name, _, class_name = key.rpartition(".")
-        error_class = getattr(importlib.import_module(module_name), class_name)
-        assert inspect.isclass(error_class)
-        assert issubclass(error_class, BaseException)
-        assert "{" not in message
-        assert re.search(r"\d+", message) is None
-        assert "http" not in message.lower()
-        assert '"' not in message
+def test_airbyte_exception_docstrings_have_safe_first_lines() -> None:
+    for name, error_class in inspect.getmembers(airbyte.exceptions, inspect.isclass):
+        if (
+            error_class.__module__ != airbyte.exceptions.__name__
+            or not issubclass(error_class, AirbyteLibError)
+            or error_class is AirbyteLibError
+        ):
+            continue
+        first_line = (
+            error_class.__doc__.split("\n")[0].strip() if error_class.__doc__ else ""
+        )
+        assert first_line, name
+        assert "{" not in first_line, name
+        assert "}" not in first_line, name
+        assert "://" not in first_line, name
 
 
 def test_every_airbyte_exception_has_a_specific_tool_error_message() -> None:
-    messages = _error_handling._tool_error_messages()
-
     for name, error_class in inspect.getmembers(airbyte.exceptions, inspect.isclass):
-        if not issubclass(error_class, AirbyteLibError) or error_class in {
-            AirbyteLibError,
-            AirbyteCloudApiError,
-        }:
+        if (
+            error_class.__module__ != airbyte.exceptions.__name__
+            or not issubclass(error_class, AirbyteLibError)
+            or error_class in {AirbyteLibError, AirbyteCloudApiError}
+        ):
             continue
-        mro_keys = [
-            f"{parent.__module__}.{parent.__qualname__}"
-            for parent in error_class.__mro__
-            if parent is not AirbyteLibError
-        ]
-        assert any(key in messages for key in mro_keys), name
+        expected = error_class.__doc__.split("\n")[0].strip()
+        assert _error_handling.tool_error_trace_message(error_class()) == expected, name
 
 
 @pytest.mark.parametrize(
-    ("error", "expected_class"),
+    ("error", "expected"),
+    [
+        pytest.param(
+            asyncio.CancelledError("private cancellation"),
+            "The tool call was cancelled.",
+            id="cancelled",
+        ),
+        pytest.param(
+            NotImplementedError("private operation"),
+            "This operation isn't supported for this resource type yet.",
+            id="not-implemented",
+        ),
+        pytest.param(
+            DisabledError("private disabled tool"),
+            "The requested tool is disabled on this server.",
+            id="disabled-tool",
+        ),
+        pytest.param(
+            NotFoundError("Unknown tool: private name"),
+            "The requested tool doesn't exist on this server.",
+            id="unknown-tool",
+        ),
+        pytest.param(
+            ValidationError("private invalid argument"),
+            "The tool arguments failed validation.",
+            id="validation",
+        ),
+    ],
+)
+def test_non_airbyte_exception_classes_use_fixed_trace_messages(
+    error: BaseException, expected: str
+) -> None:
+    message = _error_handling.tool_error_trace_message(error)
+
+    assert message == expected
+    assert str(error) not in message
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
     [
         pytest.param(
             AirbyteSafeModeError(message="Blocked for 'abc-secret-id-123'."),
-            AirbyteSafeModeError,
+            "A destructive operation was blocked by MCP safe mode.",
             id="safe-mode",
         ),
         pytest.param(
             AirbyteMissingWorkspaceContextError(),
-            AirbyteMissingWorkspaceContextError,
+            "Workspace ID is required but not provided.",
             id="missing-workspace",
         ),
         pytest.param(
             AirbyteLibInputError(message="bad value xyz-123"),
-            AirbyteLibInputError,
+            "The input provided to PyAirbyte did not match expected validation rules.",
             id="library-input",
         ),
         pytest.param(
             ToolError("outer wrapper"),
-            AirbyteSafeModeError,
+            "A destructive operation was blocked by MCP safe mode.",
             id="wrapped-safe-mode",
         ),
         pytest.param(
             NotFoundError("Unknown tool: foo"),
-            NotFoundError,
+            "The requested tool doesn't exist on this server.",
             id="unknown-tool",
         ),
         pytest.param(
             ValidationError("invalid argument"),
-            ValidationError,
+            "The tool arguments failed validation.",
             id="fastmcp-validation",
         ),
     ],
 )
-def test_tool_error_trace_message_uses_exception_manifest(
-    error: BaseException, expected_class: type[BaseException]
+def test_tool_error_trace_message_uses_fixed_exception_class_messages(
+    error: BaseException, expected: str
 ) -> None:
     if isinstance(error, ToolError):
         error.__cause__ = AirbyteSafeModeError(message="wrapped secret abc-123")
-    expected = _error_handling._tool_error_messages()[
-        f"{expected_class.__module__}.{expected_class.__qualname__}"
-    ]
     message = _error_handling.tool_error_trace_message(error)
 
     assert message == expected
@@ -670,9 +695,7 @@ def test_fastmcp_rejections_are_classified_like_the_otel_backend() -> None:
         "error.type": "NotFoundError",
         "airbyte.mcp.error.category": "unknown_tool",
         "airbyte.mcp.error.fault": "caller",
-        "error.message": _error_handling._tool_error_messages()[
-            "fastmcp.exceptions.NotFoundError"
-        ],
+        "error.message": "The requested tool doesn't exist on this server.",
     }
 
 
@@ -1394,11 +1417,7 @@ def _native_http_contract():
                 )
                 assert (
                     unknown_tool_span.get_tag("error.message")
-                    == (
-                        _error_handling._tool_error_messages()[
-                            "fastmcp.exceptions.NotFoundError"
-                        ]
-                    )
+                    == "The requested tool doesn't exist on this server."
                 )
                 safe_span = next(
                     span
@@ -1412,19 +1431,11 @@ def _native_http_contract():
                 )
                 assert (
                     safe_span.get_tag("error.message")
-                    == (
-                        _error_handling._tool_error_messages()[
-                            "airbyte.exceptions.AirbyteSafeModeError"
-                        ]
-                    )
+                    == "A destructive operation was blocked by MCP safe mode."
                 )
                 assert (
                     validation_span.get_tag("error.message")
-                    == (
-                        _error_handling._tool_error_messages()[
-                            "fastmcp.exceptions.ValidationError"
-                        ]
-                    )
+                    == "The tool arguments failed validation."
                 )
                 for span, exception_name in (
                     (safe_span, "AirbyteSafeModeError"),

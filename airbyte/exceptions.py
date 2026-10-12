@@ -707,7 +707,7 @@ class AirbyteConnectorInUseError(AirbyteCloudError):
 
 @dataclass
 class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
-    """An timeout occurred while waiting for the remote Airbyte job to complete."""
+    """A timeout occurred while waiting for the remote Airbyte job to complete."""
 
     timeout: int | None = None
     """The timeout in seconds that was reached."""
@@ -718,7 +718,7 @@ class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
 
 @dataclass
 class AirbyteMissingResourceError(AirbyteCloudError):
-    """Remote Airbyte resources does not exist."""
+    """The requested Airbyte resource does not exist."""
 
     resource_type: str | None = None
     resource_name_or_id: str | None = None

@@ -34,9 +34,9 @@ server internals. To support a new problem type, add a `message` and a `guidance
 to the YAML file and add the type to `test_every_published_problem_type_matches_a_fixed_message`.
 The header of the YAML file lists the remaining rules.
 
-Non-Cloud MCP tool failures use fixed Datadog trace messages from
-`airbyte/mcp/tool_errors.yaml`, keyed by exception class. This catalog affects traces only;
-it does not change the error text returned to agents.
+Non-Cloud MCP trace messages are the first line of the exception class's docstring
+(trace-only, exported to Datadog as `error.message`), so keep those first lines fixed text
+with no IDs, values or URLs.
 
 ## 🚀 Releasing
 
