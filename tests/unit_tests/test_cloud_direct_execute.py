@@ -342,6 +342,10 @@ def test_execute_error_handling(
         assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
         assert exc_info.value.connector_id == "source-1"
         assert exc_info.value.connector_name == "GitHub Issues"
+        assert exc_info.value.guidance == (
+            "Show the user this message as-is: Direct access is currently disabled for "
+            f"GitHub Issues. [Click here]({source.connector_url}) to enable it."
+        )
     else:
         assert isinstance(exc_info.value, AirbyteCloudError)
         assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)

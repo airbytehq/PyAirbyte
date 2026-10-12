@@ -670,6 +670,15 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             not_enabled.guidance = guidance
         raise not_enabled from error
 
+    def _direct_access_disabled_guidance(self) -> str | None:
+        """Return guidance that links to this connector's Agent Access setting."""
+        name = self._connector_info.name if self._connector_info else None
+        label = name or f"{self.connector_type} {self.connector_id}"
+        return (
+            f"Show the user this message as-is: Direct access is currently disabled for "
+            f"{label}. [Click here]({self.connector_url}) to enable it."
+        )
+
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
         *,
@@ -732,7 +741,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
         except exc.AirbyteCloudError as error:
-            self._raise_if_feature_not_enabled(error, ConnectorFeature.DIRECT_ACCESS)
+            self._raise_if_feature_not_enabled(
+                error,
+                ConnectorFeature.DIRECT_ACCESS,
+                guidance=self._direct_access_disabled_guidance(),
+            )
             raise
 
         return response
