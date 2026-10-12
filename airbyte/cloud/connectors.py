@@ -670,7 +670,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             not_enabled.guidance = guidance
         raise not_enabled from error
 
-    def _direct_access_disabled_guidance(self) -> str | None:
+    def _direct_access_disabled_guidance(self) -> str:
         """Return guidance that links to this connector's Agent Access setting."""
         name = self._connector_info.name if self._connector_info else None
         label = name or f"{self.connector_type} {self.connector_id}"
