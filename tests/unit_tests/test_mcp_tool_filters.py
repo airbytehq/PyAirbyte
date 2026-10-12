@@ -174,12 +174,29 @@ def test_sync_tools_stay_visible_when_pipeline_changes_are_disabled(
         assert _tool_utils.airbyte_readonly_mode_filter(tool, APP)
 
 
+def test_non_read_only_tools_hidden_in_readonly_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+) -> None:
+    """Read-only mode hides non-read-only tools but keeps read-only-annotated tools."""
+    assert not mcp_config
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+        tool = _policy_tool(tool_name, pipeline_change=False)
+        assert not _tool_utils.airbyte_readonly_mode_filter(tool, APP)
+    read_only_tool = _policy_tool(
+        "list_cloud_workspaces", pipeline_change=False, read_only_hint=True
+    )
+    assert _tool_utils.airbyte_readonly_mode_filter(read_only_tool, APP)
+
+
 def _policy_tool(
     name: str,
     *,
     pipeline_change: bool | None,
     external_access: bool = False,
     read_only_hint: bool = False,
+    destructive_hint: bool = False,
 ) -> Tool:
     if pipeline_change is not None or external_access:
         _tool_utils._TOOL_POLICIES[name] = _tool_utils.ToolPolicy(
@@ -190,7 +207,10 @@ def _policy_tool(
         Tool,
         SimpleNamespace(
             name=name,
-            annotations=SimpleNamespace(read_only_hint=read_only_hint),
+            annotations=SimpleNamespace(
+                read_only_hint=read_only_hint,
+                destructive_hint=destructive_hint,
+            ),
         ),
     )
 
@@ -288,7 +308,10 @@ def test_external_access_filter(
     if header is not None:
         mcp_config[MCP_CONFIG_ALLOW_EXTERNAL_ACCESS] = header
     tool = _policy_tool(
-        "external-access-tool", pipeline_change=False, external_access=True
+        "external-access-tool",
+        pipeline_change=False,
+        external_access=True,
+        read_only_hint=True,
     )
 
     assert _tool_utils.airbyte_external_access_filter(tool, APP) is visible

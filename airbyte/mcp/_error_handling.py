@@ -42,6 +42,7 @@ from airbyte.exceptions import (
     AirbyteMCPError,
     AirbyteMissingResourceError,
     AirbytePipelineChangesDisabledError,
+    AirbyteReadOnlyModeError,
 )
 
 
@@ -81,6 +82,7 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteMCPError,
     AirbyteLocalDemoModeError,
     AirbytePipelineChangesDisabledError,
+    AirbyteReadOnlyModeError,
     AirbyteExternalAccessDisabledError,
     AirbyteAgentsUnavailableError,
     AirbyteConnectorNotReadyError,

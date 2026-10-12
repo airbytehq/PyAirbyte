@@ -340,12 +340,18 @@ class AirbyteLocalDemoModeError(AirbyteMCPError):
 
 
 @dataclass
+class AirbyteReadOnlyModeError(AirbyteMCPError):
+    """A non-read-only tool was blocked by MCP read-only mode."""
+
+    guidance: str | None = "Unset `AIRBYTE_CLOUD_MCP_READONLY_MODE`."
+
+
+@dataclass
 class AirbytePipelineChangesDisabledError(AirbyteMCPError):
     """A pipeline-changing operation was blocked by MCP policy."""
 
     guidance: str | None = (
-        "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1`, unset "
-        "`AIRBYTE_CLOUD_MCP_READONLY_MODE`, and ensure the "
+        "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1` and ensure the "
         "`X-MCP-Allow-Pipeline-Changes` request header is not `0`."
     )
 

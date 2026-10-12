@@ -542,7 +542,11 @@ def _normalize_mcp_module(mcp_module: str) -> str:
 
 
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Hide pipeline-changing tools when pipeline changes are disabled."""
+    """Hide non-read-only tools in read-only mode and pipeline-changing tools when disabled."""
+    if airbyte_readonly_mode_enabled() and not get_annotation(
+        tool, ANNOTATION_READ_ONLY_HINT, default=False
+    ):
+        return False
     return not (pipeline_changes_allowed(app) is False and get_tool_policy(tool).pipeline_change)
 
 
@@ -565,8 +569,13 @@ def _resolve_policy(
     return request_value
 
 
+def airbyte_readonly_mode_enabled() -> bool:
+    """Return whether `AIRBYTE_CLOUD_MCP_READONLY_MODE` is set (env-only today)."""
+    return _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True
+
+
 def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
-    if _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True:
+    if airbyte_readonly_mode_enabled():
         return False
     return _resolve_policy(
         app_or_ctx,

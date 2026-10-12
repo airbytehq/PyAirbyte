@@ -22,6 +22,7 @@ from airbyte.exceptions import (
     AirbyteExternalAccessDisabledError,
     AirbyteLibInputError,
     AirbytePipelineChangesDisabledError,
+    AirbyteReadOnlyModeError,
 )
 from airbyte.mcp import _tool_utils
 from airbyte.mcp._error_handling import (
@@ -95,8 +96,26 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             False,
             {MCP_READONLY_MODE_ENV_VAR: "1"},
             {},
-            AirbytePipelineChangesDisabledError,
-            id="legacy-read-only-denial",
+            AirbyteReadOnlyModeError,
+            id="readonly-mode-denial",
+        ),
+        pytest.param(
+            "sync_control",
+            ToolPolicy(pipeline_change=False),
+            False,
+            {MCP_READONLY_MODE_ENV_VAR: "1"},
+            {},
+            AirbyteReadOnlyModeError,
+            id="readonly-mode-blocks-sync-control",
+        ),
+        pytest.param(
+            "readonly_tool",
+            None,
+            True,
+            {MCP_READONLY_MODE_ENV_VAR: "1"},
+            {},
+            None,
+            id="readonly-mode-allows-read-only",
         ),
         pytest.param(
             "external_query",
@@ -137,11 +156,11 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.param(
             "external_query",
             ToolPolicy(pipeline_change=False, external_access=True),
-            False,
+            True,
             {MCP_READONLY_MODE_ENV_VAR: "1"},
             {},
             None,
-            id="read-only-mode-pass-through",
+            id="readonly-mode-external-pass-through",
         ),
         pytest.param(
             "external_query",

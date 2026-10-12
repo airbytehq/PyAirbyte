@@ -3,15 +3,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastmcp.server.middleware import Middleware
+from fastmcp_extensions.tool_filters import ANNOTATION_READ_ONLY_HINT, get_annotation
+from mcp.types import Tool
 
 from airbyte.exceptions import (
     AirbyteExternalAccessDisabledError,
     AirbytePipelineChangesDisabledError,
+    AirbyteReadOnlyModeError,
 )
 from airbyte.mcp._tool_utils import (
+    airbyte_readonly_mode_enabled,
     check_legacy_safe_mode_header,
     external_access_allowed,
     get_tool_policy,
@@ -23,7 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fastmcp.server.middleware import CallNext, MiddlewareContext
-    from fastmcp.tools import Tool, ToolResult
+    from fastmcp.tools import Tool as FastMCPTool
+    from fastmcp.tools import ToolResult
     from mcp.types import CallToolRequestParams, ListToolsRequest
 
 
@@ -45,6 +50,12 @@ class PolicyGuardMiddleware(Middleware):
         if tool is None:
             return await call_next(context)
 
+        if airbyte_readonly_mode_enabled() and not get_annotation(
+            cast(Tool, tool), ANNOTATION_READ_ONLY_HINT, default=False
+        ):
+            raise AirbyteReadOnlyModeError(
+                message="Read-only mode is enabled; only read-only tools are available."
+            )
         policy = get_tool_policy(tool)
         if policy.pipeline_change and pipeline_changes_allowed(fastmcp_context) is False:
             raise AirbytePipelineChangesDisabledError(
@@ -59,8 +70,8 @@ class PolicyGuardMiddleware(Middleware):
     async def on_list_tools(
         self,
         context: MiddlewareContext[ListToolsRequest],
-        call_next: CallNext[ListToolsRequest, Sequence[Tool]],
-    ) -> Sequence[Tool]:
+        call_next: CallNext[ListToolsRequest, Sequence[FastMCPTool]],
+    ) -> Sequence[FastMCPTool]:
         """Reject listings when the removed `X-MCP-Safe-Mode` header is present."""
         check_legacy_safe_mode_header()
         return await call_next(context)
