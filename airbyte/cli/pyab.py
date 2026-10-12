@@ -70,6 +70,7 @@ import yaml
 from cyclopts import App, Parameter
 
 from airbyte._util.destination_smoke_tests import run_destination_smoke_test
+from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.secrets.util import get_secret
@@ -775,5 +776,11 @@ def destination_smoke_test(  # noqa: PLR0913
         sys.exit(1)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Run the PyAirbyte CLI."""
+    check_unsupported_env_vars()
     cli()
+
+
+if __name__ == "__main__":
+    main()
