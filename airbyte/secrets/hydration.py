@@ -122,7 +122,7 @@ def _get_global_secrets_mask() -> list[str]:
         raise AirbyteLibInternalError(
             "Failed to parse spec mask.",
             original_exception=ex,
-        ) from None
+        ) from ex
 
 
 def _get_connector_secrets_mask(

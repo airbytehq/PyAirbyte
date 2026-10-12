@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import inspect
-import airbyte.exceptions as exceptions_module
+
 import pytest
 
+import airbyte.exceptions as exceptions_module
+from airbyte._util.destination_smoke_tests import _sanitize_error
 from airbyte.exceptions import (
+    AirbyteCloudError,
     AirbyteMissingWorkspaceContextError,
     AirbyteNoCloudCredentialsError,
 )
@@ -144,6 +147,63 @@ def test_missing_workspace_context_error_guidance(
     assert error.guidance == expected_guidance
     assert "Allow Bearer" not in str(error)
     assert "Env Vars" not in str(error)
+
+
+def test_original_exception_reflects_raise_from_cause() -> None:
+    inner = ValueError("inner")
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        raise AirbyteCloudError(message="m") from inner
+
+    error = exc_info.value
+    assert getattr(error, "original_exception") is inner
+    assert "Caused by:" not in str(error)
+
+
+def test_original_exception_constructor_argument_sets_cause() -> None:
+    inner = ValueError("inner")
+    error = AirbyteCloudError(message="m", original_exception=inner)
+
+    assert error.__cause__ is inner
+    assert getattr(error, "original_exception") is inner
+    assert "Caused by:" in str(error)
+    assert "inner" in str(error)
+
+    replacement = ValueError("replacement")
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        raise error from replacement
+
+    assert getattr(exc_info.value, "original_exception") is replacement
+    assert "Caused by:" in str(exc_info.value)
+    assert "replacement" in str(exc_info.value)
+
+
+def test_original_exception_is_none_without_a_cause() -> None:
+    error = AirbyteCloudError(message="m")
+
+    assert getattr(error, "original_exception") is None
+    assert "Caused by" not in str(error)
+
+
+def test_original_exception_constructor_argument_survives_subclass_post_init() -> None:
+    inner = ValueError("inner")
+    error = AirbyteNoCloudCredentialsError(
+        guidance="guidance",
+        original_exception=inner,
+    )
+
+    assert error.guidance == "guidance"
+    assert error.__cause__ is inner
+    assert getattr(error, "original_exception") is inner
+
+
+def test_sanitize_error_walks_raise_from_chain() -> None:
+    inner = AirbyteCloudError(message="inner")
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        raise AirbyteCloudError(message="outer") from inner
+
+    assert _sanitize_error(exc_info.value) == "AirbyteCloudError: inner"
 
 
 if __name__ == "__main__":
