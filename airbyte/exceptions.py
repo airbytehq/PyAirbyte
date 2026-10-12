@@ -39,7 +39,7 @@ In addition, the following principles are applied for exception class design:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any, Protocol, overload
@@ -87,7 +87,7 @@ class _CauseDescriptor:
         return instance.__cause__
 
     def __set__(self, instance: AirbyteLibError, value: BaseException | None) -> None:
-        if value is None:
+        if value is None or value is self:
             instance.__dict__["_original_exception_opt_in"] = False
             return
 
@@ -109,7 +109,7 @@ class AirbyteLibError(Exception):
     print_full_log: bool = AIRBYTE_PRINT_FULL_ERROR_LOGS
     context: dict[str, Any] | None = None
     message: str | None = None
-    original_exception: _CauseDescriptor = _CauseDescriptor()
+    original_exception: _CauseDescriptor = field(default=_CauseDescriptor(), repr=False)
 
     def get_message(self) -> str:
         """Return the best description for the exception.

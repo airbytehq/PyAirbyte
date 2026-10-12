@@ -191,6 +191,18 @@ def test_original_exception_is_none_without_a_cause() -> None:
     assert "Caused by" not in str(error)
 
 
+@pytest.mark.parametrize("error_class", [AirbyteCloudError, AirbyteLibError])
+def test_plain_raise_from_cause_is_not_in_repr(
+    error_class: type[AirbyteLibError],
+) -> None:
+    assert error_class.original_exception is None
+
+    with pytest.raises(error_class) as exc_info:
+        raise error_class(message="m") from ValueError("password=hunter2")
+
+    assert "hunter2" not in repr(exc_info.value)
+
+
 def test_external_dataclass_subclass_with_post_init_accepts_original_exception() -> (
     None
 ):
