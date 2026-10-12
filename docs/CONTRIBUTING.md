@@ -106,8 +106,7 @@ In your MCP config, you can test your development updates using `uv` as the entr
       ],
       "env": {
         "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env",
-        "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0",
-        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "0"
+        "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0"
       }
     }
   }

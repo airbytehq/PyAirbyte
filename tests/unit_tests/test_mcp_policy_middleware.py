@@ -13,13 +13,13 @@ from fastmcp.exceptions import ToolError
 from fastmcp_extensions import mcp_server
 
 from airbyte.constants import (
-    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
 from airbyte.exceptions import (
     AirbyteExternalAccessDisabledError,
+    AirbyteLibInputError,
     AirbytePipelineChangesDisabledError,
 )
 from airbyte.mcp import _tool_utils
@@ -43,7 +43,6 @@ class _FakeFastMCP:
 @pytest.fixture(autouse=True)
 def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for env_var in (
-        CLOUD_MCP_SAFE_MODE_ENV_VAR,
         MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
         MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
         MCP_READONLY_MODE_ENV_VAR,
@@ -111,19 +110,7 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             "external_query",
             ToolPolicy(pipeline_change=False, external_access=True),
             False,
-            {CLOUD_MCP_SAFE_MODE_ENV_VAR: "1"},
-            {},
-            AirbyteExternalAccessDisabledError,
-            id="explicit-safe-mode-default-denial",
-        ),
-        pytest.param(
-            "external_query",
-            ToolPolicy(pipeline_change=False, external_access=True),
-            False,
-            {
-                CLOUD_MCP_SAFE_MODE_ENV_VAR: "1",
-                MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: "1",
-            },
+            {MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: "1"},
             {},
             None,
             id="explicit-external-access-allow",
@@ -135,16 +122,7 @@ def clear_policy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             {},
             {},
             None,
-            id="unset-safe-mode-default-pass-through",
-        ),
-        pytest.param(
-            "external_query",
-            ToolPolicy(pipeline_change=False, external_access=True),
-            False,
-            {CLOUD_MCP_SAFE_MODE_ENV_VAR: "auto"},
-            {},
-            None,
-            id="auto-safe-mode-default-pass-through",
+            id="unset-default-pass-through",
         ),
         pytest.param(
             "external_query",
@@ -197,6 +175,30 @@ def test_policy_guard_middleware(
     else:
         with pytest.raises(expected_error):
             asyncio.run(invoke())
+
+
+def test_legacy_safe_mode_header_blocks_list_and_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The removed `X-MCP-Safe-Mode` header fails both list_tools and call_tool."""
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_http_headers",
+        lambda **_: {"x-mcp-safe-mode": "1"},
+    )
+    middleware = PolicyGuardMiddleware()
+    context = SimpleNamespace(
+        fastmcp_context=None,
+        message=SimpleNamespace(name="any-tool"),
+    )
+
+    async def call_next(_context: Any) -> str:
+        return "called"
+
+    with pytest.raises(AirbyteLibInputError, match="X-MCP-Safe-Mode"):
+        asyncio.run(middleware.on_call_tool(context, call_next))
+    with pytest.raises(AirbyteLibInputError, match="X-MCP-Safe-Mode"):
+        asyncio.run(middleware.on_list_tools(context, call_next))
 
 
 def test_blocked_policy_error_is_formatted_for_mcp_client(

@@ -1156,7 +1156,6 @@ def test_deploy_connector_to_cloud_routes_by_type(
     monkeypatch.setattr(
         cloud_mcp, "register_guid_created_in_session", registered.append
     )
-
     result = cloud_mcp.deploy_connector_to_cloud(
         cast(Context, object()),
         name="My Connector",

@@ -8,8 +8,7 @@
         "airbyte-mcp"
       ],
       "env": {
-        "GCP_GSM_CREDENTIALS": "${GCP_GSM_CREDENTIALS}",
-        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "1"
+        "GCP_GSM_CREDENTIALS": "${GCP_GSM_CREDENTIALS}"
       }
     }
   }

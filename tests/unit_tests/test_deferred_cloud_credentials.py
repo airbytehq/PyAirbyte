@@ -673,7 +673,7 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
     workspace_like: _WorkspaceLike,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An actor created without deferral acknowledgement is still tracked for safe-mode cleanup."""
+    """An actor created without deferral acknowledgement is still tracked for session cleanup."""
     registered: list[str] = []
     monkeypatch.setattr(
         cloud_mcp, "register_guid_created_in_session", registered.append
