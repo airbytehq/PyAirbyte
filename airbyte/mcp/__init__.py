@@ -152,9 +152,9 @@ explicit environment denial cannot be overridden by a request header. An environ
 be narrowed by a request header denial. If the environment setting is unset, the request header
 decides. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
 
-Running or cancelling a sync is not a pipeline change, so those tools stay available when
-pipeline changes are disabled. Read-only mode blocks both pipeline changes and running or
-cancelling syncs.
+Read-only mode blocks both pipeline changes and running or cancelling syncs. However, running
+or cancelling a sync is _not_ considered a pipeline change, so those tools stay available when
+pipeline changes are disabled, unless read-only mode is also enabled.
 
 ## Authentication for Remote (HTTP) Servers
 
