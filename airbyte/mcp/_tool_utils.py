@@ -45,6 +45,7 @@ from airbyte.constants import (
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
@@ -70,6 +71,7 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_LEGACY_SAFE_MODE_HEADER,
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
@@ -140,6 +142,59 @@ def check_guid_created_in_session(guid: str) -> None:
                 "to resources created in this session."
             ),
         )
+
+
+def check_legacy_safe_mode_env() -> None:
+    """Fail fast if the removed `AIRBYTE_CLOUD_MCP_SAFE_MODE` env var is set.
+
+    Raises `AirbyteLibInputError` if the variable is present in the environment
+    with any value, including an empty string.
+    """
+    if CLOUD_MCP_SAFE_MODE_ENV_VAR not in os.environ:
+        return
+    demo_mode_line = (
+        ""
+        if is_hosted_mcp_mode()
+        else (
+            "- `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1`: only allow changes to "
+            "resources created in this session (not recommended except for demos).\n"
+        )
+    )
+    raise AirbyteLibInputError(
+        message="`AIRBYTE_CLOUD_MCP_SAFE_MODE` is no longer supported.",
+        guidance=(
+            "- `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=0`: block changes to "
+            "sources, destinations, and connections.\n"
+            "- `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=0`: block SQL and API "
+            "passthrough tools.\n"
+            "- `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: only expose read-only tools.\n"
+            "- `MCP_NO_DESTRUCTIVE_TOOLS=1`: hide destructive tools.\n"
+            f"{demo_mode_line}"
+            "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` to start the server."
+        ),
+    )
+
+
+def check_legacy_safe_mode_header() -> None:
+    """Fail fast if the removed `X-MCP-Safe-Mode` request header is present.
+
+    Raises `AirbyteLibInputError` if the header is present with any value.
+    Outside an HTTP request there are no headers, so this is a no-op.
+    """
+    headers = get_http_headers()
+    if MCP_LEGACY_SAFE_MODE_HEADER.lower() not in headers:
+        return
+    raise AirbyteLibInputError(
+        message="The `X-MCP-Safe-Mode` header is no longer supported.",
+        guidance=(
+            "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
+            "destinations, and connections.\n"
+            "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
+            "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
+            "- `X-MCP-No-Destructive-Tools: 1`: hide destructive tools.\n"
+            "Remove the `X-MCP-Safe-Mode` header."
+        ),
+    )
 
 
 # =============================================================================

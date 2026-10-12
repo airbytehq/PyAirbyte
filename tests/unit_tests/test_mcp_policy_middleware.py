@@ -19,6 +19,7 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import (
     AirbyteExternalAccessDisabledError,
+    AirbyteLibInputError,
     AirbytePipelineChangesDisabledError,
 )
 from airbyte.mcp import _tool_utils
@@ -174,6 +175,30 @@ def test_policy_guard_middleware(
     else:
         with pytest.raises(expected_error):
             asyncio.run(invoke())
+
+
+def test_legacy_safe_mode_header_blocks_list_and_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The removed `X-MCP-Safe-Mode` header fails both list_tools and call_tool."""
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_http_headers",
+        lambda **_: {"x-mcp-safe-mode": "1"},
+    )
+    middleware = PolicyGuardMiddleware()
+    context = SimpleNamespace(
+        fastmcp_context=None,
+        message=SimpleNamespace(name="any-tool"),
+    )
+
+    async def call_next(_context: Any) -> str:
+        return "called"
+
+    with pytest.raises(AirbyteLibInputError, match="X-MCP-Safe-Mode"):
+        asyncio.run(middleware.on_call_tool(context, call_next))
+    with pytest.raises(AirbyteLibInputError, match="X-MCP-Safe-Mode"):
+        asyncio.run(middleware.on_list_tools(context, call_next))
 
 
 def test_blocked_policy_error_is_formatted_for_mcp_client(

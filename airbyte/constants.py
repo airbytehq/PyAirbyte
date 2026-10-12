@@ -309,6 +309,12 @@ MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCES
 MCP_LOCAL_DEMO_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE"
 """Environment variable enabling opt-in local demo mode for STDIO MCP sessions."""
 
+CLOUD_MCP_SAFE_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_SAFE_MODE"
+"""Removed legacy env var; setting it fails MCP server startup."""
+
+MCP_LEGACY_SAFE_MODE_HEADER: str = "X-MCP-Safe-Mode"
+"""Removed legacy header; sending it fails the request."""
+
 
 MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
 """Environment variable to disable specific MCP tool domains.

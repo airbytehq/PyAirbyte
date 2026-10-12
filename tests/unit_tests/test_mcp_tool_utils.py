@@ -9,8 +9,11 @@ from unittest.mock import patch
 import pytest
 from fastmcp_extensions import MCPServerConfigArg
 
-from airbyte.constants import MCP_LOCAL_DEMO_MODE_ENV_VAR
-from airbyte.exceptions import AirbyteLocalDemoModeError
+from airbyte.constants import (
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
+)
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
     ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
@@ -24,6 +27,8 @@ from airbyte.mcp._tool_utils import (
     ToolPolicy,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
+    check_legacy_safe_mode_env,
+    check_legacy_safe_mode_header,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -145,6 +150,66 @@ def test_check_guid_created_in_session_passes_when_hosted(
     monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
     # Should not raise even for unregistered GUID
     check_guid_created_in_session("any-guid-at-all")
+
+
+def test_check_legacy_safe_mode_env_passes_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that startup check passes when the legacy env var is unset."""
+    monkeypatch.delenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, raising=False)
+    check_legacy_safe_mode_env()
+
+
+@pytest.mark.parametrize("value", ["1", "0", ""])
+def test_check_legacy_safe_mode_env_raises_on_stdio(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    """Test that any value of the legacy env var fails startup on STDIO."""
+    monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, value)
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: False)
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_legacy_safe_mode_env()
+    assert "no longer supported" in str(exc_info.value)
+    guidance = exc_info.value.guidance or ""
+    bullets = [line for line in guidance.splitlines() if line.startswith("- ")]
+    assert "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE" in bullets[-1]
+    assert "not recommended except for demos" in bullets[-1]
+
+
+def test_check_legacy_safe_mode_env_raises_when_hosted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the hosted guidance omits the STDIO-only demo mode bullet."""
+    monkeypatch.setenv(CLOUD_MCP_SAFE_MODE_ENV_VAR, "1")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_legacy_safe_mode_env()
+    assert "DEMO" not in (exc_info.value.guidance or "")
+
+
+def test_check_legacy_safe_mode_header_passes_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the header check passes when the legacy header is absent."""
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_http_headers", lambda **_: {})
+    check_legacy_safe_mode_header()
+
+
+def test_check_legacy_safe_mode_header_raises_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the removed header fails the request with migration guidance."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.get_http_headers",
+        lambda **_: {"x-mcp-safe-mode": "1"},
+    )
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_legacy_safe_mode_header()
+    assert "X-MCP-Safe-Mode" in str(exc_info.value)
+    guidance = exc_info.value.guidance or ""
+    assert "X-MCP-Allow-Pipeline-Changes" in guidance
+    assert "DEMO" not in guidance
 
 
 def test_multiple_guids_can_be_registered() -> None:
