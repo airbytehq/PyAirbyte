@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -11,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import requests
-from fastmcp.exceptions import ToolError, ValidationError
+from fastmcp.exceptions import DisabledError, NotFoundError, ToolError, ValidationError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp_extensions.otel._arg_digests import classify_tool  # noqa: PLC2701
 from fastmcp_extensions.otel._extras import _chain, declared_parameters  # noqa: PLC2701
@@ -75,6 +76,14 @@ _CLOUD_API_ROUTE_SEGMENTS = frozenset(
 )
 _MAX_UPSTREAM_ROUTE_LENGTH = 200
 
+_NON_AIRBYTE_TOOL_ERROR_MESSAGES: dict[type[BaseException], str] = {
+    asyncio.CancelledError: "The tool call was cancelled.",
+    NotImplementedError: "This operation isn't supported for this resource type yet.",
+    DisabledError: "The requested tool is disabled on this server.",
+    NotFoundError: "The requested tool doesn't exist on this server.",
+    ValidationError: "The tool arguments failed validation.",
+}
+
 
 MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
     AirbyteLibInputError,
@@ -115,6 +124,23 @@ def cloud_error_trace_message(error: BaseException) -> str | None:
     if cloud_error is not None:
         message, _ = describe_cloud_error(parse_cloud_error(cloud_error.status_code, None))
         return message
+    return None
+
+
+def tool_error_trace_message(error: BaseException) -> str | None:
+    """Return the fixed trace message for an exception, if any."""
+    if (message := cloud_error_trace_message(error)) is not None:
+        return message
+    for cause in _chain(error):
+        for error_class in type(cause).__mro__:
+            if (
+                error_class is not AirbyteLibError
+                and issubclass(error_class, AirbyteLibError)
+                and error_class.__doc__
+            ):
+                return error_class.__doc__.split("\n")[0].strip()
+            if error_class in _NON_AIRBYTE_TOOL_ERROR_MESSAGES:
+                return _NON_AIRBYTE_TOOL_ERROR_MESSAGES[error_class]
     return None
 
 

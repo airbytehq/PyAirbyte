@@ -2,6 +2,7 @@
 """Native Datadog payload policy and real HTTP/LLM span contracts."""
 
 import asyncio
+import inspect
 import json
 import os
 import subprocess
@@ -13,17 +14,22 @@ from typing import Any, cast
 import pytest
 import requests
 from airbyte_api.errors import SDKError
-from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
+from fastmcp.exceptions import DisabledError, NotFoundError, ToolError, ValidationError
 from fastmcp_extensions.tool_filters import ToolUnavailableError
 
 from airbyte._util import api_util, meta
+import airbyte.exceptions
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
+    AirbyteLibError,
+    AirbyteLibInputError,
     AirbyteLocalDemoModeError,
+    AirbyteMissingResourceError,
+    AirbyteMissingWorkspaceContextError,
 )
-from airbyte.mcp import _datadog, _telemetry
+from airbyte.mcp import _datadog, _error_handling, _telemetry
 from airbyte.version import get_version
 
 
@@ -320,7 +326,7 @@ def test_cloud_error_trace_message_for_config_api_errors(
         )
 
     assert isinstance(exc_info.value.__cause__, requests.HTTPError)
-    assert _datadog.cloud_error_trace_message(exc_info.value) == expected_message
+    assert _error_handling.cloud_error_trace_message(exc_info.value) == expected_message
 
 
 def test_cloud_error_trace_message_ignores_missing_resource_without_http_error() -> (
@@ -328,7 +334,151 @@ def test_cloud_error_trace_message_ignores_missing_resource_without_http_error()
 ):
     error = api_util.AirbyteMissingResourceError(message="resource SENTINEL")
 
-    assert _datadog.cloud_error_trace_message(error) is None
+    assert _error_handling.cloud_error_trace_message(error) is None
+
+
+def test_airbyte_exception_docstrings_have_safe_first_lines() -> None:
+    for name, error_class in inspect.getmembers(airbyte.exceptions, inspect.isclass):
+        if (
+            error_class.__module__ != airbyte.exceptions.__name__
+            or not issubclass(error_class, AirbyteLibError)
+            or error_class is AirbyteLibError
+        ):
+            continue
+        first_line = (
+            error_class.__doc__.split("\n")[0].strip() if error_class.__doc__ else ""
+        )
+        assert first_line, name
+        assert "{" not in first_line, name
+        assert "}" not in first_line, name
+        assert "://" not in first_line, name
+
+
+def test_every_airbyte_exception_has_a_specific_tool_error_message() -> None:
+    for name, error_class in inspect.getmembers(airbyte.exceptions, inspect.isclass):
+        if (
+            error_class.__module__ != airbyte.exceptions.__name__
+            or not issubclass(error_class, AirbyteLibError)
+            or error_class in {AirbyteLibError, AirbyteCloudApiError}
+        ):
+            continue
+        expected = error_class.__doc__.split("\n")[0].strip()
+        assert _error_handling.tool_error_trace_message(error_class()) == expected, name
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            asyncio.CancelledError("private cancellation"),
+            "The tool call was cancelled.",
+            id="cancelled",
+        ),
+        pytest.param(
+            NotImplementedError("private operation"),
+            "This operation isn't supported for this resource type yet.",
+            id="not-implemented",
+        ),
+        pytest.param(
+            DisabledError("private disabled tool"),
+            "The requested tool is disabled on this server.",
+            id="disabled-tool",
+        ),
+        pytest.param(
+            NotFoundError("Unknown tool: private name"),
+            "The requested tool doesn't exist on this server.",
+            id="unknown-tool",
+        ),
+        pytest.param(
+            ValidationError("private invalid argument"),
+            "The tool arguments failed validation.",
+            id="validation",
+        ),
+    ],
+)
+def test_non_airbyte_exception_classes_use_fixed_trace_messages(
+    error: BaseException, expected: str
+) -> None:
+    message = _error_handling.tool_error_trace_message(error)
+
+    assert message == expected
+    assert str(error) not in message
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        pytest.param(
+            AirbyteLocalDemoModeError(message="Blocked for 'abc-secret-id-123'."),
+            "A change was blocked by MCP local demo mode.",
+            id="local-demo-mode",
+        ),
+        pytest.param(
+            AirbyteMissingWorkspaceContextError(),
+            "Workspace ID is required but not provided.",
+            id="missing-workspace",
+        ),
+        pytest.param(
+            AirbyteLibInputError(message="bad value xyz-123"),
+            "The input provided to PyAirbyte did not match expected validation rules.",
+            id="library-input",
+        ),
+        pytest.param(
+            ToolError("outer wrapper"),
+            "A change was blocked by MCP local demo mode.",
+            id="wrapped-local-demo-mode",
+        ),
+        pytest.param(
+            NotFoundError("Unknown tool: foo"),
+            "The requested tool doesn't exist on this server.",
+            id="unknown-tool",
+        ),
+        pytest.param(
+            ValidationError("invalid argument"),
+            "The tool arguments failed validation.",
+            id="fastmcp-validation",
+        ),
+    ],
+)
+def test_tool_error_trace_message_uses_fixed_exception_class_messages(
+    error: BaseException, expected: str
+) -> None:
+    if isinstance(error, ToolError):
+        error.__cause__ = AirbyteLocalDemoModeError(message="wrapped secret abc-123")
+    message = _error_handling.tool_error_trace_message(error)
+
+    assert message == expected
+    attributes = _datadog._exception_attributes(error)
+    assert attributes["error.message"] == expected
+    for cause in _error_handling._chain(error):
+        assert str(cause) not in message
+        assert str(cause) not in json.dumps(attributes)
+
+
+def test_tool_error_trace_message_keeps_cloud_precedence() -> None:
+    error = AirbyteMissingResourceError(
+        message=api_util.FORBIDDEN_RESOURCE_MESSAGE,
+        context={"problem_type": "forbidden"},
+    )
+    error.__cause__ = requests.HTTPError("private response body")
+
+    assert (
+        _error_handling.tool_error_trace_message(error)
+        == api_util.FORBIDDEN_RESOURCE_MESSAGE
+    )
+
+
+def test_tool_error_trace_message_ignores_unlisted_exceptions() -> None:
+    from pydantic import BaseModel, ValidationError as PydanticValidationError
+
+    class InputModel(BaseModel):
+        value: int
+
+    with pytest.raises(PydanticValidationError) as exc_info:
+        InputModel.model_validate({"value": "private-pydantic-value"})
+
+    assert _error_handling.tool_error_trace_message(ValueError("private value")) is None
+    assert _error_handling.tool_error_trace_message(exc_info.value) is None
 
 
 @pytest.mark.parametrize(
@@ -496,7 +646,7 @@ def test_exception_attributes_classify_without_error_text(
         "error.type": expected["airbyte.mcp.error_type"],
         **expected,
     }
-    if message := _datadog.cloud_error_trace_message(error):
+    if message := _error_handling.tool_error_trace_message(error):
         expected_attrs["error.message"] = message
 
     assert attrs == expected_attrs
@@ -536,13 +686,16 @@ def test_fastmcp_rejections_are_classified_like_the_otel_backend() -> None:
         "invalid_arguments",
     )
 
-    attrs = _datadog._exception_attributes(NotFoundError("SENTINEL"))
+    not_found = NotFoundError("SENTINEL")
+    assert _datadog.unwrap_tool_error(not_found) is not_found
+    attrs = _datadog._exception_attributes(not_found)
     assert attrs == {
         "airbyte.mcp.outcome": "unknown_tool",
         "airbyte.mcp.error_type": "NotFoundError",
         "error.type": "NotFoundError",
         "airbyte.mcp.error.category": "unknown_tool",
         "airbyte.mcp.error.fault": "caller",
+        "error.message": "The requested tool doesn't exist on this server.",
     }
 
 
@@ -692,9 +845,15 @@ def test_native_datadog_http_contract_in_fresh_process():
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("DD_", "OTEL_", "AIRBYTE_MCP_"))
+        and key
+        not in {
+            "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE",
+            "AIRBYTE_CLOUD_MCP_SAFE_MODE",
+        }
     }
     env.update(
         DO_NOT_TRACK="1",
+        AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE="1",
         DD_TRACE_HTTPX_ENABLED="false",
         DD_TRACE_MCP_ENABLED="false",
         DD_TRACE_REQUESTS_ENABLED="true",
@@ -937,7 +1096,16 @@ def _native_http_contract():
         InMemorySpanExporter,
     )
     from airbyte.mcp import _otel, _scope, _telemetry
-    from fastmcp_extensions import ToolCallTelemetryMiddleware
+    from airbyte.mcp import _tool_utils
+    from airbyte.mcp._error_handling import (
+        AgentErrorTextMiddleware,
+        MCP_TOOL_USER_FACING_ERRORS,
+        format_user_facing_error,
+    )
+    from fastmcp_extensions import (
+        ToolCallTelemetryMiddleware,
+        UserFacingErrorMiddleware,
+    )
     from unittest.mock import AsyncMock
 
     # Assert every socket is loopback; writers are captured and never started.
@@ -982,7 +1150,25 @@ def _native_http_contract():
     upstream = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=upstream.serve_forever, daemon=True).start()
     app = FastMCP("native-mcp-contract")
+    app.add_middleware(AgentErrorTextMiddleware())
+    app.add_middleware(
+        UserFacingErrorMiddleware(
+            MCP_TOOL_USER_FACING_ERRORS,
+            formatter=format_user_facing_error,
+        )
+    )
     records = []
+    exception_texts = {}
+    original_exception_attributes = _datadog._exception_attributes
+
+    def capture_exception_text(error):
+        cause = _datadog.unwrap_tool_error(error)
+        if isinstance(
+            cause, (AirbyteLocalDemoModeError, ValidationError, NotFoundError)
+        ):
+            exception_texts.setdefault(type(cause).__name__, str(cause))
+        return original_exception_attributes(error)
+
     app.add_middleware(_scope.CallScopeMiddleware())
     telemetry = ToolCallTelemetryMiddleware(
         extra_properties=_scope.call_scope_properties
@@ -1036,6 +1222,15 @@ def _native_http_contract():
     @app.tool()
     def run_sql_query() -> str:
         return "private synthetic result"
+
+    @app.tool()
+    def local_demo_mode_blocker(guid: str) -> str:
+        _tool_utils.check_guid_created_in_session(guid)
+        return "unreachable"
+
+    @app.tool()
+    def strict_integer(value: int) -> str:
+        return str(value)
 
     @app.tool()
     def fail_tool() -> str:
@@ -1125,6 +1320,20 @@ def _native_http_contract():
                     ],
                     ("tools/call", {"name": "run_sql_query", "arguments": {}}),
                     ("tools/call", {"name": "unknown_tool", "arguments": {}}),
+                    (
+                        "tools/call",
+                        {
+                            "name": "local_demo_mode_blocker",
+                            "arguments": {"guid": "abc-secret-id-123"},
+                        },
+                    ),
+                    (
+                        "tools/call",
+                        {
+                            "name": "strict_integer",
+                            "arguments": {"value": "private-invalid-type"},
+                        },
+                    ),
                 ]
                 for index, (method, params) in enumerate(sequence):
                     response = await client.post(
@@ -1187,6 +1396,8 @@ def _native_http_contract():
                 assert cloud_span.get_tag("airbyte.mcp.upstream.route") == (
                     "/v1/connections/{id}"
                 )
+                assert "private response text" not in json.dumps(cloud_span.get_tags())
+                assert "private response text" not in json.dumps(cloud_metadata)
                 assert cloud_uuid not in json.dumps(cloud_span.get_tags())
                 assert "x=1" not in json.dumps(cloud_span.get_tags())
                 assert cloud_uuid not in json.dumps(cloud_metadata)
@@ -1200,6 +1411,67 @@ def _native_http_contract():
                 )
                 assert returned_error_span.get_tag("error.message").startswith(
                     "tool resulted in an error ("
+                )
+                value_error_span = next(
+                    span for span in spans if span.get_tag("error.type") == "ValueError"
+                )
+                unknown_tool_span = next(
+                    span
+                    for span in spans
+                    if span.get_tag("error.type") == "NotFoundError"
+                )
+                assert value_error_span.get_tag("error.message") == (
+                    "tool resulted in an error (unclassified)"
+                )
+                assert (
+                    unknown_tool_span.get_tag("error.message")
+                    == "The requested tool doesn't exist on this server."
+                )
+                local_demo_span = next(
+                    span
+                    for span in spans
+                    if span.get_tag("error.type") == "AirbyteLocalDemoModeError"
+                )
+                validation_span = next(
+                    span
+                    for span in spans
+                    if span.get_tag("error.type") == "ValidationError"
+                )
+                assert (
+                    local_demo_span.get_tag("error.message")
+                    == "A change was blocked by MCP local demo mode."
+                )
+                assert (
+                    validation_span.get_tag("error.message")
+                    == "The tool arguments failed validation."
+                )
+                for span, exception_name in (
+                    (local_demo_span, "AirbyteLocalDemoModeError"),
+                    (validation_span, "ValidationError"),
+                    (unknown_tool_span, "NotFoundError"),
+                ):
+                    exception_text = exception_texts[exception_name]
+                    assert all(
+                        exception_text not in str(value)
+                        for value in span.get_tags().values()
+                    )
+                for span, private_text in (
+                    (local_demo_span, "abc-secret-id-123"),
+                    (validation_span, "private-invalid-type"),
+                ):
+                    assert private_text not in json.dumps(span.get_tags())
+                local_demo_text = responses[8][2]["result"]["content"][0]["text"]
+                assert local_demo_text == (
+                    "Cannot modify '<value of guid>': local demo mode only allows "
+                    "changes to resources created in this session."
+                )
+                assert "abc-secret-id-123" not in local_demo_text
+                assert str(ValueError(private_payload)) not in json.dumps(
+                    value_error_span.get_tags()
+                )
+                assert (
+                    "private-invalid-type"
+                    not in responses[9][2]["result"]["content"][0]["text"]
                 )
                 # Telemetry failures must not abort dispatch or replace its result.
                 for target in ("tool", "annotate"):
@@ -1536,6 +1808,12 @@ def _native_http_contract():
                 _scope,
                 "resolve_call_workspace_organization_id",
                 new=AsyncMock(return_value="44444444-4444-4444-4444-444444444444"),
+            ),
+            patch.object(_tool_utils, "is_hosted_mcp_mode", return_value=False),
+            patch.object(
+                _datadog,
+                "_exception_attributes",
+                side_effect=capture_exception_text,
             ),
         ):
             asyncio.run(run())

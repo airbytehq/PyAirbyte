@@ -37,8 +37,8 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     classify_mcp_tool_error,
     cloud_error_route,
-    cloud_error_trace_message,
     mcp_tool_error_reason,
+    tool_error_trace_message,
 )
 from airbyte.mcp._otel import _arg_key, _env, _flag
 from airbyte.mcp._scope import current_call_scope, scope_from_request
@@ -209,10 +209,10 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
     if route := cloud_error_route(cause):
         attrs[_UPSTREAM_METHOD], attrs[_UPSTREAM_ROUTE] = route
     try:
-        if message := cloud_error_trace_message(cause):
+        if message := tool_error_trace_message(cause):
             attrs["error.message"] = message
     except Exception:
-        logger.debug("Datadog Cloud error message unavailable")
+        logger.debug("Datadog fixed error message unavailable")
     return attrs
 
 
@@ -258,9 +258,9 @@ def _tool_error_message(span: Span) -> str:
 
 
 def _raised_tool_error_message(error: BaseException, span: Span) -> str:
-    """Return a fixed Cloud message when available, falling back to the span summary."""
+    """Return a fixed message when available, falling back to the span summary."""
     try:
-        message = cloud_error_trace_message(error)
+        message = tool_error_trace_message(error)
     except Exception:
         message = None
     return message if message is not None else _tool_error_message(span)

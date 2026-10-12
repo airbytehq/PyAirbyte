@@ -24,3 +24,6 @@ Key conventions:
 
 Cloud API error text shown to agents comes from `airbyte/_util/cloud_errors.yaml`. Read its
 header and the matching section in `CONTRIBUTING.md` before you change it.
+Non-Cloud MCP trace messages are the first line of the exception class's docstring
+(trace-only, exported to Datadog as `error.message`), so keep those first lines fixed text
+with no IDs, values or URLs.
