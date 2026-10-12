@@ -298,7 +298,7 @@ def is_hosted_mcp_mode() -> bool:
 
 
 MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
-"""Legacy environment variable that disables pipeline-changing MCP tools when truthy."""
+"""Environment variable that disables pipeline-changing MCP tools when truthy."""
 
 MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES"
 """Environment variable controlling access to Cloud pipeline-changing tools."""
@@ -382,7 +382,7 @@ boundary: every insiders tool authorizes each call against the Airbyte API.
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
-"""Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+"""Config arg name for the AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
 
 MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
 """Config arg name for the Cloud pipeline-change permission."""

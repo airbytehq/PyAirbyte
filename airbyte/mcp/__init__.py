@@ -150,7 +150,7 @@ external data or skill documentation.
 Each setting accepts `1`, `true`, or `yes` to allow, and `0`, `false`, or `no` to deny. An
 explicit environment denial cannot be overridden by a request header. An environment allow can
 be narrowed by a request header denial. If the environment setting is unset, the request header
-decides. The legacy `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
+decides. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
 
 When external access is unset, it is disabled if pipeline changes are disabled;
 otherwise external-access tools remain available. Explicitly allowing external access

@@ -211,7 +211,7 @@ AIRBYTE_READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
     default="0",
     required=False,
 )
-"""Config arg for legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
+"""Config arg for the AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
 
 AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_EXCLUDE_MODULES,
