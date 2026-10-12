@@ -353,6 +353,33 @@ def test_execute_error_handling(
         assert exc_info.value.status_code == expected_status
 
 
+def test_execute_error_guidance_uses_fallback_label_without_connector_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_execute(
+        monkeypatch,
+        {},
+        error=AirbyteCloudApiError(
+            status_code=403,
+            context={"status_code": 403},
+        ),
+    )
+    source = CloudSource(workspace=workspace, connector_id="source-1")
+
+    with (
+        _patch_direct_access(enabled=False),
+        pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info,
+    ):
+        source.execute_api_query("issues")
+
+    assert exc_info.value.guidance == (
+        "Show the user this message as-is: Direct access is currently disabled for "
+        f"source source-1. [Click here]({source.connector_url}) to enable it."
+    )
+
+
 @pytest.mark.parametrize("method_name", ["execute_api_query", "execute_api_action"])
 def test_direct_methods_raise_without_context_layer(
     monkeypatch: pytest.MonkeyPatch,
