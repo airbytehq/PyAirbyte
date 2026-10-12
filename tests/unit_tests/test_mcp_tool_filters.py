@@ -365,12 +365,15 @@ def test_local_tools_unaffected_by_readonly_and_destructive_policies(
 ) -> None:
     """Local-module tools stay visible under Cloud read-only and destructive policies."""
     assert not mcp_config
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
     monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
     monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
 
+    # No `ToolPolicy` registration: the tools exercise the real default
+    # (non-read-only -> pipeline_change=True).
     destructive_local_tool = _policy_tool(
         "destination_smoke_test",
-        pipeline_change=False,
+        pipeline_change=None,
         destructive_hint=True,
         module="local",
     )
@@ -379,7 +382,29 @@ def test_local_tools_unaffected_by_readonly_and_destructive_policies(
 
     non_readonly_local_tool = _policy_tool(
         "sync_connector",
-        pipeline_change=False,
+        pipeline_change=None,
         module="local",
     )
     assert _tool_utils.airbyte_readonly_mode_filter(non_readonly_local_tool, APP)
+
+
+def test_real_server_keeps_local_tools_listed_under_cloud_denials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real registrations: local tools survive Cloud denials; Cloud tools do not."""
+    import asyncio
+
+    from airbyte.mcp.server import app as airbyte_app
+
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
+    monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
+    monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
+
+    def visible(name: str) -> bool:
+        tool = cast(Tool, asyncio.run(airbyte_app.get_tool(name)))
+        return _tool_utils.airbyte_readonly_mode_filter(
+            tool, airbyte_app
+        ) and _tool_utils.airbyte_destructive_tools_filter(tool, airbyte_app)
+
+    assert visible("destination_smoke_test")
+    assert not visible("run_cloud_sync")

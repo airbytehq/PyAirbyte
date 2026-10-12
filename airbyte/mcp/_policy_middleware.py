@@ -67,7 +67,11 @@ class PolicyGuardMiddleware(Middleware):
                 message="Read-only mode is enabled; only read-only tools are available."
             )
         policy = get_tool_policy(tool)
-        if policy.pipeline_change and pipeline_changes_allowed(fastmcp_context) is False:
+        if (
+            cloud_tool
+            and policy.pipeline_change
+            and pipeline_changes_allowed(fastmcp_context) is False
+        ):
             raise AirbytePipelineChangesDisabledError(
                 message="Pipeline-changing tools are disabled by the MCP server policy."
             )

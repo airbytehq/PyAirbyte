@@ -534,8 +534,8 @@ def _normalize_mcp_module(mcp_module: str) -> str:
 _CLOUD_MCP_MODULES = frozenset({"cloud", "interactive"})
 """MCP tool modules backed by Airbyte Cloud APIs.
 
-Cloud-scoped policies (read-only mode, destructive tools) apply to these modules
-only; local-operation tools are unaffected.
+Cloud-scoped policies (pipeline changes, read-only mode, destructive tools)
+apply to these modules only; local-operation tools are unaffected.
 """
 
 
@@ -553,7 +553,11 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
         and not get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False)
     ):
         return False
-    return not (pipeline_changes_allowed(app) is False and get_tool_policy(tool).pipeline_change)
+    return not (
+        _is_cloud_tool(app, tool)
+        and pipeline_changes_allowed(app) is False
+        and get_tool_policy(tool).pipeline_change
+    )
 
 
 def airbyte_external_access_filter(tool: Tool, app: FastMCP) -> bool:

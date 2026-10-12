@@ -328,9 +328,10 @@ def test_local_tools_bypass_cloud_policy_guards(
 
     _MW_TOOL_MODULES["destination_smoke_test"] = "local"
     _MW_TOOL_MODULES["sync_connector"] = "local"
-    for tool_name in ("destination_smoke_test", "sync_connector"):
-        _tool_utils._TOOL_POLICIES[tool_name] = ToolPolicy(pipeline_change=False)
+    # No `ToolPolicy` registration: the tools exercise the real default
+    # (non-read-only -> pipeline_change=True).
 
+    monkeypatch.setenv(MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, "0")
     monkeypatch.setenv(MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, "0")
     assert (
         asyncio.run(
