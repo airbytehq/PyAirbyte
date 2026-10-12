@@ -133,9 +133,9 @@ Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-
 ### Local Demo Mode
 
 Local demo mode is opt-in and STDIO-only: set `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1` to
-enable it (it is ignored over the hosted HTTP transport). When enabled, changes and
-deletions are only allowed on resources created in the current session. The `delete-me`
-name guard for deletions still applies.
+enable it (it is ignored over the hosted HTTP transport). When enabled, updates and
+deletions are only allowed on resources created in the current session; renames are
+still allowed. The `delete-me` name guard for deletions still applies.
 
 ## Airbyte Cloud Pipeline and External Access Permissions
 
