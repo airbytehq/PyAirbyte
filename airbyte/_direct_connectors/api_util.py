@@ -26,11 +26,15 @@ from airbyte._util import deployment
 from airbyte._util.api_util import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     CLOUD_API_ROOT,
+    cloud_error_guidance,
+    decode_cloud_error_body,
     get_bearer_token,
     get_cloud_api_analytic_source,
     get_config_api_root,
     status_ok,
 )
+from airbyte._util.cloud_errors import parse_cloud_error
+from airbyte._util.meta import is_mcp_mode
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteCloudApiError,
@@ -69,38 +73,6 @@ def _resolve_bearer_token(credentials: _AirbyteCredentials) -> str:
             api_root=credentials.public_api_root or CLOUD_API_ROOT,
         )
     )
-
-
-def _error_message(*, response: requests.Response, full_url: str) -> str:
-    """Build an error message for a failed Cloud API request."""
-    message = f"Airbyte Cloud API request failed with status {response.status_code}"
-    if response.status_code == HTTPStatus.UNAUTHORIZED:
-        return f"{message} (Unauthorized) when accessing: {full_url}."
-    if response.status_code == HTTPStatus.FORBIDDEN:
-        return f"{message} (Forbidden) when accessing: {full_url}."
-    return f"{message} when accessing: {full_url}."
-
-
-def _error_guidance(*, response: requests.Response) -> str | None:
-    """Return actionable guidance for a failed Cloud API request, if any applies."""
-    if response.status_code == HTTPStatus.UNAUTHORIZED:
-        return "Check that the Airbyte Cloud credentials are valid."
-    if response.status_code == HTTPStatus.FORBIDDEN:
-        return (
-            "Authentication succeeded but access was denied; the workspace or connector "
-            "may not be enabled for agent access in Airbyte Cloud."
-        )
-    if response.status_code in {
-        HTTPStatus.BAD_GATEWAY,
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        HTTPStatus.GATEWAY_TIMEOUT,
-    }:
-        return (
-            "Airbyte Cloud accepted the request but its upstream direct-access "
-            "service failed or timed out. This is not a credentials or permissions "
-            "problem; retry later or contact Airbyte support if it persists."
-        )
-    return None
 
 
 def is_not_enabled_error(error: AirbyteCloudError) -> bool:
@@ -169,15 +141,19 @@ def make_cloud_agent_request(
         timeout=_REQUEST_TIMEOUT_SECONDS,
     )
     if not status_ok(response.status_code):
+        body = decode_cloud_error_body(response)
+        problem = parse_cloud_error(response.status_code, body)
         raise AirbyteCloudApiError(
             status_code=response.status_code,
-            message=_error_message(response=response, full_url=full_url),
-            guidance=_error_guidance(response=response),
+            message=problem.message,
+            guidance=cloud_error_guidance(problem, for_mcp=is_mcp_mode()),
             context={
                 "full_url": full_url,
                 "path": path,
                 "status_code": response.status_code,
-                "response_text": response.text,
+                # Retain invalid response text for diagnostics, never for message relay.
+                "response_text": body if body is not None else response.text,
+                "response_body_is_utf8": body is not None,
             },
         )
 

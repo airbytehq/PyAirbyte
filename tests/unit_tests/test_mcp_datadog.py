@@ -291,13 +291,12 @@ def test_cloud_error_route_omits_missing_or_invalid_requests() -> None:
         (
             404,
             "resource-not-found",
-            "The resource was not found. (Cloud error: resource-not-found, HTTP 404)",
+            "SENTINEL",
         ),
         (
             403,
             "forbidden",
-            "The requested resource was not found, or these credentials can't access it "
-            "(HTTP 403).",
+            "SENTINEL",
         ),
     ],
 )
@@ -457,14 +456,14 @@ def test_tool_error_trace_message_uses_fixed_exception_class_messages(
 
 def test_tool_error_trace_message_keeps_cloud_precedence() -> None:
     error = AirbyteMissingResourceError(
-        message=api_util.FORBIDDEN_RESOURCE_MESSAGE,
-        context={"problem_type": "forbidden"},
+        message="Local rewording must not reach spans",
+        context={"problem_type": "forbidden", "status_code": 403},
     )
     error.__cause__ = requests.HTTPError("private response body")
 
     assert (
         _error_handling.tool_error_trace_message(error)
-        == api_util.FORBIDDEN_RESOURCE_MESSAGE
+        == "Airbyte Cloud returned HTTP 403."
     )
 
 
@@ -637,7 +636,7 @@ def test_tool_error_trace_message_ignores_unlisted_exceptions() -> None:
         ),
     ],
 )
-def test_exception_attributes_classify_without_error_text(
+def test_exception_attributes_keep_problem_text_only_in_message(
     error: BaseException, expected: dict[str, str]
 ) -> None:
     attrs = _datadog._exception_attributes(error)
@@ -650,7 +649,9 @@ def test_exception_attributes_classify_without_error_text(
         expected_attrs["error.message"] = message
 
     assert attrs == expected_attrs
-    assert "SENTINEL" not in json.dumps(attrs)
+    assert "SENTINEL" not in json.dumps({
+        key: value for key, value in attrs.items() if key != "error.message"
+    })
 
 
 def test_exception_attributes_export_frames_without_error_text() -> None:
@@ -1249,7 +1250,15 @@ def _native_http_contract():
         response.status_code = 403
         response.url = request_url
         response.request = requests.Request("GET", request_url).prepare()
-        raise SDKError("private response text", 403, "{}", response)
+        raise SDKError(
+            "private response text",
+            403,
+            json.dumps({
+                "type": "https://h/errors#forbidden",
+                "detail": "Denied Bearer FAKE_SECRET",
+            }),
+            response,
+        )
 
     @app.tool()
     async def handle_error() -> str:
@@ -1389,8 +1398,8 @@ def _native_http_contract():
                     "meta"
                 ]["metadata"]
                 cloud_uuid = "123e4567-e89b-42d3-a456-426614174000"
-                assert cloud_span.get_tag("error.message") == (
-                    api_util.FORBIDDEN_RESOURCE_MESSAGE
+                assert (
+                    cloud_span.get_tag("error.message") == "Denied Bearer FAKE_SECRET"
                 )
                 assert cloud_span.get_tag("airbyte.mcp.upstream.method") == "GET"
                 assert cloud_span.get_tag("airbyte.mcp.upstream.route") == (
@@ -1652,7 +1661,31 @@ def _native_http_contract():
                 ),
             )
         )
-        assert forbidden_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+        assert forbidden_message == "SENTINEL detail"
+
+        for status, payload, expected in [
+            (
+                500,
+                {"detail": " ", "title": "  Title fallback é\\n"},
+                "  Title fallback é\\n",
+            ),
+            (
+                429,
+                {"message": "Do not relay"},
+                "Airbyte Cloud returned HTTP 429 (rate limited).",
+            ),
+            (
+                409,
+                {"title": "actor-not-ready", "detail": "Authenticate first."},
+                "Authenticate first.",
+            ),
+        ]:
+            assert (
+                await raised_tool_message(
+                    _wrapped_sdk_error(status, json.dumps(payload))
+                )
+                == expected
+            )
 
         upstream_uuid = "123e4567-e89b-42d3-a456-426614174000"
         upstream_query = "x=secret-query"
@@ -1663,7 +1696,7 @@ def _native_http_contract():
                 f"?{upstream_query}",
             )
         )
-        assert upstream_message == api_util.FORBIDDEN_RESOURCE_MESSAGE
+        assert upstream_message == "SENTINEL detail"
         upstream_span = next(
             span for span in reversed(spans) if span.span_type == "llm"
         )
@@ -1688,9 +1721,7 @@ def _native_http_contract():
             _wrapped_sdk_error(500, json.dumps(unexpected_problem))
         )
         assert unexpected_message is not None
-        assert unexpected_message.endswith(
-            "(Cloud error: unexpected-problem, HTTP 500)"
-        )
+        assert unexpected_message == "SENTINEL detail"
         assert error_id not in unexpected_message
         assert "Error ID" not in unexpected_message
 
@@ -1699,7 +1730,7 @@ def _native_http_contract():
             _wrapped_sdk_error(500, _problem(_GENERIC_PROBLEM_TYPE, hostile_title))
         )
         assert hostile_message is not None
-        assert hostile_message.endswith("(HTTP 500)")
+        assert hostile_message == "SENTINEL detail"
         assert hostile_title not in hostile_message
 
         runtime_message = await raised_tool_message(

@@ -736,40 +736,43 @@ def test_untyped_connector_execute_resolves_kind_for_routing(
     assert probes == ["source"]
 
 
+@pytest.mark.parametrize("status_code", [401, 403, 404, 409, 502, 503, 504])
 @pytest.mark.parametrize(
-    ("status_code", "expected_phrase", "expects_upstream_guidance"),
-    [
-        pytest.param(502, None, True, id="bad_gateway"),
-        pytest.param(503, None, True, id="service_unavailable"),
-        pytest.param(504, None, True, id="gateway_timeout"),
-        pytest.param(401, "Unauthorized", False, id="unauthorized"),
-        pytest.param(403, "Forbidden", False, id="forbidden"),
-    ],
+    "body", ["", '{"detail":"Cloud detail"}', '{"title":"actor-not-ready"}']
 )
-def test_agent_request_error_message_and_guidance(
+def test_agent_request_problem_message_and_guidance(
+    monkeypatch: pytest.MonkeyPatch,
     status_code: int,
-    expected_phrase: str | None,
-    expects_upstream_guidance: bool,
+    body: str,
 ) -> None:
-    """Upstream 5xx failures get non-credentials guidance and no status phrase."""
-    raw_response = requests.Response()
-    raw_response.status_code = status_code
-    raw_response.url = "https://cloud.airbyte.com/api/v1/sources/source-1/execute"
-
-    message = agents_api_util._error_message(  # noqa: SLF001
-        response=raw_response, full_url=raw_response.url
+    """Direct access uses the same message and two-case guidance contract."""
+    _patch_context_layer(monkeypatch)
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = body.encode()
+    monkeypatch.setattr(agents_api_util.requests, "request", lambda **_: response)
+    credentials = _AirbyteCredentials.from_auth(bearer_token="token")
+    with pytest.raises(AirbyteCloudApiError) as caught:
+        agents_api_util.make_cloud_agent_request(
+            method="GET", path="/test", credentials=credentials
+        )
+    error = caught.value
+    expected = (
+        "Cloud detail"
+        if "detail" in body
+        else "actor-not-ready"
+        if body
+        else f"Airbyte Cloud returned HTTP {status_code}."
     )
-    guidance = agents_api_util._error_guidance(response=raw_response)  # noqa: SLF001
-
-    if expected_phrase is None:
-        assert f"{status_code} when accessing" in message
+    assert error.message == expected
+    assert error.status_code == status_code
+    assert error.context["response_text"] == body
+    if status_code == 403:
+        assert error.guidance == api_util.FORBIDDEN_RESOURCE_GUIDANCE
+    elif status_code == 409 and "actor-not-ready" in body:
+        assert error.guidance == api_util.ACTOR_NOT_READY_PYTHON_GUIDANCE
     else:
-        assert f"({expected_phrase})" in message
-    if expects_upstream_guidance:
-        assert guidance is not None
-        assert "upstream" in guidance
-    else:
-        assert guidance is None or "upstream" not in guidance
+        assert error.guidance is None
 
 
 def test_agent_request_non_2xx_raises_cloud_api_error(
@@ -797,7 +800,7 @@ def test_agent_request_non_2xx_raises_cloud_api_error(
 
     assert exc_info.value.status_code == 503
     assert "(Service Unavailable)" not in exc_info.value.get_message()
-    assert "upstream" in (exc_info.value.guidance or "")
+    assert exc_info.value.guidance is None
 
 
 @pytest.mark.parametrize("kind", ["source", "destination"])

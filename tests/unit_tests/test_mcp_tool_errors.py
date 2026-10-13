@@ -121,7 +121,7 @@ def test_format_user_facing_error() -> None:
     assert format_user_facing_error(ValueError("plain")) == "plain"
 
 
-def test_direct_cloud_api_error_uses_fixed_table_message_in_agent_text() -> None:
+def test_direct_cloud_api_error_relays_problem_message_in_agent_text() -> None:
     error = AirbyteCloudApiError(
         status_code=404,
         message="Request failed at https://config.example/connections/secret-id",
@@ -129,6 +129,7 @@ def test_direct_cloud_api_error_uses_fixed_table_message_in_agent_text() -> None
             "full_url": "https://config.example/connections/secret-id",
             "response_text": json.dumps({
                 "type": "https://reference.airbyte.com/reference/errors#resource-not-found",
+                "detail": "Connection was removed.",
                 "data": {
                     "resourceType": "connection",
                     "message": "SENTINEL_RESPONSE_TEXT",
@@ -141,14 +142,13 @@ def test_direct_cloud_api_error_uses_fixed_table_message_in_agent_text() -> None
 
     text = agent_error_text(exc_info.value)
 
-    assert "The connection was not found." in text
-    assert "resource-not-found, HTTP 404" in text
+    assert text == "Connection was removed."
     assert "https://config.example" not in text
     assert "SENTINEL_RESPONSE_TEXT" not in text
     assert "response_text" not in text
 
 
-def test_format_direct_cloud_api_error_keeps_fixed_forbidden_guidance() -> None:
+def test_format_direct_cloud_api_error_uses_general_forbidden_guidance() -> None:
     guidance = (
         "Authentication succeeded but access was denied; the workspace or connector "
         "may not be enabled for agent access in Airbyte Cloud."
@@ -162,7 +162,11 @@ def test_format_direct_cloud_api_error_keeps_fixed_forbidden_guidance() -> None:
 
     text = format_user_facing_error(error)
 
-    assert guidance in text
+    assert (
+        text
+        == "Airbyte Cloud returned HTTP 403. " + api_util.FORBIDDEN_RESOURCE_GUIDANCE
+    )
+    assert guidance not in text
     assert "https://config.example" not in text
     assert "full_url" not in text
 
@@ -340,8 +344,7 @@ def test_cloud_error_is_formatted_without_debug_context() -> None:
 
     text = _call_error(server, "broken")
 
-    assert "Airbyte Cloud hit an unexpected error" in text
-    assert "unexpected-problem, HTTP 500" in text
+    assert text == "unexpected-problem"
     assert "INTERNAL_MARKER" not in text
     assert "Status Code" not in text
     assert "api.airbyte.com" not in text
@@ -433,3 +436,281 @@ def test_redact_agent_text_keeps_connection_error_id_and_url() -> None:
     )
 
     assert redact_agent_text(text) == text
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "message", "guidance"),
+    [
+        (422, {"detail": "  Cursor é\nmissing.  "}, "  Cursor é\nmissing.  ", None),
+        (
+            500,
+            {"detail": " ", "title": "  Temporarily unavailable\n"},
+            "  Temporarily unavailable\n",
+            None,
+        ),
+        (
+            409,
+            {"title": "actor-not-ready", "detail": "Finish authentication.  "},
+            "Finish authentication.  ",
+            api_util.ACTOR_NOT_READY_MCP_GUIDANCE,
+        ),
+        (
+            403,
+            {"detail": "Resource is unavailable.  "},
+            "Resource is unavailable.  ",
+            api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+        ),
+        (404, {"detail": "Connection was removed."}, "Connection was removed.", None),
+        (
+            429,
+            {"message": "ignored non-problem text"},
+            "Airbyte Cloud returned HTTP 429 (rate limited).",
+            None,
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "carrier", ["sdk", "wrapped", "nested", "direct", "bodyless-direct", "http"]
+)
+def test_cloud_chain_uses_exact_message_for_agent_and_span(
+    status: int,
+    payload: dict[str, str],
+    message: str,
+    guidance: str | None,
+    carrier: str,
+) -> None:
+    from airbyte.mcp._error_handling import cloud_error_trace_message
+
+    body = json.dumps(payload)
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode()
+    sdk = SDKError("ignored SDK message", status, body, response)
+    error: BaseException = sdk
+    if carrier in {"wrapped", "nested"}:
+        error = api_util._wrap_sdk_error(sdk)
+        error.__cause__ = sdk
+        if carrier == "nested":
+            outer = AirbyteMissingResourceError(
+                message="local override", guidance="local advice"
+            )
+            outer.__cause__ = error
+            error = outer
+    elif carrier in {"direct", "bodyless-direct"}:
+        error = AirbyteCloudApiError(
+            status_code=status,
+            guidance="ignored advice",
+            context={"response_text": body} if carrier == "direct" else {},
+        )
+        if carrier == "bodyless-direct":
+            error.__cause__ = sdk
+    elif carrier == "http":
+        error = api_util.AirbyteCloudError(
+            message="ignored rewording",
+            context={"problem_type": None, "status_code": status},
+        )
+        error.__cause__ = requests.HTTPError(response=response)
+    expected = f"{message} {guidance}".rstrip() if guidance else message
+    assert format_user_facing_error(error) == expected
+    tool = ToolError("ignored wrapper")
+    tool.__cause__ = error
+    assert agent_error_text(tool) == expected
+    assert cloud_error_trace_message(tool) == message
+
+
+@pytest.mark.parametrize("field", ["detail", "title"])
+@pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER", "bEaReR"])
+def test_real_middleware_redacts_selected_cloud_message_after_nested_rewrap(
+    field: str,
+    scheme: str,
+) -> None:
+    server = _server_with_agent_error_text()
+
+    @server.tool
+    def broken() -> str:
+        response = requests.Response()
+        response.status_code = 403
+        sdk = SDKError(
+            "ignored",
+            403,
+            json.dumps({field: f"Denied {scheme} FAKE_SECRET"}),
+            response,
+        )
+        wrapped = api_util._wrap_sdk_error(sdk)
+        wrapped.__cause__ = sdk
+        raise AirbyteMissingResourceError(message="local rewording") from wrapped
+
+    text = _call_error(server, "broken")
+    assert text == "Denied Bearer <redacted> " + api_util.FORBIDDEN_RESOURCE_GUIDANCE
+    assert "FAKE_SECRET" not in text
+
+
+@pytest.mark.parametrize("field", ["detail", "title"])
+def test_real_middleware_serializes_fallback_for_escaped_lone_surrogate(
+    field: str,
+) -> None:
+    server = _server_with_agent_error_text()
+
+    @server.tool
+    def broken() -> str:
+        response = requests.Response()
+        response.status_code = 500
+        sdk = SDKError("ignored", 500, json.dumps({field: "\ud800"}), response)
+        raise api_util._wrap_sdk_error(sdk) from sdk
+
+    assert _call_error(server, "broken") == "Airbyte Cloud returned HTTP 500."
+
+
+def test_unrelated_http_error_is_not_a_cloud_carrier() -> None:
+    from airbyte.mcp._error_handling import cloud_error_trace_message
+
+    response = requests.Response()
+    response.status_code = 500
+    response._content = b'{"detail":"unrelated HTTP body"}'
+    error = AirbyteLibInputError(message="local input error")
+    error.__cause__ = requests.HTTPError(response=response)
+    assert cloud_error_trace_message(error) is None
+    assert format_user_facing_error(error) == "local input error"
+
+
+@pytest.mark.parametrize("status", [None, 403, 429, 502])
+def test_bodyless_direct_error_has_only_status_fallback(status: int | None) -> None:
+    from airbyte.mcp._error_handling import cloud_error_trace_message
+
+    error = AirbyteCloudApiError(
+        status_code=status,
+        message="ignored local wording",
+        guidance="ignored local guidance",
+    )
+    message = (
+        "Airbyte Cloud request failed."
+        if status is None
+        else "Airbyte Cloud returned HTTP 429 (rate limited)."
+        if status == 429
+        else f"Airbyte Cloud returned HTTP {status}."
+    )
+    expected = (
+        message + " " + api_util.FORBIDDEN_RESOURCE_GUIDANCE
+        if status == 403
+        else message
+    )
+    assert format_user_facing_error(error) == expected
+    tool = ToolError("outer text")
+    tool.__cause__ = error
+    assert agent_error_text(tool) == expected
+    assert cloud_error_trace_message(tool) == message
+
+
+def test_cloud_chain_remains_bounded_and_tolerates_cycles() -> None:
+    from airbyte.mcp._error_handling import cloud_error_trace_message
+
+    error = ToolError("local")
+    error.__cause__ = error
+    assert cloud_error_trace_message(error) is None
+    assert agent_error_text(error) == "local"
+    cloud = AirbyteCloudApiError(status_code=500)
+    outer: BaseException = cloud
+    for _ in range(5):
+        wrapped = ToolError("outer")
+        wrapped.__cause__ = outer
+        outer = wrapped
+    assert cloud_error_trace_message(outer) is None
+
+
+@pytest.mark.parametrize("transport", ["config", "public", "direct", "sdk"])
+@pytest.mark.parametrize(
+    ("content", "encoding", "expected"),
+    [
+        (
+            b'{"detail":"bad\xff","type":"error:future"}',
+            None,
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (
+            b'{"detail":"bad\xff","type":"error:future"}',
+            "utf-8",
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (
+            b'{"detail":"caf\xe9","type":"error:future"}',
+            "iso-8859-1",
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (b'{"detail":"caf\xc3\xa9","type":"error:future"}', "iso-8859-1", "café"),
+        (b'{"detail":"caf\xc3\xa9","type":"error:future"}', None, "café"),
+    ],
+)
+def test_raw_cloud_errors_validate_utf8_before_python_agent_and_trace_relay(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: str,
+    content: bytes,
+    encoding: str | None,
+    expected: str,
+) -> None:
+    from airbyte._direct_connectors import api_util as direct_api_util
+    from airbyte.cloud._credentials import _AirbyteCredentials
+    from airbyte.mcp._error_handling import cloud_error_trace_message
+
+    response = requests.Response()
+    response.status_code = 500
+    response._content = content
+    response.encoding = encoding
+    response.headers["Content-Type"] = "application/problem+json" + (
+        f"; charset={encoding}" if encoding else ""
+    )
+    response.request = requests.Request(
+        "GET", "https://api.airbyte.com/v1/test"
+    ).prepare()
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+    monkeypatch.setattr(api_util.requests, "get", lambda *_, **__: response)
+    monkeypatch.setattr(
+        direct_api_util.deployment, "is_agents_api_available", lambda **_: True
+    )
+    kwargs = dict(
+        api_root="https://api.airbyte.com/v1",
+        path="/test",
+        client_id=None,
+        client_secret=None,
+        bearer_token=api_util.SecretString("token"),
+    )
+    with pytest.raises(api_util.AirbyteCloudError) as caught:
+        if transport == "sdk":
+            sdk = SDKError("ignored SDK wording", 500, response.text, response)
+            assert api_util.sdk_error_message(sdk) == expected
+            assert cloud_error_trace_message(sdk) == expected
+            raise api_util._wrap_sdk_error(sdk) from sdk
+        elif transport == "config":
+            api_util._make_config_api_request(**kwargs, json={})
+        elif transport == "public":
+            api_util._get_public_api_json(**kwargs, params=None)
+        else:
+            direct_api_util.make_cloud_agent_request(
+                method="GET",
+                path="/test",
+                credentials=_AirbyteCredentials.from_auth(
+                    bearer_token="token", env_vars=False
+                ),
+            )
+    error = caught.value
+    assert error.message == expected
+    assert error.guidance is None
+    assert format_user_facing_error(error) == expected
+    tool = ToolError("outer wrapper")
+    tool.__cause__ = error
+    assert agent_error_text(tool) == expected
+    assert cloud_error_trace_message(tool) == expected
+    valid_utf8 = expected == "café"
+    assert mcp_tool_error_reason(tool) == ("error:future" if valid_utf8 else None)
+    if transport == "direct":
+        assert error.context["response_body_is_utf8"] is valid_utf8
+        assert error.context["response_text"] == (
+            content.decode("utf-8") if valid_utf8 else response.text
+        )
+    else:
+        assert "response_text" not in error.context
+        if transport == "sdk":
+            assert isinstance(error.__cause__, SDKError)
+            assert error.__cause__.raw_response is response
+        else:
+            assert isinstance(error.__cause__, requests.HTTPError)
+            assert error.__cause__.response is response

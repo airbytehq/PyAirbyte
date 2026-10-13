@@ -1,24 +1,13 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Fixed agent-facing messages for Airbyte Cloud problem (RFC 9457) error bodies.
-
-`parse_cloud_error` reads only the allow-listed fields of a Cloud error body,
-`describe_cloud_error` maps it to the fixed `(message, guidance)` text stored in
-`cloud_errors.yaml`, and `cloud_errors.yaml` is the single source of those
-strings. `detail`, `data.message` and every other body field can quote caller
-values or server internals, so they are never read for message text.
-"""
+"""Bounded parsing of Cloud problem messages and validated reason labels."""
 
 from __future__ import annotations
 
-import functools
-import importlib.resources
 import json
 import re
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
-
-import yaml
+from typing import Any, NoReturn
 
 
 _PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
@@ -27,22 +16,6 @@ _GENERIC_PROBLEM_SLUG = "errors"
 # A slug names a kind of problem; one that is or holds an ID names a resource.
 _ID_LIKE = re.compile(r"\d+|.*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*")
 _MAX_PROBLEM_BODY = 65536
-_RESOURCE_TYPES = frozenset(
-    {
-        "source",
-        "destination",
-        "connection",
-        "workspace",
-        "organization",
-        "job",
-        "user",
-        "permission",
-        "source_definition",
-        "destination_definition",
-    }
-)
-_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-_PROBLEM_TYPE_PREFIX = "https://reference.airbyte.com/reference/errors"
 
 
 def is_valid_problem_slug(value: object) -> bool:
@@ -54,18 +27,12 @@ def is_valid_problem_slug(value: object) -> bool:
 
 @dataclass(frozen=True)
 class CloudErrorInfo:
-    """The allow-listed fields of an Airbyte Cloud error body.
-
-    `detail`, `data.message` and every other field can quote caller values or
-    server internals, so they are never read for message text.
-    """
+    """Cloud-owned message, transport status, and independently validated reason."""
 
     status_code: int | None
-    slug: str | None  # Last `type`/`title` segment, like `mcp_tool_error_reason`.
-    key: str | None  # Normalized `type` path used to look up the fixed message.
-    resource_type: str | None  # `data.resourceType`, a fixed word.
-    limit: int | None  # `data.limit`.
-    error_id: str | None  # Top-level `errorId` of a non-problem body.
+    slug: str | None
+    message: str
+    is_actor_not_ready: bool
 
 
 def _problem_slug(problem: dict[str, Any]) -> str | None:
@@ -94,111 +61,52 @@ def _problem_slug(problem: dict[str, Any]) -> str | None:
     return slug
 
 
-def _problem_key(problem: dict[str, Any]) -> str | None:
-    """Return the normalized `type` path used to look up the fixed message.
+def _problem_message(payload: dict[str, Any]) -> str | None:
+    for field in ("detail", "title"):
+        value = payload.get(field)
+        if isinstance(value, str) and value.strip():
+            # JSON escapes can decode to unpaired surrogates.
+            value.encode("utf-8")
+            return value
+    return None
 
-    Cloud emits `type` as the bare errors URL (slug in `title`), as the URL
-    plus `#<slug>`, or as `error:<path>`; all three normalize to the same key.
-    """
-    value = problem.get("type")
-    key = value if isinstance(value, str) else ""
-    if key.startswith(_PROBLEM_TYPE_PREFIX):
-        key = key.removeprefix(_PROBLEM_TYPE_PREFIX)
-        if key[:1] in {"#", "/"}:
-            key = key[1:]
-    if key.startswith("error:"):
-        key = key.removeprefix("error:")
-    if key.startswith("409-"):
-        key = key.removeprefix("409-")
-    if key in {"", _GENERIC_PROBLEM_SLUG}:
-        title = problem.get("title")
-        key = title if isinstance(title, str) else ""
-    if _ID_LIKE.fullmatch(key):
-        return None
-    return key or None
+
+def _status_fallback_message(status_code: int | None) -> str:
+    if status_code == HTTPStatus.TOO_MANY_REQUESTS:
+        return "Airbyte Cloud returned HTTP 429 (rate limited)."
+    if status_code is not None:
+        return f"Airbyte Cloud returned HTTP {status_code}."
+    return "Airbyte Cloud request failed."
+
+
+def _reject_json_constant(value: str) -> NoReturn:
+    raise json.JSONDecodeError("Invalid JSON constant", value, 0)
 
 
 def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorInfo:
-    """Read only the allow-listed fields of a Cloud API error body.
-
-    Bodies over 64 KiB or non-JSON give `slug=None`.
-    """
-    slug = key = resource_type = error_id = None
-    limit = None
-    if body is not None and len(body) <= _MAX_PROBLEM_BODY:
+    """Select detail/title from a JSON object of at most 64 KiB, or a status fallback."""
+    payload: Any = None
+    message = None
+    if isinstance(body, str) and len(body) <= _MAX_PROBLEM_BODY:
         try:
-            problem = json.loads(body)
-        except (ValueError, RecursionError):
-            problem = None
-        if isinstance(problem, dict):
-            slug = _problem_slug(problem)
-            key = _problem_key(problem)
-            data = problem.get("data")
-            if isinstance(data, dict):
-                candidate = data.get("resourceType")
-                if isinstance(candidate, str) and candidate in _RESOURCE_TYPES:
-                    resource_type = candidate
-                limit_value = data.get("limit")
-                if isinstance(limit_value, int) and not isinstance(limit_value, bool):
-                    limit = limit_value
-            candidate = problem.get("errorId")
-            if isinstance(candidate, str) and _UUID.fullmatch(candidate):
-                error_id = candidate
+            if len(body.encode("utf-8")) <= _MAX_PROBLEM_BODY:
+                # Numeric fields are unused; avoid Python's integer-conversion size limit.
+                payload = json.loads(
+                    body, parse_int=lambda _: None, parse_constant=_reject_json_constant
+                )
+                if isinstance(payload, dict):
+                    message = _problem_message(payload)
+        except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
+            payload = None
+    problem = payload if isinstance(payload, dict) else {}
+    problem_type = problem.get("type")
     return CloudErrorInfo(
         status_code=status_code,
-        slug=slug,
-        key=key,
-        resource_type=resource_type,
-        limit=limit,
-        error_id=error_id,
+        slug=_problem_slug(problem),
+        message=message or _status_fallback_message(status_code),
+        is_actor_not_ready=status_code == HTTPStatus.CONFLICT
+        and (
+            problem.get("title") == "actor-not-ready"
+            or (isinstance(problem_type, str) and problem_type.endswith("409-actor-not-ready"))
+        ),
     )
-
-
-@functools.cache
-def _messages() -> dict[str, Any]:
-    """Return the fixed error text table from `cloud_errors.yaml`."""
-    path = importlib.resources.files("airbyte._util").joinpath("cloud_errors.yaml")
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _status_fallback_message(status_code: int | None) -> tuple[str, str]:
-    """Return (message, guidance) for a status without a known problem key."""
-    fallbacks = _messages()["status_fallbacks"]
-    if status_code in fallbacks:
-        entry = fallbacks[status_code]
-    elif status_code is None:
-        entry = fallbacks["default"]
-    elif status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
-        entry = fallbacks["4xx"]
-    else:
-        entry = fallbacks["5xx"]
-    return entry["message"], entry["guidance"]
-
-
-def describe_cloud_error(problem: CloudErrorInfo) -> tuple[str, str]:
-    """Return (message, guidance) for a parsed Cloud problem."""
-    entry = _messages().get(problem.key or "")
-    if entry is None:
-        message, guidance = _status_fallback_message(problem.status_code)
-    else:
-        message, guidance = entry["message"], entry["guidance"]
-    # `key` is raw `type`/`title` text and can quote caller input, so it is
-    # shown only when it matched a fixed message row.
-    known_key = entry is not None
-    if problem.key == "resource-not-found" and problem.resource_type:
-        message = f"The {problem.resource_type} was not found."
-    elif problem.key == "workspace-limit-for-organization-reached" and problem.limit is not None:
-        message += f" (limit: {problem.limit} workspaces)"
-    if problem.status_code is not None:
-        message += (
-            f" (Cloud error: {problem.key}, HTTP {problem.status_code})"
-            if known_key
-            else f" (HTTP {problem.status_code})"
-        )
-    if (
-        problem.status_code is not None
-        and problem.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
-        and problem.error_id
-    ):
-        guidance += f" Error ID: {problem.error_id}."
-    return message, guidance

@@ -16,12 +16,12 @@ from fastmcp_extensions.otel._extras import _chain  # noqa: PLC2701
 
 from airbyte._util.api_util import (
     SDKError,
+    cloud_error_guidance,
+    decode_cloud_error_body,
     error_response_body,
-    sdk_error_message,
-    sdk_error_response,
 )
 from airbyte._util.cloud_errors import (
-    describe_cloud_error,
+    CloudErrorInfo,
     is_valid_problem_slug,
     parse_cloud_error,
 )
@@ -97,36 +97,39 @@ MCP_TOOL_USER_FACING_ERRORS: tuple[type[AirbyteLibError], ...] = (
 """Expected errors returned to MCP clients as concise message and guidance text."""
 
 
-def cloud_error_trace_message(error: BaseException) -> str | None:
-    """Return the fixed Cloud error message for a failed call's span, if any.
-
-    Only the message half: guidance can carry Cloud's error ID.
-    """
-    cloud_error: AirbyteCloudApiError | None = None
+def _cloud_error_info(error: BaseException) -> CloudErrorInfo | None:
+    """Resolve known Cloud carriers, preferring a concrete body to a bodyless wrapper."""
+    fallback = None
     for cause in _chain(error):
-        if (
+        if isinstance(cause, SDKError):
+            return parse_cloud_error(cause.status_code, error_response_body(cause))
+        if isinstance(cause, AirbyteCloudApiError):
+            body = error_response_body(cause)
+            problem = parse_cloud_error(cause.status_code, body)
+            if body is not None:
+                return problem
+            fallback = problem
+        elif (
             isinstance(cause, AirbyteLibError)
             and isinstance(cause.__cause__, requests.HTTPError)
             and "problem_type" in (cause.context or {})
         ):
-            return cause.message
-        if isinstance(cause, AirbyteCloudApiError):
-            body = error_response_body(cause)
-            if body is not None:
-                message, _ = describe_cloud_error(parse_cloud_error(cause.status_code, body))
-                return message
-            cloud_error = cause
-        elif isinstance(cause, SDKError):
-            return sdk_error_message(cause)
+            response = cause.__cause__.response
+            if response is not None:
+                return parse_cloud_error(response.status_code, decode_cloud_error_body(response))
+            status = (cause.context or {}).get("status_code")
+            return parse_cloud_error(status if isinstance(status, int) else None, None)
+    return fallback
 
-    if cloud_error is not None:
-        message, _ = describe_cloud_error(parse_cloud_error(cloud_error.status_code, None))
-        return message
-    return None
+
+def cloud_error_trace_message(error: BaseException) -> str | None:
+    """Return the selected Cloud message without workflow guidance for a failed span."""
+    problem = _cloud_error_info(error)
+    return problem.message if problem is not None else None
 
 
 def tool_error_trace_message(error: BaseException) -> str | None:
-    """Return the fixed trace message for an exception, if any."""
+    """Return the Cloud message or a fixed non-Cloud trace message, if any."""
     if (message := cloud_error_trace_message(error)) is not None:
         return message
     for cause in _chain(error):
@@ -186,19 +189,15 @@ def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
     return None
 
 
-def _cloud_api_error_text(error: AirbyteCloudApiError) -> str:
-    """Return fixed Cloud error text, retaining direct-access guidance when present."""
-    message, table_guidance = describe_cloud_error(
-        parse_cloud_error(error.status_code, error_response_body(error))
-    )
-    guidance = error.guidance if error.guidance is not None else table_guidance
-    return f"{message} {guidance}".rstrip()
+def _cloud_problem_text(problem: CloudErrorInfo) -> str:
+    guidance = cloud_error_guidance(problem, for_mcp=True)
+    return f"{problem.message} {guidance}".rstrip() if guidance else problem.message
 
 
 def format_user_facing_error(error: BaseException) -> str:
     """Return the error message followed by its guidance, when present."""
-    if isinstance(error, AirbyteCloudApiError):
-        return _cloud_api_error_text(error)
+    if (problem := _cloud_error_info(error)) is not None:
+        return _cloud_problem_text(problem)
     if not isinstance(error, AirbyteLibError):
         return str(error)
     text = error.get_message()
@@ -243,16 +242,11 @@ def mcp_tool_error_reason(error: BaseException) -> str | None:
 
 def agent_error_text(error: ToolError) -> str:
     """Return the text an agent sees for a tool error before redaction."""
+    if (problem := _cloud_error_info(error)) is not None:
+        return _cloud_problem_text(problem)
     cause = error.__cause__
-    if isinstance(cause, AirbyteCloudApiError):
-        return _cloud_api_error_text(cause)
     if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)
-    sdk_response = sdk_error_response(cause) if cause is not None else None
-    if sdk_response is not None:
-        status_code, body = sdk_response
-        message, guidance = describe_cloud_error(parse_cloud_error(status_code, body))
-        return f"{message} {guidance}"
     return str(error)
 
 
@@ -278,7 +272,7 @@ def format_validation_error(error: ValidationError) -> str:
 
 
 _INPUT_VALUE = re.compile(r"input_value=(?:'[^']*'|\"[^\"]*\"|[^\s,\])]+)")
-_BEARER_TOKEN = re.compile(r"Bearer\s+[^\s'\")]+")
+_BEARER_TOKEN = re.compile(r"Bearer\s+[^\s'\")]+", re.IGNORECASE)
 _URL_CREDENTIALS = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/?#'\")]+@")
 _URL_QUERY = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^\s?#'\")]*)\?[^\s'\")]*")
 

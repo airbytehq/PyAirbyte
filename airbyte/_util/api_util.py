@@ -26,7 +26,7 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
-from airbyte._util.cloud_errors import describe_cloud_error, parse_cloud_error
+from airbyte._util.cloud_errors import CloudErrorInfo, parse_cloud_error
 from airbyte._util.meta import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     get_cloud_api_analytic_source,
@@ -64,15 +64,8 @@ JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
 JWT_PART_COUNT = 3
 FORBIDDEN_RESOURCE_GUIDANCE = (
-    "Airbyte Cloud returns 403 both for IDs that don't exist and for resources outside your "
-    "access. Check the ID, and that it belongs to the workspace you passed."
-)
-ACTOR_NOT_READY_ERROR_MESSAGE = (
-    "The source or destination is still a draft: a person has not finished its setup in "
-    "Airbyte Cloud (HTTP 409 actor-not-ready)."
-)
-FORBIDDEN_RESOURCE_MESSAGE = (
-    "The requested resource was not found, or these credentials can't access it (HTTP 403)."
+    "The resource may be missing or inaccessible in this workspace. "
+    "Check the resource ID, workspace, and access permissions."
 )
 ACTOR_NOT_READY_MCP_GUIDANCE = (
     "This is expected right after creating a connector with `defer_credentials=True`. "
@@ -165,11 +158,23 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
     return context
 
 
+def decode_cloud_error_body(response: requests.Response) -> str | None:
+    """Decode Cloud error bytes as UTF-8 without charset guessing or replacement."""
+    try:
+        return (response.content or b"").decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def error_response_body(error: BaseException) -> str | None:
     """Return the raw response body an Airbyte API error carries, if any."""
     if isinstance(error, SDKError):
+        if isinstance(getattr(error.raw_response, "content", None), bytes):
+            return decode_cloud_error_body(error.raw_response)
         return error.body
     if isinstance(error, AirbyteCloudApiError):
+        if (error.context or {}).get("response_body_is_utf8") is False:
+            return None
         body = (error.context or {}).get("response_text")
         return body if isinstance(body, str) else None
     return None
@@ -178,36 +183,27 @@ def error_response_body(error: BaseException) -> str | None:
 def sdk_error_response(error: BaseException) -> tuple[int | None, str | None] | None:
     """Return the status code and body carried by an SDKError."""
     if isinstance(error, SDKError):
-        return error.status_code, error.body
+        return error.status_code, error_response_body(error)
     return None
 
 
 def _is_actor_not_ready_error(error: SDKError) -> bool:
     """Check whether an SDKError contains Airbyte Cloud's actor-not-ready problem."""
-    if error.status_code != HTTPStatus.CONFLICT:
-        return False
-
-    try:
-        body = json.loads(error.body)
-    except (json.JSONDecodeError, TypeError):
-        return False
-    if not isinstance(body, dict):
-        return False
-
-    error_type = body.get("type")
-    return body.get("title") == "actor-not-ready" or (
-        isinstance(error_type, str) and error_type.endswith("409-actor-not-ready")
-    )
+    return parse_cloud_error(error.status_code, error_response_body(error)).is_actor_not_ready
 
 
 def sdk_error_message(error: SDKError) -> str:
-    """Return the fixed message an SDKError is reported with; never Cloud body text."""
-    if _is_actor_not_ready_error(error):
-        return ACTOR_NOT_READY_ERROR_MESSAGE
-    if error.status_code == HTTPStatus.FORBIDDEN:
-        return FORBIDDEN_RESOURCE_MESSAGE
-    message, _ = describe_cloud_error(parse_cloud_error(error.status_code, error.body))
-    return message
+    """Return the selected Cloud problem message or transport status fallback."""
+    return parse_cloud_error(error.status_code, error_response_body(error)).message
+
+
+def cloud_error_guidance(problem: CloudErrorInfo, *, for_mcp: bool) -> str | None:
+    """Add only connector setup instructions or general resource/access guidance."""
+    if problem.is_actor_not_ready:
+        return ACTOR_NOT_READY_MCP_GUIDANCE if for_mcp else ACTOR_NOT_READY_PYTHON_GUIDANCE
+    if problem.status_code == HTTPStatus.FORBIDDEN:
+        return FORBIDDEN_RESOURCE_GUIDANCE
+    return None
 
 
 def _wrap_sdk_error(
@@ -219,32 +215,21 @@ def _wrap_sdk_error(
     full URL context, making it easier to debug API issues like 403 and 404 errors.
     """
     sdk_context = _get_sdk_error_context(error)
-    problem = parse_cloud_error(error.status_code, error.body)
+    problem = parse_cloud_error(error.status_code, error_response_body(error))
     merged_context = {
         **(base_context or {}),
         **sdk_context,
         "problem_type": problem.slug,
     }
-    if _is_actor_not_ready_error(error):
-        return AirbyteConnectorNotReadyError(
-            message=ACTOR_NOT_READY_ERROR_MESSAGE,
-            guidance=(
-                ACTOR_NOT_READY_MCP_GUIDANCE if is_mcp_mode() else ACTOR_NOT_READY_PYTHON_GUIDANCE
-            ),
-            context=merged_context,
-        )
-
-    status_code = sdk_context.get("status_code")
-    is_forbidden = status_code == HTTPStatus.FORBIDDEN
-    _, guidance = describe_cloud_error(problem)
-    error_type = (
-        AirbyteMissingResourceError
-        if is_forbidden or status_code == HTTPStatus.NOT_FOUND
-        else AirbyteCloudError
-    )
+    if problem.is_actor_not_ready:
+        error_type = AirbyteConnectorNotReadyError
+    elif error.status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+        error_type = AirbyteMissingResourceError
+    else:
+        error_type = AirbyteCloudError
     return error_type(
-        message=sdk_error_message(error),
-        guidance=FORBIDDEN_RESOURCE_GUIDANCE if is_forbidden else guidance,
+        message=problem.message,
+        guidance=cloud_error_guidance(problem, for_mcp=is_mcp_mode()),
         context=merged_context,
     )
 
@@ -2017,13 +2002,8 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
             "selected_stream_names": selected_stream_names,
         }
         if e.status_code == HTTPStatus.BAD_REQUEST:
-            wrapped_message, _ = describe_cloud_error(parse_cloud_error(e.status_code, e.body))
             raise AirbyteLibInputError(
-                message=wrapped_message,
-                guidance=(
-                    "Check that every name in `selected_streams` is a stream of the "
-                    "source, and that `source_id` and `destination_id` are correct."
-                ),
+                message=sdk_error_message(e),
                 context={**base_context, **_get_sdk_error_context(e)},
             ) from e
         raise _wrap_sdk_error(e, base_context) from e
@@ -2366,8 +2346,9 @@ def _make_config_api_request(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
-            problem = parse_cloud_error(response.status_code, response.text)
-            message, guidance = describe_cloud_error(problem)
+            problem = parse_cloud_error(response.status_code, decode_cloud_error_body(response))
+            message = problem.message
+            guidance = cloud_error_guidance(problem, for_mcp=is_mcp_mode())
             error_context = {
                 "full_url": full_url,
                 "config_api_root": config_api_root,
@@ -2378,11 +2359,8 @@ def _make_config_api_request(
             }
             if response.status_code == HTTPStatus.FORBIDDEN:
                 raise AirbyteMissingResourceError(
-                    message=(
-                        "The requested resource was not found, or these credentials can't "
-                        "access it (HTTP 403)."
-                    ),
-                    guidance=FORBIDDEN_RESOURCE_GUIDANCE,
+                    message=message,
+                    guidance=guidance,
                     context=error_context,
                 ) from ex
             raise AirbyteCloudError(
@@ -2453,8 +2431,9 @@ def _get_public_api_json(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
-            problem = parse_cloud_error(response.status_code, response.text)
-            message, guidance = describe_cloud_error(problem)
+            problem = parse_cloud_error(response.status_code, decode_cloud_error_body(response))
+            message = problem.message
+            guidance = cloud_error_guidance(problem, for_mcp=is_mcp_mode())
             error_context = {
                 "full_url": full_url,
                 "path": path,
@@ -2470,11 +2449,8 @@ def _get_public_api_json(
                 ) from ex
             if response.status_code == HTTPStatus.FORBIDDEN:
                 raise AirbyteMissingResourceError(
-                    message=(
-                        "The requested resource was not found, or these credentials can't "
-                        "access it (HTTP 403)."
-                    ),
-                    guidance=FORBIDDEN_RESOURCE_GUIDANCE,
+                    message=message,
+                    guidance=guidance,
                     context=error_context,
                 ) from ex
             raise AirbyteCloudError(

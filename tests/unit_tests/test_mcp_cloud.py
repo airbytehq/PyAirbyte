@@ -2326,10 +2326,16 @@ class _DescribedConnector:
         return feature in self.enabled_features
 
     def _context_layer_inspect(
-        self, *, warnings: list[str], **_kwargs: object
+        self,
+        *,
+        warnings: list[str],
+        format_error: Callable[[AirbyteCloudError], str] = str,
+        **_kwargs: object,
     ) -> object:
         if self.inspect_error is not None:
-            warnings.append(f"Connector inspect failed: {self.inspect_error}")
+            warnings.append(
+                f"Connector inspect failed: {format_error(self.inspect_error)}"
+            )
             return None
         return self.inspect_result
 
@@ -2886,3 +2892,165 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
 
     assert result.enabled_features == cloud_mcp.FEATURES_UNKNOWN
     assert any("enabled features are unknown" in w for w in result.warnings)
+
+
+@pytest.mark.parametrize(
+    ("status", "body_kind"),
+    [
+        (403, "detail"),
+        (409, "ready"),
+        (500, "title"),
+        (500, "non-problem"),
+        (500, "malformed"),
+        (500, "oversized"),
+    ],
+)
+@pytest.mark.parametrize("carrier", ["sdk", "direct", "config"])
+@pytest.mark.parametrize("result_path", ["billing", "feature-warning", "description"])
+def test_successful_results_redact_caught_cloud_error_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    body_kind: str,
+    carrier: str,
+    result_path: str,
+) -> None:
+    """Caught errors remain successful results with credentials masked in both encodings."""
+    import json
+
+    from airbyte_api.errors import SDKError
+    from fastmcp import Client
+    from fastmcp_extensions import mcp_server
+    from mcp.types import TextContent
+
+    from airbyte._util import api_util
+    from airbyte.mcp._error_handling import (
+        AgentErrorTextMiddleware,
+        cloud_error_trace_message,
+    )
+
+    message = (
+        "Denied authorization: bearer FAKE_SECRET and bEaReR MIXED_SECRET at "
+        "https://fake-user:fake-password@example.com/path?token=fake-query"
+    )
+    response = requests.Response()
+    payload = {
+        "message": "PRIVATE_TOP_LEVEL",
+        "data": {"message": "PRIVATE_DATA_MESSAGE"},
+        "errorId": "PRIVATE_ERROR_ID",
+    }
+    if body_kind in {"detail", "title", "ready", "oversized"}:
+        payload["title" if body_kind == "title" else "detail"] = message
+    if body_kind == "ready":
+        payload["title"] = "actor-not-ready"
+    body = json.dumps(payload)
+    if body_kind == "malformed":
+        body = "<html>PRIVATE_RAW_BODY</html>"
+    elif body_kind == "oversized":
+        body += " " * 65536
+    selected = (
+        message
+        if body_kind in {"detail", "title", "ready"}
+        else (f"Airbyte Cloud returned HTTP {status}.")
+    )
+    response.status_code = status
+    response._content = body.encode()
+    response.request = requests.Request(
+        "POST", "https://api.airbyte.com/test"
+    ).prepare()
+    if carrier == "sdk":
+        sdk = SDKError("ignored", status, response.text, response)
+        error = api_util._wrap_sdk_error(sdk)
+        error.__cause__ = sdk
+    elif carrier == "direct":
+        error = AirbyteCloudApiError(
+            status_code=status, message=selected, context={"response_text": body}
+        )
+    else:
+        monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+        with pytest.raises(AirbyteCloudError) as caught:
+            api_util._make_config_api_request(
+                api_root="https://api.airbyte.com/api/public/v1",
+                path="/test",
+                json={},
+                client_id=None,
+                client_secret=None,
+                bearer_token=api_util.SecretString("fake"),
+            )
+        error = caught.value
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=fail,
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    monkeypatch.setattr(connector_docs, "build_connection_details", fail)
+    connector = _DescribedConnector(
+        enabled_features=frozenset({ConnectorFeature.DIRECT_ACCESS})
+    )
+    connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
+    connector._integration_name = error
+    connector.inspect_error = error
+    connector.config = error
+    connector.guidance = error
+    connector.replication_docs = error
+    server = mcp_server("test", telemetry=False)
+    server.add_middleware(AgentErrorTextMiddleware())
+
+    @server.tool
+    def caught_error_result() -> dict[str, Any]:
+        if result_path == "billing":
+            return cloud_mcp.get_cloud_organization_billing_status(
+                cast(Context, object()), organization_id=None, organization_name=None
+            ).model_dump()
+        if result_path == "feature-warning":
+            return {"warnings": [cloud_mcp._feature_lookup_warning(error)]}
+        result = _describe(
+            connector,
+            with_config=True,
+            with_replication_details=True,
+            with_direct_access_guidance=True,
+            with_data_replication_docs=True,
+        )
+        assert len(result.warnings) == 6
+        return result.model_dump()
+
+    async def call_tool() -> None:
+        async with Client(server) as client:
+            result = await client.call_tool("caught_error_result")
+        assert result.is_error is False
+        assert result.structured_content is not None
+        for rendered in (
+            "\n".join(
+                block.text for block in result.content if isinstance(block, TextContent)
+            ),
+            json.dumps(result.structured_content),
+        ):
+            assert cloud_mcp.redact_agent_text(selected) in rendered
+            for secret in (
+                "FAKE_SECRET",
+                "MIXED_SECRET",
+                "fake-user",
+                "fake-password",
+                "fake-query",
+                "PRIVATE_TOP_LEVEL",
+                "PRIVATE_DATA_MESSAGE",
+                "PRIVATE_ERROR_ID",
+                "PRIVATE_RAW_BODY",
+            ):
+                assert secret not in rendered
+            if status == 403:
+                assert api_util.FORBIDDEN_RESOURCE_GUIDANCE in rendered
+            elif body_kind == "ready":
+                assert api_util.ACTOR_NOT_READY_MCP_GUIDANCE in rendered
+
+    asyncio.run(call_tool())
+    assert error.message == selected
+    assert cloud_error_trace_message(error) == selected

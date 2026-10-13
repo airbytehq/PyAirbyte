@@ -27,12 +27,14 @@ as a "presentation" layer on top of the core modules.)
 
 ## Agent-facing Cloud Error Messages
 
-When an Airbyte Cloud API call fails, the text the agent sees comes from the fixed table in
-`airbyte/_util/cloud_errors.yaml`, keyed by Cloud's problem type. Never build that text from
-Cloud's `detail`, `data.message` or other response fields, because they can quote secrets or
-server internals. To support a new problem type, add a `message` and a `guidance` entry
-to the YAML file and add the type to `test_every_published_problem_type_matches_a_fixed_message`.
-The header of the YAML file lists the remaining rules.
+Cloud API error text comes from the response's nonempty `detail`, falling back to `title`.
+PyAirbyte preserves the selected string; fix poor Cloud wording in the platform.
+Only actor-not-ready setup instructions and 403 resource/access guidance are added.
+Bodies must be JSON objects of at most 65,536 UTF-8 bytes; invalid or non-problem responses
+use a status-only fallback. `message`, `data.message`, and `errorId` are not displayed.
+Agent errors, caught-error billing messages, and connector warnings pass through credential
+redaction. Native Datadog uses the selected,
+unredacted Cloud message without guidance; this does not add it to LLM Obs metadata.
 
 Non-Cloud MCP trace messages are the first line of the exception class's docstring
 (trace-only, exported to Datadog as `error.message`), so keep those first lines fixed text

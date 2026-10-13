@@ -101,7 +101,7 @@ from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -754,6 +754,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         *,
         warnings: list[str],
         force_refresh: bool = False,
+        format_error: Callable[[exc.AirbyteCloudError], str] = str,
     ) -> _DirectConnectorInspectResult | None:
         """Fetch and cache the Context layer connector details.
 
@@ -761,7 +762,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         Context layer knows. A 403 or 404 `AirbyteCloudError` from the docs read means the
         connector is not enabled for agent access, so a warning is appended to
         `warnings` and `None` is returned. Any other failure (auth, server, malformed
-        response, transport) is raised to the caller.
+        response, transport) is raised to the caller. `format_error` lets presentation
+        callers omit diagnostic context from the warning.
         """
         if self._context_layer_details is not None and not force_refresh:
             return self._context_layer_details
@@ -781,7 +783,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         except exc.AirbyteCloudError as error:
             if not agents_api_util.is_not_enabled_error(error):
                 raise
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+            warnings.append(f"Connector direct-access docs lookup failed: {format_error(error)}")
             return None
         parsed = _DirectConnectorInspectResult(
             connector_id=self.connector_id,
