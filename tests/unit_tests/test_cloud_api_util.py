@@ -2932,7 +2932,10 @@ def test_problem_body_byte_boundary(size: int, character: str) -> None:
         "1",
         '"text"',
         '{"detail":"\ud800"}',
-        '{"detail":"early", "padding":"' + "x" * 65536 + '"}',
+        pytest.param(
+            '{"detail":"early", "padding":"' + "x" * 65536 + '"}',
+            id="oversized-body",
+        ),
     ],
 )
 def test_problem_invalid_body_falls_back(body: str | None) -> None:
