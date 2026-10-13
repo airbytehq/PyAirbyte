@@ -376,7 +376,7 @@ def read_cloud_skill_docs(
             context={
                 "path": path,
                 "skill_id": skill_id,
-                "errors": ex.errors(include_url=False),
+                "errors": ex.errors(include_url=False, include_input=False),
             },
         ) from ex
 

@@ -2419,7 +2419,7 @@ def test_read_cloud_skill_docs_rejects_malformed_response(
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "make_cloud_agent_request",
-        lambda **_: {"content": []},
+        lambda **_: {"content": [], "leaked": "payload-secret"},
     )
     credentials = cloud_credentials._AirbyteCredentials.from_auth(  # noqa: SLF001
         bearer_token="token", env_vars=False
@@ -2434,6 +2434,7 @@ def test_read_cloud_skill_docs_rejects_malformed_response(
             credentials=credentials,
         )
     assert (exc_info.value.context or {})["skill_id"] == "connector-source:source-1"
+    assert "payload-secret" not in str(exc_info.value)
 
 
 def test_cloud_connector_enablement_parses_destination_response(
