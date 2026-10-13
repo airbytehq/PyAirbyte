@@ -612,7 +612,7 @@ def test_cloud_chain_remains_bounded_and_tolerates_cycles() -> None:
     assert cloud_error_trace_message(outer) is None
 
 
-@pytest.mark.parametrize("transport", ["config", "public", "direct"])
+@pytest.mark.parametrize("transport", ["config", "public", "direct", "sdk"])
 @pytest.mark.parametrize(
     ("content", "encoding", "expected"),
     [
@@ -669,7 +669,12 @@ def test_raw_cloud_errors_validate_utf8_before_python_agent_and_trace_relay(
         bearer_token=api_util.SecretString("token"),
     )
     with pytest.raises(api_util.AirbyteCloudError) as caught:
-        if transport == "config":
+        if transport == "sdk":
+            sdk = SDKError("ignored SDK wording", 500, response.text, response)
+            assert api_util.sdk_error_message(sdk) == expected
+            assert cloud_error_trace_message(sdk) == expected
+            raise api_util._wrap_sdk_error(sdk) from sdk
+        elif transport == "config":
             api_util._make_config_api_request(**kwargs, json={})
         elif transport == "public":
             api_util._get_public_api_json(**kwargs, params=None)
@@ -698,5 +703,9 @@ def test_raw_cloud_errors_validate_utf8_before_python_agent_and_trace_relay(
         )
     else:
         assert "response_text" not in error.context
-        assert isinstance(error.__cause__, requests.HTTPError)
-        assert error.__cause__.response is response
+        if transport == "sdk":
+            assert isinstance(error.__cause__, SDKError)
+            assert error.__cause__.raw_response is response
+        else:
+            assert isinstance(error.__cause__, requests.HTTPError)
+            assert error.__cause__.response is response

@@ -87,6 +87,7 @@ from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,
     render_connector_docs_result,
 )
+from airbyte.mcp._error_handling import redact_agent_text
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
@@ -197,7 +198,9 @@ def _feature_lookup_warning(error: Exception) -> str:
             "unknown. This is a permission problem: check that the credentials have "
             "access to this workspace and connector."
         )
-    return f"Connector feature lookup failed; enabled features are unknown: {error}"
+    return redact_agent_text(
+        f"Connector feature lookup failed; enabled features are unknown: {error}"
+    )
 
 
 FEATURES_NOT_CHECKED: Final = "not_checked"
@@ -1461,7 +1464,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
         except (AirbyteLibError, requests.RequestException) as error:
             warnings.append(f"Data replication docs are unavailable: {error}")
 
-    result.warnings = warnings
+    result.warnings = [redact_agent_text(warning) for warning in warnings]
     return result
 
 
@@ -2939,7 +2942,7 @@ def get_cloud_organization_billing_status(
             organization_id=org.organization_id,
             organization_name=org.organization_name,
             billing_info_available=False,
-            message=f"Billing information could not be retrieved: {reason}",
+            message=redact_agent_text(f"Billing information could not be retrieved: {reason}"),
         )
     return CloudOrganizationBillingStatusResult(
         organization_id=org.organization_id,

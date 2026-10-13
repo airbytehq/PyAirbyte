@@ -3113,3 +3113,60 @@ def test_problem_large_integer_does_not_replace_upstream_error(field: str) -> No
         "Airbyte Cloud returned HTTP 403." if field == "title" else "Title fallback"
     )
     assert cloud_errors.parse_cloud_error(403, body).message == expected
+
+
+@pytest.mark.parametrize(
+    ("content", "expected", "ready"),
+    [
+        (
+            b'{"title":"actor-not-ready","detail":"bad\xff"}',
+            "Airbyte Cloud returned HTTP 409.",
+            False,
+        ),
+        (b"", "Airbyte Cloud returned HTTP 409.", False),
+        (
+            b'{"title":"actor-not-ready","detail":"Finish setup."}',
+            "Finish setup.",
+            True,
+        ),
+    ],
+)
+def test_sdk_raw_bytes_control_readiness(
+    content: bytes, expected: str, ready: bool
+) -> None:
+    response = requests.Response()
+    response.status_code = 409
+    response._content = content
+    error = SDKError(
+        "ignored",
+        409,
+        '{"title":"actor-not-ready","detail":"Already decoded SDK text"}',
+        response,
+    )
+    assert api_util._is_actor_not_ready_error(error) is ready
+    wrapped = api_util._wrap_sdk_error(error)
+    assert wrapped.message == expected
+    assert isinstance(wrapped, api_util.AirbyteConnectorNotReadyError) is ready
+    assert (wrapped.guidance is not None) is ready
+
+
+def test_create_connection_rejects_invalid_sdk_response_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = b'{"detail":"bad\xff"}'
+    response.encoding = "iso-8859-1"
+    error = SDKError("ignored", 400, response.text, response)
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: SimpleNamespace(
+            connections=SimpleNamespace(create_connection=Mock(side_effect=error))
+        ),
+    )
+    with pytest.raises(AirbyteLibInputError) as caught:
+        _call_create_connection()
+    assert caught.value.message == "Airbyte Cloud returned HTTP 400."
+    assert caught.value.guidance is None
+    assert caught.value.__cause__ is error

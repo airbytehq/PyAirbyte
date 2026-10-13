@@ -169,6 +169,8 @@ def decode_cloud_error_body(response: requests.Response) -> str | None:
 def error_response_body(error: BaseException) -> str | None:
     """Return the raw response body an Airbyte API error carries, if any."""
     if isinstance(error, SDKError):
+        if isinstance(getattr(error.raw_response, "content", None), bytes):
+            return decode_cloud_error_body(error.raw_response)
         return error.body
     if isinstance(error, AirbyteCloudApiError):
         if (error.context or {}).get("response_body_is_utf8") is False:
@@ -181,18 +183,18 @@ def error_response_body(error: BaseException) -> str | None:
 def sdk_error_response(error: BaseException) -> tuple[int | None, str | None] | None:
     """Return the status code and body carried by an SDKError."""
     if isinstance(error, SDKError):
-        return error.status_code, error.body
+        return error.status_code, error_response_body(error)
     return None
 
 
 def _is_actor_not_ready_error(error: SDKError) -> bool:
     """Check whether an SDKError contains Airbyte Cloud's actor-not-ready problem."""
-    return parse_cloud_error(error.status_code, error.body).is_actor_not_ready
+    return parse_cloud_error(error.status_code, error_response_body(error)).is_actor_not_ready
 
 
 def sdk_error_message(error: SDKError) -> str:
     """Return the selected Cloud problem message or transport status fallback."""
-    return parse_cloud_error(error.status_code, error.body).message
+    return parse_cloud_error(error.status_code, error_response_body(error)).message
 
 
 def cloud_error_guidance(problem: CloudErrorInfo, *, for_mcp: bool) -> str | None:
@@ -213,7 +215,7 @@ def _wrap_sdk_error(
     full URL context, making it easier to debug API issues like 403 and 404 errors.
     """
     sdk_context = _get_sdk_error_context(error)
-    problem = parse_cloud_error(error.status_code, error.body)
+    problem = parse_cloud_error(error.status_code, error_response_body(error))
     merged_context = {
         **(base_context or {}),
         **sdk_context,
@@ -2001,7 +2003,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
         }
         if e.status_code == HTTPStatus.BAD_REQUEST:
             raise AirbyteLibInputError(
-                message=parse_cloud_error(e.status_code, e.body).message,
+                message=sdk_error_message(e),
                 context={**base_context, **_get_sdk_error_context(e)},
             ) from e
         raise _wrap_sdk_error(e, base_context) from e

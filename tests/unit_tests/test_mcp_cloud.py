@@ -2886,3 +2886,91 @@ def test_describe_cloud_connector_probe_failure_marks_unknown() -> None:
 
     assert result.enabled_features == cloud_mcp.FEATURES_UNKNOWN
     assert any("enabled features are unknown" in w for w in result.warnings)
+
+
+@pytest.mark.parametrize("field", ["detail", "title"])
+@pytest.mark.parametrize("result_path", ["billing", "feature-warning", "description"])
+def test_successful_results_redact_caught_cloud_error_credentials(
+    monkeypatch: pytest.MonkeyPatch, field: str, result_path: str
+) -> None:
+    """Caught errors remain successful results with credentials masked in both encodings."""
+    import json
+
+    from airbyte_api.errors import SDKError
+    from fastmcp import Client
+    from fastmcp_extensions import mcp_server
+
+    from airbyte._util import api_util
+    from airbyte.mcp._error_handling import (
+        AgentErrorTextMiddleware,
+        cloud_error_trace_message,
+    )
+
+    message = (
+        "Denied Bearer FAKE_SECRET at "
+        "https://fake-user:fake-password@example.com/path?token=fake-query"
+    )
+    response = requests.Response()
+    response.status_code = 500
+    response._content = json.dumps({field: message}).encode()
+    sdk = SDKError("ignored", 500, response.text, response)
+    error = api_util._wrap_sdk_error(sdk)
+    error.__cause__ = sdk
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    organization = SimpleNamespace(
+        organization_id="org-id",
+        organization_name="Organization",
+        get_billing_status=fail,
+    )
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_get_cloud_client",
+        lambda _: SimpleNamespace(get_organization=lambda **_: organization),
+    )
+    monkeypatch.setattr(connector_docs, "build_connection_details", fail)
+    connector = _DescribedConnector(
+        enabled_features=frozenset({ConnectorFeature.DIRECT_ACCESS})
+    )
+    connector.workspace = SimpleNamespace(_has_context_layer_api=lambda: True)
+    connector._integration_name = error
+    connector.inspect_error = error
+    connector.config = error
+    connector.guidance = error
+    connector.replication_docs = error
+    server = mcp_server("test", telemetry=False)
+    server.add_middleware(AgentErrorTextMiddleware())
+
+    @server.tool
+    def caught_error_result() -> dict[str, Any]:
+        if result_path == "billing":
+            return cloud_mcp.get_cloud_organization_billing_status(
+                cast(Context, object()), organization_id=None, organization_name=None
+            ).model_dump()
+        if result_path == "feature-warning":
+            return {"warnings": [cloud_mcp._feature_lookup_warning(error)]}
+        result = _describe(
+            connector,
+            with_config=True,
+            with_replication_details=True,
+            with_direct_access_guidance=True,
+            with_data_replication_docs=True,
+        )
+        assert len(result.warnings) == 6
+        return result.model_dump()
+
+    async def call_tool() -> None:
+        async with Client(server) as client:
+            result = await client.call_tool("caught_error_result")
+        assert result.is_error is False
+        assert result.structured_content is not None
+        for rendered in (str(result.content), json.dumps(result.structured_content)):
+            assert "Denied Bearer <redacted>" in rendered
+            for secret in ("FAKE_SECRET", "fake-user", "fake-password", "fake-query"):
+                assert secret not in rendered
+
+    asyncio.run(call_tool())
+    assert error.message == message
+    assert cloud_error_trace_message(error) == message

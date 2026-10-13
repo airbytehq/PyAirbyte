@@ -102,7 +102,7 @@ def _cloud_error_info(error: BaseException) -> CloudErrorInfo | None:
     fallback = None
     for cause in _chain(error):
         if isinstance(cause, SDKError):
-            return parse_cloud_error(cause.status_code, cause.body)
+            return parse_cloud_error(cause.status_code, error_response_body(cause))
         if isinstance(cause, AirbyteCloudApiError):
             body = error_response_body(cause)
             problem = parse_cloud_error(cause.status_code, body)

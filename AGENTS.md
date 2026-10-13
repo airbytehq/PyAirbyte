@@ -27,7 +27,8 @@ PyAirbyte preserves the selected string; fix poor Cloud wording in the platform.
 Only actor-not-ready setup instructions and 403 resource/access guidance are added.
 Bodies must be JSON objects of at most 65,536 UTF-8 bytes; invalid or non-problem responses
 use a status-only fallback. `message`, `data.message`, and `errorId` are not displayed.
-Agent text still passes through credential redaction. Native Datadog uses the selected,
+Agent errors, caught-error billing messages, and connector warnings pass through credential
+redaction. Native Datadog uses the selected,
 unredacted Cloud message without guidance; this does not add it to LLM Obs metadata.
 
 Non-Cloud MCP trace messages are the first line of the exception class's docstring
