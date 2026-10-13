@@ -2554,7 +2554,10 @@ def test_mcp_list_cloud_connectors_enablement_failure_is_unknown(
     ]
     assert any("enabled features are unknown" in w for w in results[1].warnings)
     is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
-    assert any("permission problem" in w for w in results[1].warnings) is is_forbidden
+    assert (
+        any(api_util.FORBIDDEN_RESOURCE_GUIDANCE in w for w in results[1].warnings)
+        is is_forbidden
+    )
     # A 502/503/504 or transport failure stops further enablement lookups; a 403 does not.
     assert calls["enablement"] == (2 if workspace_wide else 3)
 
@@ -2593,12 +2596,17 @@ def test_mcp_describe_cloud_connector_enablement_failure_is_unknown(
     assert result.integration_name == "GitHub"
     assert any("enabled features are unknown" in w for w in result.warnings)
     is_forbidden = isinstance(error, AirbyteCloudApiError) and error.status_code == 403
-    assert any("permission problem" in w for w in result.warnings) is is_forbidden
+    assert (
+        any(api_util.FORBIDDEN_RESOURCE_GUIDANCE in w for w in result.warnings)
+        is is_forbidden
+    )
     assert calls["list"] == 0
 
 
+@pytest.mark.parametrize("status", [403, 404, 500])
 def test_mcp_describe_cloud_connector_docs_failure_keeps_features(
     monkeypatch: pytest.MonkeyPatch,
+    status: int,
 ) -> None:
     """A docs lookup failure is a warning; features still come from enablement."""
     workspace = _make_workspace(
@@ -2610,7 +2618,14 @@ def test_mcp_describe_cloud_connector_docs_failure_keeps_features(
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "read_cloud_skill_docs",
-        lambda **_: (_ for _ in ()).throw(AirbyteCloudApiError(status_code=500)),
+        lambda **_: (_ for _ in ()).throw(
+            AirbyteCloudApiError(
+                status_code=status,
+                context={
+                    "response_text": '{"detail":"Safe detail", "data":{"message":"PRIVATE_DATA"}}'
+                },
+            )
+        ),
     )
     source = _seed_source(workspace, "source-1", "GitHub Issues")
     source._connector_definition = SimpleNamespace(  # noqa: SLF001
@@ -2629,7 +2644,10 @@ def test_mcp_describe_cloud_connector_docs_failure_keeps_features(
         ConnectorFeature.DIRECT_ACCESS,
         ConnectorFeature.DIRECT_API_QUERY,
     ]
-    assert any("docs lookup failed" in w for w in result.warnings)
+    expected = "Connector direct-access docs lookup failed: Safe detail"
+    if status == 403:
+        expected += " " + api_util.FORBIDDEN_RESOURCE_GUIDANCE
+    assert result.warnings == [expected]
 
 
 @pytest.mark.parametrize(

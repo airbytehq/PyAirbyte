@@ -87,7 +87,7 @@ from airbyte.mcp._docs_results import (
     CloudConnectorDocsResult,
     render_connector_docs_result,
 )
-from airbyte.mcp._error_handling import redact_agent_text
+from airbyte.mcp._error_handling import format_user_facing_error, redact_agent_text
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
@@ -190,16 +190,16 @@ FEATURE_FILTER_TIP_TEXT = (
 )
 
 
+def _caught_error_text(error: Exception) -> str:
+    """Format Cloud failures without diagnostic context; retain other exception wording."""
+    return format_user_facing_error(error) if isinstance(error, AirbyteCloudError) else str(error)
+
+
 def _feature_lookup_warning(error: Exception) -> str:
-    """Describe a failed connector feature lookup, calling out access denials."""
-    if isinstance(error, AirbyteCloudApiError) and error.status_code == HTTPStatus.FORBIDDEN:
-        return (
-            "Connector feature lookup was denied (403 Forbidden); enabled features are "
-            "unknown. This is a permission problem: check that the credentials have "
-            "access to this workspace and connector."
-        )
+    """Describe a failed connector feature lookup with Cloud workflow guidance."""
     return redact_agent_text(
-        f"Connector feature lookup failed; enabled features are unknown: {error}"
+        "Connector feature lookup failed; enabled features are unknown: "
+        f"{_caught_error_text(error)}"
     )
 
 
@@ -1402,7 +1402,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     try:
         integration_name = connector.integration_name
     except AirbyteCloudError as error:
-        warnings.append(f"Integration name lookup failed: {error}")
+        warnings.append(f"Integration name lookup failed: {_caught_error_text(error)}")
         integration_name = None
 
     result = CloudConnectorDetailsResult(
@@ -1428,9 +1428,12 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
         try:
             context_layer = connector._context_layer_inspect(  # noqa: SLF001
                 warnings=warnings,
+                format_error=format_user_facing_error,
             )
         except (AirbyteCloudError, requests.RequestException) as error:
-            warnings.append(f"Connector direct-access docs lookup failed: {error}")
+            warnings.append(
+                f"Connector direct-access docs lookup failed: {_caught_error_text(error)}"
+            )
         else:
             if context_layer is not None:
                 warnings.extend(str(warning) for warning in context_layer.warnings)
@@ -1442,19 +1445,19 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
             elif connector_type == ConnectorType.DESTINATION:
                 result.config = connector.as_cloud_destination().configuration
         except AirbyteCloudError as error:
-            warnings.append(f"Connector configuration lookup failed: {error}")
+            warnings.append(f"Connector configuration lookup failed: {_caught_error_text(error)}")
 
     if with_replication_details:
         try:
             result.replication_details = connector_docs.build_connection_details(connector)
         except AirbyteCloudError as error:
-            warnings.append(f"Connection listing failed: {error}")
+            warnings.append(f"Connection listing failed: {_caught_error_text(error)}")
 
     if with_direct_access_guidance:
         try:
             docs = connector.get_direct_access_guidance()
         except (AirbyteLibError, requests.RequestException) as error:
-            warnings.append(f"Direct access docs are unavailable: {error}")
+            warnings.append(f"Direct access docs are unavailable: {_caught_error_text(error)}")
         else:
             result.direct_access_guidance = render_connector_docs_result(docs)
 
@@ -1462,7 +1465,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
         try:
             result.data_replication_docs = connector.get_data_replication_docs()
         except (AirbyteLibError, requests.RequestException) as error:
-            warnings.append(f"Data replication docs are unavailable: {error}")
+            warnings.append(f"Data replication docs are unavailable: {_caught_error_text(error)}")
 
     result.warnings = [redact_agent_text(warning) for warning in warnings]
     return result
@@ -2935,9 +2938,7 @@ def get_cloud_organization_billing_status(
     try:
         info = org.get_billing_status()
     except (AirbyteCloudError, NotImplementedError) as error:
-        reason = (
-            error.message if isinstance(error, AirbyteCloudError) and error.message else str(error)
-        )
+        reason = _caught_error_text(error)
         return CloudOrganizationBillingStatusResult(
             organization_id=org.organization_id,
             organization_name=org.organization_name,
