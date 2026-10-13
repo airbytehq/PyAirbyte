@@ -1462,10 +1462,10 @@ def _native_http_contract():
                     assert private_text not in json.dumps(span.get_tags())
                 local_demo_text = responses[8][2]["result"]["content"][0]["text"]
                 assert local_demo_text == (
-                    "Cannot modify '<value of guid>': local demo mode only allows "
+                    "Cannot modify 'abc-secret-id-123': local demo mode only allows "
                     "changes to resources created in this session."
                 )
-                assert "abc-secret-id-123" not in local_demo_text
+                assert "abc-secret-id-123" in local_demo_text
                 assert str(ValueError(private_payload)) not in json.dumps(
                     value_error_span.get_tags()
                 )

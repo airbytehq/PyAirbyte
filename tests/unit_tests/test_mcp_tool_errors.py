@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 from typing import Literal
 
 import pytest
@@ -348,7 +347,7 @@ def test_cloud_error_is_formatted_without_debug_context() -> None:
     assert "api.airbyte.com" not in text
 
 
-def test_unexpected_error_echoed_argument_is_masked() -> None:
+def test_unexpected_error_echoed_argument_passes_through() -> None:
     server = _server_with_agent_error_text()
 
     @server.tool
@@ -357,11 +356,11 @@ def test_unexpected_error_echoed_argument_is_masked() -> None:
 
     text = _call_error(server, "fail", {"connection_id": "SENTINEL-arg-value-1234"})
 
-    assert "boom with <value of connection_id>" in text
-    assert "SENTINEL-arg-value-1234" not in text
+    assert "boom with SENTINEL-arg-value-1234" in text
+    assert "<value of" not in text
 
 
-def test_user_facing_error_echoed_id_is_masked() -> None:
+def test_user_facing_error_echoed_id_passes_through() -> None:
     server = _server_with_agent_error_text()
 
     @server.tool
@@ -377,11 +376,11 @@ def test_user_facing_error_echoed_id_is_masked() -> None:
     )
 
     assert "Cannot perform destructive operation" in text
-    assert "00000000-1111-2222-3333-444444444444" not in text
-    assert "<value of connection_id>" in text
+    assert "00000000-1111-2222-3333-444444444444" in text
+    assert "<value of" not in text
 
 
-def test_secret_valued_argument_never_shows_a_prefix() -> None:
+def test_secret_valued_argument_passes_through_error_text() -> None:
     server = _server_with_agent_error_text()
 
     @server.tool
@@ -400,13 +399,13 @@ def test_secret_valued_argument_never_shows_a_prefix() -> None:
         },
     )
 
-    assert secret not in text
-    assert "sk_live" not in text
-    assert "<value of config>" in text
-    assert "stream_with_secret_value" not in text
+    assert secret in text
+    assert "sk_live" in text
+    assert "stream_with_secret_value" in text
+    assert "<value of" not in text
 
 
-def test_redaction_placeholder_does_not_expose_nested_mapping_key() -> None:
+def test_nested_argument_echo_passes_through_without_mapping_key() -> None:
     server = _server_with_agent_error_text()
     hostile_key = "password-or-injected-text"
     secret = "sk_live_FAKE1234567890"
@@ -421,85 +420,16 @@ def test_redaction_placeholder_does_not_expose_nested_mapping_key() -> None:
         {"config": {hostile_key: secret}},
     )
 
-    assert secret not in text
+    assert secret in text
     assert hostile_key not in text
-    assert "<value of config>" in text
+    assert "<value of" not in text
 
 
-def _tool_stub(fn):
-    return SimpleNamespace(fn=fn, name="test-tool")
-
-
-def _classify_args(stream_name: str, connection_id: str, password: str) -> None:
-    """Hints so `classify_tool` gives HASH/PRESENCE modes like real tools."""
-
-
-@pytest.mark.parametrize(
-    ("arguments", "text", "expected"),
-    [
-        pytest.param(
-            {"stream_name": "user"},
-            "Ask the user; don't retry.",
-            "Ask the user; don't retry.",
-            id="non-secret-word-user",
-        ),
-        pytest.param(
-            {"stream_name": "retry"},
-            "Ask the user; don't retry.",
-            "Ask the user; don't retry.",
-            id="non-secret-word-retry",
-        ),
-        pytest.param(
-            {"stream_name": "users"},
-            "Ask the user; don't retry.",
-            "Ask the user; don't retry.",
-            id="non-secret-word-users",
-        ),
-        pytest.param(
-            {"stream_name": "customer"},
-            "Check the customers table first.",
-            "Check the customers table first.",
-            id="non-secret-token-inside-longer-token",
-        ),
-        pytest.param(
-            {"connection_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"},
-            "Cannot perform destructive operation on "
-            "'f47ac10b-58cc-4372-a567-0e02b2c3d479': Object was not created.",
-            "Cannot perform destructive operation on "
-            "'<value of connection_id>': Object was not created.",
-            id="non-secret-uuid-echo-masked",
-        ),
-        pytest.param(
-            {"password": "abc123secret"},
-            "boom in xxabc123secretyy field",
-            "boom in xx<value of password>yy field",
-            id="secret-substring-masked",
-        ),
-    ],
-)
-def test_redact_agent_text_masks_whole_tokens_only(
-    arguments: dict, text: str, expected: str
-) -> None:
-    assert redact_agent_text(text, arguments, _tool_stub(_classify_args)) == expected
-
-
-def test_short_secret_is_masked_as_a_whole_token() -> None:
-    assert (
-        redact_agent_text(
-            "Ask the user for a valid value",
-            {"password": "a"},
-            _tool_stub(_classify_args),
-        )
-        == "Ask the user for <value of password> valid value"
+def test_redact_agent_text_keeps_connection_error_id_and_url() -> None:
+    text = (
+        "Connection 'c0bfcb08-bd3c-411e-8076-3d80fa18c137' not found. See "
+        "https://cloud.airbyte.com/workspaces/266ebdfe-0d7b-4540-9817-de7e4505ba61/"
+        "source/c0bfcb08-bd3c-411e-8076-3d80fa18c137"
     )
 
-
-def test_long_secret_is_masked_inside_a_token() -> None:
-    assert (
-        redact_agent_text(
-            "Request failed with pw=hunter2xyz;",
-            {"password": "hunter2xyz"},
-            _tool_stub(_classify_args),
-        )
-        == "Request failed with pw=<value of password>;"
-    )
+    assert redact_agent_text(text) == text
