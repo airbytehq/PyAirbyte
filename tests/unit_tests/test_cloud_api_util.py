@@ -2945,6 +2945,26 @@ def test_problem_invalid_body_falls_back(body: str | None) -> None:
     )
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_problem_non_json_constants_fall_back(constant: str) -> None:
+    body = (
+        '{"detail":"relay me", "title":"actor-not-ready", '
+        '"type":"error:409-actor-not-ready", "data":[' + constant + "]}"
+    )
+    assert cloud_errors.parse_cloud_error(409, body) == cloud_errors.CloudErrorInfo(
+        status_code=409,
+        slug=None,
+        message="Airbyte Cloud returned HTTP 409.",
+        is_actor_not_ready=False,
+    )
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_problem_quoted_constants_remain_valid_strings(constant: str) -> None:
+    body = json.dumps({"detail": constant})
+    assert cloud_errors.parse_cloud_error(400, body).message == constant
+
+
 def test_problem_excessive_nesting_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     # Inject the decoder failure without risking a native stack overflow on Windows.
     monkeypatch.setattr(cloud_errors.json, "loads", Mock(side_effect=RecursionError))

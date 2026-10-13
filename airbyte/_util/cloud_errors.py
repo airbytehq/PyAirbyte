@@ -7,7 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, NoReturn
 
 
 _PROBLEM_SLUG = re.compile(r"[a-z0-9][a-z0-9:._-]{0,99}")
@@ -77,6 +77,10 @@ def _status_fallback_message(status_code: int | None) -> str:
     return "Airbyte Cloud request failed."
 
 
+def _reject_json_constant(value: str) -> NoReturn:
+    raise json.JSONDecodeError("Invalid JSON constant", value, 0)
+
+
 def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorInfo:
     """Select detail/title from a JSON object of at most 64 KiB, or a status fallback."""
     payload: Any = None
@@ -84,7 +88,9 @@ def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorIn
         try:
             if len(body.encode("utf-8")) <= _MAX_PROBLEM_BODY:
                 # Numeric fields are unused; avoid Python's integer-conversion size limit.
-                payload = json.loads(body, parse_int=lambda _: None)
+                payload = json.loads(
+                    body, parse_int=lambda _: None, parse_constant=_reject_json_constant
+                )
         except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
             pass
     problem = payload if isinstance(payload, dict) else {}
