@@ -212,7 +212,7 @@ def _exception_attributes(error: BaseException) -> dict[str, str]:
         if message := tool_error_trace_message(cause):
             attrs["error.message"] = message
     except Exception:
-        logger.debug("Datadog fixed error message unavailable")
+        logger.debug("Datadog error message unavailable")
     return attrs
 
 
@@ -258,7 +258,7 @@ def _tool_error_message(span: Span) -> str:
 
 
 def _raised_tool_error_message(error: BaseException, span: Span) -> str:
-    """Return a fixed message when available, falling back to the span summary."""
+    """Return a selected error message when available, falling back to the span summary."""
     try:
         message = tool_error_trace_message(error)
     except Exception:
