@@ -613,6 +613,13 @@ class AirbyteCloudApiError(AirbyteCloudError):
 
 
 @dataclass
+class AirbyteMalformedSkillDocsError(AirbyteCloudError):
+    """Airbyte Cloud returned a skill docs response that does not match the expected shape."""
+
+    skill_id: str | None = None
+
+
+@dataclass
 class AirbyteExternalAccessNotEnabledError(AirbyteCloudError):
     """The connector is not enabled for external access, so it cannot execute direct actions."""
 

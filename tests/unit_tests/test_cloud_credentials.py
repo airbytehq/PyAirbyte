@@ -40,6 +40,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteCloudError,
+    AirbyteMalformedSkillDocsError,
     AirbyteMissingResourceError,
     AirbyteLibInputError,
 )
@@ -2415,7 +2416,7 @@ def test_cloud_connector_enablement_rejects_malformed_response(
 def test_read_cloud_skill_docs_rejects_malformed_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A skill-docs response missing `metadata` raises `AirbyteCloudError`, not `ValueError`."""
+    """A skill-docs response missing `metadata` raises `AirbyteMalformedSkillDocsError`."""
     monkeypatch.setattr(
         cloud_workspaces.agents_api_util,
         "make_cloud_agent_request",
@@ -2426,14 +2427,14 @@ def test_read_cloud_skill_docs_rejects_malformed_response(
     )
 
     with pytest.raises(
-        AirbyteCloudError, match="Malformed Airbyte Cloud skill docs"
+        AirbyteMalformedSkillDocsError, match="Malformed Airbyte Cloud skill docs"
     ) as exc_info:
         cloud_workspaces.agents_api_util.read_cloud_skill_docs(
             workspace_id="workspace-1",
             skill_id="connector-source:source-1",
             credentials=credentials,
         )
-    assert (exc_info.value.context or {})["skill_id"] == "connector-source:source-1"
+    assert exc_info.value.skill_id == "connector-source:source-1"
     assert "payload-secret" not in str(exc_info.value)
 
 

@@ -37,6 +37,7 @@ from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteLibInputError,
+    AirbyteMalformedSkillDocsError,
 )
 from airbyte.registry import ConnectorType
 
@@ -356,7 +357,7 @@ def read_cloud_skill_docs(
 
     The `skill_id` is sent as the `id` query parameter, with `section` added only when
     provided. A response that does not match `DirectAccessGuidance` raises
-    `AirbyteCloudError`.
+    `AirbyteMalformedSkillDocsError`.
     """
     params: dict[str, Any] = {"id": skill_id}
     if section is not None:
@@ -371,11 +372,11 @@ def read_cloud_skill_docs(
     try:
         return DirectAccessGuidance.model_validate(response)
     except ValidationError as ex:
-        raise AirbyteCloudError(
+        raise AirbyteMalformedSkillDocsError(
             message="Malformed Airbyte Cloud skill docs response.",
+            skill_id=skill_id,
             context={
                 "path": path,
-                "skill_id": skill_id,
                 "errors": ex.errors(include_url=False, include_input=False),
             },
         ) from ex
