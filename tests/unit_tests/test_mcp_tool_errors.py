@@ -519,8 +519,10 @@ def test_cloud_chain_uses_exact_message_for_agent_and_span(
 
 
 @pytest.mark.parametrize("field", ["detail", "title"])
+@pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER", "bEaReR"])
 def test_real_middleware_redacts_selected_cloud_message_after_nested_rewrap(
     field: str,
+    scheme: str,
 ) -> None:
     server = _server_with_agent_error_text()
 
@@ -529,7 +531,10 @@ def test_real_middleware_redacts_selected_cloud_message_after_nested_rewrap(
         response = requests.Response()
         response.status_code = 403
         sdk = SDKError(
-            "ignored", 403, json.dumps({field: "Denied Bearer FAKE_SECRET"}), response
+            "ignored",
+            403,
+            json.dumps({field: f"Denied {scheme} FAKE_SECRET"}),
+            response,
         )
         wrapped = api_util._wrap_sdk_error(sdk)
         wrapped.__cause__ = sdk

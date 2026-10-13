@@ -2929,7 +2929,7 @@ def test_successful_results_redact_caught_cloud_error_credentials(
     )
 
     message = (
-        "Denied Bearer FAKE_SECRET at "
+        "Denied authorization: bearer FAKE_SECRET and bEaReR MIXED_SECRET at "
         "https://fake-user:fake-password@example.com/path?token=fake-query"
     )
     response = requests.Response()
@@ -3036,6 +3036,7 @@ def test_successful_results_redact_caught_cloud_error_credentials(
             assert cloud_mcp.redact_agent_text(selected) in rendered
             for secret in (
                 "FAKE_SECRET",
+                "MIXED_SECRET",
                 "fake-user",
                 "fake-password",
                 "fake-query",

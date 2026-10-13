@@ -272,7 +272,7 @@ def format_validation_error(error: ValidationError) -> str:
 
 
 _INPUT_VALUE = re.compile(r"input_value=(?:'[^']*'|\"[^\"]*\"|[^\s,\])]+)")
-_BEARER_TOKEN = re.compile(r"Bearer\s+[^\s'\")]+")
+_BEARER_TOKEN = re.compile(r"Bearer\s+[^\s'\")]+", re.IGNORECASE)
 _URL_CREDENTIALS = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/?#'\")]+@")
 _URL_QUERY = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^\s?#'\")]*)\?[^\s'\")]*")
 
