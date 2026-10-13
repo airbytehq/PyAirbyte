@@ -65,6 +65,8 @@ def _problem_message(payload: dict[str, Any]) -> str | None:
     for field in ("detail", "title"):
         value = payload.get(field)
         if isinstance(value, str) and value.strip():
+            # JSON escapes can decode to unpaired surrogates.
+            value.encode("utf-8")
             return value
     return None
 
@@ -84,6 +86,7 @@ def _reject_json_constant(value: str) -> NoReturn:
 def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorInfo:
     """Select detail/title from a JSON object of at most 64 KiB, or a status fallback."""
     payload: Any = None
+    message = None
     if isinstance(body, str) and len(body) <= _MAX_PROBLEM_BODY:
         try:
             if len(body.encode("utf-8")) <= _MAX_PROBLEM_BODY:
@@ -91,14 +94,16 @@ def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorIn
                 payload = json.loads(
                     body, parse_int=lambda _: None, parse_constant=_reject_json_constant
                 )
+                if isinstance(payload, dict):
+                    message = _problem_message(payload)
         except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
-            pass
+            payload = None
     problem = payload if isinstance(payload, dict) else {}
     problem_type = problem.get("type")
     return CloudErrorInfo(
         status_code=status_code,
         slug=_problem_slug(problem),
-        message=_problem_message(problem) or _status_fallback_message(status_code),
+        message=message or _status_fallback_message(status_code),
         is_actor_not_ready=status_code == HTTPStatus.CONFLICT
         and (
             problem.get("title") == "actor-not-ready"

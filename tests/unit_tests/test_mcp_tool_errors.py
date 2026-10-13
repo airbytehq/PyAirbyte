@@ -540,6 +540,22 @@ def test_real_middleware_redacts_selected_cloud_message_after_nested_rewrap(
     assert "FAKE_SECRET" not in text
 
 
+@pytest.mark.parametrize("field", ["detail", "title"])
+def test_real_middleware_serializes_fallback_for_escaped_lone_surrogate(
+    field: str,
+) -> None:
+    server = _server_with_agent_error_text()
+
+    @server.tool
+    def broken() -> str:
+        response = requests.Response()
+        response.status_code = 500
+        sdk = SDKError("ignored", 500, json.dumps({field: "\ud800"}), response)
+        raise api_util._wrap_sdk_error(sdk) from sdk
+
+    assert _call_error(server, "broken") == "Airbyte Cloud returned HTTP 500."
+
+
 def test_unrelated_http_error_is_not_a_cloud_carrier() -> None:
     from airbyte.mcp._error_handling import cloud_error_trace_message
 
