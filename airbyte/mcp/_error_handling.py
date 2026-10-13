@@ -17,6 +17,7 @@ from fastmcp_extensions.otel._extras import _chain  # noqa: PLC2701
 from airbyte._util.api_util import (
     SDKError,
     cloud_error_guidance,
+    decode_cloud_error_body,
     error_response_body,
 )
 from airbyte._util.cloud_errors import (
@@ -115,7 +116,7 @@ def _cloud_error_info(error: BaseException) -> CloudErrorInfo | None:
         ):
             response = cause.__cause__.response
             if response is not None:
-                return parse_cloud_error(response.status_code, response.text)
+                return parse_cloud_error(response.status_code, decode_cloud_error_body(response))
             status = (cause.context or {}).get("status_code")
             return parse_cloud_error(status if isinstance(status, int) else None, None)
     return fallback

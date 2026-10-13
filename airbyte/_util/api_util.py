@@ -158,11 +158,21 @@ def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
     return context
 
 
+def decode_cloud_error_body(response: requests.Response) -> str | None:
+    """Decode Cloud error bytes as UTF-8 without charset guessing or replacement."""
+    try:
+        return (response.content or b"").decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def error_response_body(error: BaseException) -> str | None:
     """Return the raw response body an Airbyte API error carries, if any."""
     if isinstance(error, SDKError):
         return error.body
     if isinstance(error, AirbyteCloudApiError):
+        if (error.context or {}).get("response_body_is_utf8") is False:
+            return None
         body = (error.context or {}).get("response_text")
         return body if isinstance(body, str) else None
     return None
@@ -2334,7 +2344,7 @@ def _make_config_api_request(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
-            problem = parse_cloud_error(response.status_code, response.text)
+            problem = parse_cloud_error(response.status_code, decode_cloud_error_body(response))
             message = problem.message
             guidance = cloud_error_guidance(problem, for_mcp=is_mcp_mode())
             error_context = {
@@ -2419,7 +2429,7 @@ def _get_public_api_json(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
-            problem = parse_cloud_error(response.status_code, response.text)
+            problem = parse_cloud_error(response.status_code, decode_cloud_error_body(response))
             message = problem.message
             guidance = cloud_error_guidance(problem, for_mcp=is_mcp_mode())
             error_context = {

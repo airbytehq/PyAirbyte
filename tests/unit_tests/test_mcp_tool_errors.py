@@ -610,3 +610,93 @@ def test_cloud_chain_remains_bounded_and_tolerates_cycles() -> None:
         wrapped.__cause__ = outer
         outer = wrapped
     assert cloud_error_trace_message(outer) is None
+
+
+@pytest.mark.parametrize("transport", ["config", "public", "direct"])
+@pytest.mark.parametrize(
+    ("content", "encoding", "expected"),
+    [
+        (
+            b'{"detail":"bad\xff","type":"error:future"}',
+            None,
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (
+            b'{"detail":"bad\xff","type":"error:future"}',
+            "utf-8",
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (
+            b'{"detail":"caf\xe9","type":"error:future"}',
+            "iso-8859-1",
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (b'{"detail":"caf\xc3\xa9","type":"error:future"}', "iso-8859-1", "café"),
+        (b'{"detail":"caf\xc3\xa9","type":"error:future"}', None, "café"),
+    ],
+)
+def test_raw_cloud_errors_validate_utf8_before_python_agent_and_trace_relay(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: str,
+    content: bytes,
+    encoding: str | None,
+    expected: str,
+) -> None:
+    from airbyte._direct_connectors import api_util as direct_api_util
+    from airbyte.cloud._credentials import _AirbyteCredentials
+    from airbyte.mcp._error_handling import cloud_error_trace_message
+
+    response = requests.Response()
+    response.status_code = 500
+    response._content = content
+    response.encoding = encoding
+    response.headers["Content-Type"] = "application/problem+json" + (
+        f"; charset={encoding}" if encoding else ""
+    )
+    response.request = requests.Request(
+        "GET", "https://api.airbyte.com/v1/test"
+    ).prepare()
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+    monkeypatch.setattr(api_util.requests, "get", lambda *_, **__: response)
+    monkeypatch.setattr(
+        direct_api_util.deployment, "is_agents_api_available", lambda **_: True
+    )
+    kwargs = dict(
+        api_root="https://api.airbyte.com/v1",
+        path="/test",
+        client_id=None,
+        client_secret=None,
+        bearer_token=api_util.SecretString("token"),
+    )
+    with pytest.raises(api_util.AirbyteCloudError) as caught:
+        if transport == "config":
+            api_util._make_config_api_request(**kwargs, json={})
+        elif transport == "public":
+            api_util._get_public_api_json(**kwargs, params=None)
+        else:
+            direct_api_util.make_cloud_agent_request(
+                method="GET",
+                path="/test",
+                credentials=_AirbyteCredentials.from_auth(
+                    bearer_token="token", env_vars=False
+                ),
+            )
+    error = caught.value
+    assert error.message == expected
+    assert error.guidance is None
+    assert format_user_facing_error(error) == expected
+    tool = ToolError("outer wrapper")
+    tool.__cause__ = error
+    assert agent_error_text(tool) == expected
+    assert cloud_error_trace_message(tool) == expected
+    valid_utf8 = expected == "café"
+    assert mcp_tool_error_reason(tool) == ("error:future" if valid_utf8 else None)
+    if transport == "direct":
+        assert error.context["response_body_is_utf8"] is valid_utf8
+        assert error.context["response_text"] == (
+            content.decode("utf-8") if valid_utf8 else response.text
+        )
+    else:
+        assert "response_text" not in error.context
+        assert isinstance(error.__cause__, requests.HTTPError)
+        assert error.__cause__.response is response

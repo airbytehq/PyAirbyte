@@ -27,6 +27,7 @@ from airbyte._util.api_util import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     CLOUD_API_ROOT,
     cloud_error_guidance,
+    decode_cloud_error_body,
     get_bearer_token,
     get_cloud_api_analytic_source,
     get_config_api_root,
@@ -140,7 +141,8 @@ def make_cloud_agent_request(
         timeout=_REQUEST_TIMEOUT_SECONDS,
     )
     if not status_ok(response.status_code):
-        problem = parse_cloud_error(response.status_code, response.text)
+        body = decode_cloud_error_body(response)
+        problem = parse_cloud_error(response.status_code, body)
         raise AirbyteCloudApiError(
             status_code=response.status_code,
             message=problem.message,
@@ -149,7 +151,9 @@ def make_cloud_agent_request(
                 "full_url": full_url,
                 "path": path,
                 "status_code": response.status_code,
-                "response_text": response.text,
+                # Retain invalid response text for diagnostics, never for message relay.
+                "response_text": body if body is not None else response.text,
+                "response_body_is_utf8": body is not None,
             },
         )
 
