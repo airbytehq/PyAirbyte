@@ -70,6 +70,7 @@ from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteConnectorNotRegisteredError,
     AirbyteDeferredSetupError,
+    AirbyteExternalAccessNotEnabledError,
     AirbyteLibError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -1542,6 +1543,21 @@ def describe_cloud_connector(
     )
 
 
+def _direct_access_disabled_result(
+    error: AirbyteExternalAccessNotEnabledError,
+    connector: CloudConnector,
+) -> ExternalApiExecuteResult:
+    """Return user-facing direct-access guidance as an MCP result error."""
+    label = error.connector_name or f"{connector.connector_type} {connector.connector_id}"
+    return ExternalApiExecuteResult(
+        status="error",
+        errors=[
+            f"Show the user this message as-is: Direct access is currently disabled for "
+            f"{label}. [Click here]({error.enablement_url}) to enable it."
+        ],
+    )
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -1646,17 +1662,22 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     connector's action docs.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
-    return connector.execute_api_query(
-        entity_type,
-        action,
-        resolve_api_args(api_args),
-        select_fields=resolve_list_of_strings(select_fields),
-        exclude_fields=resolve_list_of_strings(exclude_fields),
-        page_size=page_size,
-        cursor=cursor,
-        skip_truncation=skip_truncation,
-        intent=intent,
-    )
+    try:
+        return connector.execute_api_query(
+            entity_type,
+            action,
+            resolve_api_args(api_args),
+            select_fields=resolve_list_of_strings(select_fields),
+            exclude_fields=resolve_list_of_strings(exclude_fields),
+            page_size=page_size,
+            cursor=cursor,
+            skip_truncation=skip_truncation,
+            intent=intent,
+        )
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        return _direct_access_disabled_result(error, connector)
 
 
 # Not yet registered as an MCP tool: write actions are not supported by the backend.
@@ -1739,15 +1760,20 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     differ per connector and are not guessable.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
-    return connector.execute_api_action(
-        entity_type,
-        action,
-        resolve_api_args(api_args),
-        select_fields=resolve_list_of_strings(select_fields),
-        exclude_fields=resolve_list_of_strings(exclude_fields),
-        skip_truncation=skip_truncation,
-        intent=intent,
-    )
+    try:
+        return connector.execute_api_action(
+            entity_type,
+            action,
+            resolve_api_args(api_args),
+            select_fields=resolve_list_of_strings(select_fields),
+            exclude_fields=resolve_list_of_strings(exclude_fields),
+            skip_truncation=skip_truncation,
+            intent=intent,
+        )
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        return _direct_access_disabled_result(error, connector)
 
 
 @mcp_tool(
@@ -1826,13 +1852,18 @@ def execute_external_sql_query(
     identifiers: double-quoting makes them case-sensitive.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
-    return connector.execute_sql_query(
-        sql,
-        sql_dialect=sql_dialect,
-        page_size=page_size,
-        cursor=cursor,
-        dry_run=dry_run,
-    )
+    try:
+        return connector.execute_sql_query(
+            sql,
+            sql_dialect=sql_dialect,
+            page_size=page_size,
+            cursor=cursor,
+            dry_run=dry_run,
+        )
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        return _direct_access_disabled_result(error, connector)
 
 
 @mcp_tool(

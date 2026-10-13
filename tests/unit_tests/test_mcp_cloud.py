@@ -49,6 +49,7 @@ from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectorInUseError,
     AirbyteCloudError,
+    AirbyteExternalAccessNotEnabledError,
     AirbyteMissingResourceError,
     AirbyteLibInputError,
 )
@@ -1623,9 +1624,18 @@ def test_get_agent_skill_docs_tool_connector_id(
 class _RecordingExecuteConnector:
     """Fake connector recording `execute_api_*`/`execute_sql_query` calls."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        error: AirbyteExternalAccessNotEnabledError | None = None,
+        connector_id: str = "source-1",
+        connector_type: ConnectorType = ConnectorType.SOURCE,
+    ) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
         self.result = ExternalApiExecuteResult(status="success", result={"ok": True})
+        self.error = error
+        self.connector_id = connector_id
+        self.connector_type = connector_type
 
     def execute_api_query(
         self, entity_type: str, action: object, api_args: object, **kwargs: object
@@ -1639,6 +1649,8 @@ class _RecordingExecuteConnector:
                 **kwargs,
             },
         ))
+        if self.error is not None:
+            raise self.error
         return self.result
 
     def execute_api_action(
@@ -1653,10 +1665,14 @@ class _RecordingExecuteConnector:
                 **kwargs,
             },
         ))
+        if self.error is not None:
+            raise self.error
         return self.result
 
     def execute_sql_query(self, sql: str, **kwargs: object) -> object:
         self.calls.append(("sql", {"sql": sql, **kwargs}))
+        if self.error is not None:
+            raise self.error
         return self.result
 
     def execute_search_query(self, prompt: str, **kwargs: object) -> object:
@@ -1726,6 +1742,86 @@ def test_execute_external_api_query_forwards_kwargs(
         "intent": "test",
     }
     assert result.status == "success"
+
+
+def test_execute_external_api_query_returns_direct_access_error_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tool returns the cached connector name and enablement link in errors."""
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_id="source-1",
+        connector_name="GitHub Issues",
+        enablement_url="https://cloud.airbyte.com/workspaces/workspace-1/source/source-1",
+    )
+    connector = _RecordingExecuteConnector(error=error)
+    _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.execute_external_api_query(
+        None,
+        connector_id="source-1",
+        entity_type="issues",
+        workspace_id=None,
+    )
+
+    assert result.status == "error"
+    assert result.errors == [
+        "Show the user this message as-is: Direct access is currently disabled for "
+        "GitHub Issues. [Click here](https://cloud.airbyte.com/workspaces/workspace-1/"
+        "source/source-1) to enable it."
+    ]
+
+
+def test_execute_external_sql_query_uses_fallback_direct_access_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SQL tool falls back to connector type and ID when its name is unavailable."""
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_id="destination-1",
+        enablement_url=(
+            "https://cloud.airbyte.com/workspaces/workspace-1/destination/destination-1"
+        ),
+    )
+    connector = _RecordingExecuteConnector(
+        error=error,
+        connector_id="destination-1",
+        connector_type=ConnectorType.DESTINATION,
+    )
+    _execute_workspace(monkeypatch, connector)
+
+    result = cloud_mcp.execute_external_sql_query(
+        None,
+        connector_id="destination-1",
+        sql="SHOW TABLES",
+        workspace_id=None,
+    )
+
+    assert result.status == "error"
+    assert result.errors == [
+        "Show the user this message as-is: Direct access is currently disabled for "
+        "destination destination-1. [Click here](https://cloud.airbyte.com/workspaces/"
+        "workspace-1/destination/destination-1) to enable it."
+    ]
+
+
+def test_execute_external_api_action_reraises_without_enablement_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The action tool re-raises errors that lack an enablement URL."""
+    error = AirbyteExternalAccessNotEnabledError(connector_id="source-1")
+    connector = _RecordingExecuteConnector(error=error)
+    _execute_workspace(monkeypatch, connector)
+
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+        cloud_mcp._execute_external_api_action(
+            None,
+            connector_id="source-1",
+            entity_type="issues",
+            action=ExternalApiWriteAction.CREATE,
+            api_args={"title": "Bug"},
+            workspace_id=None,
+        )
+
+    assert exc_info.value is error
 
 
 def test_execute_external_api_query_rejects_non_object_api_args(

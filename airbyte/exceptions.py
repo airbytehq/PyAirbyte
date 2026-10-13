@@ -623,6 +623,8 @@ class AirbyteExternalAccessNotEnabledError(AirbyteCloudError):
         "organization's Context Layer settings. Check `enabled_features` on the connector "
         "and organization."
     )
+    enablement_url: str | None = None
+    """The web URL where the user can enable direct access."""
 
 
 @dataclass

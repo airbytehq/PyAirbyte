@@ -626,6 +626,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         feature: ConnectorFeature,
         *,
         guidance: str | None = None,
+        enablement_url: str | None = None,
     ) -> None:
         """Map a forbidden or not-found `error` to a clear error, when one applies.
 
@@ -668,7 +669,14 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         )
         if guidance is not None:
             not_enabled.guidance = guidance
+        if enablement_url is not None:
+            not_enabled.enablement_url = enablement_url
         raise not_enabled from error
+
+    @property
+    def _direct_access_enablement_url(self) -> str:
+        """Get the web URL where the user can enable direct access for this connector."""
+        return self.connector_url
 
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
@@ -732,7 +740,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 credentials=self.workspace._credentials,  # noqa: SLF001
             )
         except exc.AirbyteCloudError as error:
-            self._raise_if_feature_not_enabled(error, ConnectorFeature.DIRECT_ACCESS)
+            self._raise_if_feature_not_enabled(
+                error,
+                ConnectorFeature.DIRECT_ACCESS,
+                enablement_url=self._direct_access_enablement_url,
+            )
             raise
 
         return response

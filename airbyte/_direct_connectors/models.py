@@ -230,6 +230,9 @@ class ExternalApiExecuteResult(BaseModel):
     warning: dict[str, Any] | None = None
     """A warning reported alongside an otherwise successful result."""
 
+    errors: list[str] = Field(default_factory=list)
+    """Agent-facing error messages; when non-empty, show them to the user."""
+
     @field_validator("connector_metadata", "execution_metadata", mode="before")
     @classmethod
     def _none_to_empty(cls, value: object) -> object:
