@@ -626,6 +626,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         feature: ConnectorFeature,
         *,
         guidance: str | None = None,
+        enablement_url: str | None = None,
     ) -> None:
         """Map a forbidden or not-found `error` to a clear error, when one applies.
 
@@ -668,21 +669,14 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         )
         if guidance is not None:
             not_enabled.guidance = guidance
+        if enablement_url is not None:
+            not_enabled.enablement_url = enablement_url
         raise not_enabled from error
 
     @property
     def _direct_access_enablement_url(self) -> str:
         """Get the web URL where the user can enable direct access for this connector."""
         return self.connector_url
-
-    def _direct_access_disabled_guidance(self) -> str:
-        """Return guidance that links to this connector's Agent Access setting."""
-        name = self._connector_info.name if self._connector_info else None
-        label = name or f"{self.connector_type} {self.connector_id}"
-        return (
-            f"Show the user this message as-is: Direct access is currently disabled for "
-            f"{label}. [Click here]({self._direct_access_enablement_url}) to enable it."
-        )
 
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
@@ -749,7 +743,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             self._raise_if_feature_not_enabled(
                 error,
                 ConnectorFeature.DIRECT_ACCESS,
-                guidance=self._direct_access_disabled_guidance(),
+                enablement_url=self._direct_access_enablement_url,
             )
             raise
 

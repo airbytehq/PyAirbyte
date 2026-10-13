@@ -342,10 +342,8 @@ def test_execute_error_handling(
         assert isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
         assert exc_info.value.connector_id == "source-1"
         assert exc_info.value.connector_name == "GitHub Issues"
-        assert exc_info.value.guidance == (
-            "Show the user this message as-is: Direct access is currently disabled for "
-            f"GitHub Issues. [Click here]({source.connector_url}) to enable it."
-        )
+        assert exc_info.value.enablement_url == source.connector_url
+        assert exc_info.value.guidance == AirbyteExternalAccessNotEnabledError.guidance
     else:
         assert isinstance(exc_info.value, AirbyteCloudError)
         assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
@@ -353,7 +351,7 @@ def test_execute_error_handling(
         assert exc_info.value.status_code == expected_status
 
 
-def test_execute_error_guidance_uses_fallback_label_without_connector_info(
+def test_execute_error_sets_enablement_url_without_connector_info(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
@@ -374,10 +372,8 @@ def test_execute_error_guidance_uses_fallback_label_without_connector_info(
     ):
         source.execute_api_query("issues")
 
-    assert exc_info.value.guidance == (
-        "Show the user this message as-is: Direct access is currently disabled for "
-        f"source source-1. [Click here]({source.connector_url}) to enable it."
-    )
+    assert exc_info.value.enablement_url == source.connector_url
+    assert exc_info.value.guidance == AirbyteExternalAccessNotEnabledError.guidance
 
 
 @pytest.mark.parametrize("method_name", ["execute_api_query", "execute_api_action"])
