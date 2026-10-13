@@ -105,9 +105,9 @@ def test_get_agent_skill_docs_reads_docs(
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
-    def fake_read_docs(**kwargs: Any) -> dict[str, Any]:
+    def fake_read_docs(**kwargs: Any) -> DirectAccessGuidance:
         calls.append(kwargs)
-        return SKILL_DOCS_RESPONSE
+        return DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
 
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fake_read_docs)
 
@@ -127,9 +127,9 @@ def test_get_agent_skill_docs_passes_section(
     workspace = _make_workspace(monkeypatch)
     calls: list[dict[str, Any]] = []
 
-    def fake_read_docs(**kwargs: Any) -> dict[str, Any]:
+    def fake_read_docs(**kwargs: Any) -> DirectAccessGuidance:
         calls.append(kwargs)
-        return SKILL_DOCS_RESPONSE
+        return DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
 
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fake_read_docs)
 

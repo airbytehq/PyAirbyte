@@ -759,12 +759,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             else connector_docs.destination_skill_id(self.connector_id)
         )
         try:
-            docs = DirectAccessGuidance.model_validate(
-                agents_api_util.read_cloud_skill_docs(
-                    workspace_id=self.workspace.workspace_id,
-                    skill_id=skill_id,
-                    credentials=self.workspace._credentials,  # noqa: SLF001
-                )
+            docs = agents_api_util.read_cloud_skill_docs(
+                workspace_id=self.workspace.workspace_id,
+                skill_id=skill_id,
+                credentials=self.workspace._credentials,  # noqa: SLF001
             )
         except exc.AirbyteCloudError as error:
             if not agents_api_util.is_not_enabled_error(error):
@@ -886,13 +884,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     "definition_id": self.definition_id,
                 },
             )
-        return DirectAccessGuidance.model_validate(
-            agents_api_util.read_cloud_skill_docs(
-                workspace_id=self.workspace.workspace_id,
-                skill_id=skill_id,
-                credentials=self.workspace._credentials,  # noqa: SLF001
-                section=section,
-            )
+        return agents_api_util.read_cloud_skill_docs(
+            workspace_id=self.workspace.workspace_id,
+            skill_id=skill_id,
+            credentials=self.workspace._credentials,  # noqa: SLF001
+            section=section,
         )
 
     def get_direct_access_guidance(self, *, section: str | None = None) -> DirectAccessGuidance:
@@ -931,13 +927,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 )
             skill_id = connector_docs.destination_skill_id(self.connector_id)
             try:
-                server_docs = DirectAccessGuidance.model_validate(
-                    agents_api_util.read_cloud_skill_docs(
-                        workspace_id=self.workspace.workspace_id,
-                        skill_id=skill_id,
-                        credentials=self.workspace._credentials,  # noqa: SLF001
-                        section=section,
-                    )
+                server_docs = agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
+                    skill_id=skill_id,
+                    credentials=self.workspace._credentials,  # noqa: SLF001
+                    section=section,
                 )
             except exc.AirbyteCloudError as error:
                 if not agents_api_util.is_not_enabled_error(error) or section is not None:

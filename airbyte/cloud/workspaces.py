@@ -629,13 +629,11 @@ class CloudWorkspace:
                 connector_docs.connector_id_from_skill_id(docs_skill_id)
             )
             return destination.read_agent_skill_docs(section=section)
-        return DirectAccessGuidance.model_validate(
-            agents_api_util.read_cloud_skill_docs(
-                workspace_id=self.workspace_id,
-                skill_id=docs_skill_id,
-                credentials=self._credentials,
-                section=section,
-            )
+        return agents_api_util.read_cloud_skill_docs(
+            workspace_id=self.workspace_id,
+            skill_id=docs_skill_id,
+            credentials=self._credentials,
+            section=section,
         )
 
     # Deploy sources and destinations

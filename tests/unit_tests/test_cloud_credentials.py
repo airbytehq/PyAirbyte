@@ -2412,6 +2412,30 @@ def test_cloud_connector_enablement_rejects_malformed_response(
     assert (exc_info.value.context or {})["path"] == "/sources/source-1/enablement"
 
 
+def test_read_cloud_skill_docs_rejects_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A skill-docs response missing `metadata` raises `AirbyteCloudError`, not `ValueError`."""
+    monkeypatch.setattr(
+        cloud_workspaces.agents_api_util,
+        "make_cloud_agent_request",
+        lambda **_: {"content": []},
+    )
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(  # noqa: SLF001
+        bearer_token="token", env_vars=False
+    )
+
+    with pytest.raises(
+        AirbyteCloudError, match="Malformed Airbyte Cloud skill docs"
+    ) as exc_info:
+        cloud_workspaces.agents_api_util.read_cloud_skill_docs(
+            workspace_id="workspace-1",
+            skill_id="connector-source:source-1",
+            credentials=credentials,
+        )
+    assert (exc_info.value.context or {})["skill_id"] == "connector-source:source-1"
+
+
 def test_cloud_connector_enablement_parses_destination_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

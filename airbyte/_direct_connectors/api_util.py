@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from airbyte._direct_connectors.models import (
     ConnectorEnablement,
+    DirectAccessGuidance,
     ExternalApiExecuteResult,
     ExternalSearchResult,
     ExternalSearchStatusResult,
@@ -350,21 +351,34 @@ def read_cloud_skill_docs(
     skill_id: str,
     credentials: _AirbyteCredentials,
     section: str | None = None,
-) -> dict[str, Any]:
+) -> DirectAccessGuidance:
     """Read skill docs for a workspace via the Cloud Config API.
 
     The `skill_id` is sent as the `id` query parameter, with `section` added only when
-    provided.
+    provided. A response that does not match `DirectAccessGuidance` raises
+    `AirbyteCloudError`.
     """
     params: dict[str, Any] = {"id": skill_id}
     if section is not None:
         params["section"] = section
-    return make_cloud_agent_request(
+    path = f"/workspaces/{workspace_id}/skills/docs"
+    response = make_cloud_agent_request(
         method="GET",
-        path=f"/workspaces/{workspace_id}/skills/docs",
+        path=path,
         credentials=credentials,
         params=params,
     )
+    try:
+        return DirectAccessGuidance.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteCloudError(
+            message="Malformed Airbyte Cloud skill docs response.",
+            context={
+                "path": path,
+                "skill_id": skill_id,
+                "errors": ex.errors(include_url=False),
+            },
+        ) from ex
 
 
 class _ConnectorLookup(NamedTuple):

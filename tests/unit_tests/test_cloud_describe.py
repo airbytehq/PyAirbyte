@@ -255,9 +255,9 @@ def test_direct_access_guidance_id_source_with_context_layer(
     _patch_context_layer(monkeypatch)
     calls: list[dict[str, Any]] = []
 
-    def fake_read_docs(**kwargs: Any) -> dict[str, Any]:
+    def fake_read_docs(**kwargs: Any) -> DirectAccessGuidance:
         calls.append(kwargs)
-        return SKILL_DOCS_RESPONSE
+        return DirectAccessGuidance.model_validate(SKILL_DOCS_RESPONSE)
 
     monkeypatch.setattr(
         agents_api_util,
@@ -438,7 +438,9 @@ def test_get_direct_access_guidance_destination_forwards_section_to_sonar(
         "section_id": "streams",
         "content": [{"type": "paragraph", "text": "Streams from Sonar."}],
     }
-    read_docs = MagicMock(return_value=section_response)
+    read_docs = MagicMock(
+        return_value=DirectAccessGuidance.model_validate(section_response)
+    )
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
     monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
     destination = _seed_destination(
@@ -485,7 +487,11 @@ def test_get_direct_access_guidance_destination_merges_server_docs(
     """A successful docs read gets a short local intro; the outline is unchanged."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
-    read_docs = MagicMock(return_value=DESTINATION_SKILL_DOCS_RESPONSE)
+    read_docs = MagicMock(
+        return_value=DirectAccessGuidance.model_validate(
+            DESTINATION_SKILL_DOCS_RESPONSE
+        )
+    )
     monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
     monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
     destination = _seed_destination(
