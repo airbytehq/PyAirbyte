@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from airbyte.sources.base import Source
 from airbyte.sources.util import (
     get_benchmark_source,
@@ -12,18 +10,7 @@ from airbyte.sources.util import (
 )
 
 
-# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
-if TYPE_CHECKING:
-    # ruff: noqa: TC004  # imports used for more than type checking
-    from airbyte.sources import (
-        base,
-        util,
-    )
-
 __all__ = [
-    # Submodules
-    "base",
-    "util",
     # Factories
     "get_source",
     "get_benchmark_source",

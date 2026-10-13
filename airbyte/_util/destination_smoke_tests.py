@@ -27,9 +27,9 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import BaseModel
 
-from airbyte import get_source
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
+from airbyte.sources.util import get_source
 
 
 logger = logging.getLogger(__name__)

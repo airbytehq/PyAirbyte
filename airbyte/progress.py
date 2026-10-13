@@ -33,7 +33,6 @@ from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
-from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteStreamStatus,
@@ -423,7 +422,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """Log the start of a sync operation."""
         self._print_info_message(
             f"Started `{self.job_description}` sync at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+            f"`{datetime.datetime.now(datetime.UTC).strftime('%H:%M:%S')}`..."
         )
         # We access a non-public API here (noqa: SLF001) to get the runtime info for participants.
         self._send_telemetry(
@@ -432,9 +431,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
 
     def _log_sync_cancel(self) -> None:
-        print(
-            f"Canceled `{self.job_description}` sync at `{ab_datetime_now().strftime('%H:%M:%S')}`."
-        )
+        cancel_time = datetime.datetime.now(datetime.UTC).strftime("%H:%M:%S")
+        print(f"Canceled `{self.job_description}` sync at `{cancel_time}`.")
         self._send_telemetry(
             state=EventState.CANCELED,
             event_type=EventType.SYNC,
@@ -443,7 +441,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def _log_stream_read_start(self, stream_name: str) -> None:
         print(
             f"Read started on stream `{stream_name}` at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+            f"`{datetime.datetime.now(datetime.UTC).strftime('%H:%M:%S')}`..."
         )
         self.stream_read_start_times[stream_name] = time.time()
 
@@ -452,14 +450,14 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if stream_name not in self.stream_read_start_times:
             self._print_info_message(
                 f"Read started on stream `{stream_name}` at "
-                f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+                f"`{datetime.datetime.now(datetime.UTC).strftime('%H:%M:%S')}`..."
             )
             self.stream_read_start_times[stream_name] = time.time()
 
     def _log_stream_read_end(self, stream_name: str) -> None:
         self._print_info_message(
             f"Read completed on stream `{stream_name}` at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+            f"`{datetime.datetime.now(datetime.UTC).strftime('%H:%M:%S')}`..."
         )
         self.stream_read_end_times[stream_name] = time.time()
 
@@ -620,7 +618,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         print(
             f"Completed `{self.job_description}` sync at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`{streams_str}."
+            f"`{datetime.datetime.now(datetime.UTC).strftime('%H:%M:%S')}`{streams_str}."
         )
         self._log_read_metrics()
         self._send_telemetry(
@@ -638,7 +636,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._stop_rich_view()
         self._print_info_message(
             f"Failed `{self.job_description}` sync at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
+            f"`{datetime.datetime.now(datetime.UTC).strftime('%H:%M:%S')}`."
         )
         self._send_telemetry(
             state=EventState.FAILED,
