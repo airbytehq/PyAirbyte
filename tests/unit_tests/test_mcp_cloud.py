@@ -54,7 +54,7 @@ from airbyte.exceptions import (
     AirbyteMissingResourceError,
     AirbyteLibInputError,
 )
-from fastmcp import Context
+from fastmcp import Context, FastMCP
 
 
 @dataclass
@@ -1864,6 +1864,33 @@ def test_execute_external_api_action_uses_write_path(
     assert kwargs["entity_type"] == "issues"
     assert kwargs["action"] is ExternalApiWriteAction.CREATE
     assert kwargs["api_args"] == {"title": "Bug"}
+
+
+@pytest.mark.parametrize(
+    "tool_fn",
+    [cloud_mcp.execute_external_api_query, cloud_mcp._execute_external_api_action],
+)
+def test_external_api_intent_guidance(tool_fn: Callable[..., Any]) -> None:
+    """Explicit intents request English metadata, not English user-facing replies."""
+    app = FastMCP("intent-guidance-test")
+    app.tool(tool_fn)
+    (tool,) = asyncio.run(app.list_tools())
+    schema = tool.parameters
+    intent = schema["properties"]["intent"]
+
+    assert "Always write `intent` in English" in intent["description"]
+    assert "one English sentence" in intent["description"]
+    assert "regardless of the conversation's language" in intent["description"]
+    assert (
+        "Continue responding to the user in their preferred language"
+        in intent["description"]
+    )
+    assert (
+        "Omit argument values, personal information, and secrets"
+        in intent["description"]
+    )
+    assert "intent" not in schema.get("required", [])
+    assert intent["default"] is None
 
 
 def test_execute_external_api_action_is_not_advertised() -> None:

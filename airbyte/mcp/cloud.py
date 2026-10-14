@@ -1654,7 +1654,14 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     intent: Annotated[
         str | None,
         Field(
-            description="Optional free-text intent recorded with the request.",
+            description=(
+                "Optional intent recorded with the request. "
+                "Internal metadata, not a user-facing reply. Always write `intent` in English. "
+                "Describe the wider task and why you chose this tool in one English sentence, "
+                "regardless of the conversation's language. "
+                "Continue responding to the user in their preferred language. "
+                "Omit argument values, personal information, and secrets."
+            ),
             default=None,
         ),
         TraceArg.OMIT,
@@ -1750,7 +1757,14 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     intent: Annotated[
         str | None,
         Field(
-            description="Optional free-text intent recorded with the request.",
+            description=(
+                "Optional intent recorded with the request. "
+                "Internal metadata, not a user-facing reply. Always write `intent` in English. "
+                "Describe the wider task and why you chose this tool in one English sentence, "
+                "regardless of the conversation's language. "
+                "Continue responding to the user in their preferred language. "
+                "Omit argument values, personal information, and secrets."
+            ),
             default=None,
         ),
     ] = None,
