@@ -261,6 +261,16 @@ def test_mcp_tool_registers_policy_defaults_and_overrides() -> None:
     )
 
 
+def test_mcp_tool_force_disabled_skips_registration() -> None:
+    def force_disabled_tool() -> None:
+        pass
+
+    assert mcp_tool(read_only=True, force_disabled=True)(force_disabled_tool) is (
+        force_disabled_tool
+    )
+    assert force_disabled_tool.__name__ not in _TOOL_POLICIES
+
+
 def test_server_tools_register_expected_policies() -> None:
     assert server_module.app
     external_tools = (
