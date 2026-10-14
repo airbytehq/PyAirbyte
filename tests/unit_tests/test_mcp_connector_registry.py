@@ -646,3 +646,89 @@ def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
     assert result.config_spec_jsonschema is None
     assert result.manifest_url is not None
     connector.install.assert_not_called()
+
+
+def _registry_entry(**overrides: object) -> dict:
+    """Build a minimal registry entry for `source-faker`."""
+    entry: dict = {
+        "dockerRepository": "airbyte/source-faker",
+        "dockerImageTag": "7.2.1",
+        "sourceDefinitionId": "source-faker-definition",
+        "name": "Faker",
+        "tags": [],
+        "suggestedStreams": {"streams": []},
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_registry_entry_release_date_falls_back_to_commit_timestamp() -> None:
+    """Entries without `releaseDate` use the version's git commit timestamp date."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    entry = _registry_entry(
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59-07:00"}},
+    )
+    metadata = _registry_entry_to_connector_metadata(entry)
+
+    assert metadata.release_date == "2026-07-10"
+
+
+def test_registry_entry_release_date_prefers_release_date_field() -> None:
+    """An explicit `releaseDate` wins over the commit timestamp."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    entry = _registry_entry(
+        releaseDate="2026-01-01",
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59-07:00"}},
+    )
+    metadata = _registry_entry_to_connector_metadata(entry)
+
+    assert metadata.release_date == "2026-01-01"
+
+
+def test_registry_entry_release_date_none_without_any_date() -> None:
+    """Entries with neither `releaseDate` nor a commit timestamp report None."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    metadata = _registry_entry_to_connector_metadata(_registry_entry())
+
+    assert metadata.release_date is None
+
+
+def _mock_registry_response(entry: dict) -> MagicMock:
+    response = MagicMock()
+    response.json.return_value = {"sources": [entry], "destinations": []}
+    response.raise_for_status = MagicMock()
+    return response
+
+
+def test_fetch_registry_version_date_uses_current_version_commit_timestamp() -> None:
+    """The connector's own entry supplies the date for its current version."""
+    from airbyte._registry_utils import fetch_registry_version_date
+
+    entry = _registry_entry(
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59-07:00"}},
+    )
+    with patch("airbyte._registry_utils.requests.get") as mock_get:
+        mock_get.return_value = _mock_registry_response(entry)
+        assert fetch_registry_version_date("source-faker", "7.2.1") == "2026-07-10"
+
+
+def test_fetch_registry_version_date_reads_release_candidates() -> None:
+    """Non-current versions still resolve through `releases.releaseCandidates`."""
+    from airbyte._registry_utils import fetch_registry_version_date
+
+    entry = _registry_entry(
+        releases={
+            "releaseCandidates": {
+                "8.0.0-rc.1": {
+                    "generated": {"git": {"commit_timestamp": "2026-08-01T00:00:00Z"}},
+                },
+            },
+        },
+    )
+    with patch("airbyte._registry_utils.requests.get") as mock_get:
+        mock_get.return_value = _mock_registry_response(entry)
+        assert fetch_registry_version_date("source-faker", "8.0.0-rc.1") == "2026-08-01"
+        assert fetch_registry_version_date("source-faker", "0.0.0") is None
