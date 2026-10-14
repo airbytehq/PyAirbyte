@@ -636,14 +636,20 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     ) -> None:
         """Map a forbidden or not-found `error` to a clear error, when one applies.
 
-        Only a 403 or 404 is re-checked against the connector's enablement, and only an
-        enablement lookup reporting `feature` as disabled raises
+        Only a 403 or 404 (or a 409 for `SEARCH_INDEXING`) is re-checked against the
+        connector's enablement, and only an enablement lookup reporting `feature` as disabled raises
         `AirbyteExternalAccessNotEnabledError`. When the enablement lookup itself fails,
         `error` is re-raised instead: with wrong-ID guidance on a 404 (no connector of
         this kind), with access guidance on a 403, and as-is otherwise. When `feature` is
         enabled, this returns.
         """
-        if not agents_api_util.is_not_enabled_error(error):
+        # Search also reports a connector with search turned off as a 409 conflict.
+        search_disabled = (
+            feature == ConnectorFeature.SEARCH_INDEXING
+            and isinstance(error, exc.AirbyteCloudApiError)
+            and error.status_code == HTTPStatus.CONFLICT
+        )
+        if not (agents_api_util.is_not_enabled_error(error) or search_disabled):
             return
         try:
             enabled = self.is_feature_enabled(feature)

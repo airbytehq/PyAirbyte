@@ -1227,6 +1227,14 @@ def test_search_not_enabled_sets_organization_enablement_url(
             id="forbidden_disabled_raises_not_enabled",
         ),
         pytest.param(
+            409,
+            False,
+            AirbyteExternalAccessNotEnabledError,
+            None,
+            id="conflict_disabled_raises_not_enabled",
+        ),
+        pytest.param(409, True, AirbyteCloudError, 409, id="conflict_enabled_reraises"),
+        pytest.param(
             404, True, AirbyteCloudError, 404, id="not_found_enabled_reraises"
         ),
         pytest.param(
@@ -1269,7 +1277,7 @@ def test_search_error_handling(
     with flag_patch as flag_mock, pytest.raises(expected_exc) as exc_info:
         getattr(source, method_name)(*args)
 
-    if status_code in {403, 404}:
+    if status_code in {403, 404, 409}:
         flag_mock.assert_called_once_with(ConnectorFeature.SEARCH_INDEXING)
     else:
         flag_mock.assert_not_called()
