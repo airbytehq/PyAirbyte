@@ -1158,6 +1158,57 @@ def test_get_default_context_for_user_hints_setter_when_stored_default_missing()
     ]
 
 
+def test_get_default_context_for_user_verified_is_none_without_default() -> None:
+    """With no resolvable default, `verified` is None rather than False."""
+    patches = _api_patches(user={"userId": "user-id"})
+    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
+
+    assert context.default_workspace_id is None
+    assert context.default_workspace_verified is None
+    assert context.discovery_hints == [
+        "No default workspace is set. Use "
+        "set_default_cloud_workspace(user_email=<your email>, "
+        "workspace_id=<id>) to durably set one; it applies to both MCP "
+        "sessions and the Airbyte Cloud web app."
+    ]
+
+
+def test_get_default_context_for_user_configured_default_hint() -> None:
+    """A configured default without a profile default gets an accurate hint."""
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Configured",
+                notifications=models.NotificationsConfig(),
+                workspace_id="configured-workspace",
+            ),
+        ),
+    ):
+        context = CloudClient(
+            bearer_token="token",
+            workspace_id="configured-workspace",
+        ).get_default_context_for_user()
+
+    assert context.default_workspace_id == "configured-workspace"
+    assert context.default_workspace_verified is True
+    assert context.discovery_hints == [
+        "Your Airbyte user profile has no default workspace; this session "
+        "uses the configured workspace configured-workspace. Use "
+        "set_default_cloud_workspace(user_email=<your email>, "
+        "workspace_id=<id>) to set a durable default; it applies to "
+        "both MCP sessions and the Airbyte Cloud web app."
+    ]
+
+
 def test_get_default_context_for_user_omits_setter_hint_when_default_stored() -> None:
     patches = _api_patches(
         user={"userId": "user-id", "defaultWorkspaceId": "workspace-1"},

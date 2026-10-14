@@ -405,8 +405,12 @@ class CloudDefaultContextResult(BaseModel):
     default_workspace_name: str | None
     """The resolved default workspace name, if available."""
 
-    default_workspace_verified: bool
-    """Whether the resolved default workspace was verified as accessible."""
+    default_workspace_verified: bool | None
+    """Whether the resolved default workspace was verified as accessible.
+
+    `None` when no default workspace ID was resolved, since there is nothing
+    to verify.
+    """
 
     unvalidated_workspace_count: int = 0
     """Number of direct workspace grants not validated due to the validation cap."""
