@@ -3002,8 +3002,7 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         Field(
             description=(
                 "Path to a manifest YAML file on the machine running this MCP server. Use "
-                "instead of `manifest_yaml_text`; provide only one. Available only when "
-                "trusted execution is enabled."
+                "instead of `manifest_yaml_text`; provide only one."
             ),
             default=None,
         ),
@@ -3268,8 +3267,8 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
         Field(
             description=(
                 "Path to a manifest YAML file on the machine running this MCP server. Use "
-                "instead of `manifest_yaml_text`; provide only one. Available only when "
-                "trusted execution is enabled. Omit to leave the manifest unchanged."
+                "instead of `manifest_yaml_text`; provide only one. Omit to leave the "
+                "manifest unchanged."
             ),
             default=None,
         ),
