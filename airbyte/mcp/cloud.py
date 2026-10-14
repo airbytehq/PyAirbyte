@@ -3259,10 +3259,9 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
         str | None,
         Field(
             description=(
-                "New manifest. Full YAML contents of the declarative (low-code) connector "
-                "manifest: the file's text, not a filename or path. If the manifest is in a "
-                "file, read the file and pass its full contents here. Omit to leave the "
-                "manifest unchanged."
+                "Optional. New manifest. Full YAML contents of the declarative (low-code) "
+                "connector manifest: the file's text, not a filename or path. If the manifest "
+                "is in a file, read the file and pass its full contents here."
             ),
             default=None,
         ),
@@ -3271,8 +3270,7 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
         str | None,
         Field(
             description=(
-                "Path to a manifest YAML file on the machine running this MCP server. "
-                "Omit to leave the manifest unchanged."
+                "Optional. Path to a manifest YAML file on the machine running this MCP server."
             ),
             default=None,
         ),
