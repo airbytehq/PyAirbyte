@@ -277,7 +277,7 @@ def test_server_tools_register_expected_policies() -> None:
         assert _TOOL_POLICIES[tool_name].pipeline_change is False
 
     insiders_tools = {
-        name for name, policy in _TOOL_POLICIES.items() if policy.insiders
+        name for name, policy in _TOOL_POLICIES.items() if policy.insiders_only
     }
     assert insiders_tools == {
         "execute_external_search_query",

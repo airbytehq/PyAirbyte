@@ -188,14 +188,14 @@ def test_insiders_tool_visibility(
     caller_value: str | None,
     expected: bool,
 ) -> None:
-    """Tools registered with `insiders=True` follow the insiders env var and header."""
+    """Tools registered with `insiders_only=True` follow the insiders env var and header."""
     if env_value is not None:
         monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, env_value)
     if caller_value is not None:
         mcp_config[MCP_CONFIG_INSIDERS] = caller_value
     _tool_utils._TOOL_POLICIES["insiders_tool"] = _tool_utils.ToolPolicy(
         pipeline_change=False,
-        insiders=True,
+        insiders_only=True,
     )
     _tool_utils._TOOL_POLICIES["regular_tool"] = _tool_utils.ToolPolicy(
         pipeline_change=False,

@@ -1875,7 +1875,7 @@ def execute_external_sql_query(
     open_world=True,
     external_access=True,
     tracing=lambda args: agent_action_attributes("execute_external_search_query", args),
-    insiders=True,
+    insiders_only=True,
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -2004,7 +2004,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     read_only=True,
     idempotent=True,
     external_access=True,
-    insiders=True,
+    insiders_only=True,
 )
 def get_cloud_search_status(
     ctx: Context,

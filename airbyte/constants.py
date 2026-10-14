@@ -361,7 +361,7 @@ MCP_INSIDERS_MODULES: frozenset[str] = frozenset()
 """MCP tool modules that are hidden unless insiders mode is enabled.
 
 Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the module in
-the include list. Individual tools can also opt in with `mcp_tool(insiders=True)`; those
+the include list. Individual tools can also opt in with `mcp_tool(insiders_only=True)`; those
 are shown only when insiders mode is on, not by an include list.
 """
 
