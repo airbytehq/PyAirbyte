@@ -368,10 +368,10 @@ are shown only when insiders mode is on, not by an include list.
 MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
 """Environment variable that advertises insiders MCP tools. Off by default.
 
-Set to `1`/`true`/`yes` to advertise insiders tools (see `MCP_INSIDERS_MODULES`) to every
-caller, or to `0`/`false`/`no` to hide them from every caller. Either value overrides
-`MCP_INSIDERS_HEADER`; any other value, including an empty string, leaves the decision
-to that header.
+Set to `0`/`false`/`no` to hide insiders tools (see `MCP_INSIDERS_MODULES`) from every
+caller, regardless of `MCP_INSIDERS_HEADER`. Set to `1`/`true`/`yes` to advertise them by
+default; a caller can still opt out with `MCP_INSIDERS_HEADER: 0`. Any other value,
+including an empty string, leaves the decision to that header.
 """
 
 MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
@@ -380,7 +380,8 @@ MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
 Set to `1`/`true`/`yes` to add insiders tools (see `MCP_INSIDERS_MODULES`) to the advertised
 tool surface. This selects which tools are advertised and is not an access-control
 boundary: every insiders tool authorizes each call against the Airbyte API.
-`MCP_INSIDERS_ENV_VAR` overrides this header when explicitly set.
+A falsy `MCP_INSIDERS_ENV_VAR` overrides this header; a truthy one makes insiders tools
+the default, which this header can only narrow by setting it to `0`.
 """
 
 # MCP Config Arg Names (used with get_mcp_config)
