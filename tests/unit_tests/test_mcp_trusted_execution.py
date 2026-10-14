@@ -277,6 +277,39 @@ def test_manifest_file_schema_depends_on_trusted_execution(
             assert "manifest_yaml_text" in properties
             assert ("manifest_yaml_file" in properties) is enabled
             assert "manifest_yaml" not in properties
+            assert (
+                cloud.MANIFEST_YAML_SOURCE_HINT
+                in (getattr(tool, "description", None) or "")
+            ) is enabled
+            if enabled:
+                assert (
+                    "manifest_yaml_text"
+                    not in properties["manifest_yaml_file"]["description"]
+                )
+
+
+@pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])
+def test_publish_missing_manifest_error_depends_on_trusted_execution(
+    monkeypatch: MonkeyPatch,
+    enabled: bool,
+) -> None:
+    """The missing-manifest error only mentions the file argument when it is available."""
+    _set_trusted(monkeypatch, enabled=enabled)
+    app = FastMCP(f"manifest-error-{enabled}")
+    cloud.register_cloud_tools(app)
+
+    async def call_publish() -> object:
+        async with Client(app) as client:
+            return await client.call_tool(
+                "publish_custom_source_definition",
+                {"name": "x"},
+                raise_on_error=False,
+            )
+
+    result = asyncio.run(call_publish())
+    assert result.is_error  # type: ignore[attr-defined]
+    error_text = result.content[0].text  # type: ignore[attr-defined]
+    assert ("manifest_yaml_file" in error_text) is enabled
 
 
 _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
