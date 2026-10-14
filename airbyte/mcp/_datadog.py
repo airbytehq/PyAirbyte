@@ -64,14 +64,20 @@ _LEGACY_TELEMETRY_ARG = "telemetry"
 MCP_SESSION_ID_HEADER = "mcp-session-id"
 _MAX_INTENT_LENGTH = 4096
 INTENT_INSTRUCTIONS_SENTENCE = (
-    " Tools may accept an optional `intent` string; if present, "
-    "state in one sentence why you are calling the tool "
-    "(never credentials, identifiers or data values)."
+    " Tools may accept an optional `intent` string. This is internal metadata, "
+    "not a user-facing reply. Always write `intent` in English. "
+    "Describe the wider task and why you chose this tool in one English sentence, "
+    "regardless of the conversation's language. "
+    "Continue responding to the user in their preferred language. "
+    "Omit argument values, personal information, and secrets from `intent`."
 )
 _INTENT_SCHEMA = {
     "type": "string",
     "description": (
-        "Briefly describe the wider task and why you chose this tool, in English. "
+        "Internal metadata, not a user-facing reply. Always write `intent` in English. "
+        "Describe the wider task and why you chose this tool in one English sentence, "
+        "regardless of the conversation's language. "
+        "Continue responding to the user in their preferred language. "
         "Omit argument values, personal information, and secrets."
     ),
 }

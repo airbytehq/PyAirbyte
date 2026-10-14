@@ -1360,6 +1360,34 @@ def _native_http_contract():
                     )
                     assert response.status_code == 200
                     responses.append((method, params, response.json()))
+                instructions = responses[0][2]["result"]["instructions"]
+                assert "optional `intent`" in instructions
+                assert "Always write `intent` in English" in instructions
+                assert "one English sentence" in instructions
+                assert "regardless of the conversation's language" in instructions
+                assert (
+                    "Continue responding to the user in their preferred language"
+                    in instructions
+                )
+                assert (
+                    "Omit argument values, personal information, and secrets"
+                    in instructions
+                )
+                for tool in responses[1][2]["result"]["tools"]:
+                    schema = tool["inputSchema"]
+                    description = schema["properties"]["intent"]["description"]
+                    assert "Always write `intent` in English" in description
+                    assert "one English sentence" in description
+                    assert "regardless of the conversation's language" in description
+                    assert (
+                        "Continue responding to the user in their preferred language"
+                        in description
+                    )
+                    assert (
+                        "Omit argument values, personal information, and secrets"
+                        in description
+                    )
+                    assert "intent" not in schema.get("required", [])
                 lifecycle_spans = [
                     span
                     for span in spans
