@@ -461,7 +461,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         cursor: str | None = None,
         dry_run: bool = False,
     ) -> ExternalApiExecuteResult:
-        """Run a read-only SQL `SELECT` (or `SHOW TABLES`) through SQL passthrough.
+        """Run a read-only SQL statement through SQL passthrough.
+
+        Accepted statements are a single `SELECT`/`WITH` query or the `SHOW TABLES`,
+        `SHOW DATABASES`, or `DESCRIBE TABLE <table>` macro.
 
         `sql_dialect` defaults to the dialect registered for this connector's definition.
         `dry_run=True` validates the statement and returns the result columns without

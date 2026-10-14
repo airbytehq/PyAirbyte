@@ -1818,7 +1818,12 @@ def execute_external_sql_query(
     ],
     sql: Annotated[
         str,
-        Field(description="The read-only SQL statement to run, for example `SHOW TABLES`."),
+        Field(
+            description=(
+                "The read-only SQL statement to run: a `SELECT`/`WITH` query or the "
+                "`SHOW TABLES`, `SHOW DATABASES`, or `DESCRIBE TABLE <table>` macro."
+            )
+        ),
     ],
     sql_dialect: Annotated[
         str | None,
@@ -1869,12 +1874,14 @@ def execute_external_sql_query(
 
     Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
 
-    Run `SHOW TABLES` first to discover tables; `sql_dialect` defaults to the
-    destination's registered dialect. Use `dry_run=True` with
-    `SELECT * FROM <table> LIMIT 1` to discover a table's columns.
+    Run `SHOW TABLES` first to discover tables and `SHOW DATABASES` to see the
+    databases the destination is scoped to; `sql_dialect` defaults to the
+    destination's registered dialect. Use `DESCRIBE TABLE <table>` to return a
+    table's columns without reading rows.
 
-    `SHOW TABLES` is the only non-`SELECT` statement accepted and takes no
-    `LIMIT`; add a `LIMIT` to every `SELECT`. On Snowflake prefer unquoted
+    Accepted statements are a single `SELECT`/`WITH` query plus the `SHOW TABLES`,
+    `SHOW DATABASES`, and `DESCRIBE TABLE <table>` macros. The `SHOW` macros take
+    no `LIMIT`; add a `LIMIT` to every `SELECT`. On Snowflake prefer unquoted
     identifiers: double-quoting makes them case-sensitive.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
