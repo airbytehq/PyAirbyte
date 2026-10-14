@@ -230,7 +230,8 @@
     "workspace_id": "omit"
   },
   "publish_custom_source_definition": {
-    "manifest_yaml": "presence",
+    "manifest_yaml_file": "hash",
+    "manifest_yaml_text": "hash",
     "name": "fingerprint",
     "pre_validate": "value allowed=[false,true]",
     "testing_values": "presence",
@@ -335,7 +336,8 @@
   },
   "update_custom_source_definition": {
     "definition_id": "hash",
-    "manifest_yaml": "presence",
+    "manifest_yaml_file": "hash",
+    "manifest_yaml_text": "hash",
     "name": "fingerprint",
     "pre_validate": "value allowed=[false,true]",
     "testing_values": "presence",

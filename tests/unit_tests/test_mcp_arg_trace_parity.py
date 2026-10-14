@@ -68,8 +68,20 @@ def _plan() -> dict[str, dict[str, str]]:
 def test_inventory_matches_fixture() -> None:
     plan = _plan()
     if os.environ.get("UPDATE_ARG_TRACE_FIXTURE"):
+        assert all(
+            "manifest_yaml_file" in plan[name]
+            for name in (
+                "publish_custom_source_definition",
+                "update_custom_source_definition",
+            )
+        ), "Enable trusted execution when regenerating the fixture."
         FIXTURE.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
-    assert plan == json.loads(FIXTURE.read_text())
+
+    expected = json.loads(FIXTURE.read_text())
+    for name in ("publish_custom_source_definition", "update_custom_source_definition"):
+        if "manifest_yaml_file" not in plan[name]:
+            expected[name].pop("manifest_yaml_file", None)
+    assert plan == expected
 
 
 @pytest.fixture

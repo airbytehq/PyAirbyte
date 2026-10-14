@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -10,12 +11,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import pytest
+from fastmcp import Client, FastMCP
+
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
-    AirbyteTrustedExecutionRequiredError,
     AirbyteLibInputError,
+    AirbyteTrustedExecutionRequiredError,
 )
-from airbyte.mcp import local
+from airbyte.mcp import cloud, local
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
@@ -165,18 +168,21 @@ def test_resolve_connector_config_allows_when_trusted(
     assert resolve_connector_config(**kwargs) == expected
 
 
-def test_resolve_manifest_yaml_rejects_path_when_untrusted(
+def test_resolve_manifest_yaml_rejects_file_when_untrusted(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A `Path` manifest input requires trusted execution."""
+    """A local manifest file input requires trusted execution."""
     _set_trusted(monkeypatch, enabled=False)
     with pytest.raises(AirbyteTrustedExecutionRequiredError):
-        resolve_manifest_yaml(tmp_path / "manifest.yaml")
+        resolve_manifest_yaml(
+            manifest_yaml_text=None,
+            manifest_yaml_file=str(tmp_path / "manifest.yaml"),
+        )
 
 
 @pytest.mark.parametrize(
-    "manifest_yaml",
+    "manifest_yaml_text",
     [
         pytest.param("manifest.yaml", id="single-line-text"),
         pytest.param(
@@ -185,56 +191,92 @@ def test_resolve_manifest_yaml_rejects_path_when_untrusted(
         pytest.param("version: 0.1.0\ntype: DeclarativeSource", id="multiline-yaml"),
     ],
 )
-def test_resolve_manifest_yaml_preserves_inline_values_when_untrusted(
+@pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])
+def test_resolve_manifest_yaml_preserves_text(
     monkeypatch: MonkeyPatch,
-    manifest_yaml: str,
+    manifest_yaml_text: str,
+    enabled: bool,
 ) -> None:
-    """Untrusted execution preserves manifest strings as inline YAML."""
-    _set_trusted(monkeypatch, enabled=False)
-    resolved = resolve_manifest_yaml(manifest_yaml)
-    assert isinstance(resolved, str)
-    assert resolved == manifest_yaml
+    """Manifest text is never reinterpreted as a path."""
+    _set_trusted(monkeypatch, enabled=enabled)
+    resolved = resolve_manifest_yaml(
+        manifest_yaml_text=manifest_yaml_text,
+        manifest_yaml_file=None,
+    )
+    assert resolved == manifest_yaml_text
 
 
-def test_resolve_manifest_yaml_preserves_existing_path_when_trusted(
+def test_resolve_manifest_yaml_returns_file_path_when_trusted(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A `Path` manifest input is returned when trusted execution is enabled."""
+    """A local manifest file is resolved to a `Path` when trusted execution is enabled."""
     _set_trusted(monkeypatch, enabled=True)
     manifest_path = tmp_path / "manifest.yaml"
-    assert resolve_manifest_yaml(manifest_path) is manifest_path
+    assert (
+        resolve_manifest_yaml(
+            manifest_yaml_text=None,
+            manifest_yaml_file=str(manifest_path),
+        )
+        == manifest_path
+    )
 
 
-def test_resolve_manifest_yaml_converts_single_line_string_when_trusted(
+def test_resolve_manifest_yaml_rejects_both_inputs(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    """A single-line manifest string is treated as a file path when trusted."""
+    """Manifest text and a local file path cannot be supplied together."""
     _set_trusted(monkeypatch, enabled=True)
-    assert resolve_manifest_yaml("manifest.yaml") == Path("manifest.yaml")
+    with pytest.raises(
+        AirbyteLibInputError,
+        match="Provide only one of `manifest_yaml_text` or `manifest_yaml_file`\\.",
+    ):
+        resolve_manifest_yaml(
+            manifest_yaml_text="version: 0.1.0",
+            manifest_yaml_file="manifest.yaml",
+        )
 
 
 @pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])
-def test_resolve_manifest_yaml_preserves_none(
+def test_resolve_manifest_yaml_returns_none_when_inputs_omitted(
     monkeypatch: MonkeyPatch,
     enabled: bool,
 ) -> None:
     """A missing manifest stays missing in either execution mode."""
     _set_trusted(monkeypatch, enabled=enabled)
-    assert resolve_manifest_yaml(None) is None
+    assert (
+        resolve_manifest_yaml(
+            manifest_yaml_text=None,
+            manifest_yaml_file=None,
+        )
+        is None
+    )
 
 
-def test_resolve_manifest_yaml_does_not_read_file_when_untrusted(
+def test_manifest_file_schema_depends_on_trusted_execution(
     monkeypatch: MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    """A path string remains inline YAML when trusted execution is disabled."""
-    _set_trusted(monkeypatch, enabled=False)
-    manifest_path = tmp_path / "manifest.yaml"
-    manifest_path.write_text("version: 0.1.0\ntype: DeclarativeSource\n")
-    resolved = resolve_manifest_yaml(str(manifest_path))
-    assert isinstance(resolved, str)
-    assert resolved == str(manifest_path)
+    """The file argument is hidden from untrusted schemas and exposed to trusted callers."""
+    for enabled in (False, True):
+        _set_trusted(monkeypatch, enabled=enabled)
+        app = FastMCP(f"manifest-schema-{enabled}")
+        cloud.register_cloud_tools(app)
+
+        async def list_tools() -> dict[str, object]:
+            async with Client(app) as client:
+                return {tool.name: tool for tool in await client.list_tools()}
+
+        tools = asyncio.run(list_tools())
+
+        for tool_name in (
+            "publish_custom_source_definition",
+            "update_custom_source_definition",
+        ):
+            tool = tools[tool_name]
+            properties = tool.input_schema["properties"]  # type: ignore[attr-defined]
+            assert "manifest_yaml_text" in properties
+            assert ("manifest_yaml_file" in properties) is enabled
+            assert "manifest_yaml" not in properties
 
 
 _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
