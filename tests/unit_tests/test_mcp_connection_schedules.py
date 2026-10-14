@@ -30,7 +30,7 @@ from airbyte.mcp import cloud as cloud_mcp
 def _connection_response() -> models.ConnectionResponse:
     """Create a complete SDK response for the network boundary."""
     return models.ConnectionResponse(
-        connection_id="connection-id",
+        connection_id="12345678-1234-1234-1234-1234567890ab",
         created_at=0,
         destination_id="destination-id",
         name="name",
@@ -70,7 +70,7 @@ def schedule_backend(
     with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
         http.post(
             "https://config.example/custom/web_backend/connections/update",
-            json={"connectionId": "connection-id", "scheduleType": "basic"},
+            json={"connectionId": "12345678-1234-1234-1234-1234567890ab", "scheduleType": "basic"},
         )
         http.post("https://api.segment.io/v1/batch", json={"success": True})
         if request.param:
@@ -93,7 +93,7 @@ async def _update(server: FastMCP, **arguments: object) -> str:
     """Call the registered tool through the serialized MCP boundary."""
     async with Client(server) as client:
         result = await client.call_tool(
-            "update_cloud_connection", {"connection_id": "connection-id", **arguments}
+            "update_cloud_connection", {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments}
         )
     return str(result)
 
@@ -150,7 +150,7 @@ def test_direct_update_rejects_invalid_intervals_before_status_change(
     with pytest.raises(AirbyteLibInputError, match="positive whole number"):
         cloud_mcp.update_cloud_connection(
             ctx=None,
-            connection_id="connection-id",
+            connection_id="12345678-1234-1234-1234-1234567890ab",
             enabled=True,
             interval_hours=interval_hours,
             cron_expression=None,
@@ -189,7 +189,7 @@ def test_update_interval_schedule_serialized(
         "https://config.example/custom/web_backend/connections/update"
     )
     assert json.loads(calls[0].request.body) == {
-        "connectionId": "connection-id",
+        "connectionId": "12345678-1234-1234-1234-1234567890ab",
         "scheduleType": "basic",
         "scheduleData": {"basicSchedule": {"timeUnit": "hours", "units": 24}},
         "skipReset": True,
