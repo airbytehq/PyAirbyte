@@ -178,7 +178,7 @@ def test_resolve_manifest_yaml_rejects_path_when_untrusted(
 @pytest.mark.parametrize(
     "manifest_yaml",
     [
-        pytest.param("manifest.yaml", id="single-line-text"),
+        pytest.param("not-a-manifest", id="single-line-text"),
         pytest.param(
             '{"version": "0.1.0", "type": "DeclarativeSource"}', id="inline-json"
         ),
@@ -194,6 +194,27 @@ def test_resolve_manifest_yaml_preserves_inline_values_when_untrusted(
     resolved = resolve_manifest_yaml(manifest_yaml)
     assert isinstance(resolved, str)
     assert resolved == manifest_yaml
+
+
+@pytest.mark.parametrize(
+    "manifest_yaml",
+    [
+        pytest.param("manifest.yaml", id="relative-file"),
+        pytest.param("/private/tmp/session/bill_manifest.yaml", id="absolute-yaml"),
+        pytest.param("~/connectors/manifest.YML", id="home-yml"),
+        pytest.param("./manifest", id="dot-relative"),
+    ],
+)
+def test_resolve_manifest_yaml_rejects_path_like_text_when_untrusted(
+    monkeypatch: MonkeyPatch,
+    manifest_yaml: str,
+) -> None:
+    """Untrusted execution rejects single-line path-like text and asks for inline content."""
+    _set_trusted(monkeypatch, enabled=False)
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        resolve_manifest_yaml(manifest_yaml)
+    assert exc_info.value.guidance is not None
+    assert "inline" in exc_info.value.guidance
 
 
 def test_resolve_manifest_yaml_preserves_existing_path_when_trusted(
@@ -228,13 +249,13 @@ def test_resolve_manifest_yaml_does_not_read_file_when_untrusted(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A path string remains inline YAML when trusted execution is disabled."""
+    """A path string is rejected, not read, when trusted execution is disabled."""
     _set_trusted(monkeypatch, enabled=False)
     manifest_path = tmp_path / "manifest.yaml"
     manifest_path.write_text("version: 0.1.0\ntype: DeclarativeSource\n")
-    resolved = resolve_manifest_yaml(str(manifest_path))
-    assert isinstance(resolved, str)
-    assert resolved == str(manifest_path)
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        resolve_manifest_yaml(str(manifest_path))
+    assert "version: 0.1.0" not in str(exc_info.value)
 
 
 _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [

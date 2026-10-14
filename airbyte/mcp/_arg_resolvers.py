@@ -113,7 +113,25 @@ def resolve_manifest_yaml(manifest_yaml: str | Path | None) -> str | Path | None
     if is_trusted_execution_enabled():
         return Path(manifest_yaml)
 
+    if _looks_like_file_path(manifest_yaml):
+        raise AirbyteLibInputError(
+            message="`manifest_yaml` looks like a file path, which this server cannot read.",
+            guidance=(
+                "This MCP server does not run on your machine and cannot read local files. "
+                "Pass the manifest content inline as the `manifest_yaml` value."
+            ),
+            context={"manifest_yaml": manifest_yaml},
+        )
+
     return manifest_yaml
+
+
+def _looks_like_file_path(value: str) -> bool:
+    """Return True for a single-line value shaped like a manifest file path."""
+    stripped = value.strip()
+    return stripped.lower().endswith((".yaml", ".yml", ".json")) or stripped.startswith(
+        ("/", "~", "./", "../")
+    )
 
 
 def resolve_connector_config(  # noqa: PLR0912
