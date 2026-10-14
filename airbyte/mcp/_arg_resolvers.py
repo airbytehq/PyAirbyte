@@ -16,7 +16,6 @@ import yaml
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.exceptions import AirbyteLibInputError
 from airbyte.mcp._guards import (
-    is_trusted_execution_enabled,
     raise_if_untrusted_execution_context,
 )
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
@@ -92,28 +91,24 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def resolve_manifest_yaml(manifest_yaml: str | Path | None) -> str | Path | None:
-    """Resolve inline YAML or gate local manifest paths behind trusted execution.
-
-    A local manifest path is a trusted-machine input and is rejected when trusted execution is
-    disabled.
-    """
-    if manifest_yaml is None:
-        return None
-
-    if isinstance(manifest_yaml, Path):
-        raise_if_untrusted_execution_context(
-            "Reading a connector manifest from a local file (`manifest_yaml` path)"
+def resolve_manifest_yaml(
+    *,
+    manifest_yaml_text: str | None,
+    manifest_yaml_file: str | None,
+) -> str | Path | None:
+    """Resolve manifest text or gate an explicit local manifest path behind trusted execution."""
+    if manifest_yaml_text is not None and manifest_yaml_file is not None:
+        raise AirbyteLibInputError(
+            message="Provide only one of `manifest_yaml_text` or `manifest_yaml_file`."
         )
-        return manifest_yaml
 
-    if "\n" in manifest_yaml:
-        return manifest_yaml
+    if manifest_yaml_file is not None:
+        raise_if_untrusted_execution_context(
+            "Reading a connector manifest from a local file (`manifest_yaml_file`)"
+        )
+        return Path(manifest_yaml_file)
 
-    if is_trusted_execution_enabled():
-        return Path(manifest_yaml)
-
-    return manifest_yaml
+    return manifest_yaml_text
 
 
 def resolve_connector_config(  # noqa: PLR0912

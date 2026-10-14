@@ -12,7 +12,6 @@ __all__: list[str] = []
 
 from collections.abc import Callable
 from http import HTTPStatus
-from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
@@ -88,6 +87,7 @@ from airbyte.mcp._docs_results import (
     render_connector_docs_result,
 )
 from airbyte.mcp._error_handling import format_user_facing_error, redact_agent_text
+from airbyte.mcp._guards import is_trusted_execution_enabled
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
@@ -118,6 +118,15 @@ DELETE_NAME_GUARD_TIP_TEXT = (
     "rename it themselves first."
 )
 WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
+MANIFEST_YAML_SOURCE_HINT = (
+    "Provide the manifest as either `manifest_yaml_text` or `manifest_yaml_file`, not both."
+)
+
+
+def _manifest_yaml_source_hint() -> str | None:
+    return MANIFEST_YAML_SOURCE_HINT if is_trusted_execution_enabled() else None
+
+
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
@@ -2969,8 +2978,8 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool()
-def publish_custom_source_definition(
+@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
+def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
         str,
@@ -2986,13 +2995,21 @@ def publish_custom_source_definition(
         ),
         TraceArg.OMIT,
     ],
-    manifest_yaml: Annotated[
-        str | Path | None,
+    manifest_yaml_text: Annotated[
+        str | None,
         Field(
             description=(
-                "The Low-code CDK manifest as inline YAML or a file path. File paths are "
-                "honored only when trusted execution is enabled; otherwise, the value is "
-                "treated as inline YAML. Required for YAML connectors."
+                "Full YAML contents of the declarative (low-code) connector manifest: the "
+                "file's text, not a filename or path."
+            ),
+            default=None,
+        ),
+    ] = None,
+    manifest_yaml_file: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Absolute path to a manifest YAML file on the machine running this MCP server."
             ),
             default=None,
         ),
@@ -3044,7 +3061,20 @@ def publish_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    processed_manifest = resolve_manifest_yaml(manifest_yaml)
+    processed_manifest = resolve_manifest_yaml(
+        manifest_yaml_text=manifest_yaml_text,
+        manifest_yaml_file=manifest_yaml_file,
+    )
+    if processed_manifest is None:
+        error_message = (
+            "Provide the manifest in `manifest_yaml_text` (full YAML contents) or "
+            "`manifest_yaml_file` (local path)."
+            if is_trusted_execution_enabled()
+            else "Provide the manifest's full YAML contents in `manifest_yaml_text`."
+        )
+        raise AirbyteLibInputError(
+            message=error_message,
+        )
 
     # Resolve testing values from inline config and/or secret
     testing_values_dict: dict[str, Any] | None = None
@@ -3220,27 +3250,34 @@ def get_connector_builder_draft_manifest(
     }
 
 
-@mcp_tool(
-    destructive=True,
-)
-def update_custom_source_definition(
+@mcp_tool(destructive=True, extra_help_text=_manifest_yaml_source_hint)
+def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     definition_id: Annotated[
         str,
         Field(description="The ID of the definition to update."),
     ],
-    manifest_yaml: Annotated[
-        str | Path | None,
+    *,
+    manifest_yaml_text: Annotated[
+        str | None,
         Field(
             description=(
-                "New manifest as inline YAML or a file path. File paths are honored only when "
-                "trusted execution is enabled; otherwise, the value is treated as inline YAML. "
-                "Optional; omit to update only testing values."
+                "Optional. New manifest. Full YAML contents of the declarative (low-code) "
+                "connector manifest: the file's text, not a filename or path."
             ),
             default=None,
         ),
     ] = None,
-    *,
+    manifest_yaml_file: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional. Absolute path to a manifest YAML file on the machine running this "
+                "MCP server."
+            ),
+            default=None,
+        ),
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -3300,8 +3337,7 @@ def update_custom_source_definition(
 
     Updates the definition name, manifest, and/or testing values for an existing custom source
     definition. Renaming also updates the Connector Builder project name.
-    At least one of name, manifest_yaml, testing_values, or testing_values_secret_name must be
-    provided.
+    Provide at least one value to update.
     """
     check_guid_created_in_session(definition_id)
 
@@ -3309,14 +3345,19 @@ def update_custom_source_definition(
 
     if (
         name is None
-        and manifest_yaml is None
+        and manifest_yaml_text is None
+        and manifest_yaml_file is None
         and testing_values is None
         and testing_values_secret_name is None
     ):
+        required_args = ["name", "manifest_yaml_text"]
+        if is_trusted_execution_enabled():
+            required_args.append("manifest_yaml_file")
+        required_args.extend(("testing_values", "testing_values_secret_name"))
         raise AirbyteLibInputError(
             message=(
-                "At least one of name, manifest_yaml, testing_values, or "
-                "testing_values_secret_name must be provided to update a custom source definition."
+                f"At least one of {', '.join(required_args)} must be provided to update "
+                "a custom source definition."
             ),
             context={
                 "definition_id": definition_id,
@@ -3324,7 +3365,10 @@ def update_custom_source_definition(
             },
         )
 
-    processed_manifest = resolve_manifest_yaml(manifest_yaml)
+    processed_manifest = resolve_manifest_yaml(
+        manifest_yaml_text=manifest_yaml_text,
+        manifest_yaml_file=manifest_yaml_file,
+    )
 
     # Resolve testing values from inline config and/or secret
     testing_values_dict: dict[str, Any] | None = None
@@ -4035,11 +4079,13 @@ def register_cloud_tools(app: FastMCP) -> None:
     Args:
         app: FastMCP application instance
     """
-    exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None
+    exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
+    if not is_trusted_execution_enabled():
+        exclude_args.append("manifest_yaml_file")
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(
         app,
         mcp_module=__name__,
-        exclude_args=exclude_args,
+        exclude_args=exclude_args or None,
     )
