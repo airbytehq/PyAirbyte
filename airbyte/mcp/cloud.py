@@ -2991,8 +2991,8 @@ def publish_custom_source_definition(
         Field(
             description=(
                 "The Low-code CDK manifest as inline YAML or a file path. File paths are "
-                "honored only when trusted execution is enabled; otherwise, the value is "
-                "treated as inline YAML. Required for YAML connectors."
+                "honored only when trusted execution is enabled; otherwise, pass the manifest "
+                "content inline (path-like values are rejected). Required for YAML connectors."
             ),
             default=None,
         ),
@@ -3234,7 +3234,8 @@ def update_custom_source_definition(
         Field(
             description=(
                 "New manifest as inline YAML or a file path. File paths are honored only when "
-                "trusted execution is enabled; otherwise, the value is treated as inline YAML. "
+                "trusted execution is enabled; otherwise, pass the manifest content inline "
+                "(path-like values are rejected). "
                 "Optional; omit to update only testing values."
             ),
             default=None,
