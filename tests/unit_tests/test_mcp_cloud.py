@@ -725,6 +725,7 @@ def test_describe_cloud_organization_excludes_billing_fields(
         organization_id="org-id",
         organization_name="Organization",
         email="org@example.com",
+        email_domain="example.com",
         enabled_features=[],
     )
     monkeypatch.setattr(

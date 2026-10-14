@@ -331,7 +331,13 @@ class CloudOrganizationResult(BaseModel):
     name: str | None = None
     """Display name of the organization, when available."""
     email: str | None = None
-    """Email associated with the organization, when available."""
+    """Email associated with the organization, when available.
+
+    Only returned by `describe_cloud_organization`; `list_cloud_organizations`
+    reports `email_domain` instead.
+    """
+    email_domain: str | None = None
+    """Domain of the organization's contact email (lowercased), when an email is known."""
     enabled_features: list[OrganizationFeature]
     """Features enabled for this organization; see `OrganizationFeature`."""
 
@@ -2540,10 +2546,12 @@ def list_cloud_workspaces(
             ),
         )
 
+    web_url_root = api_util.get_web_url_root(client.public_api_root)
     results = [
         CloudWorkspaceResult(
             workspace_id=ws.workspace_id,
             workspace_name=ws.name,
+            workspace_url=f"{web_url_root}/workspaces/{ws.workspace_id}",
             organization_id=ws.organization_id,
         )
         for ws in workspaces
@@ -2819,7 +2827,7 @@ def list_cloud_organizations(
             CloudOrganizationResult(
                 id=organization.organization_id,
                 name=organization.organization_name,
-                email=organization.email,
+                email_domain=organization.email_domain,
                 enabled_features=sorted(organization.enabled_features),
             )
             for organization in organizations
@@ -2919,6 +2927,7 @@ def describe_cloud_organization(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+        email_domain=org.email_domain,
         enabled_features=sorted(org.enabled_features),
     )
 
