@@ -2271,6 +2271,13 @@ def get_cloud_sync_logs(
     sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
     if not sync_result:
+        if job_id is None:
+            raise AirbyteMissingResourceError(
+                resource_type="sync job",
+                resource_name_or_id=connection_id,
+                message=f"Connection '{connection_id}' has no sync jobs yet.",
+                guidance="Run a sync first with `run_cloud_sync`, then request its logs.",
+            )
         raise AirbyteMissingResourceError(
             resource_type="sync job",
             resource_name_or_id=connection_id,
