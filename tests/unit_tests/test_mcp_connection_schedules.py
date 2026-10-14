@@ -70,7 +70,10 @@ def schedule_backend(
     with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
         http.post(
             "https://config.example/custom/web_backend/connections/update",
-            json={"connectionId": "12345678-1234-1234-1234-1234567890ab", "scheduleType": "basic"},
+            json={
+                "connectionId": "12345678-1234-1234-1234-1234567890ab",
+                "scheduleType": "basic",
+            },
         )
         http.post("https://api.segment.io/v1/batch", json={"success": True})
         if request.param:
@@ -93,7 +96,8 @@ async def _update(server: FastMCP, **arguments: object) -> str:
     """Call the registered tool through the serialized MCP boundary."""
     async with Client(server) as client:
         result = await client.call_tool(
-            "update_cloud_connection", {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments}
+            "update_cloud_connection",
+            {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments},
         )
     return str(result)
 
