@@ -289,10 +289,7 @@ def test_server_tools_register_expected_policies() -> None:
     insiders_tools = {
         name for name, policy in _TOOL_POLICIES.items() if policy.insiders_only
     }
-    assert insiders_tools == {
-        "execute_external_search_query",
-        "get_cloud_search_status",
-    }
+    assert insiders_tools == set()
 
 
 @pytest.mark.parametrize(

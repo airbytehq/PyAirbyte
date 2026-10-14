@@ -1892,13 +1892,35 @@ def execute_external_sql_query(
         return _direct_access_disabled_result(error, connector)
 
 
+def _search_disabled_errors(
+    error: AirbyteExternalAccessNotEnabledError,
+    connector: CloudConnector,
+) -> list[str]:
+    """Return user-facing search enablement guidance as MCP result errors."""
+    label = error.connector_name or f"{connector.connector_type} {connector.connector_id}"
+    if error.organization_enablement_url:
+        steps = (
+            f"If the Context layer isn't enabled for your organization yet, an organization "
+            f"admin can [click here]({error.organization_enablement_url}) to enable it first. "
+            f"Then [click here]({error.enablement_url}) to turn on agent access and search "
+            f"for {label} specifically."
+        )
+    else:
+        steps = f"[Click here]({error.enablement_url}) to enable it."
+    return [
+        f"Show the user this message as-is: Search is currently disabled for {label}. {steps}",
+        "Once search is enabled, the connector's synced data must be indexed before "
+        "searches return results. Call `get_cloud_search_status` to check which streams "
+        "are indexed and whether their backfill is complete.",
+    ]
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
     open_world=True,
     external_access=True,
     tracing=lambda args: agent_action_attributes("execute_external_search_query", args),
-    insiders_only=True,
 )
 def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the connector API.
     ctx: Context,
@@ -2010,24 +2032,30 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     connector = _get_cloud_connector(
         _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
     )
-    return connector.execute_search_query(
-        prompt,
-        search_type=search_type,
-        limit=limit,
-        streams=resolve_list_of_dicts(streams, arg_name="streams"),
-        lookback_seconds=lookback_seconds,
-        max_context_chars=max_context_chars,
-        min_similarity=min_similarity,
-        max_similarity_diff=max_similarity_diff,
-        destination_id=destination_id,
-    )
+    try:
+        return connector.execute_search_query(
+            prompt,
+            search_type=search_type,
+            limit=limit,
+            streams=resolve_list_of_dicts(streams, arg_name="streams"),
+            lookback_seconds=lookback_seconds,
+            max_context_chars=max_context_chars,
+            min_similarity=min_similarity,
+            max_similarity_diff=max_similarity_diff,
+            destination_id=destination_id,
+        )
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        return ExternalSearchResult(
+            hits=[], metadata=[], errors=_search_disabled_errors(error, connector)
+        )
 
 
 @mcp_tool(
     read_only=True,
     idempotent=True,
     external_access=True,
-    insiders_only=True,
 )
 def get_cloud_search_status(
     ctx: Context,
@@ -2080,7 +2108,14 @@ def get_cloud_search_status(
     connector = _get_cloud_connector(
         _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
     )
-    status = connector.get_search_status()
+    try:
+        status = connector.get_search_status()
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        return ExternalSearchStatusResult(
+            sources=[], errors=_search_disabled_errors(error, connector)
+        )
     if stream_name is None and namespace is None:
         return status
 

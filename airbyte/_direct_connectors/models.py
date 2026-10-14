@@ -376,6 +376,9 @@ class ExternalSearchResult(BaseModel):
     """Server warnings, plus per-index search errors collected from `metadata` so partial
     failures stand out, and a notice when no index was searched at all."""
 
+    errors: list[str] = Field(default_factory=list)
+    """Errors that stopped the search, for example search not being enabled."""
+
     @field_validator("warnings", mode="before")
     @classmethod
     def _none_to_empty(cls, value: object) -> object:
@@ -389,7 +392,7 @@ class ExternalSearchResult(BaseModel):
             for entry in self.metadata
             if entry.error
         ]
-        if not self.metadata:
+        if not self.metadata and not self.errors:
             collected.append(
                 "No index matched this search type and stream selection, so empty results "
                 "do not mean there are no matches. Call `get_cloud_search_status` to see "
@@ -506,6 +509,9 @@ class ExternalSearchStatusResult(BaseModel):
 
     warnings: list[str] = Field(default_factory=list)
     """Non-fatal issues, for example a stream filter that matched no indexed stream."""
+
+    errors: list[str] = Field(default_factory=list)
+    """Errors that stopped the status check, for example search not being enabled."""
 
     @field_validator("warnings", mode="before")
     @classmethod

@@ -597,7 +597,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             )
         except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
-                error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
+                error,
+                ConnectorFeature.SEARCH_INDEXING,
+                guidance=_SEARCH_NOT_ENABLED_GUIDANCE,
+                enablement_url=self.connector_url,
             )
             raise
 
@@ -616,7 +619,10 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             )
         except exc.AirbyteCloudError as error:
             self._raise_if_feature_not_enabled(
-                error, ConnectorFeature.SEARCH_INDEXING, guidance=_SEARCH_NOT_ENABLED_GUIDANCE
+                error,
+                ConnectorFeature.SEARCH_INDEXING,
+                guidance=_SEARCH_NOT_ENABLED_GUIDANCE,
+                enablement_url=self.connector_url,
             )
             raise
 
@@ -671,6 +677,11 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
             not_enabled.guidance = guidance
         if enablement_url is not None:
             not_enabled.enablement_url = enablement_url
+        if self._enablement is not None and self._enablement.organization_id:
+            not_enabled.organization_enablement_url = (
+                f"{get_web_url_root(self.workspace.api_root)}/organization/"
+                f"{self._enablement.organization_id}/context-layer"
+            )
         raise not_enabled from error
 
     @property

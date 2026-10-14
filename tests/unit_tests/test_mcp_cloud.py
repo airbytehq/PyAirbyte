@@ -1678,10 +1678,14 @@ class _RecordingExecuteConnector:
 
     def execute_search_query(self, prompt: str, **kwargs: object) -> object:
         self.calls.append(("search", {"prompt": prompt, **kwargs}))
+        if self.error is not None:
+            raise self.error
         return ExternalSearchResult(hits=[], metadata=[])
 
     def get_search_status(self) -> object:
         self.calls.append(("search_status", {}))
+        if self.error is not None:
+            raise self.error
         return ExternalSearchStatusResult.model_validate({
             "sources": [
                 {
@@ -2182,20 +2186,124 @@ def test_search_tools_use_connector_type_without_probe(
     assert [kind for kind, _ in connector.calls] == ["search", "search_status"]
 
 
+_SEARCH_ENABLEMENT_URL = (
+    "https://cloud.airbyte.com/workspaces/workspace-1/source/source-1"
+)
+
+
+_ORG_ENABLEMENT_URL = "https://cloud.airbyte.com/organization/org-1/context-layer"
+
+
 @pytest.mark.parametrize(
-    ("insiders_env", "expected"),
+    ("connector_name", "organization_url", "expected_message"),
     [
-        pytest.param(None, False, id="hidden_by_default"),
-        pytest.param("1", True, id="shown_with_insiders_env"),
-        pytest.param("0", False, id="hidden_with_insiders_env_off"),
+        pytest.param(
+            "GitHub Issues",
+            None,
+            "Show the user this message as-is: Search is currently disabled for "
+            f"GitHub Issues. [Click here]({_SEARCH_ENABLEMENT_URL}) to enable it.",
+            id="connector_link_only",
+        ),
+        pytest.param(
+            None,
+            None,
+            "Show the user this message as-is: Search is currently disabled for "
+            f"source source-1. [Click here]({_SEARCH_ENABLEMENT_URL}) to enable it.",
+            id="fallback_label",
+        ),
+        pytest.param(
+            "GitHub Issues",
+            _ORG_ENABLEMENT_URL,
+            "Show the user this message as-is: Search is currently disabled for "
+            "GitHub Issues. If the Context layer isn't enabled for your organization yet, "
+            f"an organization admin can [click here]({_ORG_ENABLEMENT_URL}) to enable it "
+            f"first. Then [click here]({_SEARCH_ENABLEMENT_URL}) to turn on agent access "
+            "and search for GitHub Issues specifically.",
+            id="organization_and_connector_links",
+        ),
     ],
 )
-def test_search_tools_are_insiders_only(
+def test_search_tools_return_search_disabled_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_name: str | None,
+    organization_url: str | None,
+    expected_message: str,
+) -> None:
+    """Both search tools return the enablement links and agent guidance when disabled."""
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_id="source-1",
+        connector_name=connector_name,
+        enablement_url=_SEARCH_ENABLEMENT_URL,
+        organization_enablement_url=organization_url,
+    )
+    connector = _RecordingExecuteConnector(error=error)
+    _execute_workspace(monkeypatch, connector)
+
+    search = cloud_mcp.execute_external_search_query(
+        None,
+        connector_id="source-1",
+        prompt="refund requests",
+        workspace_id=None,
+    )
+    status = cloud_mcp.get_cloud_search_status(
+        None,
+        connector_id="source-1",
+        stream_name="issues",
+        workspace_id=None,
+    )
+
+    expected_errors = [
+        expected_message,
+        "Once search is enabled, the connector's synced data must be indexed before "
+        "searches return results. Call `get_cloud_search_status` to check which streams "
+        "are indexed and whether their backfill is complete.",
+    ]
+    assert search.errors == expected_errors
+    assert search.hits == []
+    assert search.warnings == []
+    assert status.errors == expected_errors
+    assert status.sources == []
+    assert status.warnings == []
+
+
+@pytest.mark.parametrize(
+    "tool_name", ["execute_external_search_query", "get_cloud_search_status"]
+)
+def test_search_tools_reraise_without_enablement_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_name: str,
+) -> None:
+    """Search tools re-raise not-enabled errors that lack an enablement URL."""
+    error = AirbyteExternalAccessNotEnabledError(connector_id="source-1")
+    connector = _RecordingExecuteConnector(error=error)
+    _execute_workspace(monkeypatch, connector)
+    kwargs: dict[str, object] = (
+        {"prompt": "refund requests"}
+        if tool_name == "execute_external_search_query"
+        else {}
+    )
+
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+        getattr(cloud_mcp, tool_name)(
+            None, connector_id="source-1", workspace_id=None, **kwargs
+        )
+
+    assert exc_info.value is error
+
+
+@pytest.mark.parametrize(
+    "insiders_env",
+    [
+        pytest.param(None, id="insiders_unset"),
+        pytest.param("1", id="insiders_on"),
+        pytest.param("0", id="insiders_off"),
+    ],
+)
+def test_search_tools_are_always_advertised(
     monkeypatch: pytest.MonkeyPatch,
     insiders_env: str | None,
-    expected: bool,
 ) -> None:
-    """The search tools are advertised only in insiders mode."""
+    """The search tools are advertised to every caller, whatever the insiders mode."""
     from airbyte.mcp import server
 
     if insiders_env is None:
@@ -2203,8 +2311,7 @@ def test_search_tools_are_insiders_only(
     else:
         monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, insiders_env)
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
-    for tool_name in ("execute_external_search_query", "get_cloud_search_status"):
-        assert (tool_name in names) is expected
+    assert {"execute_external_search_query", "get_cloud_search_status"} <= names
 
 
 @pytest.mark.parametrize(
