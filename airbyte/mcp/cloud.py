@@ -603,8 +603,9 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
         str,
         Field(
             description=(
-                "The canonical name of the connector (e.g., 'source-faker' or "
-                "'destination-postgres')."
+                "The canonical registry name of the connector (e.g., 'source-faker' or "
+                "'destination-postgres'). Not a custom definition name or ID; see "
+                "`publish_custom_source_definition` for custom connectors."
             ),
         ),
         TraceArg.FINGERPRINT,
@@ -660,6 +661,10 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
     ] = False,
 ) -> str:
     """Deploy a source or destination connector to Airbyte Cloud.
+
+    Only for connectors in the Airbyte registry. For custom (e.g. YAML manifest) source
+    connectors, use `publish_custom_source_definition`, or `list_custom_source_definitions` and
+    `update_custom_source_definition` for one that already exists.
 
     With `defer_credentials=True`, returns a JSON `DeferredDeployResult` whose `settings_url`
     is where a person completes the credentials.
@@ -3040,6 +3045,8 @@ def publish_custom_source_definition(
     ],
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
+
+    For connectors already in the Airbyte registry, use `deploy_connector_to_cloud` instead.
 
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
