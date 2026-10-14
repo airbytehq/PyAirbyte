@@ -73,6 +73,24 @@ def _connection() -> CloudConnection:
     return CloudConnection(workspace=workspace, connection_id="connection-id")
 
 
+def test_get_connection_validates_connection_id_uuid() -> None:
+    """`get_connection` rejects malformed IDs before any API call."""
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+        api_root="https://api.airbyte.com/v1",
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        workspace.get_connection("not-a-uuid")
+
+    assert "`connection_id` must be a UUID." in str(exc_info.value)
+
+    connection_id = "12345678-1234-1234-1234-1234567890ab"
+    connection = workspace.get_connection(connection_id)
+    assert connection.connection_id == connection_id
+
+
 def _scheduled_connection_response(*, basic: bool = False) -> models.ConnectionResponse:
     """Create a response with a real public API schedule model."""
     return models.ConnectionResponse(

@@ -36,6 +36,7 @@ workspace.permanently_delete_source(deployed_source)
 from __future__ import annotations
 
 import contextlib
+import uuid
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -484,7 +485,17 @@ class CloudWorkspace:
 
         This method does not fetch data from the API. It returns a `CloudConnection` object,
         which will be loaded lazily as needed.
+
+        Raises:
+            AirbyteLibInputError: If `connection_id` is not a valid UUID.
         """
+        try:
+            uuid.UUID(connection_id)
+        except ValueError:
+            raise exc.AirbyteLibInputError(
+                message="`connection_id` must be a UUID.",
+                context={"connection_id": connection_id},
+            ) from None
         return CloudConnection(
             workspace=self,
             connection_id=connection_id,
