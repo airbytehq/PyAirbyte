@@ -36,6 +36,7 @@ from airbyte.cloud.models import (
     ConnectionStatus,
     JobStatusEnum,
 )
+from airbyte.constants import MCP_INSIDERS_ENV_VAR
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
@@ -2154,13 +2155,29 @@ def test_search_tools_use_connector_type_without_probe(
     assert [kind for kind, _ in connector.calls] == ["search", "search_status"]
 
 
-def test_search_tools_are_advertised() -> None:
-    """The search tools register unless `SEARCH_TOOLS_DISABLED` hides them."""
+@pytest.mark.parametrize(
+    ("insiders_env", "expected"),
+    [
+        pytest.param(None, False, id="hidden_by_default"),
+        pytest.param("1", True, id="shown_with_insiders_env"),
+        pytest.param("0", False, id="hidden_with_insiders_env_off"),
+    ],
+)
+def test_search_tools_are_insiders_only(
+    monkeypatch: pytest.MonkeyPatch,
+    insiders_env: str | None,
+    expected: bool,
+) -> None:
+    """The search tools are advertised only in insiders mode."""
     from airbyte.mcp import server
 
+    if insiders_env is None:
+        monkeypatch.delenv(MCP_INSIDERS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, insiders_env)
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
     for tool_name in ("execute_external_search_query", "get_cloud_search_status"):
-        assert (tool_name in names) is not cloud_mcp.SEARCH_TOOLS_DISABLED
+        assert (tool_name in names) is expected
 
 
 @pytest.mark.parametrize(

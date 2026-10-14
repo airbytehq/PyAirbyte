@@ -100,6 +100,7 @@ from airbyte.constants import (
     MCP_INSIDERS_MODULES,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
 )
+from airbyte.mcp._tool_utils import _TOOL_POLICIES  # noqa: PLC2701
 
 
 DEFAULT_OUTPUT = Path("docs/mcp-generated")
@@ -240,10 +241,11 @@ def _annotate_modules(
 ) -> None:
     """Preserve module/capability metadata in the inspect report.
 
-    `mcp_module` and `requiresClientFilesystem` never appear on the wire in
-    `mcp` 2, so the docs pipeline synthesizes them here from the internal
-    `ToolTraits` registry (`get_tool_traits`) and the `_REGISTERED_*`
-    fallback map — fields on the *report*, not on the wire tool.
+    `mcp_module`, `requiresClientFilesystem` and `insidersOnly` never appear on
+    the wire in `mcp` 2, so the docs pipeline synthesizes them here from the
+    internal `ToolTraits` registry (`get_tool_traits`), the `_TOOL_POLICIES`
+    registry, and the `_REGISTERED_*` fallback map — fields on the *report*,
+    not on the wire tool.
     """
     for section in ("tools", "prompts", "resources", "templates"):
         for item in report.get(section) or []:
@@ -256,6 +258,12 @@ def _annotate_modules(
                     item["annotations"] = {
                         **(item.get("annotations") or {}),
                         "requiresClientFilesystem": True,
+                    }
+                policy = _TOOL_POLICIES.get(str(key))
+                if policy and policy.insiders_only:
+                    item["annotations"] = {
+                        **(item.get("annotations") or {}),
+                        "insidersOnly": True,
                     }
 
 
@@ -425,6 +433,12 @@ def _render_hint_badges(
             f"(`{MCP_INSIDERS_ENV_VAR}=1` for stdio, `{MCP_INSIDERS_HEADER}: 1` for hosted "
             "servers, or name the module in the include-modules setting; "
             f"`{MCP_INSIDERS_ENV_VAR}=0` disables it regardless)."
+        )
+    elif annotations.get("insidersOnly") is True:
+        lines.append(
+            "**Availability:** experimental, insiders only "
+            f"(`{MCP_INSIDERS_ENV_VAR}=1` for stdio, `{MCP_INSIDERS_HEADER}: 1` for hosted "
+            f"servers; `{MCP_INSIDERS_ENV_VAR}=0` disables it regardless)."
         )
     if title := annotations.get("title"):
         lines.append(f"**Title:** {title}")

@@ -22,6 +22,7 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import ReadableSpan
 
+from airbyte.constants import MCP_INSIDERS_ENV_VAR
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import cloud
 from airbyte.mcp.server import app as server_app
@@ -49,15 +50,20 @@ CALLS: dict[str, dict[str, object]] = {
         "page_size": 10,
         "cursor": SENTINEL,
     },
-    "list_cloud_connections": {"name_contains": SENTINEL, "limit": 5},
-}
-if not cloud.SEARCH_TOOLS_DISABLED:
-    CALLS["execute_external_search_query"] = {
+    "execute_external_search_query": {
         "connector_id": CONNECTOR_ID,
         "prompt": f"find {SENTINEL}",
         "streams": [{"name": SENTINEL}],
         "limit": 3,
-    }
+    },
+    "list_cloud_connections": {"name_contains": SENTINEL, "limit": 5},
+}
+
+
+@pytest.fixture(autouse=True)
+def _insiders_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Advertise the insiders-only search tools so their args are covered."""
+    monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, "1")
 
 
 def _plan() -> dict[str, dict[str, str]]:
@@ -180,10 +186,6 @@ def test_records_match_fixture_and_exclude_raw_values(
     assert SENTINEL not in caplog.text
 
 
-@pytest.mark.skipif(
-    cloud.SEARCH_TOOLS_DISABLED,
-    reason="`execute_external_search_query` is hidden until the search backend is enabled.",
-)
 def test_prompt_records_carry_similarity_and_sql_stays_equality_only(
     traced_app: FastMCP,
 ) -> None:
