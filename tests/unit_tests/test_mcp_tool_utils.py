@@ -266,6 +266,8 @@ def test_server_tools_register_expected_policies() -> None:
     external_tools = (
         "execute_external_api_query",
         "execute_external_sql_query",
+        "execute_external_search_query",
+        "get_cloud_search_status",
         "get_agent_skill_docs",
     )
     for tool_name in external_tools:
@@ -273,6 +275,14 @@ def test_server_tools_register_expected_policies() -> None:
 
     for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
         assert _TOOL_POLICIES[tool_name].pipeline_change is False
+
+    insiders_tools = {
+        name for name, policy in _TOOL_POLICIES.items() if policy.insiders
+    }
+    assert insiders_tools == {
+        "execute_external_search_query",
+        "get_cloud_search_status",
+    }
 
 
 @pytest.mark.parametrize(

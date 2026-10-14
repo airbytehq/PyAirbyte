@@ -427,6 +427,7 @@ def _parse_csv_config(value: str) -> list[str]:
 class ToolPolicy:
     pipeline_change: bool
     external_access: bool = False
+    insiders: bool = False
 
 
 _TOOL_POLICIES: dict[str, ToolPolicy] = {}
@@ -457,11 +458,12 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     pipeline_change: bool | None = None,
     external_access: bool = False,
     tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True,
-    force_disabled: bool = False,
+    insiders: bool = False,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
     """Decorate an MCP tool with deferred Airbyte registration metadata.
 
-    When `force_disabled` is true, the function is returned unchanged and never registered.
+    When `insiders` is true, the tool is hidden unless insiders mode is on
+    (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`).
     """
     base_decorator = _mcp_tool(
         read_only=read_only,
@@ -479,8 +481,6 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
-        if force_disabled:
-            return func
         # Dedent first so the appended help text doesn't defeat FastMCP's dedent.
         if func.__doc__:
             func.__doc__ = inspect.cleandoc(func.__doc__)
@@ -492,6 +492,7 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
         _TOOL_POLICIES[decorated.__name__] = ToolPolicy(
             pipeline_change=not read_only if pipeline_change is None else pipeline_change,
             external_access=external_access,
+            insiders=insiders,
         )
         return decorated
 
@@ -572,6 +573,11 @@ def airbyte_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
         and get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, default=False)
         and destructive_tools_allowed(app) is False
     )
+
+
+def airbyte_insiders_tools_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide insiders-flagged tools unless insiders mode is on."""
+    return not get_tool_policy(tool).insiders or _insiders_mode(app) is True
 
 
 def _resolve_policy(

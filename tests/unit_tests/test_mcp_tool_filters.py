@@ -170,6 +170,42 @@ def test_insiders_gate_is_empty() -> None:
     assert config_arg.env_var == MCP_INSIDERS_ENV_VAR
 
 
+@pytest.mark.parametrize(
+    ("env_value", "caller_value", "expected"),
+    [
+        pytest.param(None, None, False, id="hidden_by_default"),
+        pytest.param(None, "1", True, id="caller_header_enables"),
+        pytest.param(None, "0", False, id="caller_header_disables"),
+        pytest.param("1", None, True, id="env_enables"),
+        pytest.param("1", "0", False, id="caller_narrows_env"),
+        pytest.param("0", "1", False, id="env_off_wins"),
+    ],
+)
+def test_insiders_tool_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    env_value: str | None,
+    caller_value: str | None,
+    expected: bool,
+) -> None:
+    """Tools registered with `insiders=True` follow the insiders env var and header."""
+    if env_value is not None:
+        monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, env_value)
+    if caller_value is not None:
+        mcp_config[MCP_CONFIG_INSIDERS] = caller_value
+    _tool_utils._TOOL_POLICIES["insiders_tool"] = _tool_utils.ToolPolicy(
+        pipeline_change=False,
+        insiders=True,
+    )
+    _tool_utils._TOOL_POLICIES["regular_tool"] = _tool_utils.ToolPolicy(
+        pipeline_change=False,
+    )
+
+    insiders_filter = _tool_utils.airbyte_insiders_tools_filter
+    assert insiders_filter(_tool("insiders_tool"), APP) is expected
+    assert insiders_filter(_tool("regular_tool"), APP) is True
+
+
 def test_sync_tools_stay_visible_when_pipeline_changes_are_disabled(
     monkeypatch: pytest.MonkeyPatch,
     mcp_config: dict[str, str],
