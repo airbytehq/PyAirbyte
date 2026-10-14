@@ -1896,7 +1896,11 @@ def _search_disabled_errors(
     error: AirbyteExternalAccessNotEnabledError,
     connector: CloudConnector,
 ) -> list[str]:
-    """Return user-facing search enablement guidance as MCP result errors."""
+    """Return user-facing search enablement guidance as MCP result errors.
+
+    TODO: Move this translation to the platform, which drops Sonar's specific search error
+    details today: https://linear.app/airbyteio/issue/PLAT-1557
+    """
     label = error.connector_name or f"{connector.connector_type} {connector.connector_id}"
     if error.organization_enablement_url:
         steps = (
