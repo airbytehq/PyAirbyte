@@ -453,7 +453,7 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     meta: Mapping[str, object] | None = None,
     app: AppConfig | None = None,
     required_capabilities: Iterable[Capability | str] | None = None,
-    extra_help_text: str | None = None,
+    extra_help_text: str | Callable[[], str | None] | None = None,
     pipeline_change: bool | None = None,
     external_access: bool = False,
     tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True,

@@ -10,14 +10,12 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
 import requests
 from fastmcp import Context, FastMCP
-from fastmcp.server.transforms import GetToolNext, Transform, VersionSpec
-from fastmcp.tools.base import Tool
 from fastmcp_extensions import TraceArg, get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -123,6 +121,12 @@ WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
 MANIFEST_YAML_SOURCE_HINT = (
     "Provide the manifest as either `manifest_yaml_text` or `manifest_yaml_file`, not both."
 )
+
+
+def _manifest_yaml_source_hint() -> str | None:
+    return MANIFEST_YAML_SOURCE_HINT if is_trusted_execution_enabled() else None
+
+
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
@@ -2974,7 +2978,7 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool()
+@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
 def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
@@ -3246,9 +3250,7 @@ def get_connector_builder_draft_manifest(
     }
 
 
-@mcp_tool(
-    destructive=True,
-)
+@mcp_tool(destructive=True, extra_help_text=_manifest_yaml_source_hint)
 def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     definition_id: Annotated[
@@ -4071,52 +4073,15 @@ def _add_defaults_for_exclude_args(
             func.__signature__ = sig.replace(parameters=new_params)  # type: ignore[attr-defined]
 
 
-class _ToolDescriptionSuffix(Transform):
-    """Append mode-specific guidance to selected tool descriptions."""
-
-    def __init__(self, suffixes: Mapping[str, str]) -> None:
-        self._suffixes = suffixes
-
-    def _apply(self, tool: Tool) -> Tool:
-        if tool.name not in self._suffixes:
-            return tool
-        suffix = self._suffixes[tool.name]
-        return tool.model_copy(
-            update={"description": f"{tool.description or ''}\n\n{suffix}".strip()}
-        )
-
-    async def list_tools(self, tools: Sequence[Tool]) -> Sequence[Tool]:
-        return [self._apply(tool) for tool in tools]
-
-    async def get_tool(
-        self,
-        name: str,
-        call_next: GetToolNext,
-        *,
-        version: VersionSpec | None = None,
-    ) -> Tool | None:
-        tool = await call_next(name, version=version)
-        return self._apply(tool) if tool is not None else None
-
-
 def register_cloud_tools(app: FastMCP) -> None:
     """Register cloud tools with the FastMCP app.
 
     Args:
         app: FastMCP application instance
     """
-    trusted = is_trusted_execution_enabled()
     exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
-    description_suffix: _ToolDescriptionSuffix | None = None
-    if not trusted:
+    if not is_trusted_execution_enabled():
         exclude_args.append("manifest_yaml_file")
-    else:
-        description_suffix = _ToolDescriptionSuffix(
-            {
-                "publish_custom_source_definition": MANIFEST_YAML_SOURCE_HINT,
-                "update_custom_source_definition": MANIFEST_YAML_SOURCE_HINT,
-            }
-        )
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(
@@ -4124,5 +4089,3 @@ def register_cloud_tools(app: FastMCP) -> None:
         mcp_module=__name__,
         exclude_args=exclude_args or None,
     )
-    if description_suffix is not None:
-        app.add_transform(description_suffix)
