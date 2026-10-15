@@ -117,6 +117,15 @@ _SEARCH_NOT_ENABLED_GUIDANCE = (
 )
 
 
+_GENERIC_CONFLICT_MESSAGES = frozenset(
+    {
+        "The request conflicts with the current resource state.",
+        "Airbyte Cloud returned HTTP 409.",
+    }
+)
+"""409 messages that carry no Cloud detail: the platform default and PyAirbyte's fallback."""
+
+
 class _ConnectorDefinitionLike(Protocol):
     """The connector definition fields PyAirbyte reads from the Cloud public API."""
 
@@ -636,18 +645,20 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     ) -> None:
         """Map a forbidden or not-found `error` to a clear error, when one applies.
 
-        Only a 403 or 404 (or a 409 for `SEARCH_INDEXING`) is re-checked against the
-        connector's enablement, and only an enablement lookup reporting `feature` as disabled raises
-        `AirbyteExternalAccessNotEnabledError`. When the enablement lookup itself fails,
-        `error` is re-raised instead: with wrong-ID guidance on a 404 (no connector of
-        this kind), with access guidance on a 403, and as-is otherwise. When `feature` is
-        enabled, this returns.
+        Only a 403 or 404 (or a 409 without Cloud detail for `SEARCH_INDEXING`) is re-checked
+        against the connector's enablement, and only an enablement lookup reporting `feature`
+        as disabled raises `AirbyteExternalAccessNotEnabledError`. When the enablement lookup
+        itself fails, `error` is re-raised instead: with wrong-ID guidance on a 404 (no
+        connector of this kind), with access guidance on a 403, and as-is otherwise. When
+        `feature` is enabled, this returns.
         """
-        # Search also reports a connector with search turned off as a 409 conflict.
+        # Search also reports a connector with search turned off as a 409 conflict. A 409
+        # with its own Cloud detail is relayed as-is instead.
         search_disabled = (
             feature == ConnectorFeature.SEARCH_INDEXING
             and isinstance(error, exc.AirbyteCloudApiError)
             and error.status_code == HTTPStatus.CONFLICT
+            and (error.message is None or error.message in _GENERIC_CONFLICT_MESSAGES)
         )
         if not (agents_api_util.is_not_enabled_error(error) or search_disabled):
             return
