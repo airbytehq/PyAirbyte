@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte._direct_connectors.models import (
+    ConnectorEnablement,
     ExternalApiExecuteResult,
     ExternalSearchHit,
     ExternalSearchResult,
@@ -1179,6 +1180,43 @@ def test_search_input_validation(
 
 @pytest.mark.parametrize("method_name", ["execute_search_query", "get_search_status"])
 @pytest.mark.parametrize(
+    ("organization_id", "expected_url"),
+    [
+        pytest.param(
+            "org-1",
+            "https://cloud.airbyte.com/organization/org-1/context-layer",
+            id="organization_known",
+        ),
+        pytest.param(None, None, id="organization_unknown"),
+    ],
+)
+def test_search_not_enabled_sets_organization_enablement_url(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    organization_id: str | None,
+    expected_url: str | None,
+) -> None:
+    """A search not-enabled error links to the org Context layer page when the org is known."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, {}, error=AirbyteCloudApiError(status_code=403))
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    source._enablement = ConnectorEnablement(  # noqa: SLF001
+        enable_agent_access=False,
+        enable_indexing=False,
+        organizationId=organization_id,
+    )
+    args = ("refunds",) if method_name == "execute_search_query" else ()
+
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+        getattr(source, method_name)(*args)
+
+    assert exc_info.value.enablement_url == source.connector_url
+    assert exc_info.value.organization_enablement_url == expected_url
+
+
+@pytest.mark.parametrize("method_name", ["execute_search_query", "get_search_status"])
+@pytest.mark.parametrize(
     ("status_code", "search_flag", "expected_exc", "expected_status"),
     [
         pytest.param(
@@ -1188,6 +1226,14 @@ def test_search_input_validation(
             None,
             id="forbidden_disabled_raises_not_enabled",
         ),
+        pytest.param(
+            409,
+            False,
+            AirbyteExternalAccessNotEnabledError,
+            None,
+            id="conflict_disabled_raises_not_enabled",
+        ),
+        pytest.param(409, True, AirbyteCloudError, 409, id="conflict_enabled_reraises"),
         pytest.param(
             404, True, AirbyteCloudError, 404, id="not_found_enabled_reraises"
         ),
@@ -1231,7 +1277,7 @@ def test_search_error_handling(
     with flag_patch as flag_mock, pytest.raises(expected_exc) as exc_info:
         getattr(source, method_name)(*args)
 
-    if status_code in {403, 404}:
+    if status_code in {403, 404, 409}:
         flag_mock.assert_called_once_with(ConnectorFeature.SEARCH_INDEXING)
     else:
         flag_mock.assert_not_called()
@@ -1240,10 +1286,59 @@ def test_search_error_handling(
         assert exc_info.value.connector_id == "source-1"
         assert exc_info.value.connector_name == "GitHub Issues"
         assert "search_indexing" in (exc_info.value.guidance or "")
+        assert exc_info.value.enablement_url == source.connector_url
     else:
         assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
         assert isinstance(exc_info.value, AirbyteCloudApiError)
         assert exc_info.value.status_code == expected_status
+
+
+@pytest.mark.parametrize("method_name", ["execute_search_query", "get_search_status"])
+@pytest.mark.parametrize(
+    ("message", "expected_exc"),
+    [
+        pytest.param(
+            "The request conflicts with the current resource state.",
+            AirbyteExternalAccessNotEnabledError,
+            id="platform_default_detail_raises_not_enabled",
+        ),
+        pytest.param(
+            "Airbyte Cloud returned HTTP 409.",
+            AirbyteExternalAccessNotEnabledError,
+            id="status_fallback_raises_not_enabled",
+        ),
+        pytest.param(
+            "Search is turned off for GitHub Issues.",
+            AirbyteCloudApiError,
+            id="cloud_detail_relayed",
+        ),
+    ],
+)
+def test_search_conflict_relays_cloud_detail(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    message: str,
+    expected_exc: type[Exception],
+) -> None:
+    """A search 409 with its own Cloud detail keeps that detail instead of local guidance."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    cloud_error = AirbyteCloudApiError(status_code=409, message=message)
+    _patch_search(monkeypatch, {}, error=cloud_error)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    args = ("refunds",) if method_name == "execute_search_query" else ()
+
+    with (
+        patch.object(CloudConnector, "is_feature_enabled", return_value=False),
+        pytest.raises(expected_exc) as exc_info,
+    ):
+        getattr(source, method_name)(*args)
+
+    if expected_exc is AirbyteCloudApiError:
+        assert exc_info.value is cloud_error
+        assert exc_info.value.message == message
+    else:
+        assert exc_info.value.__cause__ is cloud_error
 
 
 def test_search_methods_raise_without_context_layer(

@@ -626,6 +626,9 @@ class AirbyteExternalAccessNotEnabledError(AirbyteCloudError):
     enablement_url: str | None = None
     """The web URL where the user can enable direct access."""
 
+    organization_enablement_url: str | None = None
+    """The web URL where an organization admin can enable the Context layer, when known."""
+
 
 @dataclass
 class AirbyteCloudConnectionError(AirbyteCloudError):

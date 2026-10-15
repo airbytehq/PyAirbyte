@@ -22,7 +22,6 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import ReadableSpan
 
-from airbyte.constants import MCP_INSIDERS_ENV_VAR
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import cloud
 from airbyte.mcp.server import app as server_app
@@ -58,12 +57,6 @@ CALLS: dict[str, dict[str, object]] = {
     },
     "list_cloud_connections": {"name_contains": SENTINEL, "limit": 5},
 }
-
-
-@pytest.fixture(autouse=True)
-def _insiders_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Advertise the insiders-only search tools so their args are covered."""
-    monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, "1")
 
 
 def _plan() -> dict[str, dict[str, str]]:
