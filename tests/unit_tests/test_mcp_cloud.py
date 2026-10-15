@@ -2266,6 +2266,31 @@ def test_search_tools_return_search_disabled_errors(
     assert status.warnings == []
 
 
+def test_search_disabled_errors_are_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Credentials in the connector name or enablement URLs never reach the agent."""
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_id="source-1",
+        connector_name="GitHub Bearer abc.def-123",
+        enablement_url="https://user:pw@cloud.airbyte.com/source/source-1?token=s3cr3t",
+        organization_enablement_url=f"{_ORG_ENABLEMENT_URL}?token=s3cr3t",
+    )
+    connector = _RecordingExecuteConnector(error=error)
+    _execute_workspace(monkeypatch, connector)
+
+    search = cloud_mcp.execute_external_search_query(
+        None,
+        connector_id="source-1",
+        prompt="refund requests",
+        workspace_id=None,
+    )
+
+    message = search.errors[0]
+    for secret in ("abc.def-123", "user:pw", "s3cr3t"):
+        assert secret not in message
+    assert "Bearer <redacted>" in message
+    assert f"[click here]({_ORG_ENABLEMENT_URL})" in message
+
+
 @pytest.mark.parametrize(
     "tool_name", ["execute_external_search_query", "get_cloud_search_status"]
 )

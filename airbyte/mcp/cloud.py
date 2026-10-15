@@ -1912,7 +1912,9 @@ def _search_disabled_errors(
     else:
         steps = f"[Click here]({error.enablement_url}) to enable it."
     return [
-        f"Show the user this message as-is: Search is currently disabled for {label}. {steps}",
+        redact_agent_text(
+            f"Show the user this message as-is: Search is currently disabled for {label}. {steps}"
+        ),
         "Once search is enabled, the connector's synced data must be indexed before "
         "searches return results. Call `get_cloud_search_status` to check which streams "
         "are indexed and whether their backfill is complete.",
