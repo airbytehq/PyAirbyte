@@ -1155,6 +1155,12 @@ def test_search_rejects_malformed_response(
         pytest.param(
             "source", {"streams": [{"fields": ["id"]}]}, "`streams`", id="bad_stream"
         ),
+        pytest.param(
+            "destination",
+            {"streams": [{"stream_name": "issues"}]},
+            "`source_id`",
+            id="destination_stream_without_source_id",
+        ),
     ],
 )
 def test_search_input_validation(

@@ -291,7 +291,11 @@ class ExternalSearchStreamFilter(BaseModel):
     """The stream to search."""
 
     source_id: str | None = None
-    """The source the stream belongs to. May be omitted on a source-level search."""
+    """The source the stream belongs to.
+
+    Required on a destination search. May be omitted on a source search, where it must
+    match the searched source if given.
+    """
 
     namespace: str | None = None
     """The stream namespace, when the stream has one."""

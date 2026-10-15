@@ -1967,9 +1967,11 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
         Field(
             description=(
                 "Streams to search, as a list of objects or a JSON array string. Each "
-                "object takes `stream_name` plus optional `source_id`, `namespace`, and "
+                "object takes `stream_name`, `source_id`, and optional `namespace` and "
                 "`fields` (the `entity_data` fields to return; an output projection, not "
-                "a match filter). Omit to search every indexed stream."
+                "a match filter). `source_id` is required on a destination search; on a "
+                "source search it may be omitted, and must match the searched source if "
+                "given. Omit `streams` to search every indexed stream."
             ),
             default=None,
         ),
@@ -2025,8 +2027,10 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     """Search indexed data for a deployed Cloud source or destination.
 
     A source searches its own indexed data; a destination searches every indexed source
-    synced to it. When results are empty, call `get_cloud_search_status` to check which
-    streams are indexed and whether their backfill is complete.
+    synced to it. On a destination search, every `streams` entry needs the `source_id`
+    of the source that stream belongs to. When results are empty, call
+    `get_cloud_search_status` to check which streams are indexed and whether their
+    backfill is complete.
 
     Keep responses small: use `streams[].fields` to project each hit's `entity_data`
     (an output projection, not a match filter) and `max_context_chars` to truncate

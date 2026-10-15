@@ -526,7 +526,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Search this connector's indexed data.
 
         A source searches its own indexed streams; a destination searches every indexed
-        source synced to it. `min_similarity` and `max_similarity_diff` apply only to
+        source synced to it, so each `streams` entry on a destination search must name its
+        `source_id`. `min_similarity` and `max_similarity_diff` apply only to
         `semantic` and `hybrid` searches. `destination_id` selects the destination for a
         source synced to more than one enabled destination. Arguments left as `None` are
         omitted so the backend defaults apply. Requires search indexing to be enabled for
@@ -581,6 +582,17 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 ),
                 context={"errors": ex.errors(include_url=False)},
             ) from None
+        if self.connector_type == ConnectorType.DESTINATION and any(
+            "source_id" not in stream for stream in resolved_streams or []
+        ):
+            raise exc.AirbyteLibInputError(
+                message="Every `streams` entry needs a `source_id` on a destination search.",
+                guidance=(
+                    "Add the `source_id` of the source each stream belongs to; the "
+                    "destination's search status lists them."
+                ),
+                context={"connector_id": self.connector_id},
+            )
 
         optional_fields: dict[str, Any] = {
             "limit": limit,
