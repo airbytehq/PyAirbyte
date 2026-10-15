@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Literal, cast
+from unittest.mock import MagicMock
 
 import pytest
 import requests
@@ -45,6 +47,11 @@ def _stub_secret_detection(
         lambda: ["password", "api_key", "token", "secret", "email"],
     )
     monkeypatch.setattr(cloud_workspaces, "_get_deferred_spec", lambda _id: None)
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_custom_source_definition",
+        lambda *_args, **_kwargs: SimpleNamespace(connection_specification=None),
+    )
 
 
 def _actor_body(connector_type: str, *, draft: bool | None) -> dict[str, Any]:
@@ -359,13 +366,44 @@ def test_deploy_deferred_rejects_invalid_input_before_any_request(
 def test_deploy_source_rejects_dict_config_without_defer_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Raw source dictionaries are only accepted in deferred mode."""
+    """Raw source dictionaries require a definition ID or deferred credentials."""
     call = _stub_create(monkeypatch, "source")
 
-    with pytest.raises(exc.AirbyteLibInputError):
-        _deploy(_workspace(), "source", {"count": 10}, definition_id=DEFINITION_ID)
+    with pytest.raises(
+        exc.AirbyteLibInputError,
+        match=r"`source` must be a `Source` object unless `definition_id` or "
+        r"`defer_credentials=True` is given\.",
+    ):
+        _deploy(_workspace(), "source", {"count": 10})
 
     assert call.kwargs == {}
+
+
+def test_deploy_source_passes_custom_definition_config_without_source_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom source config is passed to the public API without a sourceType field."""
+    create_kwargs: dict[str, Any] = {}
+    monkeypatch.setattr(
+        api_util,
+        "create_source",
+        lambda **kwargs: (
+            create_kwargs.update(kwargs) or SimpleNamespace(source_id=ACTOR_ID)
+        ),
+    )
+    monkeypatch.setattr(api_util, "list_sources", lambda **_: [])
+    workspace = _workspace()
+
+    deployed = workspace.deploy_source(
+        name="My custom source",
+        source={"greeting": "hi"},
+        definition_id=DEFINITION_ID,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert create_kwargs["config"] == {"greeting": "hi"}
+    assert "sourceType" not in create_kwargs["config"]
+    assert create_kwargs["definition_id"] == DEFINITION_ID
 
 
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
@@ -464,6 +502,37 @@ def test_deploy_deferred_spec_still_rejects_secret_fields(
 
     assert call.kwargs == {}
     assert raised.value.context == {"fields": ["password"]}
+
+
+def test_deploy_deferred_uses_custom_source_spec_for_secret_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom source's secret schema supplements the registry and global secret masks."""
+    call = _stub_create(monkeypatch, "source")
+    workspace = _workspace()
+    get_definition = MagicMock(
+        return_value=SimpleNamespace(
+            connection_specification={
+                "type": "object",
+                "properties": {
+                    "my_token_field": {"type": "string", "airbyte_secret": True},
+                },
+            },
+        )
+    )
+    monkeypatch.setattr(workspace, "get_custom_source_definition", get_definition)
+
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        workspace.deploy_source(
+            name="My custom source",
+            source={"my_token_field": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    get_definition.assert_called_once_with(DEFINITION_ID, definition_type="yaml")
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["my_token_field"]}
 
 
 def test_get_connector_name_by_definition_id(

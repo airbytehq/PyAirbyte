@@ -656,12 +656,14 @@ class CloudWorkspace:
 
         Args:
             name: The name to use when deploying.
-            source: The source object to deploy, or (with `defer_credentials=True`) a
+            source: The source object to deploy, or a dictionary of configuration values
+                when `definition_id` is provided. With `defer_credentials=True`, pass a
                 dictionary of non-secret configuration values.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
-            definition_id: The source definition ID. Required with `defer_credentials=True`.
+            definition_id: The source definition ID. Required for a dictionary config (for
+                example, a custom definition ID) and with `defer_credentials=True`.
             defer_credentials: Save a draft with partial configuration. A person completes
                 credentials and other missing settings at the returned source's `connector_url`.
                 A successful connection check promotes the draft. Raises
@@ -680,12 +682,17 @@ class CloudWorkspace:
                 ),
             )
         if isinstance(source, dict):
-            raise exc.AirbyteLibInputError(
-                message="`source` must be a `Source` object unless `defer_credentials=True`.",
-            )
-
-        source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
-        source_config_dict["sourceType"] = source.name.replace("source-", "")
+            if definition_id is None:
+                raise exc.AirbyteLibInputError(
+                    message=(
+                        "`source` must be a `Source` object unless `definition_id` or "
+                        "`defer_credentials=True` is given."
+                    ),
+                )
+            source_config_dict = dict(source)
+        else:
+            source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
+            source_config_dict["sourceType"] = source.name.replace("source-", "")
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -799,10 +806,18 @@ class CloudWorkspace:
         random_name_suffix: bool,
     ) -> str:
         """Create a connector with deferred credentials on the Config API and return its ID."""
+        spec_json_schema = _get_deferred_spec(definition_id) if definition_id else None
+        if spec_json_schema is None and connector_type == "source" and definition_id:
+            with contextlib.suppress(exc.AirbyteLibError):
+                spec_json_schema = self.get_custom_source_definition(
+                    definition_id,
+                    definition_type="yaml",
+                ).connection_specification
+
         config_dict, definition_id = _deferred_credentials_config(
             config,
             definition_id=definition_id,
-            spec_json_schema=_get_deferred_spec(definition_id) if definition_id else None,
+            spec_json_schema=spec_json_schema,
         )
 
         if random_name_suffix:

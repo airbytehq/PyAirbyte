@@ -101,6 +101,41 @@ def test_publish_custom_yaml_source(
 
 
 @pytest.mark.requires_creds
+def test_deploy_source_from_custom_yaml_definition(
+    cloud_workspace: CloudWorkspace,
+) -> None:
+    """Deploy a custom YAML source definition by passing its ID and a config dictionary."""
+    from airbyte._util import text_util
+
+    name = f"delete-me-custom-yaml-source-{text_util.generate_random_suffix()}"
+    definition = cloud_workspace.publish_custom_source_definition(
+        name=name,
+        manifest_yaml=TEST_YAML_MANIFEST,
+        unique=True,
+        pre_validate=True,
+    )
+    deployed_source = None
+
+    try:
+        try:
+            deployed_source = cloud_workspace.deploy_source(
+                name=name,
+                source={},
+                definition_id=definition.definition_id,
+            )
+
+            assert deployed_source.definition_id == definition.definition_id
+        finally:
+            if deployed_source is not None:
+                cloud_workspace.permanently_delete_source(
+                    deployed_source,
+                    safe_mode=False,
+                )
+    finally:
+        definition.permanently_delete(safe_mode=False)
+
+
+@pytest.mark.requires_creds
 def test_yaml_validation_error(
     cloud_workspace: CloudWorkspace,
 ) -> None:

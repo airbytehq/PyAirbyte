@@ -22,6 +22,7 @@
     "config_secret_name": "fingerprint",
     "connector_name": "fingerprint",
     "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "custom_definition_id": "hash",
     "defer_credentials": "value allowed=[false,true]",
     "name": "fingerprint",
     "unique": "value allowed=[false,true]",

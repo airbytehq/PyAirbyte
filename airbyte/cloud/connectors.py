@@ -59,6 +59,7 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
+import jsonschema
 import requests
 import yaml
 from pydantic import ValidationError
@@ -1255,7 +1256,7 @@ class CloudDestination(CloudConnector):
         return result
 
 
-class CustomCloudSourceDefinition:
+class CustomCloudSourceDefinition:  # noqa: PLR0904
     """A custom source connector definition in Airbyte Cloud.
 
     This represents either a YAML (declarative) or Docker-based custom source definition.
@@ -1319,6 +1320,45 @@ class CustomCloudSourceDefinition:
         if not self._definition_info:
             self._definition_info = self._fetch_definition_info()
         return self._definition_info.manifest
+
+    @property
+    def connection_specification(self) -> dict[str, Any] | None:
+        """Get the JSON schema for this custom source's configuration."""
+        manifest = self.manifest
+        if manifest is None:
+            return None
+        manifest_spec = manifest.get("spec")
+        if not isinstance(manifest_spec, dict):
+            return None
+        connection_specification = manifest_spec.get("connection_specification")
+        return connection_specification if isinstance(connection_specification, dict) else None
+
+    def validate_config(self, config: dict[str, Any]) -> None:
+        """Validate the config against the custom source's connection specification."""
+        specification = self.connection_specification
+        if specification is None:
+            return
+
+        try:
+            jsonschema.validate(config, specification)
+        except jsonschema.ValidationError as ex:
+            json_path = "$"
+            for part in ex.absolute_path:
+                if isinstance(part, str):
+                    json_path += f".{part}"
+                elif isinstance(part, int):
+                    json_path += f"[{part}]"
+            raise exc.AirbyteConnectorValidationFailedError(
+                connector_name=self.name,
+                message=(
+                    f"The provided config is not valid at `{json_path}` "
+                    f"(failed the `{ex.validator}` rule)."
+                ),
+                context={
+                    "error_path": ex.path,
+                    "error_schema": ex.schema,
+                },
+            ) from ex
 
     @property
     def version(self) -> str | None:
@@ -1795,7 +1835,7 @@ class CustomCloudSourceDefinition:
             if manifest_spec:
                 spec = {
                     "documentationUrl": manifest_spec.get("documentation_url"),
-                    "connectionSpecification": manifest_spec.get("connection_specification", {}),
+                    "connectionSpecification": self.connection_specification or {},
                     "advancedAuth": manifest_spec.get("advanced_auth"),
                 }
 
