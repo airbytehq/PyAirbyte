@@ -786,10 +786,7 @@ def _deploy_deferred_to_cloud(  # noqa: PLR0913
     if custom_definition_id is not None:
         definition_id = custom_definition_id
     else:
-        if connector_name is None:
-            raise AirbyteLibInputError(
-                message="Provide a connector name when deploying a registry connector."
-            )
+        assert connector_name is not None
         metadata = get_connector_metadata(connector_name)
         if metadata is None or metadata.definition_id is None:
             raise AirbyteConnectorNotRegisteredError(connector_name=connector_name)

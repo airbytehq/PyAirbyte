@@ -65,6 +65,7 @@ import yaml
 from pydantic import ValidationError
 
 from airbyte import exceptions as exc
+from airbyte._connector_base import _json_path_from_absolute_path
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.actions import (
@@ -1342,16 +1343,11 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         try:
             jsonschema.validate(config, specification)
         except jsonschema.ValidationError as ex:
-            json_path = "$"
-            for part in ex.absolute_path:
-                if isinstance(part, str):
-                    json_path += f".{part}"
-                elif isinstance(part, int):
-                    json_path += f"[{part}]"
             raise exc.AirbyteConnectorValidationFailedError(
                 connector_name=self.name,
                 message=(
-                    f"The provided config is not valid at `{json_path}` "
+                    f"The provided config is not valid at "
+                    f"`{_json_path_from_absolute_path(ex.absolute_path)}` "
                     f"(failed the `{ex.validator}` rule)."
                 ),
                 context={
