@@ -36,7 +36,7 @@ from airbyte.cloud.models import (
     ConnectionStatus,
     JobStatusEnum,
 )
-from airbyte.constants import MCP_INSIDERS_ENV_VAR
+from airbyte.constants import MCP_INSIDERS_ENV_VAR, MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
@@ -1262,6 +1262,58 @@ def test_deploy_connector_to_cloud_supports_custom_definition(
     assert registered == ["deployed-id"]
     assert "deployed source 'My custom source'" in result
     assert "deployed-id" in result
+
+
+def test_deploy_connector_to_cloud_hydrates_custom_definition_secret_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Custom source secret references are hydrated before validation and deployment."""
+    monkeypatch.setenv(MCP_TRUSTED_EXECUTION_ENV_VAR, "1")
+    monkeypatch.setenv("SOME_ENV", "resolved-value")
+
+    definition = MagicMock()
+    definition.connection_specification = {
+        "type": "object",
+        "properties": {"api_key": {"type": "string", "airbyte_secret": True}},
+    }
+    deploy_calls: list[dict[str, object]] = []
+
+    def fake_deploy(**kwargs: object) -> SimpleNamespace:
+        deploy_calls.append(kwargs)
+        return SimpleNamespace(
+            connector_id="deployed-id",
+            connector_url="https://cloud.airbyte.com/deployed-id",
+        )
+
+    workspace = SimpleNamespace(
+        get_custom_source_definition=MagicMock(return_value=definition),
+        deploy_source=fake_deploy,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(cloud_mcp, "register_guid_created_in_session", lambda _: None)
+
+    cloud_mcp.deploy_connector_to_cloud(
+        cast(Context, object()),
+        name="My custom source",
+        connector_name=None,
+        custom_definition_id="custom-definition-id",
+        connector_type=None,
+        workspace_id=None,
+        config={"api_key": "secret_reference::SOME_ENV"},
+        config_secret_name=None,
+        unique=True,
+    )
+
+    resolved_config = {"api_key": "resolved-value"}
+    definition.validate_config.assert_called_once_with(resolved_config)
+    assert deploy_calls == [
+        {
+            "name": "My custom source",
+            "source": resolved_config,
+            "unique": True,
+            "definition_id": "custom-definition-id",
+        }
+    ]
 
 
 @pytest.mark.parametrize(

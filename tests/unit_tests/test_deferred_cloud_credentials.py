@@ -535,6 +535,37 @@ def test_deploy_deferred_uses_custom_source_spec_for_secret_detection(
     assert raised.value.context == {"fields": ["my_token_field"]}
 
 
+def test_deploy_deferred_uses_global_mask_when_custom_spec_fetch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed custom-spec lookup does not block deferred deploy or bypass the global mask."""
+    call = _stub_create(monkeypatch, "source")
+    monkeypatch.setattr(cloud_workspaces, "_get_deferred_spec", lambda _id: None)
+    workspace = _workspace()
+    get_definition = MagicMock(side_effect=RuntimeError("custom spec lookup failed"))
+    monkeypatch.setattr(workspace, "get_custom_source_definition", get_definition)
+
+    deployed = workspace.deploy_source(
+        name="My custom source",
+        source={"my_token_field": "plain-text-value"},
+        definition_id=DEFINITION_ID,
+        defer_credentials=True,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert call.kwargs["config"] == {"my_token_field": "plain-text-value"}
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        workspace.deploy_source(
+            name="My custom source with a masked credential",
+            source={"password": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert raised.value.context == {"fields": ["password"]}
+    assert get_definition.call_count == 2
+
+
 def test_get_connector_name_by_definition_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -808,7 +808,7 @@ class CloudWorkspace:
         """Create a connector with deferred credentials on the Config API and return its ID."""
         spec_json_schema = _get_deferred_spec(definition_id) if definition_id else None
         if spec_json_schema is None and connector_type == "source" and definition_id:
-            with contextlib.suppress(exc.AirbyteLibError):
+            with contextlib.suppress(Exception):
                 spec_json_schema = self.get_custom_source_definition(
                     definition_id,
                     definition_type="yaml",

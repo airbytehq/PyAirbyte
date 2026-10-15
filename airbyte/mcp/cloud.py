@@ -102,6 +102,7 @@ from airbyte.registry import (
     get_connector_metadata,
     get_connector_metadata_by_definition_id,
 )
+from airbyte.secrets.hydration import hydrate_secrets
 
 
 if TYPE_CHECKING:
@@ -730,6 +731,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
             config_secret_name=config_secret_name,
             config_spec_jsonschema=definition.connection_specification,
         )
+        config_dict = hydrate_secrets(config_dict)
         definition.validate_config(config_dict)
         deployed: CloudConnector = workspace.deploy_source(
             name=name,
