@@ -17,14 +17,20 @@ from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
 from airbyte._util import api_util
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.models import StreamConfigOverride
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
-from airbyte.exceptions import AirbyteLibInputError
+from airbyte.exceptions import (
+    AirbyteLibInputError,
+    AirbyteUnsafeStreamConfigChangeError,
+)
 from airbyte.mcp import _tool_utils
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte_protocol.models import SyncMode
 
 
 def _connection_response() -> models.ConnectionResponse:
@@ -102,6 +108,15 @@ async def _update(server: FastMCP, **arguments: object) -> str:
     return str(result)
 
 
+async def _unsafe_update(server: FastMCP, **arguments: object) -> str:
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "update_cloud_connection_unsafe",
+            {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments},
+        )
+    return str(result)
+
+
 def test_interval_schema() -> None:
     """Advertise an optional positive whole-hour interval for the update tool."""
     server = FastMCP("schedule-schema-tests")
@@ -119,8 +134,12 @@ def test_interval_schema() -> None:
         assert interval["default"] is None
         assert "interval_hours" not in update.input_schema.get("required", [])
         assert update.annotations is not None
-        assert update.annotations.destructive_hint is True
+        assert update.annotations.destructive_hint is False
         assert update.annotations.read_only_hint is False
+        unsafe = tools["update_cloud_connection_unsafe"]
+        assert unsafe.annotations is not None
+        assert unsafe.annotations.destructive_hint is True
+        assert "set_cloud_connection_stream_sync_mode" not in tools
 
     asyncio.run(inspect_tools())
 
@@ -338,3 +357,231 @@ def test_update_force_catalog_refresh(
     get_refreshed.assert_called_once()
     replace_catalog.assert_called_once()
     assert "refreshed catalog (1 streams)" in result
+
+
+@pytest.mark.parametrize(
+    ("defer_reset", "expected_skip_reset", "message"),
+    [
+        (False, False, "the platform will refresh or reset these streams"),
+        (True, True, "these streams have stale state"),
+    ],
+)
+def test_unsafe_update_controls_catalog_reset(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    defer_reset: bool,
+    expected_skip_reset: bool,
+    message: str,
+) -> None:
+    server, _http, _lookup, _patch = schedule_backend
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_catalog",
+        MagicMock(
+            return_value={
+                "syncCatalog": {
+                    "streams": [
+                        {
+                            "stream": {
+                                "name": "users",
+                                "namespace": "public",
+                                "supportedSyncModes": ["full_refresh", "incremental"],
+                            },
+                            "config": {
+                                "syncMode": "full_refresh",
+                                "destinationSyncMode": "append",
+                            },
+                        }
+                    ]
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_state",
+        MagicMock(
+            return_value={
+                "stateType": "stream",
+                "connectionId": "12345678-1234-1234-1234-1234567890ab",
+                "streamState": [
+                    {
+                        "streamDescriptor": {"name": "users", "namespace": "public"},
+                        "streamState": {"cursor": "saved"},
+                    }
+                ],
+            }
+        ),
+    )
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+
+    result = asyncio.run(
+        _unsafe_update(
+            server,
+            defer_reset=defer_reset,
+            override_stream_configs=[
+                {
+                    "stream_name": "users",
+                    "stream_namespace": "public",
+                    "sync_mode": "incremental",
+                    "cursor_field": "updated_at",
+                }
+            ],
+        )
+    )
+
+    assert replace_catalog.call_args.kwargs["skip_reset"] is expected_skip_reset
+    assert "users" in result
+    assert message in result
+    if defer_reset:
+        assert "no reset was run" in result
+    else:
+        assert "otherwise a reset clears that stream's destination data" in result
+
+
+def test_bad_refreshed_override_prevents_schedule_write(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, _http, _lookup, patch = schedule_backend
+    get_refreshed = MagicMock(
+        return_value={"syncCatalog": {"streams": [{"stream": {"name": "users"}}]}}
+    )
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_state",
+        MagicMock(
+            return_value={
+                "stateType": "not_set",
+                "connectionId": "12345678-1234-1234-1234-1234567890ab",
+            }
+        ),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        asyncio.run(
+            _update(
+                server,
+                interval_hours=24,
+                force_catalog_refresh=True,
+                override_stream_configs=[
+                    {"stream_name": "missing", "sync_mode": "full_refresh"}
+                ],
+            )
+        )
+
+    get_refreshed.assert_called_once()
+    replace_catalog.assert_not_called()
+    patch.assert_not_called()
+
+
+def test_update_refreshes_and_overrides_in_one_catalog_write(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, _http, _lookup, _patch = schedule_backend
+    get_refreshed = MagicMock(
+        return_value={
+            "syncCatalog": {
+                "streams": [
+                    {
+                        "stream": {
+                            "name": "users",
+                            "namespace": "public",
+                            "supportedSyncModes": ["full_refresh", "incremental"],
+                        },
+                        "config": {
+                            "syncMode": "full_refresh",
+                            "destinationSyncMode": "append",
+                        },
+                    }
+                ]
+            }
+        }
+    )
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_state",
+        MagicMock(
+            return_value={
+                "stateType": "not_set",
+                "connectionId": "12345678-1234-1234-1234-1234567890ab",
+            }
+        ),
+    )
+
+    result = asyncio.run(
+        _update(
+            server,
+            force_catalog_refresh=True,
+            override_stream_configs=[
+                {
+                    "stream_name": "users",
+                    "stream_namespace": "public",
+                    "sync_mode": "incremental",
+                    "cursor_field": "updated_at",
+                }
+            ],
+        )
+    )
+
+    get_refreshed.assert_called_once()
+    replace_catalog.assert_called_once()
+    assert "refreshed catalog (1 streams)" in result
+
+
+@pytest.mark.parametrize(
+    ("allowed", "expected_guidance"),
+    [
+        (False, "Airbyte UI"),
+        (True, "update_cloud_connection_unsafe"),
+        (None, "update_cloud_connection_unsafe"),
+    ],
+)
+def test_unsafe_change_guidance_uses_destructive_policy(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    allowed: bool | None,
+    expected_guidance: str,
+) -> None:
+    monkeypatch.setattr(
+        CloudConnection,
+        "plan_stream_config_update",
+        MagicMock(
+            side_effect=AirbyteUnsafeStreamConfigChangeError(
+                message="unsafe",
+                context={"unsafe_streams": [{"name": "users"}]},
+            )
+        ),
+    )
+    monkeypatch.setattr(cloud_mcp, "destructive_tools_allowed", lambda _ctx: allowed)
+
+    with pytest.raises(AirbyteUnsafeStreamConfigChangeError) as exc_info:
+        cloud_mcp.update_cloud_connection(
+            ctx=None,
+            connection_id="12345678-1234-1234-1234-1234567890ab",
+            enabled=None,
+            cron_expression=None,
+            interval_hours=None,
+            manual_schedule=None,
+            force_catalog_refresh=False,
+            override_stream_configs=[
+                StreamConfigOverride(
+                    stream_name="users",
+                    sync_mode=SyncMode.incremental,
+                    cursor_field="updated_at",
+                )
+            ],
+            workspace_id=None,
+        )
+
+    assert expected_guidance in (exc_info.value.guidance or "")
+    if allowed is False:
+        assert "Connection URL:" in (exc_info.value.guidance or "")

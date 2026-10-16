@@ -9,11 +9,16 @@ from unittest.mock import MagicMock
 
 import pytest
 from airbyte_protocol.models import DestinationSyncMode, SyncMode
+from pydantic import ValidationError
 
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.models import StreamConfigOverride
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteLibInputError
+from airbyte.exceptions import (
+    AirbyteLibInputError,
+    AirbyteUnsafeStreamConfigChangeError,
+)
 
 
 _CONNECTION_ID = "connection-id"
@@ -75,228 +80,362 @@ def _catalog(*entries: dict[str, Any]) -> dict[str, Any]:
 def _mock_catalog_api(
     monkeypatch: pytest.MonkeyPatch,
     catalog: dict[str, Any],
-) -> tuple[MagicMock, MagicMock]:
+) -> tuple[MagicMock, MagicMock, MagicMock]:
     get_catalog = MagicMock(return_value={"syncCatalog": catalog})
     replace_catalog = MagicMock(return_value={})
+    get_state = MagicMock(
+        return_value={"stateType": "not_set", "connectionId": _CONNECTION_ID}
+    )
     monkeypatch.setattr(api_util, "get_connection_catalog", get_catalog)
     monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-    return get_catalog, replace_catalog
+    monkeypatch.setattr(api_util, "get_connection_state", get_state)
+    return get_catalog, replace_catalog, get_state
 
 
-def test_set_stream_sync_mode_updates_only_target_and_saves_raw_catalog(
+def test_batch_overrides_write_once_and_preserve_untouched_catalog_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Update the target stream without normalizing or changing other catalog data."""
     target = _stream_entry("users", namespace="public")
-    other = _stream_entry(
+    other_target = _stream_entry(
         "orders",
         namespace="sales",
         config={
+            "syncMode": "full_refresh",
+            "destinationSyncMode": "append",
+            "selectedFields": [],
+            "fieldSelectionEnabled": False,
+            "primaryKey": [["order_id"]],
+            "selected": True,
+        },
+    )
+    untouched = _stream_entry(
+        "products",
+        config={
             "syncMode": "incremental",
             "destinationSyncMode": "append_dedup",
-            "cursorField": ["changed_at"],
+            "cursorField": ["updated_at"],
             "selectedFields": [{"fieldPath": ["id"]}],
             "fieldSelectionEnabled": True,
-            "primaryKey": [["order_id"]],
+            "primaryKey": [["sku"]],
             "selected": False,
         },
     )
-    original_other = deepcopy(other)
-    catalog = _catalog(target, other)
-    get_catalog, replace_catalog = _mock_catalog_api(monkeypatch, catalog)
+    original_untouched = deepcopy(untouched)
+    catalog = _catalog(target, other_target, untouched)
+    _, replace_catalog, get_state = _mock_catalog_api(monkeypatch, catalog)
 
-    _connection().set_stream_sync_mode(
-        stream_name="users",
-        stream_namespace="public",
-        sync_mode=SyncMode.incremental,
-        destination_sync_mode=DestinationSyncMode.append_dedup,
-        cursor_field="updated_at",
-    )
-
-    get_catalog.assert_called_once_with(
-        connection_id=_CONNECTION_ID,
-        api_root=_API_ROOT,
-        client_id=None,
-        client_secret=None,
-        bearer_token="token",
-        config_api_root=_CONFIG_API_ROOT,
-    )
-    assert target["config"] == {
-        "syncMode": "incremental",
-        "destinationSyncMode": "append_dedup",
-        "cursorField": ["updated_at"],
-        "selectedFields": [],
-        "fieldSelectionEnabled": False,
-        "primaryKey": [["id"]],
-        "selected": True,
-    }
-    assert other == original_other
+    result = _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            stream_namespace="public",
+            sync_mode=SyncMode.incremental,
+            destination_sync_mode=DestinationSyncMode.append_dedup,
+            cursor_field="updated_at",
+        ),
+        StreamConfigOverride(
+            stream_name="orders",
+            stream_namespace="sales",
+            destination_sync_mode=DestinationSyncMode.overwrite,
+        ),
+    ])
 
     replace_catalog.assert_called_once()
     saved_catalog = replace_catalog.call_args.kwargs["configured_catalog_dict"]
-    assert saved_catalog == catalog
-    assert saved_catalog["streams"][1] == original_other
+    assert saved_catalog["streams"][0]["config"]["cursorField"] == ["updated_at"]
+    assert saved_catalog["streams"][0]["config"]["selectedFields"] == []
+    assert saved_catalog["streams"][0]["config"]["fieldSelectionEnabled"] is False
+    assert saved_catalog["streams"][0]["config"]["primaryKey"] == [["id"]]
+    assert saved_catalog["streams"][0]["config"]["selected"] is True
+    assert saved_catalog["streams"][2] == original_untouched
     assert "sync_mode" not in saved_catalog["streams"][0]["config"]
     assert "supported_sync_modes" not in saved_catalog["streams"][0]["stream"]
-    assert replace_catalog.call_args.kwargs["config_api_root"] == _CONFIG_API_ROOT
+    assert replace_catalog.call_args.kwargs["skip_reset"] is True
+    assert result.stream_count == 3
+    assert len(result.updated_streams) == 2
+    get_state.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    (
-        "catalog",
-        "stream_name",
-        "stream_namespace",
-        "sync_mode",
-        "cursor_field",
-        "error_message",
-        "expected_context",
-    ),
-    [
-        pytest.param(
-            _catalog(_stream_entry("users", namespace="public")),
-            "missing",
-            None,
-            SyncMode.full_refresh,
-            None,
-            "not found",
-            {"available_streams": ["public.users"]},
-            id="missing-stream",
-        ),
-        pytest.param(
-            _catalog(
-                _stream_entry("users", namespace="public"),
-                _stream_entry("users", namespace="sales"),
-            ),
-            "users",
-            None,
-            SyncMode.full_refresh,
-            None,
-            "ambiguous",
-            {"matching_namespaces": ["public", "sales"]},
-            id="ambiguous-name",
-        ),
-        pytest.param(
-            _catalog(
-                _stream_entry("users", namespace="public", sync_modes=["full_refresh"])
-            ),
-            "users",
-            "public",
-            SyncMode.incremental,
-            None,
-            "not supported",
-            {"requested_sync_mode": "incremental"},
-            id="unsupported-sync-mode",
-        ),
-        pytest.param(
-            _catalog(
-                _stream_entry(
-                    "users",
-                    namespace="public",
-                    config={
-                        "syncMode": "full_refresh",
-                        "destinationSyncMode": "append",
-                    },
-                )
-            ),
-            "users",
-            "public",
-            SyncMode.incremental,
-            None,
-            "needs a cursor",
-            {"stream_namespace": "public"},
-            id="incremental-without-cursor",
-        ),
-    ],
-)
-def test_set_stream_sync_mode_rejects_invalid_updates(
+def test_namespace_selects_same_named_stream_and_cursor_paths_are_preserved(
     monkeypatch: pytest.MonkeyPatch,
-    catalog: dict[str, Any],
-    stream_name: str,
-    stream_namespace: str | None,
-    sync_mode: SyncMode,
-    cursor_field: str | None,
-    error_message: str,
-    expected_context: dict[str, Any],
 ) -> None:
-    """Input errors leave the Config API catalog untouched."""
-    _, replace_catalog = _mock_catalog_api(monkeypatch, deepcopy(catalog))
+    public = _stream_entry("users", namespace="public")
+    sales = _stream_entry("users", namespace="sales")
+    _, replace_catalog, _ = _mock_catalog_api(monkeypatch, _catalog(public, sales))
 
-    with pytest.raises(AirbyteLibInputError, match=error_message) as exc_info:
-        _connection().set_stream_sync_mode(
-            stream_name=stream_name,
-            stream_namespace=stream_namespace,
-            sync_mode=sync_mode,
-            cursor_field=cursor_field,
+    _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            stream_namespace="sales",
+            cursor_field=["nested", "updated_at"],
         )
+    ])
 
-    assert exc_info.value.context is not None
-    for key, value in expected_context.items():
-        assert exc_info.value.context[key] == value
+    saved = replace_catalog.call_args.kwargs["configured_catalog_dict"]["streams"]
+    assert saved[0]["config"].get("cursorField") is None
+    assert saved[1]["config"]["cursorField"] == ["nested", "updated_at"]
+
+
+def test_ambiguous_bare_name_is_rejected_without_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, replace_catalog, _ = _mock_catalog_api(
+        monkeypatch,
+        _catalog(
+            _stream_entry("users", namespace="public"),
+            _stream_entry("users", namespace="sales"),
+        ),
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="ambiguous"):
+        _connection().update_stream_configs([
+            StreamConfigOverride(stream_name="users", sync_mode=SyncMode.full_refresh)
+        ])
+
     replace_catalog.assert_not_called()
 
 
-def test_set_stream_sync_mode_namespace_disambiguates_name(
+def test_duplicate_catalog_stream_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A namespace selects the intended same-named stream."""
-    public = _stream_entry(
-        "users",
-        namespace="public",
-        config={
-            "syncMode": "incremental",
-            "destinationSyncMode": "append",
-            "cursorField": ["updated_at"],
+    _, replace_catalog, _ = _mock_catalog_api(
+        monkeypatch,
+        _catalog(_stream_entry("users"), _stream_entry("users")),
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="duplicate stream"):
+        _connection().update_stream_configs([
+            StreamConfigOverride(stream_name="users", sync_mode=SyncMode.incremental)
+        ])
+
+    replace_catalog.assert_not_called()
+
+
+def test_stream_override_requires_at_least_one_setting() -> None:
+    with pytest.raises(ValidationError, match="At least one"):
+        StreamConfigOverride(stream_name="users")
+
+
+def test_all_invalid_overrides_are_reported_before_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, replace_catalog, get_state = _mock_catalog_api(
+        monkeypatch,
+        _catalog(
+            _stream_entry("users", sync_modes=["full_refresh"]),
+            _stream_entry("orders"),
+        ),
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        _connection().update_stream_configs([
+            StreamConfigOverride(
+                stream_name="missing", sync_mode=SyncMode.full_refresh
+            ),
+            StreamConfigOverride(stream_name="users", sync_mode=SyncMode.incremental),
+        ])
+
+    message = exc_info.value.get_message()
+    assert "missing" in message
+    assert "unsupported" in message
+    assert len(exc_info.value.context["validation_errors"]) == 2
+    replace_catalog.assert_not_called()
+    get_state.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {
+            "stateType": "stream",
+            "connectionId": _CONNECTION_ID,
+            "streamState": [
+                {
+                    "streamDescriptor": {"name": "users", "namespace": "public"},
+                    "streamState": {"cursor": "saved"},
+                }
+            ],
         },
+        {
+            "stateType": "global",
+            "connectionId": _CONNECTION_ID,
+            "globalState": {"sharedState": {"cursor": "saved"}, "streamStates": []},
+        },
+    ],
+    ids=["per-stream-state", "global-state"],
+)
+def test_saved_state_rejects_unsafe_config_changes(
+    monkeypatch: pytest.MonkeyPatch,
+    state: dict[str, Any],
+) -> None:
+    _, replace_catalog, _ = _mock_catalog_api(
+        monkeypatch,
+        _catalog(_stream_entry("users", namespace="public")),
     )
-    sales = _stream_entry("users", namespace="sales")
-    catalog = _catalog(public, sales)
-    _, replace_catalog = _mock_catalog_api(monkeypatch, catalog)
-
-    _connection().set_stream_sync_mode(
-        stream_name="users",
-        stream_namespace="sales",
-        sync_mode=SyncMode.full_refresh,
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_state",
+        MagicMock(return_value=state),
     )
 
-    assert public["config"]["syncMode"] == "incremental"
-    assert sales["config"]["syncMode"] == "full_refresh"
+    with pytest.raises(AirbyteUnsafeStreamConfigChangeError) as exc_info:
+        _connection().update_stream_configs([
+            StreamConfigOverride(
+                stream_name="users",
+                stream_namespace="public",
+                sync_mode=SyncMode.incremental,
+                cursor_field="updated_at",
+            )
+        ])
+
+    unsafe = exc_info.value.context["unsafe_streams"]
+    assert unsafe[0]["name"] == "users"
+    assert unsafe[0]["namespace"] == "public"
+    assert unsafe[0]["changed_fields"] == ["syncMode", "cursorField"]
+    replace_catalog.assert_not_called()
+
+
+def test_find_unsafe_stream_changes_compares_catalogs_to_normalized_state() -> None:
+    old_catalog = _catalog(
+        _stream_entry(
+            "users",
+            namespace="public",
+            config={"syncMode": "full_refresh", "destinationSyncMode": "append"},
+        ),
+        _stream_entry(
+            "orders",
+            config={"syncMode": "full_refresh", "destinationSyncMode": "append"},
+        ),
+    )
+    new_catalog = deepcopy(old_catalog)
+    new_catalog["streams"][0]["config"].update({
+        "syncMode": "incremental",
+        "cursorField": ["updated_at"],
+    })
+    new_catalog["streams"][1]["config"]["destinationSyncMode"] = "overwrite"
+    state_messages = [
+        {
+            "type": "STREAM",
+            "stream": {
+                "stream_descriptor": {"name": "users", "namespace": "public"},
+                "stream_state": {"cursor": "saved"},
+            },
+        }
+    ]
+
+    unsafe = CloudConnection._find_unsafe_stream_changes(
+        old_catalog,
+        new_catalog,
+        state_messages,
+    )
+
+    assert [
+        (stream.name, stream.namespace, stream.changed_fields) for stream in unsafe
+    ] == [("users", "public", ["syncMode", "cursorField"])]
+
+
+def test_no_state_lookup_when_override_does_not_change_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, replace_catalog, get_state = _mock_catalog_api(
+        monkeypatch,
+        _catalog(_stream_entry("users")),
+    )
+
+    _connection().update_stream_configs([
+        StreamConfigOverride(stream_name="users", sync_mode=SyncMode.full_refresh)
+    ])
+
+    get_state.assert_not_called()
     replace_catalog.assert_called_once()
 
 
 @pytest.mark.parametrize(
-    "stream_options",
+    "stream_options,expected_cursor",
     [
-        pytest.param({"source_defined_cursor": True}, id="source-defined-cursor"),
-        pytest.param(
-            {"default_cursor_field": ["updated_at"]}, id="default-cursor-field"
-        ),
+        ({"source_defined_cursor": True}, None),
+        ({"default_cursor_field": ["updated_at"]}, ["updated_at"]),
     ],
+    ids=["source-defined-cursor", "default-cursor-field"],
 )
-def test_incremental_sync_accepts_stream_defined_cursor(
+def test_incremental_sync_uses_default_but_not_source_defined_cursor(
     monkeypatch: pytest.MonkeyPatch,
     stream_options: dict[str, Any],
+    expected_cursor: list[str] | None,
 ) -> None:
-    """Incremental sync can use a source-defined or default cursor without an override."""
     entry = _stream_entry(
         "users",
         namespace="public",
         config={"syncMode": "full_refresh", "destinationSyncMode": "append"},
         **stream_options,
     )
-    _, replace_catalog = _mock_catalog_api(monkeypatch, _catalog(entry))
+    _, replace_catalog, _ = _mock_catalog_api(monkeypatch, _catalog(entry))
 
-    _connection().set_stream_sync_mode(
-        stream_name="users",
-        stream_namespace="public",
-        sync_mode=SyncMode.incremental,
+    _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            stream_namespace="public",
+            sync_mode=SyncMode.incremental,
+        )
+    ])
+
+    saved_config = replace_catalog.call_args.kwargs["configured_catalog_dict"][
+        "streams"
+    ][0]["config"]
+    assert saved_config.get("cursorField") == expected_cursor
+
+
+def test_refresh_and_overrides_use_one_refreshed_catalog_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refreshed_catalog = _catalog(_stream_entry("users", namespace="public"))
+    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
+    replace_catalog = MagicMock(return_value={})
+    get_state = MagicMock(
+        return_value={"stateType": "not_set", "connectionId": _CONNECTION_ID}
+    )
+    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+    monkeypatch.setattr(api_util, "get_connection_state", get_state)
+
+    result = _connection().update_stream_configs(
+        [
+            StreamConfigOverride(
+                stream_name="users",
+                stream_namespace="public",
+                sync_mode=SyncMode.incremental,
+                cursor_field="updated_at",
+            )
+        ],
+        force_catalog_refresh=True,
     )
 
-    assert entry["config"]["syncMode"] == "incremental"
-    if "default_cursor_field" in stream_options:
-        assert entry["config"]["cursorField"] == ["updated_at"]
-    else:
-        assert "cursorField" not in entry["config"]
+    get_refreshed.assert_called_once()
     replace_catalog.assert_called_once()
+    assert result.catalog_refreshed is True
+    assert result.stream_count == 1
+
+
+def test_bad_override_after_refresh_does_not_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refreshed_catalog = _catalog(_stream_entry("users", namespace="public"))
+    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+
+    with pytest.raises(AirbyteLibInputError, match="not found"):
+        _connection().update_stream_configs(
+            [
+                StreamConfigOverride(
+                    stream_name="missing", sync_mode=SyncMode.full_refresh
+                )
+            ],
+            force_catalog_refresh=True,
+        )
+
+    get_refreshed.assert_called_once()
+    replace_catalog.assert_not_called()
 
 
 def test_refresh_catalog_gets_and_replaces_catalog_with_config_api_root(
@@ -328,6 +467,7 @@ def test_refresh_catalog_gets_and_replaces_catalog_with_config_api_root(
         client_secret=None,
         bearer_token="token",
         config_api_root=_CONFIG_API_ROOT,
+        skip_reset=True,
     )
 
 
@@ -406,3 +546,23 @@ def test_get_refreshed_connection_catalog_forwards_config_api_root(
         client_secret=None,
         bearer_token="token",
     )
+
+
+def test_replace_connection_catalog_forwards_skip_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "_make_config_api_request", request)
+
+    api_util.replace_connection_catalog(
+        connection_id=_CONNECTION_ID,
+        configured_catalog_dict={"streams": []},
+        api_root=_API_ROOT,
+        config_api_root=_CONFIG_API_ROOT,
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+        skip_reset=False,
+    )
+
+    assert request.call_args.kwargs["json"]["skipReset"] is False

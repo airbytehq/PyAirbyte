@@ -3703,6 +3703,7 @@ def replace_connection_catalog(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    skip_reset: bool = True,
 ) -> dict[str, Any]:
     """Replace the configured catalog for a connection.
 
@@ -3719,6 +3720,7 @@ def replace_connection_catalog(
         client_secret: OAuth client secret.
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
+        skip_reset: Whether to skip the platform reset of changed streams.
 
     Returns:
         Dictionary containing the updated WebBackendConnectionRead response.
@@ -3730,7 +3732,7 @@ def replace_connection_catalog(
             "syncCatalog": configured_catalog_dict,
             # Resets are destructive and cause customer-side data outage.
             # If a reset is desired, caller will need to decide & manage.
-            "skipReset": True,
+            "skipReset": skip_reset,
         },
         api_root=api_root,
         config_api_root=config_api_root,

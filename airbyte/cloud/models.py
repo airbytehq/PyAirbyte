@@ -8,7 +8,9 @@ from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from airbyte_protocol.models import DestinationSyncMode, SyncMode  # noqa: TC001
 
 from airbyte._direct_connectors.models import (
     DirectAccessGuidance,
@@ -390,6 +392,54 @@ class ConnectionSchedule(BaseModel):
         return self.friendly_description
 
 
+class StreamConfigOverride(BaseModel):
+    """Overrides for one stream's sync configuration."""
+
+    stream_name: str
+    """The stream name to update."""
+
+    stream_namespace: str | None = None
+    """The namespace to match, or `None` to match the name in any namespace."""
+
+    sync_mode: SyncMode | None = None
+    """The source sync mode to set, or `None` to keep the current mode."""
+
+    destination_sync_mode: DestinationSyncMode | None = None
+    """The destination sync mode to set, or `None` to keep the current mode."""
+
+    cursor_field: str | list[str] | None = None
+    """The cursor field path to set, or `None` to keep the current cursor."""
+
+    @model_validator(mode="after")
+    def require_setting(self) -> StreamConfigOverride:
+        """Require at least one sync configuration setting."""
+        if (
+            self.sync_mode is None
+            and self.destination_sync_mode is None
+            and self.cursor_field is None
+        ):
+            raise ValueError("At least one stream configuration setting must be provided.")
+        return self
+
+
+class StreamConfigChange(BaseModel):
+    """A stream whose requested sync configuration was applied."""
+
+    name: str
+    namespace: str | None = None
+    changed_fields: list[str]
+
+
+class StreamConfigUpdateResult(BaseModel):
+    """Result of updating stream sync configurations on a connection."""
+
+    updated_streams: list[StreamConfigChange]
+    unsafe_streams: list[StreamConfigChange]
+    reset_requested: bool
+    catalog_refreshed: bool
+    stream_count: int
+
+
 class CloudConnectionInfo(BaseModel):
     """Information about an Airbyte Cloud connection."""
 
@@ -599,6 +649,9 @@ def _enum_value(value: object) -> str:
 
 __all__ = [
     "CloudConnectionInfo",
+    "StreamConfigOverride",
+    "StreamConfigChange",
+    "StreamConfigUpdateResult",
     "ConnectionStatus",
     "ConnectionSchedule",
     "CloudCustomSourceDefinitionInfo",

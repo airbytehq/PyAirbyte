@@ -22,6 +22,7 @@ from airbyte.exceptions import (
     AirbyteMissingResourceError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteUnsafeStreamConfigChangeError,
 )
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
@@ -66,6 +67,13 @@ def test_unexpected_errors_keep_fastmcp_default_handling() -> None:
         pytest.param(
             AirbyteLibInputError(message="bad", guidance="fix it"),
             id="input-error",
+        ),
+        pytest.param(
+            AirbyteUnsafeStreamConfigChangeError(
+                message="unsafe",
+                guidance="review state",
+            ),
+            id="unsafe-stream-config",
         ),
         pytest.param(
             AirbyteConnectorInUseError(

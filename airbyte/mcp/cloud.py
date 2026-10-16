@@ -19,8 +19,6 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import TraceArg, get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
-from airbyte_protocol.models import DestinationSyncMode, SyncMode
-
 from airbyte import Destination, Source, get_destination, get_source
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
@@ -53,6 +51,7 @@ from airbyte.cloud.models import (
     ConnectorType,
     JobTypeEnum,
     OrganizationFeature,
+    StreamConfigOverride,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -76,6 +75,7 @@ from airbyte.exceptions import (
     AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
+    AirbyteUnsafeStreamConfigChangeError,
 )
 from airbyte.mcp._arg_resolvers import (
     resolve_api_args,
@@ -95,6 +95,7 @@ from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
     delete_guard_disabled,
+    destructive_tools_allowed,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -3987,95 +3988,135 @@ def set_cloud_connection_selected_streams(
     )
 
 
-@mcp_tool(
-    destructive=True,
-)
-def set_cloud_connection_stream_sync_mode(
+def _update_cloud_connection_impl(  # noqa: PLR0913
     ctx: Context,
-    connection_id: Annotated[
-        str,
-        Field(description="The ID of the connection to update."),
-    ],
-    stream_name: Annotated[
-        str,
-        Field(description="The name of the stream to update."),
-        TraceArg.FINGERPRINT,
-    ],
-    sync_mode: Annotated[
-        SyncMode,
-        Field(description="The source sync mode to set."),
-    ],
+    connection_id: str,
     *,
-    stream_namespace: Annotated[
-        str | None,
-        Field(
-            description="The namespace of the stream, required when its name is ambiguous.",
-            default=None,
-        ),
-    ],
-    destination_sync_mode: Annotated[
-        DestinationSyncMode | None,
-        Field(
-            description=(
-                "The destination sync mode to set. If omitted, the current mode is preserved."
-            ),
-            default=None,
-        ),
-    ],
-    cursor_field: Annotated[
-        str | None,
-        Field(
-            description=(
-                "The cursor field to set. Required for incremental mode when no existing, default, "
-                "or source-defined cursor is available. It can also be set during full-refresh "
-                "syncs to pre-configure a later incremental sync."
-            ),
-            default=None,
-        ),
-        TraceArg.FINGERPRINT,
-    ],
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-        TraceArg.OMIT,
-    ],
+    enabled: bool | None,
+    cron_expression: str | None,
+    interval_hours: int | None,
+    manual_schedule: bool | None,
+    force_catalog_refresh: bool,
+    override_stream_configs: list[StreamConfigOverride] | None,
+    workspace_id: str | None,
+    allow_unsafe: bool,
+    defer_reset: bool,
 ) -> str:
-    """Set the sync and destination modes for one stream in a connection."""
-    check_guid_created_in_session(connection_id)
+    if not any(
+        (
+            enabled is not None,
+            cron_expression is not None,
+            interval_hours is not None,
+            manual_schedule is not None,
+            force_catalog_refresh,
+            bool(override_stream_configs),
+        )
+    ):
+        raise AirbyteLibInputError(
+            message=(
+                "At least one setting must be provided: 'enabled', 'interval_hours', "
+                "'cron_expression', 'manual_schedule', 'force_catalog_refresh', or "
+                "'override_stream_configs'."
+            ),
+        )
+
+    if sum((interval_hours is not None, cron_expression is not None, manual_schedule is True)) > 1:
+        raise AirbyteLibInputError(
+            message=(
+                "Cannot specify more than one of 'interval_hours', 'cron_expression', "
+                "and 'manual_schedule=True'."
+            ),
+        )
+
+    if interval_hours is not None:
+        api_util.validate_interval_hours(interval_hours)
+
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
-    connection.set_stream_sync_mode(
-        stream_name=stream_name,
-        sync_mode=sync_mode,
-        stream_namespace=stream_namespace,
-        destination_sync_mode=destination_sync_mode,
-        cursor_field=cursor_field,
-    )
 
-    stream_identifier = (
-        f"{stream_namespace}.{stream_name}" if stream_namespace is not None else stream_name
-    )
-    updates = []
-    if destination_sync_mode is not None:
-        updates.append(f"destination sync mode '{destination_sync_mode.value}'")
-    if cursor_field is not None:
-        updates.append(f"cursor field '{cursor_field}'")
-    update_details = f" with {', '.join(updates)}" if updates else ""
+    plan = None
+    if override_stream_configs:
+        try:
+            plan = connection.plan_stream_config_update(
+                override_stream_configs,
+                force_catalog_refresh=force_catalog_refresh,
+                allow_unsafe=allow_unsafe,
+            )
+        except AirbyteUnsafeStreamConfigChangeError as error:
+            guidance = (
+                "Ask the user to make this change in the Airbyte UI. "
+                f"Connection URL: {connection.connection_url}"
+                if destructive_tools_allowed(ctx) is False
+                else "Retry with `update_cloud_connection_unsafe`."
+            )
+            raise AirbyteUnsafeStreamConfigChangeError(
+                message=error.get_message(),
+                context=error.context,
+                guidance=guidance,
+            ) from error
 
+    changes_made: list[str] = []
+
+    if enabled is not None:
+        connection.set_enabled(enabled=enabled)
+        status_str = "enabled" if enabled else "disabled"
+        changes_made.append(f"status set to '{status_str}'")
+
+    if cron_expression is not None:
+        connection.set_schedule(cron_expression=cron_expression)
+        changes_made.append(f"schedule set to '{cron_expression}'")
+    elif interval_hours is not None:
+        connection.set_schedule(interval_hours=interval_hours)
+        changes_made.append(f"schedule set to 'every {interval_hours} hours'")
+    elif manual_schedule is True:
+        connection.set_manual_schedule()
+        changes_made.append("schedule set to 'manual'")
+
+    if plan is not None:
+        result = connection.apply_stream_config_update(
+            plan,
+            allow_unsafe=allow_unsafe,
+            defer_reset=defer_reset,
+        )
+        updated_names = [
+            f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
+            for stream in result.updated_streams
+        ]
+        changes_made.append(f"updated stream configs for {updated_names}")
+        if result.catalog_refreshed:
+            changes_made.append(f"refreshed catalog ({result.stream_count} streams)")
+
+        if result.unsafe_streams:
+            unsafe_names = [
+                f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
+                for stream in result.unsafe_streams
+            ]
+            if result.reset_requested:
+                changes_made.append(
+                    f"unsafe streams {unsafe_names}; the platform will refresh or reset these "
+                    "streams (refresh keeps data if the destination supports it; otherwise a "
+                    "reset clears that stream's destination data)"
+                )
+            else:
+                changes_made.append(
+                    f"unsafe streams {unsafe_names}; no reset was run; these streams have stale "
+                    "state and need a refresh/reset before their next sync"
+                )
+    elif force_catalog_refresh:
+        refreshed_catalog = connection.refresh_catalog()
+        changes_made.append(f"refreshed catalog ({len(refreshed_catalog['streams'])} streams)")
+
+    changes_summary = ", ".join(changes_made)
     return (
-        f"Successfully set sync mode for stream '{stream_identifier}' "
-        f"on connection '{connection_id}' to '{sync_mode.value}'{update_details}. "
+        f"Successfully updated connection '{connection_id}': {changes_summary}. "
         f"URL: {connection.connection_url}"
     )
 
 
 @mcp_tool(
-    destructive=True,
+    destructive=False,
 )
-def update_cloud_connection(
+def update_cloud_connection(  # noqa: PLR0913
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4150,6 +4191,18 @@ def update_cloud_connection(
             ),
         ),
     ] = False,
+    override_stream_configs: Annotated[
+        list[StreamConfigOverride] | None,
+        Field(
+            description=(
+                "Update one or more streams' sync mode, destination sync mode, or cursor field. "
+                "Unsafe changes to streams with saved state must be run with "
+                "`update_cloud_connection_unsafe`."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4157,80 +4210,154 @@ def update_cloud_connection(
             default=None,
         ),
         TraceArg.OMIT,
-    ],
+    ] = None,
 ) -> str:
-    """Update a connection's settings on Airbyte Cloud.
+    """Update a connection's settings and stream configurations on Airbyte Cloud.
 
-    This tool allows updating multiple connection settings in a single call:
-    - Enable or disable the connection
-    - Set a cron schedule for automatic syncs
-    - Set a basic interval schedule in whole hours between syncs
-    - Switch to manual scheduling (no automatic syncs)
-    - Refresh the source schema and replace the connection's catalog
-
-    At least one setting must be provided. `interval_hours`, `cron_expression`, and
-    `manual_schedule=True` are mutually exclusive. `force_catalog_refresh` runs after
-    other requested settings.
+    This tool can update the connection status, schedule, source catalog, and per-stream
+    sync configuration. `interval_hours`, `cron_expression`, and `manual_schedule=True`
+    are mutually exclusive. When stream overrides are provided, they are validated before
+    any settings are written and saved in one catalog update.
     """
     check_guid_created_in_session(connection_id)
+    return _update_cloud_connection_impl(
+        ctx,
+        connection_id,
+        enabled=enabled,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+        force_catalog_refresh=force_catalog_refresh,
+        override_stream_configs=override_stream_configs,
+        workspace_id=workspace_id,
+        allow_unsafe=False,
+        defer_reset=False,
+    )
 
-    # Validate that at least one setting is provided
-    if (
-        enabled is None
-        and cron_expression is None
-        and interval_hours is None
-        and manual_schedule is None
-        and not force_catalog_refresh
-    ):
-        raise AirbyteLibInputError(
-            message=(
-                "At least one setting must be provided: 'enabled', 'interval_hours', "
-                "'cron_expression', 'manual_schedule', or 'force_catalog_refresh'."
+
+@mcp_tool(
+    destructive=True,
+)
+def update_cloud_connection_unsafe(  # noqa: PLR0913
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to update."),
+    ],
+    *,
+    enabled: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Set the connection's enabled status. "
+                "True enables the connection (status='active'), "
+                "False disables it (status='inactive'). "
+                "Leave unset to keep the current status."
             ),
-        )
-
-    # Validate mutually exclusive schedule options
-    if sum((interval_hours is not None, cron_expression is not None, manual_schedule is True)) > 1:
-        raise AirbyteLibInputError(
-            message=(
-                "Cannot specify more than one of 'interval_hours', 'cron_expression', "
-                "and 'manual_schedule=True'."
+            default=None,
+        ),
+    ],
+    cron_expression: Annotated[
+        str | None,
+        Field(
+            description=(
+                "A Quartz cron expression defining when syncs should run. "
+                "Must have 6 or 7 space-separated fields "
+                "(seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are rejected by the API, and schedules may run at most "
+                "once per hour (seconds and minutes cannot be '*'). "
+                "Examples: '0 0 0 * * ?' (daily at midnight UTC), "
+                "'0 0 */6 * * ?' (every 6 hours), "
+                "'0 0 0 ? * SUN' (weekly on Sunday at midnight UTC), "
+                "'0 0 9 ? * MON-FRI US/Pacific' (weekdays at 9am Pacific). "
+                "Leave unset to keep the current schedule. "
+                "Cannot be used together with 'interval_hours' or 'manual_schedule=True'."
             ),
-        )
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ],
+    interval_hours: Annotated[
+        int | None,
+        Field(
+            description=(
+                "A positive whole number of hours between automatic syncs. "
+                "Uses a basic interval schedule: an active connection runs a first sync "
+                "as soon as scheduling is enabled, then measures each interval from "
+                "the previous sync. Leave unset to keep the current schedule. "
+                "Cannot be used together with 'cron_expression' or 'manual_schedule=True'."
+            ),
+            default=None,
+            strict=True,
+            gt=0,
+        ),
+    ],
+    manual_schedule: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Set to True to disable automatic syncs (manual scheduling only). "
+                "Syncs will only run when manually triggered. "
+                "Cannot be used together with 'cron_expression' or 'interval_hours'."
+            ),
+            default=None,
+        ),
+    ],
+    force_catalog_refresh: Annotated[
+        bool,
+        Field(
+            description=(
+                "If true, re-discover the source schema and replace the connection's catalog "
+                "with the refreshed result (same as 'Refresh source schema' in the UI)."
+            ),
+        ),
+    ] = False,
+    override_stream_configs: Annotated[
+        list[StreamConfigOverride] | None,
+        Field(
+            description="Update one or more streams' sync configuration, including unsafe changes.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    defer_reset: Annotated[
+        bool,
+        Field(
+            description=(
+                "If true, do not request a platform reset. Streams with saved state will need "
+                "a refresh or reset before their next sync."
+            ),
+        ),
+    ] = False,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ] = None,
+) -> str:
+    """Update connection settings and apply stream overrides even when saved state is affected.
 
-    if interval_hours is not None:
-        api_util.validate_interval_hours(interval_hours)
-
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    connection = workspace.get_connection(connection_id=connection_id)
-
-    changes_made: list[str] = []
-
-    # Apply enabled status change
-    if enabled is not None:
-        connection.set_enabled(enabled=enabled)
-        status_str = "enabled" if enabled else "disabled"
-        changes_made.append(f"status set to '{status_str}'")
-
-    # Apply schedule change
-    if cron_expression is not None:
-        connection.set_schedule(cron_expression=cron_expression)
-        changes_made.append(f"schedule set to '{cron_expression}'")
-    elif interval_hours is not None:
-        connection.set_schedule(interval_hours=interval_hours)
-        changes_made.append(f"schedule set to 'every {interval_hours} hours'")
-    elif manual_schedule is True:
-        connection.set_manual_schedule()
-        changes_made.append("schedule set to 'manual'")
-
-    if force_catalog_refresh:
-        refreshed_catalog = connection.refresh_catalog()
-        changes_made.append(f"refreshed catalog ({len(refreshed_catalog['streams'])} streams)")
-
-    changes_summary = ", ".join(changes_made)
-    return (
-        f"Successfully updated connection '{connection_id}': {changes_summary}. "
-        f"URL: {connection.connection_url}"
+    Unsafe changes can make the destination's data inconsistent. By default, the platform
+    refreshes or resets affected streams; set `defer_reset=True` to leave stale state for a
+    later refresh or reset.
+    """
+    check_guid_created_in_session(connection_id)
+    return _update_cloud_connection_impl(
+        ctx,
+        connection_id,
+        enabled=enabled,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+        force_catalog_refresh=force_catalog_refresh,
+        override_stream_configs=override_stream_configs,
+        workspace_id=workspace_id,
+        allow_unsafe=True,
+        defer_reset=defer_reset,
     )
 
 

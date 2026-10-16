@@ -300,15 +300,6 @@
     "stream_names": "fingerprint list",
     "workspace_id": "omit"
   },
-  "set_cloud_connection_stream_sync_mode": {
-    "connection_id": "hash",
-    "cursor_field": "fingerprint",
-    "destination_sync_mode": "value allowed=[\"append\",\"append_dedup\",\"overwrite\",\"soft_delete\",\"update\"]",
-    "stream_name": "fingerprint",
-    "stream_namespace": "hash",
-    "sync_mode": "value allowed=[\"full_refresh\",\"incremental\"]",
-    "workspace_id": "omit"
-  },
   "set_cloud_connection_table_prefix": {
     "connection_id": "hash",
     "prefix": "fingerprint",
@@ -357,6 +348,18 @@
     "force_catalog_refresh": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
+    "override_stream_configs": "fingerprint list",
+    "workspace_id": "omit"
+  },
+  "update_cloud_connection_unsafe": {
+    "connection_id": "hash",
+    "cron_expression": "fingerprint",
+    "defer_reset": "value allowed=[false,true]",
+    "enabled": "value allowed=[false,true]",
+    "force_catalog_refresh": "value allowed=[false,true]",
+    "interval_hours": "hash",
+    "manual_schedule": "value allowed=[false,true]",
+    "override_stream_configs": "fingerprint list",
     "workspace_id": "omit"
   },
   "update_cloud_connector_config": {
