@@ -120,14 +120,23 @@ jobs:
         RUN_ID: ${{ steps.dispatch.outputs.run-id }}
         RUN_URL: ${{ steps.dispatch.outputs.run-url }}
         LABEL: ${{ steps.mode.outputs.label }}
+        CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
       run: |
         set -euo pipefail
         # Eval failures are expected (model variance); they are reported, not fatal.
         gh run watch "$RUN_ID" -R "$EVALS_REPO" --interval 30 > /dev/null
         conclusion=$(gh run view "$RUN_ID" -R "$EVALS_REPO" --json conclusion --jq .conclusion)
-        dir=$(mktemp -d)
-        gh run download "$RUN_ID" -R "$EVALS_REPO" -p 'all-evidence-*' -D "$dir" || true
-        results=$(find "$dir" -name results.json | head -n 1)
+        # A changed-tools run with nothing to run uploads no evidence; any other
+        # listing or download failure fails the job.
+        artifacts=$(gh api "repos/$EVALS_REPO/actions/runs/$RUN_ID/artifacts" --paginate \
+          --jq '.artifacts[] | select(.name | startswith("all-evidence-")) | .name')
+        results=""
+        if [ -n "$artifacts" ]; then
+          dir=$(mktemp -d)
+          gh run download "$RUN_ID" -R "$EVALS_REPO" -p 'all-evidence-*' -D "$dir"
+          results=$(find "$dir" -name results.json | head -n 1)
+          [ -n "$results" ] || { echo "::error::all-evidence artifact has no results.json."; exit 1; }
+        fi
         if [ -n "$results" ]; then
           run_json=$(dirname "$results")/run.json
           commit=$(jq -r '.mcp.airbyte.direct_url.vcs_info.commit_id // "unknown"' "$run_json")
@@ -141,8 +150,11 @@ jobs:
             | "Cloud MCP evals on `\($commit)` (\($label)): **\($passed) / \($total) passed**"
               + (if ($other | length) > 0 then " (\($other | join(", ")))" else "" end)' "$results")
           body="$body · [summary]($RUN_URL)"
-        elif [ "$conclusion" = "success" ]; then
+        elif [ "$conclusion" = "success" ] && [ "$CHANGED_ONLY" = "true" ]; then
           body="No evals ran: no scenario uses the MCP tools this PR changed. [summary]($RUN_URL)"
+        elif [ "$conclusion" = "success" ]; then
+          echo "::error::Full evals run succeeded but uploaded no all-evidence artifact."
+          exit 1
         else
           body="Evals run ended ($conclusion) before producing results. [summary]($RUN_URL)"
         fi
