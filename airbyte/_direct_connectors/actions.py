@@ -26,8 +26,9 @@ class AgentReadAction(str, Enum):
     """Connector actions that only read data.
 
     The `search` action is the connector's native API search, parallel to `get` and `list`.
-    The `sql_select` action runs one read-only SQL statement (or `SHOW TABLES`) on the query
-    engine behind a destination connector. Pass `sql` and `sql_dialect` (and optionally
+    The `sql_select` action runs one read-only SQL statement on the query engine behind a
+    destination connector: a `SELECT`/`WITH` query or the `SHOW TABLES`, `SHOW DATABASES`,
+    or `DESCRIBE TABLE <table>` macro. Pass `sql` and `sql_dialect` (and optionally
     `dry_run`) in `api_args`; `entity_type` is ignored for this action.
 
     The `download` action is deliberately absent even though it reads: it returns a binary
