@@ -1259,11 +1259,14 @@ def cancel_job(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.jobs.cancel_job(
-        api.CancelJobRequest(
-            job_id=job_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.jobs.cancel_job(
+            api.CancelJobRequest(
+                job_id=job_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code):
         if response.job_response:
             return response.job_response
@@ -1323,15 +1326,18 @@ def create_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
-        models.SourceCreateRequest(
-            name=name,
-            workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
-            definition_id=definition_id or None,  # Only used for custom sources
-            secret_id=None,  # For OAuth, not yet supported
-        ),
-    )
+    try:
+        response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
+            models.SourceCreateRequest(
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # Speakeasy API wants a dataclass, not a dict
+                definition_id=definition_id or None,  # Only used for custom sources
+                secret_id=None,  # For OAuth, not yet supported
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1454,11 +1460,14 @@ def delete_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.delete_source(
-        api.DeleteSourceRequest(
-            source_id=source_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.sources.delete_source(
+            api.DeleteSourceRequest(
+                source_id=source_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -1502,15 +1511,18 @@ def patch_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.patch_source(
-        api.PatchSourceRequest(
-            source_id=source_id,
-            source_patch_request=models.SourcePatchRequest(
-                name=name,
-                configuration=config,
+    try:
+        response = airbyte_instance.sources.patch_source(
+            api.PatchSourceRequest(
+                source_id=source_id,
+                source_patch_request=models.SourcePatchRequest(
+                    name=name,
+                    configuration=config,
+                ),
             ),
-        ),
-    )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1572,14 +1584,17 @@ def create_destination(
         # TODO: We have to hard-code the definition ID for dev-null destination.
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
-    response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
-        models.DestinationCreateRequest(
-            definition_id=definition_id_override,
-            name=name,
-            workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
-        ),
-    )
+    try:
+        response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
+            models.DestinationCreateRequest(
+                definition_id=definition_id_override,
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # Speakeasy API wants a dataclass, not a dict
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
@@ -1859,11 +1874,14 @@ def delete_destination(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.delete_destination(
-        api.DeleteDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.destinations.delete_destination(
+            api.DeleteDestinationRequest(
+                destination_id=destination_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -1907,15 +1925,18 @@ def patch_destination(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.patch_destination(
-        api.PatchDestinationRequest(
-            destination_id=destination_id,
-            destination_patch_request=models.DestinationPatchRequest(
-                name=name,
-                configuration=config,
+    try:
+        response = airbyte_instance.destinations.patch_destination(
+            api.PatchDestinationRequest(
+                destination_id=destination_id,
+                destination_patch_request=models.DestinationPatchRequest(
+                    name=name,
+                    configuration=config,
+                ),
             ),
-        ),
-    )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
@@ -2136,11 +2157,14 @@ def delete_connection(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.delete_connection(
-        api.DeleteConnectionRequest(
-            connection_id=connection_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.connections.delete_connection(
+            api.DeleteConnectionRequest(
+                connection_id=connection_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -2715,9 +2739,14 @@ def create_custom_yaml_source_definition(
         workspace_id=workspace_id,
         create_declarative_source_definition_request=request_body,
     )
-    response = airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if response.declarative_source_definition_response is None:
         raise AirbyteCloudError(
             message="Failed to create custom YAML source definition",
@@ -2745,9 +2774,14 @@ def list_custom_yaml_source_definitions(
     request = api.ListDeclarativeSourceDefinitionsRequest(
         workspace_id=workspace_id,
     )
-    response = airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if (
         not status_ok(response.status_code)
         or response.declarative_source_definitions_response is None
@@ -2784,9 +2818,14 @@ def get_custom_yaml_source_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    response = airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if (
         not status_ok(response.status_code)
         or response.declarative_source_definition_response is None
@@ -2829,9 +2868,14 @@ def update_custom_yaml_source_definition(
         definition_id=definition_id,
         update_declarative_source_definition_request=request_body,
     )
-    response = airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if (
         not status_ok(response.status_code)
         or response.declarative_source_definition_response is None
@@ -2915,9 +2959,14 @@ def delete_custom_yaml_source_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    response = airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -3163,7 +3212,10 @@ def list_organizations_for_user(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.organizations.list_organizations_for_user()
+    try:
+        response = airbyte_instance.organizations.list_organizations_for_user()
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
 
     if status_ok(response.status_code) and response.organizations_response:
         return response.organizations_response.data
