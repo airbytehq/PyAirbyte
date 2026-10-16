@@ -1803,6 +1803,99 @@ def test_mcp_describe_cloud_organization_resolves_without_arguments(
     assert result.name == "Organization"
 
 
+def test_mcp_describe_cloud_organization_returns_email_and_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`describe_cloud_organization` reports the contact email and its domain."""
+    _stub_organization_features(monkeypatch)
+
+    class DiscoveryClient:
+        def get_organization(self, **_: object) -> CloudOrganization:
+            return CloudOrganization(
+                organization_id="organization-id",
+                organization_name="Organization",
+                email="Admin@Example.COM",
+            )
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.describe_cloud_organization(
+        None, organization_id="organization-id", organization_name=None
+    )
+
+    assert result.email == "Admin@Example.COM"
+    assert result.email_domain == "example.com"
+
+
+def test_mcp_list_cloud_organizations_hides_email_and_reports_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`list_cloud_organizations` omits contact emails and reports only the domain."""
+    _stub_organization_features(monkeypatch)
+
+    class DiscoveryClient:
+        def list_organizations(self, **_: object) -> list[CloudOrganization]:
+            return [
+                CloudOrganization(
+                    organization_id="organization-id",
+                    organization_name="Organization",
+                    email="Admin@Example.COM",
+                )
+            ]
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(None)
+
+    assert result.organizations[0].email is None
+    assert result.organizations[0].email_domain == "example.com"
+
+
+def test_cloud_organization_email_falls_back_to_org_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An org resolved via `get_organization_info` still resolves its email once."""
+    monkeypatch.setattr(
+        api_util,
+        "get_organization_info",
+        lambda **_: {"organizationId": "organization-id"},
+    )
+    list_calls: list[object] = []
+
+    class _OrganizationResponse:
+        organization_id = "organization-id"
+        email = "listed@example.com"
+
+    monkeypatch.setattr(
+        api_util,
+        "list_organizations_for_user",
+        lambda **_: list_calls.append(_) or [_OrganizationResponse()],
+    )
+    organization = CloudOrganization("organization-id", bearer_token="token")
+
+    assert organization.email == "listed@example.com"
+    assert organization.email == "listed@example.com"
+    assert len(list_calls) == 1
+
+
+def test_cloud_organization_email_domain() -> None:
+    """`email_domain` is the lowercased domain of the contact email, or None."""
+    assert (
+        CloudOrganization(
+            organization_id="organization-id",
+            email="User@Sub.Example.COM",
+        ).email_domain
+        == "sub.example.com"
+    )
+    assert (
+        CloudOrganization(
+            organization_id="organization-id",
+            email="not-an-email",
+        ).email_domain
+        is None
+    )
+
+
 def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3003,6 +3096,7 @@ def test_mcp_list_cloud_workspaces_discovery(
 
     class DiscoveryClient:
         organization_id: str | None = None
+        public_api_root: str = api_util.CLOUD_API_ROOT
 
         def list_workspaces(
             self, *, organization_id: str | None = None, **_: object
@@ -3036,6 +3130,9 @@ def test_mcp_list_cloud_workspaces_discovery(
         assert "permission" in (result.message or "")
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
+        assert result.workspaces[0].workspace_url == (
+            "https://cloud.airbyte.com/workspaces/workspace-id"
+        )
         assert result.workspaces[1].organization_id is None
         assert result.workspaces[0].organization_name == organization_name
         assert result.workspaces[1].organization_name is None
