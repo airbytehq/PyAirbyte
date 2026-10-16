@@ -1698,7 +1698,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             assert builder_project_id is not None
             builder_project = project["builderProject"]
             draft_manifest = (
-                _unwrap_builder_manifest(project["declarativeManifest"]["manifest"])
+                project["declarativeManifest"]["manifest"]
                 if builder_project.get("hasDraft")
                 else None
             )
