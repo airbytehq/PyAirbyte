@@ -710,7 +710,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     @property
     def _direct_access_enablement_url(self) -> str:
         """Get the web URL where the user can enable direct access for this connector."""
-        return self.connector_url
+        return f"{self.connector_url}/enable-direct-access?skip-consent-screen=false"
 
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
