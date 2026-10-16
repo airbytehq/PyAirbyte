@@ -790,6 +790,36 @@ def test_custom_cloud_source_definition_rename_preserves_builder_data(
     assert definition._builder_project_data is None
 
 
+def test_custom_cloud_source_definition_draft_manifest_unwraps_envelope() -> None:
+    """A draft stored as a `DeclarativeSourceManifest` envelope reads as the bare manifest."""
+    definition = CustomCloudSourceDefinition(
+        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+    definition._connector_builder_project_id = "builder-project-id"  # noqa: SLF001
+    definition._connector_builder_project_id_fetched = True  # noqa: SLF001
+    definition._builder_project_data = {  # noqa: SLF001
+        "builderProject": {"hasDraft": True},
+        "declarativeManifest": {
+            "manifest": {
+                "manifest": {"version": "0.1.0", "streams": [{"name": "s"}]},
+                "spec": {"connectionSpecification": {}},
+                "version": 1,
+            }
+        },
+    }
+
+    assert definition.draft_manifest == {"version": "0.1.0", "streams": [{"name": "s"}]}
+
+    definition._builder_project_data = {  # noqa: SLF001
+        "builderProject": {"hasDraft": True},
+        "declarativeManifest": {"manifest": {"version": "0.1.0"}},
+    }
+
+    assert definition.draft_manifest == {"version": "0.1.0"}
+
+
 def test_custom_cloud_source_definition_docker_rename_is_not_implemented() -> None:
     definition = CustomCloudSourceDefinition(
         workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),

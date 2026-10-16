@@ -1255,6 +1255,25 @@ class CloudDestination(CloudConnector):
         return result
 
 
+_MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
+
+
+def _unwrap_builder_manifest(value: object) -> dict[str, Any] | None:
+    """Return the connector manifest from a builder manifest payload.
+
+    Some builder projects store their draft as a `DeclarativeSourceManifest`
+    envelope (`{"manifest": {...}, "spec": ..., "version": ...}`) rather than
+    the bare manifest; unwrap that envelope so the result matches the shape of
+    `manifest`.
+    """
+    if not isinstance(value, dict):
+        return None
+    nested = value.get("manifest")
+    if isinstance(nested, dict) and not any(key in value for key in _MANIFEST_KEYS):
+        return nested
+    return value
+
+
 class CustomCloudSourceDefinition:
     """A custom source connector definition in Airbyte Cloud.
 
@@ -1506,11 +1525,7 @@ class CustomCloudSourceDefinition:
             return None
 
         declarative_manifest = project_data.get("declarativeManifest", {})
-        manifest = declarative_manifest.get("manifest")
-        if isinstance(manifest, dict):
-            return manifest
-
-        return None
+        return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
 
     @property
     def definition_url(self) -> str:
@@ -1643,7 +1658,7 @@ class CustomCloudSourceDefinition:
             assert builder_project_id is not None
             builder_project = project["builderProject"]
             draft_manifest = (
-                project["declarativeManifest"]["manifest"]
+                _unwrap_builder_manifest(project["declarativeManifest"]["manifest"])
                 if builder_project.get("hasDraft")
                 else None
             )
