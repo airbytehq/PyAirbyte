@@ -193,8 +193,7 @@ def get_agent_skill_docs(
         str | None,
         Field(
             description=(
-                "ID of a source or destination deployed in the workspace (not a connector "
-                "definition ID); resolves that connector's skill docs. "
+                "Deployed source or destination ID; resolves that connector's skill docs. "
                 "Provide this or `docs_skill_id`."
             ),
             default=None,
@@ -220,17 +219,10 @@ def get_agent_skill_docs(
         TraceArg.OMIT,
     ],
 ) -> AgentSkillDocsResult:
-    """Read a deployed connector's direct-access docs (agent skill docs).
+    """Returns the requested skill document by ID for an AI agent.
 
-    These docs describe the entity types, actions, and arguments that
-    `execute_external_api_query` accepts for one deployed source or SQL passthrough
-    destination. They are not general Airbyte guidance; for questions about Airbyte
-    itself (setting up connections, sync modes, connector setup), use
-    `search_airbyte_knowledge_sources` instead.
-
-    Exactly one of `connector_id` or `docs_skill_id` is required. `connector_id` must be
-    the ID of a source or destination deployed in the workspace (for example from
-    `list_cloud_connectors`), not a connector definition ID from the registry.
+    Pass either a fully-qualified `docs_skill_id` or a `connector_id` (source or
+    destination); exactly one is required.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     return render_agent_skill_docs_result(
