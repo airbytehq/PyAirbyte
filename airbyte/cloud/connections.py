@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-from airbyte_protocol.models import DestinationSyncMode
+from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
@@ -24,6 +23,13 @@ from airbyte.cloud._connection_state import (
     _is_protocol_state_format,
     _match_stream,
     _normalize_state_to_protocol,
+)
+from airbyte.cloud._stream_config_overrides import (
+    _apply_stream_override,
+    _find_unsafe_stream_changes,
+    _index_catalog_streams,
+    _raise_for_override_errors,
+    _raise_for_unsafe_stream_config_changes,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.constants import FINAL_STATUSES
@@ -44,7 +50,6 @@ from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
-    AirbyteUnsafeStreamConfigChangeError,
     AirbyteWorkspaceMismatchError,
 )
 
@@ -53,270 +58,6 @@ logger = logging.getLogger(__name__)
 
 _QUARTZ_CRON_MIN_FIELDS = 6
 _QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
-_DEDUP_DESTINATION_SYNC_MODES = {
-    mode.value for mode in DestinationSyncMode if mode.value.endswith("_dedup")
-}
-
-
-def _normalized_cursor_field(value: list[str] | str | None) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value]
-    return value
-
-
-def _changed_stream_config_fields(
-    current: dict[str, Any],
-    updated: dict[str, Any],
-) -> list[str]:
-    fields = ("syncMode", "destinationSyncMode", "cursorField", "primaryKey")
-    return [
-        field
-        for field in fields
-        if (
-            _normalized_cursor_field(current.get(field))
-            if field == "cursorField"
-            else current.get(field)
-        )
-        != (
-            _normalized_cursor_field(updated.get(field))
-            if field == "cursorField"
-            else updated.get(field)
-        )
-    ]
-
-
-def _stream_has_saved_state(
-    state_messages: list[dict[str, Any]],
-    stream_name: str,
-    stream_namespace: str | None,
-) -> bool:
-    for message in state_messages:
-        if not isinstance(message, dict):
-            return True
-        message_type = message.get("type")
-        if message_type in {"GLOBAL", "LEGACY"}:
-            return True
-        if message_type != "STREAM":
-            return True
-
-        stream = message.get("stream")
-        descriptor = stream.get("stream_descriptor") if isinstance(stream, dict) else None
-        if not isinstance(descriptor, dict) or not isinstance(descriptor.get("name"), str):
-            return True
-        if descriptor.get("name") != stream_name:
-            continue
-        if (descriptor.get("namespace") or None) == (stream_namespace or None):
-            return True
-    return False
-
-
-def _index_catalog_streams(
-    catalog: dict[str, Any] | None,
-    *,
-    connection_id: str,
-) -> list[str]:
-    if (
-        not isinstance(catalog, dict)
-        or not isinstance(catalog.get("streams"), list)
-        or not catalog["streams"]
-    ):
-        raise AirbyteLibInputError(
-            message="Connection catalog is empty or missing.",
-            context={"connection_id": connection_id},
-        )
-
-    available_streams: list[str] = []
-    catalog_keys: set[tuple[str, str | None]] = set()
-    duplicate_catalog_streams: list[str] = []
-    for entry in catalog["streams"]:
-        stream_def = entry.get("stream") if isinstance(entry, dict) else None
-        if not isinstance(stream_def, dict):
-            raise AirbyteLibInputError(
-                message="Connection catalog contains an invalid stream entry.",
-                context={"connection_id": connection_id},
-            )
-
-        name = stream_def.get("name")
-        namespace = stream_def.get("namespace")
-        if not isinstance(name, str) or (namespace is not None and not isinstance(namespace, str)):
-            raise AirbyteLibInputError(
-                message="Connection catalog contains an invalid stream descriptor.",
-                context={"connection_id": connection_id},
-            )
-
-        available_streams.append(f"{namespace}.{name}" if namespace else name)
-        key = (name, namespace or None)
-        if key in catalog_keys:
-            duplicate_catalog_streams.append(f"{namespace}.{name}" if namespace else name)
-        catalog_keys.add(key)
-
-    if duplicate_catalog_streams:
-        raise AirbyteLibInputError(
-            message=(
-                "Connection catalog contains duplicate stream entries: "
-                f"{', '.join(duplicate_catalog_streams)}."
-            ),
-            context={
-                "connection_id": connection_id,
-                "duplicate_streams": duplicate_catalog_streams,
-            },
-        )
-
-    return available_streams
-
-
-def _resolve_incremental_cursor(
-    stream_def: dict[str, Any],
-    config: dict[str, Any],
-) -> str | None:
-    if config.get("syncMode") != "incremental" or _normalized_cursor_field(
-        config.get("cursorField")
-    ):
-        return None
-    if stream_def.get("sourceDefinedCursor"):
-        return None
-    default_cursor_field = stream_def.get("defaultCursorField")
-    if isinstance(default_cursor_field, list) and default_cursor_field:
-        config["cursorField"] = deepcopy(default_cursor_field)
-        return None
-    return "incremental sync requires a cursor field."
-
-
-def _stream_override_label(
-    override_index: int,
-    override: StreamConfigOverride,
-) -> str:
-    return f"override {override_index} for '{override.stream_name}'" + (
-        f" in namespace '{override.stream_namespace}'"
-        if override.stream_namespace is not None
-        else ""
-    )
-
-
-def _resolve_stream_override_target(
-    catalog: dict[str, Any],
-    override: StreamConfigOverride,
-    *,
-    override_index: int,
-    override_keys: set[tuple[str, str | None]],
-) -> dict[str, Any] | str:
-    label = _stream_override_label(
-        override_index,
-        override,
-    )
-    matching_entries = [
-        entry
-        for entry in catalog["streams"]
-        if entry["stream"].get("name") == override.stream_name
-        and (
-            override.stream_namespace is None
-            or (entry["stream"].get("namespace") or None) == (override.stream_namespace or None)
-        )
-    ]
-    if not matching_entries:
-        return f"{label}: stream not found."
-    if len(matching_entries) > 1:
-        matching_namespaces = [entry["stream"].get("namespace") for entry in matching_entries]
-        return (
-            f"{label}: stream name is ambiguous; specify a namespace. "
-            f"Matching namespaces: {matching_namespaces}."
-        )
-
-    target_entry = matching_entries[0]
-    stream_def = target_entry["stream"]
-    stream_namespace = stream_def.get("namespace")
-    target_key = (override.stream_name, stream_namespace or None)
-    if target_key in override_keys:
-        return f"{label}: this stream is overridden more than once."
-    override_keys.add(target_key)
-    return target_entry
-
-
-def _apply_stream_override(
-    catalog: dict[str, Any],
-    override: StreamConfigOverride,
-    *,
-    override_index: int,
-    override_keys: set[tuple[str, str | None]],
-) -> StreamConfigChange | str:
-    target_entry = _resolve_stream_override_target(
-        catalog,
-        override,
-        override_index=override_index,
-        override_keys=override_keys,
-    )
-    if isinstance(target_entry, str):
-        return target_entry
-
-    label = _stream_override_label(override_index, override)
-    stream_def = target_entry["stream"]
-    stream_namespace = stream_def.get("namespace")
-    current_config = target_entry.get("config") or {}
-    if not isinstance(current_config, dict):
-        return f"{label}: stream configuration is invalid."
-
-    candidate_config = deepcopy(current_config)
-    supported_sync_modes = stream_def.get("supportedSyncModes") or []
-    if override.sync_mode is not None and override.sync_mode.value not in supported_sync_modes:
-        return (
-            f"{label}: sync mode '{override.sync_mode.value}' is unsupported. "
-            f"Supported modes: {supported_sync_modes}."
-        )
-
-    if override.sync_mode is not None:
-        candidate_config["syncMode"] = override.sync_mode.value
-    if override.destination_sync_mode is not None:
-        candidate_config["destinationSyncMode"] = override.destination_sync_mode.value
-    if override.cursor_field is not None:
-        candidate_config["cursorField"] = [override.cursor_field]
-
-    cursor_error = _resolve_incremental_cursor(stream_def, candidate_config)
-    if cursor_error is not None:
-        return f"{label}: {cursor_error}"
-
-    destination_sync_mode = candidate_config.get("destinationSyncMode")
-    if (
-        destination_sync_mode in _DEDUP_DESTINATION_SYNC_MODES
-        and not candidate_config.get("primaryKey")
-        and not stream_def.get("sourceDefinedPrimaryKey")
-    ):
-        return (
-            f"{label}: destination sync mode '{destination_sync_mode}' requires " "a primary key."
-        )
-
-    target_entry["config"] = candidate_config
-    return StreamConfigChange(
-        name=override.stream_name,
-        namespace=stream_namespace,
-        changed_fields=_changed_stream_config_fields(current_config, candidate_config),
-    )
-
-
-def _raise_for_override_errors(
-    validation_errors: list[str],
-    available_streams: list[str],
-    *,
-    connection_id: str,
-) -> None:
-    if not validation_errors:
-        return
-
-    message = f"Invalid stream configuration overrides: {' '.join(validation_errors)}"
-    context: dict[str, Any] = {
-        "connection_id": connection_id,
-        "validation_errors": validation_errors,
-    }
-    if any(": stream not found." in error for error in validation_errors):
-        message += f" Available streams: {available_streams}."
-        context["available_streams"] = available_streams
-
-    raise AirbyteLibInputError(
-        message=message,
-        guidance="Correct every listed override and try again.",
-        context=context,
-    )
 
 
 def _validate_quartz_cron_expression(cron_expression: str) -> None:
@@ -1220,26 +961,29 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         overrides: list[StreamConfigOverride],
         *,
         allow_unsafe: bool = False,
-    ) -> tuple[dict[str, Any], list[StreamConfigChange], list[StreamConfigChange]]:
+    ) -> tuple[ConfiguredAirbyteCatalog, list[StreamConfigChange], list[StreamConfigChange]]:
         """Validate overrides and evaluate their effect without writing the catalog."""
         if not overrides:
             raise AirbyteLibInputError(
                 message="At least one stream configuration override must be provided.",
             )
 
-        catalog = self.dump_raw_catalog(normalize=False)
-        if catalog is None:
+        raw_catalog = self.dump_raw_catalog(normalize=False)
+        if raw_catalog is None:
             raise AirbyteLibInputError(
                 message="Connection catalog is empty or missing.",
                 context={"connection_id": self.connection_id},
             )
 
+        catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(raw_catalog)
+        )
         available_streams = _index_catalog_streams(
             catalog,
             connection_id=self.connection_id,
         )
         old_catalog = catalog
-        catalog = deepcopy(catalog)
+        catalog = catalog.model_copy(deep=True)
 
         validation_errors: list[str] = []
         updated_streams: list[StreamConfigChange] = []
@@ -1266,95 +1010,35 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         unsafe_streams: list[StreamConfigChange] = []
         if changed_streams:
             state_messages = self.dump_raw_state(normalize=True)
-            unsafe_streams = self._find_unsafe_stream_changes(
+            unsafe_streams = _find_unsafe_stream_changes(
                 old_catalog,
                 catalog,
                 state_messages,
             )
 
-        self._raise_for_unsafe_stream_config_changes(
+        _raise_for_unsafe_stream_config_changes(
             unsafe_streams,
             allow_unsafe=allow_unsafe,
+            connection_id=self.connection_id,
         )
         return catalog, updated_streams, unsafe_streams
-
-    @staticmethod
-    def _find_unsafe_stream_changes(
-        old_catalog: dict[str, Any],
-        new_catalog: dict[str, Any],
-        state_messages: list[dict[str, Any]],
-    ) -> list[StreamConfigChange]:
-        old_streams = {
-            (
-                entry["stream"]["name"],
-                entry["stream"].get("namespace"),
-            ): entry
-            for entry in old_catalog["streams"]
-        }
-        unsafe_streams: list[StreamConfigChange] = []
-        for entry in new_catalog["streams"]:
-            stream_def = entry["stream"]
-            name = stream_def["name"]
-            namespace = stream_def.get("namespace")
-            current_entry = old_streams.get((name, namespace))
-            if current_entry is None:
-                continue
-            changed_fields = _changed_stream_config_fields(
-                current_entry.get("config") or {},
-                entry.get("config") or {},
-            )
-            if changed_fields and _stream_has_saved_state(
-                state_messages,
-                name,
-                namespace,
-            ):
-                unsafe_streams.append(
-                    StreamConfigChange(
-                        name=name,
-                        namespace=namespace,
-                        changed_fields=changed_fields,
-                    )
-                )
-        return unsafe_streams
-
-    def _raise_for_unsafe_stream_config_changes(
-        self,
-        unsafe_streams: list[StreamConfigChange],
-        *,
-        allow_unsafe: bool,
-    ) -> None:
-        if unsafe_streams and not allow_unsafe:
-            stream_details = ", ".join(
-                f"{stream.namespace}.{stream.name} ({', '.join(stream.changed_fields)})"
-                if stream.namespace
-                else f"{stream.name} ({', '.join(stream.changed_fields)})"
-                for stream in unsafe_streams
-            )
-            raise AirbyteUnsafeStreamConfigChangeError(
-                message=(
-                    "Stream configuration changes affect streams with saved sync state: "
-                    f"{stream_details}."
-                ),
-                context={
-                    "connection_id": self.connection_id,
-                    "unsafe_streams": [stream.model_dump() for stream in unsafe_streams],
-                },
-            )
 
     def update_stream_configs(
         self,
         overrides: list[StreamConfigOverride],
         *,
         allow_unsafe: bool = False,
-        defer_reset: bool = False,
     ) -> StreamConfigUpdateResult:
         """Update one or more stream configurations in a single catalog write."""
         catalog, updated_streams, unsafe_streams = self._evaluate_stream_config_updates(
             overrides,
             allow_unsafe=allow_unsafe,
         )
-        reset_requested = bool(unsafe_streams and allow_unsafe and not defer_reset)
-        self.import_raw_catalog(catalog, skip_reset=not reset_requested)
+        reset_requested = bool(unsafe_streams and allow_unsafe)
+        self.import_raw_catalog(
+            _denormalize_catalog_to_api(catalog.model_dump(mode="json", exclude_unset=True)),
+            skip_reset=not reset_requested,
+        )
         return StreamConfigUpdateResult(
             updated_streams=updated_streams,
             unsafe_streams=unsafe_streams,

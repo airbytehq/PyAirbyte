@@ -430,6 +430,11 @@ class StreamConfigChange(BaseModel):
     namespace: str | None = None
     changed_fields: list[str]
 
+    @property
+    def label(self) -> str:
+        """Return the namespace-qualified stream label."""
+        return f"{self.namespace}.{self.name}" if self.namespace else self.name
+
 
 class StreamConfigUpdateResult(BaseModel):
     """Result of updating stream sync configurations on a connection."""
@@ -438,6 +443,22 @@ class StreamConfigUpdateResult(BaseModel):
     unsafe_streams: list[StreamConfigChange]
     reset_streams: list[StreamConfigChange]
     reset_requested: bool
+
+    def summary_lines(self) -> list[str]:
+        """Return concise summaries of updated streams and any requested resets."""
+        updated_names = [stream.label for stream in self.updated_streams]
+        changes = [f"updated stream configs for {updated_names}"]
+        if not self.unsafe_streams:
+            return changes
+
+        unsafe_names = [stream.label for stream in self.unsafe_streams]
+        reset_names = [stream.label for stream in self.reset_streams]
+        changes.append(
+            f"unsafe streams {unsafe_names}; the platform will refresh or reset changed "
+            f"streams {reset_names} (refresh keeps data if the destination supports it; "
+            "otherwise a reset clears that stream's destination data)"
+        )
+        return changes
 
 
 class CloudConnectionInfo(BaseModel):

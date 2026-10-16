@@ -359,7 +359,6 @@
   "update_cloud_connection_unsafe": {
     "connection_id": "hash",
     "cron_expression": "fingerprint",
-    "defer_reset": "value allowed=[false,true]",
     "enabled": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",

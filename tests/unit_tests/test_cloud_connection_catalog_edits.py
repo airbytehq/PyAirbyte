@@ -8,10 +8,16 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from airbyte_protocol.models import DestinationSyncMode, SyncMode
+from airbyte_protocol.models import (
+    ConfiguredAirbyteCatalog,
+    DestinationSyncMode,
+    SyncMode,
+)
 from pydantic import ValidationError
 
 from airbyte._util import api_util
+from airbyte.cloud._connection_catalog import _normalize_catalog_to_protocol
+from airbyte.cloud._stream_config_overrides import _find_unsafe_stream_changes
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import StreamConfigOverride
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -152,6 +158,66 @@ def test_batch_overrides_write_once_and_preserve_untouched_catalog_data(
     assert replace_catalog.call_args.kwargs["skip_reset"] is True
     assert len(result.updated_streams) == 2
     get_state.assert_called_once()
+
+
+def test_stream_config_override_round_trips_api_only_catalog_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    users = _stream_entry(
+        "users",
+        namespace="public",
+        config={
+            "syncMode": "full_refresh",
+            "destinationSyncMode": "append",
+            "cursorField": [],
+            "primaryKey": [["id"]],
+            "selected": True,
+            "selectedFields": [],
+            "fieldSelectionEnabled": False,
+            "mappers": [{"name": "users_mapper", "config": {"field": "id"}}],
+        },
+    )
+    users["stream"].update({
+        "aliasName": "users_alias",
+        "hashedFields": [{"path": ["id"]}],
+        "suggested": True,
+        "selected": True,
+    })
+    orders = _stream_entry(
+        "orders",
+        namespace="sales",
+        config={
+            "syncMode": "full_refresh",
+            "destinationSyncMode": "append",
+            "primaryKey": [["order_id"]],
+            "selected": False,
+            "selectedFields": [{"fieldPath": ["order_id"]}],
+            "fieldSelectionEnabled": True,
+            "mappers": [{"name": "orders_mapper", "config": {"field": "order_id"}}],
+        },
+    )
+    orders["stream"].update({
+        "aliasName": "orders_alias",
+        "hashedFields": [{"path": ["order_id"]}],
+        "suggested": False,
+        "selected": False,
+    })
+    catalog = _catalog(users, orders)
+    expected = deepcopy(catalog)
+    expected["streams"][0]["config"]["syncMode"] = "incremental"
+    expected["streams"][0]["config"]["cursorField"] = ["updated_at"]
+    _, replace_catalog, _ = _mock_catalog_api(monkeypatch, catalog)
+
+    _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            stream_namespace="public",
+            sync_mode=SyncMode.incremental,
+            cursor_field="updated_at",
+        )
+    ])
+
+    assert replace_catalog.call_args.kwargs["configured_catalog_dict"] == expected
 
 
 def test_namespace_selects_same_named_stream_and_sets_top_level_cursor(
@@ -405,9 +471,15 @@ def test_find_unsafe_stream_changes_compares_catalogs_to_normalized_state() -> N
         }
     ]
 
-    unsafe = CloudConnection._find_unsafe_stream_changes(
-        old_catalog,
-        new_catalog,
+    old_typed_catalog = ConfiguredAirbyteCatalog.model_validate(
+        _normalize_catalog_to_protocol(old_catalog)
+    )
+    new_typed_catalog = ConfiguredAirbyteCatalog.model_validate(
+        _normalize_catalog_to_protocol(new_catalog)
+    )
+    unsafe = _find_unsafe_stream_changes(
+        old_typed_catalog,
+        new_typed_catalog,
         state_messages,
     )
 
@@ -451,48 +523,6 @@ def test_changed_stream_without_state_is_safe_and_does_not_request_reset(
     get_state.assert_called_once()
     assert replace_catalog.call_args.kwargs["skip_reset"] is True
     assert result.unsafe_streams == []
-    assert result.reset_requested is False
-    assert result.reset_streams == []
-
-
-def test_deferred_unsafe_update_does_not_report_reset_streams(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _, replace_catalog, _ = _mock_catalog_api(
-        monkeypatch,
-        _catalog(_stream_entry("users", namespace="public")),
-    )
-    monkeypatch.setattr(
-        api_util,
-        "get_connection_state",
-        MagicMock(
-            return_value={
-                "stateType": "stream",
-                "connectionId": _CONNECTION_ID,
-                "streamState": [
-                    {
-                        "streamDescriptor": {"name": "users", "namespace": "public"},
-                        "streamState": {"cursor": "saved"},
-                    }
-                ],
-            }
-        ),
-    )
-
-    result = _connection().update_stream_configs(
-        [
-            StreamConfigOverride(
-                stream_name="users",
-                stream_namespace="public",
-                sync_mode=SyncMode.incremental,
-                cursor_field="updated_at",
-            )
-        ],
-        allow_unsafe=True,
-        defer_reset=True,
-    )
-
-    assert replace_catalog.call_args.kwargs["skip_reset"] is True
     assert result.reset_requested is False
     assert result.reset_streams == []
 

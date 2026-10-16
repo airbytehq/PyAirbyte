@@ -340,19 +340,9 @@ def test_update_interval_api_failure_is_reported(
         asyncio.run(_update(server, interval_hours=24))
 
 
-@pytest.mark.parametrize(
-    ("defer_reset", "expected_skip_reset", "message"),
-    [
-        (False, False, "the platform will refresh or reset changed streams"),
-        (True, True, "these streams have stale state"),
-    ],
-)
-def test_unsafe_update_controls_catalog_reset(
+def test_unsafe_update_always_requests_catalog_reset(
     schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
-    defer_reset: bool,
-    expected_skip_reset: bool,
-    message: str,
 ) -> None:
     server, _http, _lookup, _patch = schedule_backend
     monkeypatch.setattr(
@@ -366,6 +356,7 @@ def test_unsafe_update_controls_catalog_reset(
                             "stream": {
                                 "name": "users",
                                 "namespace": "public",
+                                "jsonSchema": {"type": "object"},
                                 "supportedSyncModes": ["full_refresh", "incremental"],
                             },
                             "config": {
@@ -377,6 +368,7 @@ def test_unsafe_update_controls_catalog_reset(
                             "stream": {
                                 "name": "orders",
                                 "namespace": "sales",
+                                "jsonSchema": {"type": "object"},
                                 "supportedSyncModes": ["full_refresh", "incremental"],
                             },
                             "config": {
@@ -411,7 +403,6 @@ def test_unsafe_update_controls_catalog_reset(
     result = asyncio.run(
         _unsafe_update(
             server,
-            defer_reset=defer_reset,
             override_stream_configs=[
                 {
                     "stream_name": "users",
@@ -428,15 +419,12 @@ def test_unsafe_update_controls_catalog_reset(
         )
     )
 
-    assert replace_catalog.call_args.kwargs["skip_reset"] is expected_skip_reset
+    assert replace_catalog.call_args.kwargs["skip_reset"] is False
     assert "users" in result
-    assert message in result
-    if defer_reset:
-        assert "no reset was run" in result
-    else:
-        assert "unsafe streams ['public.users']" in result
-        assert "changed streams ['public.users', 'sales.orders']" in result
-        assert "otherwise a reset clears that stream's destination data" in result
+    assert "the platform will refresh or reset changed streams" in result
+    assert "unsafe streams ['public.users']" in result
+    assert "changed streams ['public.users', 'sales.orders']" in result
+    assert "otherwise a reset clears that stream's destination data" in result
 
 
 @pytest.mark.parametrize(

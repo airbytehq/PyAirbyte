@@ -34,6 +34,10 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
 )
 from airbyte._util import api_util
+from airbyte.cloud._connection_settings import (
+    _set_connection_schedule,
+    _validate_update_connection_args,
+)
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -54,7 +58,6 @@ from airbyte.cloud.models import (
     ConnectorType,
     JobTypeEnum,
     OrganizationFeature,
-    StreamConfigChange,
     StreamConfigOverride,
     StreamConfigUpdateResult,
     WorkspacePrivilegeScope,
@@ -132,6 +135,7 @@ MANIFEST_YAML_SOURCE_HINT = (
 
 
 def _manifest_yaml_source_hint() -> str | None:
+    """Return a trusted-execution hint for custom connector manifests."""
     return MANIFEST_YAML_SOURCE_HINT if is_trusted_execution_enabled() else None
 
 
@@ -2237,6 +2241,7 @@ def get_cloud_search_status(
         return status
 
     def matches(stream: ExternalSearchStreamStatus) -> bool:
+        """Check whether a stream matches both optional filters."""
         return (stream_name is None or stream.name == stream_name) and (
             namespace is None or stream.namespace == namespace
         )
@@ -3220,6 +3225,7 @@ def get_cloud_organization_billing_status(
 def _get_custom_source_definition_description(
     custom_source: CustomCloudSourceDefinition,
 ) -> str:
+    """Format the useful metadata for a custom source definition."""
     return "\n".join(
         [
             f" - Custom Source Name: {custom_source.name}",
@@ -4094,50 +4100,14 @@ def set_cloud_connection_selected_streams(
     )
 
 
-def _validate_update_connection_args(
-    *,
-    enabled: bool | None,
-    cron_expression: str | None,
-    interval_hours: int | None,
-    manual_schedule: bool | None,
-    override_stream_configs: list[StreamConfigOverride] | None,
-) -> None:
-    if not any(
-        (
-            enabled is not None,
-            cron_expression is not None,
-            interval_hours is not None,
-            manual_schedule is not None,
-            bool(override_stream_configs),
-        )
-    ):
-        raise AirbyteLibInputError(
-            message=(
-                "At least one setting must be provided: 'enabled', 'interval_hours', "
-                "'cron_expression', 'manual_schedule', or 'override_stream_configs'."
-            ),
-        )
-
-    if sum((interval_hours is not None, cron_expression is not None, manual_schedule is True)) > 1:
-        raise AirbyteLibInputError(
-            message=(
-                "Cannot specify more than one of 'interval_hours', 'cron_expression', "
-                "and 'manual_schedule=True'."
-            ),
-        )
-
-    if interval_hours is not None:
-        api_util.validate_interval_hours(interval_hours)
-
-
 def _apply_stream_config_overrides(
     ctx: Context,
     connection: CloudConnection,
     overrides: list[StreamConfigOverride] | None,
     *,
     allow_unsafe: bool,
-    defer_reset: bool,
 ) -> StreamConfigUpdateResult | None:
+    """Apply overrides before other connection writes and add safety guidance."""
     if not overrides:
         return None
 
@@ -4145,7 +4115,6 @@ def _apply_stream_config_overrides(
         return connection.update_stream_configs(
             overrides,
             allow_unsafe=allow_unsafe,
-            defer_reset=defer_reset,
         )
     except AirbyteUnsafeStreamConfigChangeError as error:
         guidance = (
@@ -4161,51 +4130,6 @@ def _apply_stream_config_overrides(
         ) from error
 
 
-def _set_connection_schedule(
-    connection: CloudConnection,
-    *,
-    cron_expression: str | None,
-    interval_hours: int | None,
-    manual_schedule: bool | None,
-) -> str | None:
-    if cron_expression is not None:
-        connection.set_schedule(cron_expression=cron_expression)
-        return f"schedule set to '{cron_expression}'"
-    if interval_hours is not None:
-        connection.set_schedule(interval_hours=interval_hours)
-        return f"schedule set to 'every {interval_hours} hours'"
-    if manual_schedule is True:
-        connection.set_manual_schedule()
-        return "schedule set to 'manual'"
-    return None
-
-
-def _stream_label(stream: StreamConfigChange) -> str:
-    return f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
-
-
-def _describe_stream_config_result(result: StreamConfigUpdateResult) -> list[str]:
-    updated_names = [_stream_label(stream) for stream in result.updated_streams]
-    changes = [f"updated stream configs for {updated_names}"]
-    if not result.unsafe_streams:
-        return changes
-
-    unsafe_names = [_stream_label(stream) for stream in result.unsafe_streams]
-    if result.reset_requested:
-        reset_names = [_stream_label(stream) for stream in result.reset_streams]
-        changes.append(
-            f"unsafe streams {unsafe_names}; the platform will refresh or reset changed "
-            f"streams {reset_names} (refresh keeps data if the destination supports it; "
-            "otherwise a reset clears that stream's destination data)"
-        )
-    else:
-        changes.append(
-            f"unsafe streams {unsafe_names}; no reset was run; these streams have stale "
-            "state and need a refresh/reset before their next sync"
-        )
-    return changes
-
-
 def _update_cloud_connection_impl(  # noqa: PLR0913
     ctx: Context,
     connection_id: str,
@@ -4217,8 +4141,8 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     override_stream_configs: list[StreamConfigOverride] | None,
     workspace_id: str | None,
     allow_unsafe: bool,
-    defer_reset: bool,
 ) -> str:
+    """Validate and apply settings in the order that protects catalog updates."""
     _validate_update_connection_args(
         enabled=enabled,
         cron_expression=cron_expression,
@@ -4235,7 +4159,6 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         connection,
         override_stream_configs,
         allow_unsafe=allow_unsafe,
-        defer_reset=defer_reset,
     )
 
     if enabled is not None:
@@ -4252,9 +4175,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         manual_schedule=manual_schedule,
     )
 
-    changes_made = (
-        _describe_stream_config_result(stream_config_result) if stream_config_result else []
-    )
+    changes_made = stream_config_result.summary_lines() if stream_config_result else []
     if status_summary is not None:
         changes_made.append(status_summary)
     if schedule_summary is not None:
@@ -4376,14 +4297,13 @@ def update_cloud_connection(
         override_stream_configs=override_stream_configs,
         workspace_id=workspace_id,
         allow_unsafe=False,
-        defer_reset=False,
     )
 
 
 @mcp_tool(
     destructive=True,
 )
-def update_cloud_connection_unsafe(  # noqa: PLR0913
+def update_cloud_connection_unsafe(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4460,15 +4380,6 @@ def update_cloud_connection_unsafe(  # noqa: PLR0913
         ),
         TraceArg.FINGERPRINT,
     ] = None,
-    defer_reset: Annotated[
-        bool,
-        Field(
-            description=(
-                "If true, do not request a platform reset. Streams with saved state will need "
-                "a refresh or reset before their next sync."
-            ),
-        ),
-    ] = False,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4478,11 +4389,10 @@ def update_cloud_connection_unsafe(  # noqa: PLR0913
         TraceArg.OMIT,
     ] = None,
 ) -> str:
-    """Update connection settings and apply stream overrides even when saved state is affected.
+    """Update connection settings and override stream configurations despite saved state.
 
     Unsafe changes can make the destination's data inconsistent. By default, the platform
-    refreshes or resets affected streams; set `defer_reset=True` to leave stale state for a
-    later refresh or reset.
+    refreshes or resets every changed stream.
     """
     check_guid_created_in_session(connection_id)
     return _update_cloud_connection_impl(
@@ -4495,7 +4405,6 @@ def update_cloud_connection_unsafe(  # noqa: PLR0913
         override_stream_configs=override_stream_configs,
         workspace_id=workspace_id,
         allow_unsafe=True,
-        defer_reset=defer_reset,
     )
 
 
