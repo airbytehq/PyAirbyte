@@ -282,6 +282,12 @@
     "name": "fingerprint",
     "workspace_id": "omit"
   },
+  "request_cloud_search_index_backfill": {
+    "backfill_start_time": "value str",
+    "connection_id": "hash",
+    "streams": "hash list",
+    "workspace_id": "omit"
+  },
   "run_cloud_sync": {
     "connection_id": "hash",
     "wait": "value allowed=[false,true]",
