@@ -120,8 +120,10 @@ jobs:
       run: |
         set -euo pipefail
         since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        extra=()
+        [[ -n "$RUN_ARGS" ]] && extra=(-f run_args="$RUN_ARGS")
         gh workflow run evals.yml -R "$EVALS_REPO" --ref main \
-          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY" -f run_args="$RUN_ARGS"
+          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY" "${extra[@]}"
         title="PyAirbyte evals: #$PR"
         for _ in $(seq 18); do
           sleep 10
