@@ -25,6 +25,7 @@ Airbyte Maintainers can execute the following slash commands on your PR:
 - `/uv-lock` - Updates uv.lock file
 - `/test-pr` - Runs tests with the updated PyAirbyte
 - `/prerelease` - Builds and publishes a prerelease version to PyPI
+- `/evals` - Runs the Cloud MCP evals that use the MCP tools this PR changed (`/evals full=true` runs the full suite)
 
 </details>
 
