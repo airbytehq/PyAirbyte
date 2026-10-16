@@ -1034,24 +1034,28 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         config = target_entry.get("config") or {}
         if sync_mode is SyncMode.incremental:
-            existing_cursor = config.get("cursorField") or stream_def.get("defaultCursorField")
+            existing_cursor = config.get("cursorField")
             source_defined_cursor = bool(stream_def.get("sourceDefinedCursor"))
+            default_cursor_field = stream_def.get("defaultCursorField")
             if cursor_field is None and not existing_cursor and not source_defined_cursor:
-                raise AirbyteLibInputError(
-                    message=(
-                        f"Stream '{stream_name}' needs a cursor field before switching "
-                        "to incremental sync mode."
-                    ),
-                    guidance=(
-                        "Provide `cursor_field` or use a stream with a default or "
-                        "source-defined cursor."
-                    ),
-                    context={
-                        "connection_id": self.connection_id,
-                        "stream_name": stream_name,
-                        "stream_namespace": stream_namespace,
-                    },
-                )
+                if default_cursor_field:
+                    config["cursorField"] = list(default_cursor_field)
+                else:
+                    raise AirbyteLibInputError(
+                        message=(
+                            f"Stream '{stream_name}' needs a cursor field before switching "
+                            "to incremental sync mode."
+                        ),
+                        guidance=(
+                            "Provide `cursor_field` or use a stream with a default or "
+                            "source-defined cursor."
+                        ),
+                        context={
+                            "connection_id": self.connection_id,
+                            "stream_name": stream_name,
+                            "stream_namespace": stream_namespace,
+                        },
+                    )
 
         config["syncMode"] = sync_mode.value
         if destination_sync_mode is not None:

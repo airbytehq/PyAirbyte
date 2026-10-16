@@ -271,6 +271,10 @@
     "source_connector_name": "fingerprint",
     "stream_name": "fingerprint"
   },
+  "refresh_cloud_connection_catalog": {
+    "connection_id": "hash",
+    "workspace_id": "omit"
+  },
   "rename_cloud_connection": {
     "connection_id": "hash",
     "name": "fingerprint",
@@ -298,6 +302,15 @@
   "set_cloud_connection_selected_streams": {
     "connection_id": "hash",
     "stream_names": "fingerprint list",
+    "workspace_id": "omit"
+  },
+  "set_cloud_connection_stream_sync_mode": {
+    "connection_id": "hash",
+    "cursor_field": "fingerprint",
+    "destination_sync_mode": "value allowed=[\"append\",\"append_dedup\",\"overwrite\",\"soft_delete\",\"update\"]",
+    "stream_name": "fingerprint",
+    "stream_namespace": "hash",
+    "sync_mode": "value allowed=[\"full_refresh\",\"incremental\"]",
     "workspace_id": "omit"
   },
   "set_cloud_connection_table_prefix": {

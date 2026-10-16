@@ -292,7 +292,10 @@ def test_incremental_sync_accepts_stream_defined_cursor(
     )
 
     assert entry["config"]["syncMode"] == "incremental"
-    assert "cursorField" not in entry["config"]
+    if "default_cursor_field" in stream_options:
+        assert entry["config"]["cursorField"] == ["updated_at"]
+    else:
+        assert "cursorField" not in entry["config"]
     replace_catalog.assert_called_once()
 
 
