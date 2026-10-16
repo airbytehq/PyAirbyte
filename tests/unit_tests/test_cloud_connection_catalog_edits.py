@@ -331,6 +331,29 @@ def test_refresh_catalog_gets_and_replaces_catalog_with_config_api_root(
     )
 
 
+def test_refresh_catalog_clears_cached_connection_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refreshed catalog invalidates previously cached connection information."""
+    connection = _connection()
+    stale_connection_info = MagicMock()
+    stale_connection_info.configurations.streams = [MagicMock(name="old-stream")]
+    connection._connection_info = stale_connection_info
+    refreshed_catalog = _catalog(_stream_entry("new-stream"))
+    monkeypatch.setattr(
+        api_util,
+        "get_refreshed_connection_catalog",
+        MagicMock(return_value={"syncCatalog": refreshed_catalog}),
+    )
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+
+    connection.refresh_catalog()
+
+    replace_catalog.assert_called_once()
+    assert connection._connection_info is None
+
+
 @pytest.mark.parametrize(
     "response",
     [

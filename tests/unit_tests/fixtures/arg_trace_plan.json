@@ -271,10 +271,6 @@
     "source_connector_name": "fingerprint",
     "stream_name": "fingerprint"
   },
-  "refresh_cloud_connection_catalog": {
-    "connection_id": "hash",
-    "workspace_id": "omit"
-  },
   "rename_cloud_connection": {
     "connection_id": "hash",
     "name": "fingerprint",
@@ -358,6 +354,7 @@
     "connection_id": "hash",
     "cron_expression": "fingerprint",
     "enabled": "value allowed=[false,true]",
+    "force_catalog_refresh": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
     "workspace_id": "omit"

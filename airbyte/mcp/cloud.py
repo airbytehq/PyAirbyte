@@ -3976,39 +3976,6 @@ def set_cloud_connection_selected_streams(
 @mcp_tool(
     destructive=True,
 )
-def refresh_cloud_connection_catalog(
-    ctx: Context,
-    connection_id: Annotated[
-        str,
-        Field(description="The ID of the connection to refresh the catalog for."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-        TraceArg.OMIT,
-    ],
-) -> str:
-    """Refresh a connection's catalog by re-discovering its source schema."""
-    check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    connection = workspace.get_connection(connection_id=connection_id)
-    refreshed_catalog = connection.refresh_catalog()
-    stream_count = len(refreshed_catalog["streams"])
-
-    return (
-        f"Successfully refreshed catalog for connection '{connection_id}'. "
-        f"Catalog now contains {stream_count} stream(s). "
-        f"URL: {connection.connection_url}"
-    )
-
-
-@mcp_tool(
-    destructive=True,
-)
 def set_cloud_connection_stream_sync_mode(
     ctx: Context,
     connection_id: Annotated[
@@ -4160,6 +4127,15 @@ def update_cloud_connection(
             default=None,
         ),
     ],
+    force_catalog_refresh: Annotated[
+        bool,
+        Field(
+            description=(
+                "If true, re-discover the source schema and replace the connection's catalog "
+                "with the refreshed result (same as 'Refresh source schema' in the UI)."
+            ),
+        ),
+    ] = False,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4176,9 +4152,11 @@ def update_cloud_connection(
     - Set a cron schedule for automatic syncs
     - Set a basic interval schedule in whole hours between syncs
     - Switch to manual scheduling (no automatic syncs)
+    - Refresh the source schema and replace the connection's catalog
 
     At least one setting must be provided. `interval_hours`, `cron_expression`, and
-    `manual_schedule=True` are mutually exclusive.
+    `manual_schedule=True` are mutually exclusive. `force_catalog_refresh` runs after
+    other requested settings.
     """
     check_guid_created_in_session(connection_id)
 
@@ -4188,11 +4166,12 @@ def update_cloud_connection(
         and cron_expression is None
         and interval_hours is None
         and manual_schedule is None
+        and not force_catalog_refresh
     ):
         raise AirbyteLibInputError(
             message=(
                 "At least one setting must be provided: 'enabled', 'interval_hours', "
-                "'cron_expression', or 'manual_schedule'."
+                "'cron_expression', 'manual_schedule', or 'force_catalog_refresh'."
             ),
         )
 
@@ -4229,6 +4208,10 @@ def update_cloud_connection(
     elif manual_schedule is True:
         connection.set_manual_schedule()
         changes_made.append("schedule set to 'manual'")
+
+    if force_catalog_refresh:
+        refreshed_catalog = connection.refresh_catalog()
+        changes_made.append(f"refreshed catalog ({len(refreshed_catalog['streams'])} streams)")
 
     changes_summary = ", ".join(changes_made)
     return (
