@@ -315,13 +315,20 @@ class ExternalSearchHit(BaseModel):
     """The matched entity's ID."""
 
     entity_data: dict[str, Any] = Field(default_factory=dict)
-    """The matched entity's data, projected to the requested `fields` when given."""
+    """The matched entity's data, projected to the requested `fields` when given.
+
+    Null values are not stored, so an absent key means null or unset. A keyword-only hit
+    also omits any field longer than 4096 characters or split across keyword chunks; its
+    matched text is in `context`.
+    """
 
     score: float
     """The match score. Higher is a better match."""
 
     context: str | None = None
-    """The matched text, truncated to `max_context_chars` when requested."""
+    """The matched text: the semantic match, or for a keyword-only hit the matched chunk
+    centered on the first query term, with `…` where text was left out. Truncated to
+    `max_context_chars` when requested."""
 
     @field_validator("entity_id", mode="before")
     @classmethod
@@ -406,15 +413,17 @@ class ExternalSearchResult(BaseModel):
 
 
 class ExternalSearchBackfillStatus(BaseModel):
-    """Progress of the initial indexing backfill for one stream."""
+    """Progress of the latest backfill run for one stream."""
 
     model_config = ConfigDict(extra="allow")
 
     status: str
-    """The backfill status, for example `running` or `complete`."""
+    """The backfill status: `starting` until a backfiller picks the run up, then `running`
+    and `finalizing`, and finally `complete`, `failed`, or `cancelled`."""
 
     backfill_start_time: datetime | None = None
-    """The start of the backfilled time range."""
+    """The run's start time: rows whose cursor field is earlier were skipped. `None`
+    backfills the whole history."""
 
     expected_total_records: int | None = None
     """The number of records the backfill expects to collect."""
@@ -430,6 +439,12 @@ class ExternalSearchBackfillStatus(BaseModel):
 
     completed_at: datetime | None = None
     """When the backfill completed."""
+
+    failed_at: datetime | None = None
+    """When the backfill failed."""
+
+    cancelled_at: datetime | None = None
+    """When the backfill was cancelled."""
 
 
 class ExternalSearchIndexStatus(BaseModel):
@@ -517,6 +532,83 @@ class ExternalSearchStatusResult(BaseModel):
     @classmethod
     def _none_to_empty(cls, value: object) -> object:
         return [] if value is None else value
+
+
+class ExternalSearchBackfillRun(BaseModel):
+    """One stream's backfill run, as reported by a backfill request."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    """The stream's backfill ID, kept across runs."""
+
+    stream_name: str
+    """The stream, or empty for the run that stands for every stream."""
+
+    source_id: str
+    """The connection's source."""
+
+    workspace_id: str
+    """The connection's workspace."""
+
+    connection_id: str | None = None
+    """The connection being backfilled."""
+
+    destination_id: str | None = None
+    """The destination the backfill reads from."""
+
+    requested_at: datetime | None = None
+    """When the run was requested."""
+
+    started_at: datetime | None = None
+    """When a backfiller started the run."""
+
+    completed_at: datetime | None = None
+    """When the run completed."""
+
+    failed_at: datetime | None = None
+    """When the run failed."""
+
+    cancel_requested_at: datetime | None = None
+    """When cancelling the run was requested."""
+
+    cancelled_at: datetime | None = None
+    """When the run was cancelled."""
+
+    expected_total_rows: int | None = None
+    """The number of rows the run expects to read, once counted."""
+
+    error: str | None = None
+    """The failure code of a failed run, for example `enqueue_failed`."""
+
+
+class ExternalSearchBackfillRequested(BaseModel):
+    """The outcome of a backfill request for one stream."""
+
+    model_config = ConfigDict(extra="allow")
+
+    stream_name: str
+    """The stream. Empty when the request named no streams: that one run stands for every
+    stream selected in the connection, and is split into per-stream runs when it starts."""
+
+    outcome: str
+    """`requested` when a new run was queued, `running` when the stream's current run is
+    still queued or running and was kept, or `failed` when the run could not be queued."""
+
+    run_id: str | None = None
+    """The run's ID."""
+
+    backfill: ExternalSearchBackfillRun
+    """The stream's backfill run."""
+
+
+class ExternalSearchBackfillRequestResult(BaseModel):
+    """The result of requesting a search backfill for a connection."""
+
+    model_config = ConfigDict(extra="allow")
+
+    streams: list[ExternalSearchBackfillRequested]
+    """Each requested stream's outcome."""
 
 
 class ConnectorEnablement(BaseModel):

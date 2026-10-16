@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from airbyte._direct_connectors.models import (
     ConnectorEnablement,
     ExternalApiExecuteResult,
+    ExternalSearchBackfillRequestResult,
     ExternalSearchResult,
     ExternalSearchStatusResult,
 )
@@ -286,6 +287,32 @@ def get_cloud_connector_search_status(
     except ValidationError as ex:
         raise AirbyteCloudError(
             message="Malformed Airbyte Cloud search-status response.",
+            context={"path": path, "errors": ex.errors(include_url=False)},
+        ) from ex
+
+
+def request_cloud_connection_search_backfill(
+    *,
+    connection_id: str,
+    request_body: dict[str, Any],
+    credentials: _AirbyteCredentials,
+) -> ExternalSearchBackfillRequestResult:
+    """Request a search backfill for a Cloud connection via the Cloud Config API.
+
+    Posts to `/connections/{id}/backfill`. The request body is forwarded as-is.
+    """
+    path = f"/connections/{connection_id}/backfill"
+    response = make_cloud_agent_request(
+        method="POST",
+        path=path,
+        credentials=credentials,
+        json=request_body,
+    )
+    try:
+        return ExternalSearchBackfillRequestResult.model_validate(response)
+    except ValidationError as ex:
+        raise AirbyteCloudError(
+            message="Malformed Airbyte Cloud backfill response.",
             context={"path": path, "errors": ex.errors(include_url=False)},
         ) from ex
 

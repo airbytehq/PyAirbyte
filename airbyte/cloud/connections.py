@@ -7,6 +7,7 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
@@ -72,6 +73,9 @@ def _validate_quartz_cron_expression(cron_expression: str) -> None:
 
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from airbyte._direct_connectors.models import ExternalSearchBackfillRequestResult
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -455,6 +459,40 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             connection=self,
             job_id=job_response.job_id,
             _latest_job_info=CloudJobInfo.from_api_response(job_response),
+        )
+
+    def request_search_backfill(
+        self,
+        *,
+        streams: list[str] | None = None,
+        backfill_start_time: datetime | None = None,
+    ) -> ExternalSearchBackfillRequestResult:
+        """Request a search backfill that indexes data already in the connection's destination.
+
+        Turning search on for a connection indexes only data from syncs that run afterwards;
+        existing destination data is indexed only by a backfill. `streams` names the streams
+        to backfill; omitted, every stream selected in the connection is backfilled.
+        `backfill_start_time` must be timezone-aware and keeps only rows whose cursor field (a
+        top-level timestamp or date) is at or after it; streams without such a cursor are
+        backfilled in full. Omitted, the whole history is backfilled. A stream whose current
+        run is still queued or running keeps it and is reported as `running`, so retrying is
+        safe. Requires search indexing to be enabled for the connection.
+        """
+        if backfill_start_time is not None and backfill_start_time.utcoffset() is None:
+            raise AirbyteLibInputError(
+                message="`backfill_start_time` must include a timezone.",
+                guidance="For example, use `2026-01-01T00:00:00+00:00`.",
+                input_value=backfill_start_time.isoformat(),
+            )
+        request_body: dict[str, Any] = {}
+        if streams is not None:
+            request_body["streams"] = list(streams)
+        if backfill_start_time is not None:
+            request_body["start_time"] = backfill_start_time.isoformat()
+        return agents_api_util.request_cloud_connection_search_backfill(
+            connection_id=self.connection_id,
+            request_body=request_body,
+            credentials=self.workspace._credentials,  # noqa: SLF001
         )
 
     def __repr__(self) -> str:
