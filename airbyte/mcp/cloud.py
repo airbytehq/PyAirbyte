@@ -111,8 +111,8 @@ if TYPE_CHECKING:
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
-    "resource yourself to satisfy this requirement; ask the user to confirm deletion or "
-    "rename it themselves first."
+    "resource yourself to satisfy this requirement unless and until the user explicitly "
+    "consents to the rename operation."
 )
 WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
 MANIFEST_YAML_SOURCE_HINT = (

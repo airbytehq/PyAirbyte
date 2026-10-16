@@ -183,7 +183,9 @@ _INSTRUCTIONS_LOCAL_MODE = """
 _INSTRUCTIONS_SAFETY = """
 
 Safety features:
-- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name
+- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name.
+  With the user's explicit consent, you may rename the resource to add the marker and
+  then delete it; never rename it to bypass the guard without asking first.
 - Read-only mode: Disables all write operations for cloud resources"""
 
 
