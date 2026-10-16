@@ -144,16 +144,13 @@ def _get_catalog_discover_result(
             context={"discover_request_id": discover_request_id},
         )
 
-    api_args = {
-        "api_root": workspace.api_root,
-        "config_api_root": workspace.config_api_root,
-        "client_id": workspace.client_id,
-        "client_secret": workspace.client_secret,
-        "bearer_token": workspace.bearer_token,
-    }
     command_status = api_util.get_command_status(
         discover_request_id,
-        **api_args,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
     )
     request_status = command_status["status"]
     if request_status != "completed":
@@ -164,7 +161,11 @@ def _get_catalog_discover_result(
 
     output = api_util.get_discover_command_output(
         discover_request_id,
-        **api_args,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
     )
     failure = output.get("failureReason")
     failure_reason = failure.get("externalMessage") if isinstance(failure, dict) else None
