@@ -510,14 +510,6 @@ class CloudSourceInfo(BaseModel):
         )
 
 
-class CloudSourceCatalogStreamSummary(BaseModel):
-    """Summary of a stream in a source catalog."""
-
-    stream_name: str
-    stream_namespace: str | None = None
-    supported_sync_modes: list[str] = Field(default_factory=list)
-
-
 class CloudSourceCatalogDiffStreamSummary(BaseModel):
     """Summary of one stream transformation in a catalog diff."""
 
@@ -540,7 +532,6 @@ class CloudSourceCatalogDiscoverResult(BaseModel):
     stream_count: int | None = None
     updated_at: datetime | None = None
     failure_reason: str | None = None
-    streams: list[CloudSourceCatalogStreamSummary] | None = None
     catalog_diff_summary: list[CloudSourceCatalogDiffStreamSummary] | None = None
     schema_change: Literal["no_change", "non_breaking", "breaking"] | None = None
 
