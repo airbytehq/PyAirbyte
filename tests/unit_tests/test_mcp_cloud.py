@@ -1232,6 +1232,168 @@ def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
         )
 
 
+def test_deploy_connector_to_cloud_supports_custom_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Custom source definitions are validated and deployed with the supplied ID."""
+    definition = MagicMock()
+    definition.config_spec_jsonschema = {"type": "object"}
+    definition.validate_config = MagicMock()
+    deploy_calls: list[dict[str, object]] = []
+
+    def fake_deploy(**kwargs: object) -> SimpleNamespace:
+        deploy_calls.append(kwargs)
+        return SimpleNamespace(
+            connector_id="deployed-id",
+            connector_url="https://cloud.airbyte.com/deployed-id",
+        )
+
+    workspace = SimpleNamespace(
+        get_custom_source_definition=MagicMock(return_value=definition),
+        deploy_source=fake_deploy,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    config = {"greeting": "hi"}
+    resolved_config_args: dict[str, object] = {}
+
+    def fake_resolve_config(**kwargs: object) -> dict[str, Any]:
+        resolved_config_args.update(kwargs)
+        return config
+
+    monkeypatch.setattr(cloud_mcp, "resolve_connector_config", fake_resolve_config)
+    registered: list[str] = []
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", registered.append
+    )
+
+    result = cloud_mcp.deploy_connector_to_cloud(
+        cast(Context, object()),
+        name="My custom source",
+        connector_name=None,
+        custom_definition_id="custom-definition-id",
+        connector_type=None,
+        workspace_id=None,
+        config=config,
+        config_secret_name=None,
+        unique=True,
+    )
+
+    workspace.get_custom_source_definition.assert_called_once_with(
+        "custom-definition-id",
+        definition_type="yaml",
+    )
+    assert resolved_config_args == {
+        "config": config,
+        "config_secret_name": None,
+        "config_spec_jsonschema": definition.config_spec_jsonschema,
+    }
+    definition.validate_config.assert_called_once_with(config)
+    assert deploy_calls == [
+        {
+            "name": "My custom source",
+            "source": config,
+            "unique": True,
+            "definition_id": "custom-definition-id",
+        }
+    ]
+    assert registered == ["deployed-id"]
+    assert "deployed source 'My custom source'" in result
+    assert "deployed-id" in result
+
+
+@pytest.mark.parametrize(
+    ("connector_name", "custom_definition_id"),
+    [
+        pytest.param(None, None, id="neither"),
+        pytest.param("source-faker", "custom-definition-id", id="both"),
+    ],
+)
+def test_deploy_connector_to_cloud_requires_one_definition_selector(
+    connector_name: str | None,
+    custom_definition_id: str | None,
+) -> None:
+    """Exactly one of a registry connector name or custom definition ID is required."""
+    with pytest.raises(AirbyteLibInputError, match="exactly one"):
+        cloud_mcp.deploy_connector_to_cloud(
+            cast(Context, object()),
+            name="My connector",
+            connector_name=connector_name,
+            custom_definition_id=custom_definition_id,
+            connector_type=None,
+            workspace_id=None,
+            config=None,
+            config_secret_name=None,
+            unique=True,
+        )
+
+
+def test_deploy_connector_to_cloud_rejects_custom_destination() -> None:
+    """Custom source definitions cannot be deployed as destinations."""
+    with pytest.raises(AirbyteLibInputError, match="only be deployed as sources"):
+        cloud_mcp.deploy_connector_to_cloud(
+            cast(Context, object()),
+            name="My connector",
+            connector_name=None,
+            custom_definition_id="custom-definition-id",
+            connector_type=ConnectorType.DESTINATION,
+            workspace_id=None,
+            config=None,
+            config_secret_name=None,
+            unique=True,
+        )
+
+
+def test_deploy_connector_to_cloud_deferred_custom_definition_skips_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deferred custom source deployment uses its definition ID without registry lookup."""
+    deploy_calls: list[dict[str, object]] = []
+
+    def fake_deploy(**kwargs: object) -> SimpleNamespace:
+        deploy_calls.append(kwargs)
+        return SimpleNamespace(
+            connector_id="deployed-id",
+            connector_url="https://cloud.airbyte.com/deployed-id",
+        )
+
+    workspace = SimpleNamespace(workspace_id="workspace-id", deploy_source=fake_deploy)
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_: workspace)
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_connector_metadata",
+        lambda *_: pytest.fail("custom definitions must not look up registry metadata"),
+    )
+    registered: list[str] = []
+    monkeypatch.setattr(
+        cloud_mcp, "register_guid_created_in_session", registered.append
+    )
+
+    result = cloud_mcp.deploy_connector_to_cloud(
+        cast(Context, object()),
+        name="My custom source",
+        connector_name=None,
+        custom_definition_id="custom-definition-id",
+        connector_type=None,
+        workspace_id=None,
+        config={"greeting": "hi"},
+        config_secret_name=None,
+        unique=True,
+        defer_credentials=True,
+    )
+
+    assert deploy_calls == [
+        {
+            "name": "My custom source",
+            "source": {"greeting": "hi"},
+            "unique": True,
+            "definition_id": "custom-definition-id",
+            "defer_credentials": True,
+        }
+    ]
+    assert registered == ["deployed-id"]
+    assert '"connector_id": "deployed-id"' in result
+
+
 class _LazyConnector:
     """Connector double whose `name` raises `AirbyteMissingResourceError` when missing."""
 

@@ -610,25 +610,40 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
         TraceArg.FINGERPRINT,
     ],
     connector_name: Annotated[
-        str,
+        str | None,
         Field(
             description=(
                 "The canonical name of the connector (e.g., 'source-faker' or "
                 "'destination-postgres')."
             ),
+            default=None,
         ),
         TraceArg.FINGERPRINT,
-    ],
+    ] = None,
     *,
     connector_type: Annotated[
         ConnectorType | None,
         Field(
             description=(
                 "Optional: `source` or `destination`. When omitted, inferred from the "
-                "`source-`/`destination-` prefix of `connector_name`."
+                "`source-`/`destination-` prefix of `connector_name`. Custom definitions "
+                "are sources."
             ),
             default=None,
         ),
+    ] = None,
+    custom_definition_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "ID of a custom (YAML / Connector Builder) source definition in this "
+                "workspace, e.g. from `publish_custom_source_definition` or "
+                "`list_custom_source_definitions`. Pass this instead of `connector_name` "
+                "to deploy a source from a custom definition."
+            ),
+            default=None,
+        ),
+        TraceArg.HASH,
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -671,40 +686,81 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
 ) -> str:
     """Deploy a source or destination connector to Airbyte Cloud.
 
+    Use `custom_definition_id` to deploy a custom YAML source definition.
+
     With `defer_credentials=True`, returns a JSON `DeferredDeployResult` whose `settings_url`
     is where a person completes the credentials.
     """
-    resolved_type = connector_type or _infer_connector_type_from_name(connector_name)
+    if (connector_name is None) == (custom_definition_id is None):
+        raise AirbyteLibInputError(
+            message="Provide exactly one of `connector_name` or `custom_definition_id`.",
+            guidance=(
+                "Use `connector_name` for a registry connector or "
+                "`custom_definition_id` for a custom source."
+            ),
+        )
+    if custom_definition_id is not None and connector_type == ConnectorType.DESTINATION:
+        raise AirbyteLibInputError(
+            message="Custom source definitions can only be deployed as sources.",
+            guidance="Pass `connector_type='source'` or omit `connector_type`.",
+        )
+
+    if custom_definition_id is not None:
+        resolved_type = ConnectorType.SOURCE
+    else:
+        assert connector_name is not None
+        resolved_type = connector_type or _infer_connector_type_from_name(connector_name)
     if defer_credentials:
         return _deploy_deferred_to_cloud(
             ctx,
             connector_type=resolved_type,
             name=name,
             connector_name=connector_name,
+            custom_definition_id=custom_definition_id,
             workspace_id=workspace_id,
             config=config,
             config_secret_name=config_secret_name,
             unique=unique,
         ).model_dump_json(indent=2)
 
-    connector: Source | Destination = (
-        get_source(connector_name, no_executor=True)
-        if resolved_type == ConnectorType.SOURCE
-        else get_destination(connector_name, no_executor=True)
-    )
-    config_dict = resolve_connector_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=connector.config_spec,
-    )
-    connector.set_config(config_dict, validate=True)
+    if custom_definition_id is not None:
+        workspace = _get_cloud_workspace(ctx, workspace_id)
+        definition = workspace.get_custom_source_definition(
+            custom_definition_id,
+            definition_type="yaml",
+        )
+        config_dict = resolve_connector_config(
+            config=config,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=definition.config_spec_jsonschema,
+        )
+        definition.validate_config(config_dict)
+        deployed: CloudConnector = workspace.deploy_source(
+            name=name,
+            source=config_dict,
+            unique=unique,
+            definition_id=custom_definition_id,
+        )
+    else:
+        assert connector_name is not None
+        connector: Source | Destination = (
+            get_source(connector_name, no_executor=True)
+            if resolved_type == ConnectorType.SOURCE
+            else get_destination(connector_name, no_executor=True)
+        )
+        config_dict = resolve_connector_config(
+            config=config,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=connector.config_spec,
+        )
+        connector.set_config(config_dict, validate=True)
 
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    deployed: CloudConnector = (
-        workspace.deploy_source(name=name, source=connector, unique=unique)
-        if isinstance(connector, Source)
-        else workspace.deploy_destination(name=name, destination=connector, unique=unique)
-    )
+        workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+        deployed = (
+            workspace.deploy_source(name=name, source=connector, unique=unique)
+            if isinstance(connector, Source)
+            else workspace.deploy_destination(name=name, destination=connector, unique=unique)
+        )
 
     register_guid_created_in_session(deployed.connector_id)
     return (
@@ -713,12 +769,13 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
     )
 
 
-def _deploy_deferred_to_cloud(
+def _deploy_deferred_to_cloud(  # noqa: PLR0913
     ctx: Context,
     *,
     connector_type: ConnectorType,
     name: str,
-    connector_name: str,
+    connector_name: str | None,
+    custom_definition_id: str | None,
     workspace_id: str | None,
     config: dict | str | None,
     config_secret_name: str | None,
@@ -730,14 +787,19 @@ def _deploy_deferred_to_cloud(
             message="`config_secret_name` cannot be used with `defer_credentials=True`.",
             guidance="Pass non-secret configuration in `config`; credentials are entered in Cloud.",
         )
-    metadata = get_connector_metadata(connector_name)
-    if metadata is None or metadata.definition_id is None:
-        raise AirbyteConnectorNotRegisteredError(connector_name=connector_name)
-    if metadata.connector_type != connector_type:
-        raise AirbyteLibInputError(
-            message=f"`{connector_name}` is not a {connector_type} connector.",
-            guidance=f"Pass a `{connector_type}-*` connector name.",
-        )
+    if custom_definition_id is not None:
+        definition_id = custom_definition_id
+    else:
+        assert connector_name is not None
+        metadata = get_connector_metadata(connector_name)
+        if metadata is None or metadata.definition_id is None:
+            raise AirbyteConnectorNotRegisteredError(connector_name=connector_name)
+        if metadata.connector_type != connector_type:
+            raise AirbyteLibInputError(
+                message=f"`{connector_name}` is not a {connector_type} connector.",
+                guidance=f"Pass a `{connector_type}-*` connector name.",
+            )
+        definition_id = metadata.definition_id
     config_dict = resolve_connector_config(config=config)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -748,7 +810,7 @@ def _deploy_deferred_to_cloud(
                 name=name,
                 source=config_dict,
                 unique=unique,
-                definition_id=metadata.definition_id,
+                definition_id=definition_id,
                 defer_credentials=True,
             )
         else:
@@ -756,7 +818,7 @@ def _deploy_deferred_to_cloud(
                 name=name,
                 destination=config_dict,
                 unique=unique,
-                definition_id=metadata.definition_id,
+                definition_id=definition_id,
                 defer_credentials=True,
             )
     except AirbyteDeferredSetupError as ex:

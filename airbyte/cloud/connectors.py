@@ -59,11 +59,13 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
+import jsonschema
 import requests
 import yaml
 from pydantic import ValidationError
 
 from airbyte import exceptions as exc
+from airbyte._connector_base import _json_path_from_absolute_path
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.actions import (
@@ -98,6 +100,7 @@ from airbyte.cloud.models import (
     _SourceResponseLike,
 )
 from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
+from airbyte.secrets.hydration import hydrate_secrets
 
 
 if TYPE_CHECKING:
@@ -1277,7 +1280,7 @@ def _unwrap_builder_manifest(value: object) -> dict[str, Any] | None:
     return value
 
 
-class CustomCloudSourceDefinition:
+class CustomCloudSourceDefinition:  # noqa: PLR0904
     """A custom source connector definition in Airbyte Cloud.
 
     This represents either a YAML (declarative) or Docker-based custom source definition.
@@ -1341,6 +1344,40 @@ class CustomCloudSourceDefinition:
         if not self._definition_info:
             self._definition_info = self._fetch_definition_info()
         return self._definition_info.manifest
+
+    @property
+    def config_spec_jsonschema(self) -> dict[str, Any] | None:
+        """Get the JSON schema for this custom source's configuration."""
+        manifest = self.manifest
+        if manifest is None:
+            return None
+        manifest_spec = manifest.get("spec")
+        if not isinstance(manifest_spec, dict):
+            return None
+        config_spec_jsonschema = manifest_spec.get("connection_specification")
+        return config_spec_jsonschema if isinstance(config_spec_jsonschema, dict) else None
+
+    def validate_config(self, config: dict[str, Any]) -> None:
+        """Validate the config against the custom source's connection specification."""
+        specification = self.config_spec_jsonschema
+        if specification is None:
+            return
+
+        try:
+            jsonschema.validate(hydrate_secrets(config), specification)
+        except jsonschema.ValidationError as ex:
+            raise exc.AirbyteConnectorValidationFailedError(
+                connector_name=self.name,
+                message=(
+                    f"The provided config is not valid at "
+                    f"`{_json_path_from_absolute_path(ex.absolute_path)}` "
+                    f"(failed the `{ex.validator}` rule)."
+                ),
+                context={
+                    "error_path": ex.path,
+                    "error_schema": ex.schema,
+                },
+            ) from ex
 
     @property
     def version(self) -> str | None:
@@ -1813,7 +1850,7 @@ class CustomCloudSourceDefinition:
             if manifest_spec:
                 spec = {
                     "documentationUrl": manifest_spec.get("documentation_url"),
-                    "connectionSpecification": manifest_spec.get("connection_specification", {}),
+                    "connectionSpecification": self.config_spec_jsonschema or {},
                     "advancedAuth": manifest_spec.get("advanced_auth"),
                 }
 
