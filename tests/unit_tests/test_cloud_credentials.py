@@ -824,7 +824,7 @@ def test_custom_cloud_source_definition_validates_config() -> None:
         },
     )
 
-    assert definition.connection_specification == {
+    assert definition.config_spec_jsonschema == {
         "type": "object",
         "required": ["greeting"],
         "properties": {"greeting": {"type": "string"}},
@@ -851,7 +851,7 @@ def test_custom_cloud_source_definition_without_spec_skips_config_validation() -
         manifest=None,
     )
 
-    assert definition.connection_specification is None
+    assert definition.config_spec_jsonschema is None
     definition.validate_config({"anything": "goes"})
 
 

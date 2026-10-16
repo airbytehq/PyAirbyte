@@ -812,7 +812,7 @@ class CloudWorkspace:
                 spec_json_schema = self.get_custom_source_definition(
                     definition_id,
                     definition_type="yaml",
-                ).connection_specification
+                ).config_spec_jsonschema
 
         config_dict, definition_id = _deferred_credentials_config(
             config,

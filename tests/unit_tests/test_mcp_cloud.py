@@ -1200,7 +1200,7 @@ def test_deploy_connector_to_cloud_supports_custom_definition(
 ) -> None:
     """Custom source definitions are validated and deployed with the supplied ID."""
     definition = MagicMock()
-    definition.connection_specification = {"type": "object"}
+    definition.config_spec_jsonschema = {"type": "object"}
     definition.validate_config = MagicMock()
     deploy_calls: list[dict[str, object]] = []
 
@@ -1248,7 +1248,7 @@ def test_deploy_connector_to_cloud_supports_custom_definition(
     assert resolved_config_args == {
         "config": config,
         "config_secret_name": None,
-        "config_spec_jsonschema": definition.connection_specification,
+        "config_spec_jsonschema": definition.config_spec_jsonschema,
     }
     definition.validate_config.assert_called_once_with(config)
     assert deploy_calls == [
@@ -1272,7 +1272,7 @@ def test_deploy_connector_to_cloud_hydrates_custom_definition_secret_references(
     monkeypatch.setenv("SOME_ENV", "resolved-value")
 
     definition = MagicMock()
-    definition.connection_specification = {
+    definition.config_spec_jsonschema = {
         "type": "object",
         "properties": {"api_key": {"type": "string", "airbyte_secret": True}},
     }

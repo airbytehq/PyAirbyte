@@ -729,7 +729,7 @@ def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
         config_dict = resolve_connector_config(
             config=config,
             config_secret_name=config_secret_name,
-            config_spec_jsonschema=definition.connection_specification,
+            config_spec_jsonschema=definition.config_spec_jsonschema,
         )
         config_dict = hydrate_secrets(config_dict)
         definition.validate_config(config_dict)

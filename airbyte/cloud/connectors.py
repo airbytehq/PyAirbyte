@@ -1323,7 +1323,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         return self._definition_info.manifest
 
     @property
-    def connection_specification(self) -> dict[str, Any] | None:
+    def config_spec_jsonschema(self) -> dict[str, Any] | None:
         """Get the JSON schema for this custom source's configuration."""
         manifest = self.manifest
         if manifest is None:
@@ -1331,12 +1331,12 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         manifest_spec = manifest.get("spec")
         if not isinstance(manifest_spec, dict):
             return None
-        connection_specification = manifest_spec.get("connection_specification")
-        return connection_specification if isinstance(connection_specification, dict) else None
+        config_spec_jsonschema = manifest_spec.get("connection_specification")
+        return config_spec_jsonschema if isinstance(config_spec_jsonschema, dict) else None
 
     def validate_config(self, config: dict[str, Any]) -> None:
         """Validate the config against the custom source's connection specification."""
-        specification = self.connection_specification
+        specification = self.config_spec_jsonschema
         if specification is None:
             return
 
@@ -1831,7 +1831,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             if manifest_spec:
                 spec = {
                     "documentationUrl": manifest_spec.get("documentation_url"),
-                    "connectionSpecification": self.connection_specification or {},
+                    "connectionSpecification": self.config_spec_jsonschema or {},
                     "advancedAuth": manifest_spec.get("advanced_auth"),
                 }
 

@@ -50,7 +50,7 @@ def _stub_secret_detection(
     monkeypatch.setattr(
         CloudWorkspace,
         "get_custom_source_definition",
-        lambda *_args, **_kwargs: SimpleNamespace(connection_specification=None),
+        lambda *_args, **_kwargs: SimpleNamespace(config_spec_jsonschema=None),
     )
 
 
@@ -512,7 +512,7 @@ def test_deploy_deferred_uses_custom_source_spec_for_secret_detection(
     workspace = _workspace()
     get_definition = MagicMock(
         return_value=SimpleNamespace(
-            connection_specification={
+            config_spec_jsonschema={
                 "type": "object",
                 "properties": {
                     "my_token_field": {"type": "string", "airbyte_secret": True},
