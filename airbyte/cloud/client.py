@@ -917,12 +917,7 @@ class CloudClient:
                 "discover workspaces."
             )
         if user is not None and not isinstance(user.get("defaultWorkspaceId"), str):
-            discovery_hints.append(
-                "No default workspace is set. Use "
-                "set_default_cloud_workspace(user_email=<your email>, "
-                "workspace_id=<id>) to durably set one; it applies to both MCP "
-                "sessions and the Airbyte Cloud web app."
-            )
+            discovery_hints.append(self._missing_default_workspace_hint())
         return CloudDefaultContextInfo(
             user_id=user_id,
             user_name=user_name,
@@ -931,7 +926,9 @@ class CloudClient:
             default_workspace_name=(
                 default_workspace_info.name if default_workspace_info else None
             ),
-            default_workspace_verified=default_workspace_info is not None,
+            default_workspace_verified=(
+                default_workspace_info is not None if default_workspace_id is not None else None
+            ),
             default_organization_id=(
                 default_workspace_organization.organization_id
                 if default_workspace_organization is not None
@@ -950,6 +947,24 @@ class CloudClient:
             member_workspaces_truncated=unvalidated_workspace_count > 0,
             unvalidated_workspace_count=unvalidated_workspace_count,
             discovery_hints=discovery_hints,
+        )
+
+    def _missing_default_workspace_hint(self) -> str:
+        """Hint text when the user's profile has no stored default workspace."""
+        if self.default_workspace_id is not None:
+            return (
+                "Your Airbyte user profile has no default workspace; this "
+                "session uses the configured workspace "
+                f"{self.default_workspace_id}. Use "
+                "set_default_cloud_workspace(user_email=<your email>, "
+                "workspace_id=<id>) to set a durable default; it applies to "
+                "both MCP sessions and the Airbyte Cloud web app."
+            )
+        return (
+            "No default workspace is set. Use "
+            "set_default_cloud_workspace(user_email=<your email>, "
+            "workspace_id=<id>) to durably set one; it applies to both MCP "
+            "sessions and the Airbyte Cloud web app."
         )
 
     def set_default_workspace_for_user(
