@@ -1582,12 +1582,12 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
     def permanently_delete(
         self,
         *,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Permanently delete this custom source definition.
 
         Args:
-            safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the connector name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if self.definition_type == "yaml":
@@ -1598,7 +1598,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
-                safe_mode=safe_mode,
+                delete_guard=delete_guard,
             )
         else:
             raise NotImplementedError(

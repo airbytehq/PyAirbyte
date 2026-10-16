@@ -303,11 +303,11 @@ class CloudClient:
         workspace_id: str,
         *,
         workspace_name: str | None = None,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Permanently delete an Airbyte workspace if it has no connections.
 
-        When `safe_mode` is enabled, the workspace name must contain `delete-me`
+        When `delete_guard` is enabled, the workspace name must contain `delete-me`
         or `deleteme`. This also checks for existing connections before deleting
         and raises `AirbyteWorkspaceNotEmptyError` if the workspace is not empty.
         """
@@ -318,7 +318,7 @@ class CloudClient:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            delete_guard=delete_guard,
         )
 
     @overload

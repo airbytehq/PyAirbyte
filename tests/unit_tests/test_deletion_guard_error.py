@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Tests for safe-mode deletion guard errors."""
+"""Tests for deletion guard errors."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def test_delete_source_raises_deletion_guard_error_before_api_call(
             client_id=None,
             client_secret=None,
             bearer_token=SecretString("x"),
-            safe_mode=True,
+            delete_guard=True,
         )
 
     assert (
@@ -72,7 +72,7 @@ def test_delete_connection_raises_deletion_guard_error_before_api_call(
             client_id=None,
             client_secret=None,
             bearer_token=SecretString("x"),
-            safe_mode=True,
+            delete_guard=True,
         )
 
     assert error.value.resource_url == (
@@ -92,7 +92,7 @@ def test_permanently_delete_workspace_raises_before_api_call(
             client_id=None,
             client_secret=None,
             bearer_token=SecretString("x"),
-            safe_mode=True,
+            delete_guard=True,
         )
 
     assert error.value.resource_url == "https://cloud.airbyte.com/workspaces/w1"

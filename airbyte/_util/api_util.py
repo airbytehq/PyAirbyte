@@ -520,27 +520,27 @@ def permanently_delete_workspace(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete an empty workspace.
 
     Args:
         workspace_id: The workspace ID to delete.
-        workspace_name: Optional workspace name. If not provided and safe mode is enabled,
-            the workspace name is fetched from the API for safety checks.
+        workspace_name: Optional workspace name. If not provided and the delete guard is enabled,
+            the workspace name is fetched from the API for deletion checks.
         api_root: The API root URL.
         client_id: OAuth client ID.
         client_secret: OAuth client secret.
         bearer_token: Bearer token for authentication.
-        safe_mode: If True, the workspace name must contain `delete-me` or `deleteme`
+        delete_guard: If True, the workspace name must contain `delete-me` or `deleteme`
             (case insensitive). Defaults to True.
 
     Raises:
-        AirbyteDeletionGuardError: If safe mode is True and the workspace name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the workspace name does not meet
             the safety requirements.
         AirbyteWorkspaceNotEmptyError: If the workspace contains connections.
     """
-    if safe_mode:
+    if delete_guard:
         if workspace_name is None:
             workspace_info = get_workspace(
                 workspace_id=workspace_id,
@@ -559,7 +559,6 @@ def permanently_delete_workspace(
                 resource_url=f"{web_root}/workspaces/{workspace_id}",
                 context={
                     "workspace_id": workspace_id,
-                    "safe_mode": True,
                 },
             )
 
@@ -1406,29 +1405,29 @@ def delete_source(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     workspace_id: str | None = None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a source.
 
     Args:
         source_id: The source ID to delete
-        source_name: Optional source name. If not provided and safe_mode is enabled,
-            the source name will be fetched from the API to perform safety checks.
+        source_name: Optional source name. If not provided and the delete guard is enabled,
+            the source name will be fetched from the API to perform deletion checks.
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         workspace_id: The workspace ID used in the resource URL in deletion-guard errors.
-        safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+        delete_guard: If True, requires the source name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteDeletionGuardError: If safe_mode is True and the source name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the source name does not meet
             the safety requirements.
     """
     resource_workspace_id = workspace_id
 
-    if safe_mode:
+    if delete_guard:
         if source_name is None:
             source_info = get_source(
                 source_id=source_id,
@@ -1454,7 +1453,6 @@ def delete_source(
                 resource_url=resource_url,
                 context={
                     "source_id": source_id,
-                    "safe_mode": True,
                 },
             )
 
@@ -1823,29 +1821,29 @@ def delete_destination(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     workspace_id: str | None = None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a destination.
 
     Args:
         destination_id: The destination ID to delete
-        destination_name: Optional destination name. If not provided and safe_mode is enabled,
-            the destination name will be fetched from the API to perform safety checks.
+        destination_name: Optional destination name. If not provided and the delete guard is
+            enabled, the destination name will be fetched from the API to perform deletion checks.
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         workspace_id: The workspace ID used in the resource URL in deletion-guard errors.
-        safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+        delete_guard: If True, requires the destination name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteDeletionGuardError: If safe_mode is True and the destination name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the destination name does not meet
             the safety requirements.
     """
     resource_workspace_id = workspace_id
 
-    if safe_mode:
+    if delete_guard:
         if destination_name is None:
             destination_info = get_destination(
                 destination_id=destination_id,
@@ -1871,7 +1869,6 @@ def delete_destination(
                 resource_url=resource_url,
                 context={
                     "destination_id": destination_id,
-                    "safe_mode": True,
                 },
             )
 
@@ -2109,27 +2106,27 @@ def delete_connection(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a connection.
 
     Args:
         connection_id: The connection ID to delete
-        connection_name: Optional connection name. If not provided and safe_mode is enabled,
+        connection_name: Optional connection name. If not provided and the delete guard is enabled,
             the connection name will be fetched from the API to perform safety checks.
         api_root: The API root URL
         workspace_id: The workspace ID
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+        delete_guard: If True, requires the connection name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteDeletionGuardError: If safe_mode is True and the connection name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the connection name does not meet
             the safety requirements.
     """
-    if safe_mode:
+    if delete_guard:
         if connection_name is None:
             connection_info = get_connection(
                 workspace_id=workspace_id,
@@ -2149,7 +2146,6 @@ def delete_connection(
                 resource_url=f"{web_root}/workspaces/{workspace_id}/connections/{connection_id}",
                 context={
                     "connection_id": connection_id,
-                    "safe_mode": True,
                 },
             )
 
@@ -2902,7 +2898,7 @@ def delete_custom_yaml_source_definition(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a custom YAML source definition.
 
@@ -2913,14 +2909,14 @@ def delete_custom_yaml_source_definition(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+        delete_guard: If True, requires the connector name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteDeletionGuardError: If safe_mode is True and the connector name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the connector name does not meet
             the safety requirements.
     """
-    if safe_mode:
+    if delete_guard:
         definition_info = get_custom_yaml_source_definition(
             workspace_id=workspace_id,
             definition_id=definition_id,
@@ -2939,7 +2935,6 @@ def delete_custom_yaml_source_definition(
                 resource_url=f"{web_root}/workspaces/{workspace_id}/settings/source",
                 context={
                     "definition_id": definition_id,
-                    "safe_mode": True,
                 },
             )
 

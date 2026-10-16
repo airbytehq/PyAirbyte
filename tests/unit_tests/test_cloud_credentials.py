@@ -575,12 +575,12 @@ def test_cloud_client_permanently_delete_workspace_forwards_inputs(
     CloudClient(bearer_token="token").permanently_delete_workspace(
         workspace_id="workspace-id",
         workspace_name="delete-me workspace",
-        safe_mode=True,
+        delete_guard=True,
     )
 
     assert captured_kwargs["workspace_id"] == "workspace-id"
     assert captured_kwargs["workspace_name"] == "delete-me workspace"
-    assert captured_kwargs["safe_mode"] is True
+    assert captured_kwargs["delete_guard"] is True
 
 
 def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
@@ -982,7 +982,7 @@ def test_cloud_workspace_permanently_delete_forwards_inputs(
 
     assert captured_kwargs["workspace_id"] == "workspace-id"
     assert captured_kwargs["workspace_name"] == "delete-me workspace"
-    assert captured_kwargs["safe_mode"] is True
+    assert captured_kwargs["delete_guard"] is True
 
 
 def test_cloud_workspace_explicit_credentials_do_not_resolve_env_vars(

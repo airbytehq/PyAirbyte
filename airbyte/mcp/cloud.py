@@ -3606,9 +3606,8 @@ def permanently_delete_custom_source_definition(
             },
         )
 
-    definition.permanently_delete(
-        safe_mode=True,  # Hard-coded safe mode for extra protection when running in LLM agents.
-    )
+    # Delete guard is always on for MCP: name must contain "delete-me" or "deleteme".
+    definition.permanently_delete(delete_guard=True)
     return f"Successfully deleted custom source definition '{actual_name}' (ID: {definition_id})"
 
 
@@ -3671,16 +3670,16 @@ def permanently_delete_cloud_connector(
             },
         )
 
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    # Delete guard is always on for MCP: name must contain "delete-me" or "deleteme".
     if resolved_type == ConnectorType.SOURCE:
         workspace.permanently_delete_source(
             source=connector_id,
-            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+            delete_guard=True,
         )
     else:
         workspace.permanently_delete_destination(
             destination=connector_id,
-            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+            delete_guard=True,
         )
     return f"Successfully deleted {resolved_type.value} '{actual_name}' (ID: {connector_id})"
 
@@ -3753,9 +3752,9 @@ def permanently_delete_cloud_connection(
             },
         )
 
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    # Delete guard is always on for MCP: name must contain "delete-me" or "deleteme".
     workspace.permanently_delete_connection(
-        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
+        delete_guard=True,
         connection=connection_id,
         cascade_delete_source=cascade_delete_source,
         cascade_delete_destination=cascade_delete_destination,
