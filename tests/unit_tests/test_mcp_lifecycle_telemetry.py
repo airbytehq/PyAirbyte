@@ -635,6 +635,74 @@ def test_hosted_initialize_without_default_workspace_has_no_scope(
     assert hosted_identity[1] == []
 
 
+def test_local_http_context_uses_per_session_id(records, monkeypatch) -> None:
+    """A non-hosted server run over HTTP reports HTTP transport and a per-session ID."""
+    sinks, captured = records
+    monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", False)
+    app = _probe_app(sinks)
+    raw = app.http_app(path="/mcp", json_response=True)
+
+    async def session() -> list[dict[str, object]]:
+        results = []
+        async with raw.router.lifespan_context(raw):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=raw), base_url="http://testserver"
+            ) as client:
+                for _ in range(2):
+                    method, params, _headers = _initialize_request()
+                    init = await client.post(
+                        "/mcp",
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 0,
+                            "method": method,
+                            "params": params,
+                        },
+                        headers=_MCP_HEADERS,
+                    )
+                    assert init.status_code == 200, init.text
+                    headers = _MCP_HEADERS | {
+                        "mcp-session-id": init.headers["mcp-session-id"],
+                        "mcp-protocol-version": "2025-06-18",
+                    }
+                    await client.post(
+                        "/mcp",
+                        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                        headers=headers,
+                    )
+                    call = await client.post(
+                        "/mcp",
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "tools/call",
+                            "params": {"name": "probe", "arguments": {}},
+                        },
+                        headers=headers,
+                    )
+                    assert call.status_code == 200, call.text
+                    results.append(
+                        json.loads(call.json()["result"]["content"][0]["text"])
+                    )
+        return results
+
+    first, second = asyncio.run(session())
+
+    assert first["transport"] == second["transport"] == "streamable-http"
+    assert first["is_hosted_mcp"] is False
+    assert first["session_id"] != second["session_id"]
+    assert _telemetry._STDIO_SESSION_ID not in {
+        first["session_id"],
+        second["session_id"],
+    }
+    connected = [r for r in captured if r.invocation_type == SERVER_CONNECTED_EVENT]
+    assert [r.extra["session_id"] for r in connected] == [
+        first["session_id"],
+        second["session_id"],
+    ]
+    assert {r.extra["transport"] for r in connected} == {"streamable-http"}
+
+
 def test_stdio_context_uses_process_session(records, monkeypatch) -> None:
     """Over stdio, the process is the session and client info comes from initialize."""
     sinks, captured = records
