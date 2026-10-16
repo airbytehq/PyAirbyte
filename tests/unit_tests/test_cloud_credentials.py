@@ -718,15 +718,32 @@ def test_custom_cloud_source_definition_builder_url_uses_owner_workspace(
 
 
 @pytest.mark.parametrize(
-    ("has_draft", "expected_draft_manifest"),
+    ("has_draft", "stored_manifest", "expected_draft_manifest"),
     [
-        pytest.param(True, {"version": "0.1.0"}, id="preserves-draft"),
-        pytest.param(False, None, id="no-draft"),
+        pytest.param(
+            True, {"version": "0.1.0"}, {"version": "0.1.0"}, id="preserves-draft"
+        ),
+        pytest.param(False, {"version": "0.1.0"}, None, id="no-draft"),
+        pytest.param(
+            True,
+            {
+                "manifest": {"version": "0.1.0", "streams": []},
+                "spec": {"connection_specification": {}},
+                "version": "0.1.0",
+            },
+            {
+                "manifest": {"version": "0.1.0", "streams": []},
+                "spec": {"connection_specification": {}},
+                "version": "0.1.0",
+            },
+            id="preserves-envelope-draft",
+        ),
     ],
 )
 def test_custom_cloud_source_definition_rename_preserves_builder_data(
     monkeypatch: pytest.MonkeyPatch,
     has_draft: bool,
+    stored_manifest: dict[str, object],
     expected_draft_manifest: dict[str, object] | None,
 ) -> None:
     workspace = CloudWorkspace(
@@ -739,7 +756,7 @@ def test_custom_cloud_source_definition_rename_preserves_builder_data(
             "hasDraft": has_draft,
             "componentsFileContent": "components: []",
         },
-        "declarativeManifest": {"manifest": {"version": "0.1.0"}},
+        "declarativeManifest": {"manifest": stored_manifest},
     }
     builder_lookup = MagicMock(
         return_value={
