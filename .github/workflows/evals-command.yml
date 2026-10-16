@@ -1,0 +1,168 @@
+name: On-Demand Cloud MCP Evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR Number'
+        type: string
+        required: true
+      comment-id:
+        description: 'Comment ID (Optional)'
+        type: string
+        required: false
+      full:
+        description: 'Run the full suite instead of only scenarios using changed MCP tools'
+        type: string
+        required: false
+        default: 'false'
+
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: evals-command-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  run-evals:
+    name: Run Cloud MCP Evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PR: ${{ inputs.pr }}
+      FULL: ${{ inputs.full }}
+      EVALS_REPO: airbytehq/cloud-mcp-evals
+    steps:
+    - name: Resolve workflow variables
+      id: vars
+      uses: aaronsteers/resolve-ci-vars-action@2e56afab0344bbe03c047dfa39bae559d0291472 # v0.1.6
+
+    - name: Resolve eval mode
+      id: mode
+      env:
+        SHA: ${{ steps.vars.outputs.pr-source-git-sha }}
+      run: |
+        set -euo pipefail
+        [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::Invalid PR number: $PR"; exit 1; }
+        if [ "$FULL" = "true" ]; then
+          echo "changed-only=false" >> "$GITHUB_OUTPUT"
+          echo "label=full suite" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed-only=true" >> "$GITHUB_OUTPUT"
+          echo "label=changed tools only" >> "$GITHUB_OUTPUT"
+        fi
+        echo "short-sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+    - name: Append comment with job run link
+      id: first-comment-action
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ inputs.comment-id }}
+        issue-number: ${{ inputs.pr }}
+        body: |
+
+          > Cloud MCP evals queued for `${{ steps.mode.outputs.short-sha }}` (${{ steps.mode.outputs.label }}). [Check job output.](${{ steps.vars.outputs.run-url }})
+
+    # ponytail: one token (valid 1h) covers dispatch, watch and report; evals runs
+    # take ~20 min. Mint a second token before the report if runs get much longer.
+    - name: Authenticate as GitHub App
+      uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+      id: get-app-token
+      with:
+        owner: "airbytehq"
+        repositories: "cloud-mcp-evals"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+        permission-actions: write
+
+    - name: Dispatch evals and find the run
+      id: dispatch
+      env:
+        GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+        CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
+      run: |
+        set -euo pipefail
+        since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        gh workflow run evals.yml -R "$EVALS_REPO" --ref main \
+          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY"
+        title="PyAirbyte evals: #$PR"
+        for _ in $(seq 18); do
+          sleep 10
+          run=$(gh run list -R "$EVALS_REPO" -w evals.yml --event workflow_dispatch --limit 20 \
+            --json databaseId,createdAt,displayTitle,url |
+            jq -c --arg since "$since" --arg title "$title" '[.[] | select(.createdAt >= $since
+              and (.displayTitle == $title or (.displayTitle | startswith($title + " "))))] | last')
+          if [ "$run" != "null" ]; then
+            echo "run-id=$(jq -r .databaseId <<< "$run")" >> "$GITHUB_OUTPUT"
+            echo "run-url=$(jq -r .url <<< "$run")" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        done
+        echo "::error::No '$title' run created after $since appeared in $EVALS_REPO within 3 minutes."
+        exit 1
+
+    - name: Append comment with evals run link
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+        body: |
+          > Evals running: [${{ steps.dispatch.outputs.run-url }}](${{ steps.dispatch.outputs.run-url }})
+
+    - name: Wait for evals and summarize
+      id: report
+      env:
+        GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+        RUN_ID: ${{ steps.dispatch.outputs.run-id }}
+        RUN_URL: ${{ steps.dispatch.outputs.run-url }}
+        LABEL: ${{ steps.mode.outputs.label }}
+      run: |
+        set -euo pipefail
+        # Eval failures are expected (model variance); they are reported, not fatal.
+        gh run watch "$RUN_ID" -R "$EVALS_REPO" --interval 30 > /dev/null
+        conclusion=$(gh run view "$RUN_ID" -R "$EVALS_REPO" --json conclusion --jq .conclusion)
+        dir=$(mktemp -d)
+        gh run download "$RUN_ID" -R "$EVALS_REPO" -p 'all-evidence-*' -D "$dir" || true
+        results=$(find "$dir" -name results.json | head -n 1)
+        if [ -n "$results" ]; then
+          run_json=$(dirname "$results")/run.json
+          commit=$(jq -r '.mcp.airbyte.direct_url.vcs_info.commit_id // "unknown"' "$run_json")
+          expected=$(jq -r '.expected_trials // empty' "$run_json")
+          body=$(jq -r --arg expected "$expected" --arg commit "${commit:0:7}" --arg label "$LABEL" '
+            (if $expected == "" then length else ($expected | tonumber) end) as $total
+            | (map(select(.status == "pass")) | length) as $passed
+            | ((group_by(.status) | map(select(.[0].status != "pass")
+                 | "\(length) \({fail: "failed", error: "errored"}[.[0].status] // .[0].status)"))
+               + (if $total > length then ["\($total - length) missing"] else [] end)) as $other
+            | "Cloud MCP evals on `\($commit)` (\($label)): **\($passed) / \($total) passed**"
+              + (if ($other | length) > 0 then " (\($other | join(", ")))" else "" end)' "$results")
+          body="$body · [summary]($RUN_URL)"
+        elif [ "$conclusion" = "success" ]; then
+          body="No evals ran: no scenario uses the MCP tools this PR changed. [summary]($RUN_URL)"
+        else
+          body="Evals run ended ($conclusion) before producing results. [summary]($RUN_URL)"
+        fi
+        echo "$body"
+        echo "body=$body" >> "$GITHUB_OUTPUT"
+
+    - name: Append results comment
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+        body: |
+          > ${{ steps.report.outputs.body }}
+
+    - name: Append failure comment
+      if: failure()
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+        issue-number: ${{ inputs.pr }}
+        reactions: confused
+        body: |
+          > ❌ Cloud MCP evals could not be run or reported. [Check job output.](${{ steps.vars.outputs.run-url }})
