@@ -360,7 +360,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                     connector_name=self.name,
                     log_text=self._last_log_messages,
                     original_exception=ex,
-                ) from None
+                ) from ex
 
 
 __all__ = [

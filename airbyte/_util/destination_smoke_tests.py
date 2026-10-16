@@ -265,6 +265,14 @@ def _prepare_destination_config(
         destination.set_config(config, validate=False)
 
 
+def _get_opted_in_original_exception(error: BaseException) -> BaseException | None:
+    if not getattr(error, "_original_exception_opt_in", False):
+        return None
+
+    original_exception = getattr(error, "original_exception", None)
+    return original_exception if isinstance(original_exception, BaseException) else None
+
+
 def _extract_trace_error_from_log(ex: Exception) -> str | None:
     """Search the connector log file for a TRACE ERROR `internal_message`.
 
@@ -278,12 +286,13 @@ def _extract_trace_error_from_log(ex: Exception) -> str | None:
     """
     # Walk the exception chain looking for a log_file path
     log_file: Path | None = None
-    current: Exception | None = ex
+    current: BaseException | None = ex
     while current is not None:
-        if hasattr(current, "log_file") and current.log_file is not None:
-            log_file = current.log_file
+        current_log_file = getattr(current, "log_file", None)
+        if isinstance(current_log_file, Path):
+            log_file = current_log_file
             break
-        current = getattr(current, "original_exception", None)
+        current = _get_opted_in_original_exception(current)
 
     if log_file is None or not log_file.exists():
         return None
@@ -322,8 +331,8 @@ def _sanitize_error(ex: Exception) -> str:
        `password authentication failed for user "bob"`).  Many Java-based
        connectors emit a generic user-facing `message` while the real
        detail lives only in `internal_message`.
-    2. **Exception chain** - Walks `original_exception` to find the deepest
-       exception with a message more specific than the top-level wrapper.
+    2. **Exception chain** - Walks explicitly opted-in `original_exception`
+       links to find the deepest specific message.
     3. **Top-level exception** - Falls back to `get_message()` or `str()`.
 
     Uses `get_message()` when available (PyAirbyte exceptions) to avoid
@@ -334,10 +343,10 @@ def _sanitize_error(ex: Exception) -> str:
     if trace_msg:
         return f"{type(ex).__name__}: {trace_msg}"
 
-    # 2. Walk original_exception chain to find the deepest specific message.
-    deepest = ex
-    while hasattr(deepest, "original_exception") and deepest.original_exception is not None:
-        deepest = deepest.original_exception
+    # 2. Walk opted-in original_exception links to find the deepest message.
+    deepest: BaseException = ex
+    while (original_exception := _get_opted_in_original_exception(deepest)) is not None:
+        deepest = original_exception
 
     if deepest is not ex:
         deep_msg = (

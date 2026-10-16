@@ -383,7 +383,7 @@ class ConnectorBase(abc.ABC):
                 raise exc.AirbyteConnectorCheckFailedError(
                     connector_name=self.name,
                     original_exception=ex,
-                ) from None
+                ) from ex
 
     def install(self) -> None:
         """Install the connector if it is not yet installed."""
@@ -518,7 +518,7 @@ class ConnectorBase(abc.ABC):
                 connector_name=self.name,
                 log_text=self._last_log_messages,
                 original_exception=e,
-            ) from None
+            ) from e
 
 
 __all__ = [
