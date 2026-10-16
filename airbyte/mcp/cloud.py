@@ -92,6 +92,7 @@ from airbyte.mcp._scope import record_default_workspace, record_resolved_organiz
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
+    delete_guard_disabled,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -111,8 +112,10 @@ if TYPE_CHECKING:
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
-    "resource yourself to satisfy this requirement; ask the user to confirm deletion or "
-    "rename it themselves first."
+    "resource yourself to satisfy this requirement unless and until the user explicitly "
+    "consents to the rename operation. When asking for consent, show the user the resource's "
+    "name and Airbyte URL (as returned by the describe or list tools) so they can confirm the "
+    "correct resource is targeted."
 )
 WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
 MANIFEST_YAML_SOURCE_HINT = (
@@ -3604,9 +3607,9 @@ def permanently_delete_custom_source_definition(
             },
         )
 
-    definition.permanently_delete(
-        safe_mode=True,  # Hard-coded safe mode for extra protection when running in LLM agents.
-    )
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
+    definition.permanently_delete(delete_guard=not delete_guard_disabled(ctx))
     return f"Successfully deleted custom source definition '{actual_name}' (ID: {definition_id})"
 
 
@@ -3669,16 +3672,17 @@ def permanently_delete_cloud_connector(
             },
         )
 
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
     if resolved_type == ConnectorType.SOURCE:
         workspace.permanently_delete_source(
             source=connector_id,
-            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+            delete_guard=not delete_guard_disabled(ctx),
         )
     else:
         workspace.permanently_delete_destination(
             destination=connector_id,
-            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+            delete_guard=not delete_guard_disabled(ctx),
         )
     return f"Successfully deleted {resolved_type.value} '{actual_name}' (ID: {connector_id})"
 
@@ -3751,9 +3755,10 @@ def permanently_delete_cloud_connection(
             },
         )
 
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
     workspace.permanently_delete_connection(
-        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
+        delete_guard=not delete_guard_disabled(ctx),
         connection=connection_id,
         cascade_delete_source=cascade_delete_source,
         cascade_delete_destination=cascade_delete_destination,

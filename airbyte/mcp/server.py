@@ -103,6 +103,7 @@ from airbyte.mcp._tool_utils import (
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
+    DISABLE_DELETE_GUARD_CONFIG_ARG,
     INSIDERS_CONFIG_ARG,
     ORGANIZATION_ID_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
@@ -183,7 +184,10 @@ _INSTRUCTIONS_LOCAL_MODE = """
 _INSTRUCTIONS_SAFETY = """
 
 Safety features:
-- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name
+- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name.
+  With the user's explicit consent, you may rename the resource to add the marker and
+  then delete it; never rename it to bypass the guard without asking first. When asking,
+  show the resource's name and Airbyte URL so the user can confirm the right resource.
 - Read-only mode: Disables all write operations for cloud resources"""
 
 
@@ -538,6 +542,7 @@ app = mcp_server(
         ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
         ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
         ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG,
+        DISABLE_DELETE_GUARD_CONFIG_ARG,
         AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
         AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
         INSIDERS_CONFIG_ARG,

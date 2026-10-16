@@ -898,7 +898,7 @@ class CloudWorkspace:
         self,
         source: str | cloud_connectors.CloudSource,
         *,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Delete a source from the workspace.
 
@@ -906,7 +906,7 @@ class CloudWorkspace:
 
         Args:
             source: The source ID or CloudSource object to delete
-            safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the source name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(source, (str, cloud_connectors.CloudSource)):
@@ -927,7 +927,8 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            workspace_id=self.workspace_id,
+            delete_guard=delete_guard,
         )
 
     # Deploy and delete destinations
@@ -936,7 +937,7 @@ class CloudWorkspace:
         self,
         destination: str | cloud_connectors.CloudDestination,
         *,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Delete a deployed destination from the workspace.
 
@@ -944,7 +945,8 @@ class CloudWorkspace:
 
         Args:
             destination: The destination ID or CloudDestination object to delete
-            safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the destination name to contain "delete-me" or
+                "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(destination, (str, cloud_connectors.CloudDestination)):
@@ -971,7 +973,8 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            workspace_id=self.workspace_id,
+            delete_guard=delete_guard,
         )
 
     # Deploy and delete connections
@@ -1033,7 +1036,7 @@ class CloudWorkspace:
         *,
         cascade_delete_source: bool = False,
         cascade_delete_destination: bool = False,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Delete a deployed connection from the workspace.
 
@@ -1042,7 +1045,7 @@ class CloudWorkspace:
             cascade_delete_source: If True, also delete the source after deleting the connection
             cascade_delete_destination: If True, also delete the destination after deleting
                 the connection
-            safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the connection name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True. Also applies
                 to cascade deletes.
         """
@@ -1063,18 +1066,18 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            delete_guard=delete_guard,
         )
 
         if cascade_delete_source:
             self.permanently_delete_source(
                 source=connection.source_id,
-                safe_mode=safe_mode,
+                delete_guard=delete_guard,
             )
         if cascade_delete_destination:
             self.permanently_delete_destination(
                 destination=connection.destination_id,
-                safe_mode=safe_mode,
+                delete_guard=delete_guard,
             )
 
     # List workspaces, sources, destinations, and connections
@@ -1098,11 +1101,11 @@ class CloudWorkspace:
         self,
         *,
         workspace_name: str | None = None,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Permanently delete this workspace if it has no connections.
 
-        When `safe_mode` is enabled, the workspace name must contain `delete-me`
+        When `delete_guard` is enabled, the workspace name must contain `delete-me`
         or `deleteme`. This also checks for existing connections before deleting
         and raises `AirbyteWorkspaceNotEmptyError` if the workspace is not empty.
         """
@@ -1113,7 +1116,7 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            delete_guard=delete_guard,
         )
 
     def list_connections(

@@ -4,12 +4,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 from unittest.mock import patch
 
 import pytest
+from fastmcp import FastMCP
 from fastmcp_extensions import MCPServerConfigArg
 
 from airbyte.constants import (
+    MCP_CONFIG_DISABLE_DELETE_GUARD,
+    MCP_DISABLE_DELETE_GUARD_ENV_VAR,
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
 )
 from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
@@ -20,6 +24,7 @@ from airbyte.mcp._tool_utils import (
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
+    DISABLE_DELETE_GUARD_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
     _GUIDS_CREATED_IN_SESSION,
     _TOOL_POLICIES,
@@ -27,6 +32,7 @@ from airbyte.mcp._tool_utils import (
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
     check_unsupported_mcp_headers,
+    delete_guard_disabled,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -309,6 +315,13 @@ def test_server_tools_register_expected_policies() -> None:
             "allow_external_access",
             id="external-access",
         ),
+        pytest.param(
+            DISABLE_DELETE_GUARD_CONFIG_ARG,
+            "AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD",
+            "X-MCP-Disable-Delete-Guard",
+            "disable_delete_guard",
+            id="disable-delete-guard",
+        ),
     ],
 )
 def test_policy_config_args(
@@ -322,6 +335,36 @@ def test_policy_config_args(
     assert config_arg.http_header_key == expected_header
     assert config_arg.default == ""
     assert not config_arg.required
+
+
+@pytest.mark.parametrize(
+    ("environment_value", "header_value", "expected"),
+    [
+        pytest.param(None, None, False, id="unset"),
+        pytest.param("1", None, True, id="environment-enable"),
+        pytest.param("1", "0", False, id="header-narrows-environment"),
+        pytest.param("0", "1", False, id="environment-deny-wins"),
+        pytest.param(None, "1", True, id="header-enable"),
+    ],
+)
+def test_delete_guard_disabled_respects_environment_and_header(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_value: str | None,
+    header_value: str | None,
+    expected: bool,
+) -> None:
+    if environment_value is None:
+        monkeypatch.delenv(MCP_DISABLE_DELETE_GUARD_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_DISABLE_DELETE_GUARD_ENV_VAR, environment_value)
+
+    def get_config(_app_or_ctx: FastMCP, config_name: str) -> str | None:
+        assert config_name == MCP_CONFIG_DISABLE_DELETE_GUARD
+        return header_value
+
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_mcp_config", get_config)
+
+    assert delete_guard_disabled(cast(FastMCP, object())) is expected
 
 
 _DOCSTRING_SECTION_HEADERS = ("Args:", "Returns:", "Raises:")

@@ -36,7 +36,7 @@ from airbyte.cloud.models import (
     ConnectionStatus,
     JobStatusEnum,
 )
-from airbyte.constants import MCP_INSIDERS_ENV_VAR
+from airbyte.constants import MCP_DISABLE_DELETE_GUARD_ENV_VAR, MCP_INSIDERS_ENV_VAR
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
@@ -883,6 +883,7 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", fake_get_cloud_workspace)
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+    monkeypatch.setattr(cloud_mcp, "delete_guard_disabled", lambda _: False)
 
     result = tool(
         cast(Context, object()),
@@ -940,6 +941,7 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
     )
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+    monkeypatch.setattr(cloud_mcp, "delete_guard_disabled", lambda _: False)
 
     if in_use:
         with pytest.raises(AirbyteConnectorInUseError) as exc_info:
@@ -964,6 +966,51 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
         assert "Successfully deleted" in result
 
     delete.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("environment_value", "expected_delete_guard"),
+    [
+        pytest.param(None, True, id="default-guard-on"),
+        pytest.param("1", False, id="opt-out"),
+    ],
+)
+def test_permanently_delete_cloud_connector_respects_delete_guard_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_value: str | None,
+    expected_delete_guard: bool,
+) -> None:
+    if environment_value is None:
+        monkeypatch.delenv(MCP_DISABLE_DELETE_GUARD_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_DISABLE_DELETE_GUARD_ENV_VAR, environment_value)
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_mcp_config", lambda *_: None)
+
+    connector = SimpleNamespace(
+        name="delete-me connector",
+        connector_type=ConnectorType.SOURCE,
+    )
+    delete = MagicMock()
+    workspace = SimpleNamespace(
+        get_source=lambda **_: connector,
+        permanently_delete_source=delete,
+    )
+    monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
+    monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
+
+    result = cloud_mcp.permanently_delete_cloud_connector(
+        cast(Context, object()),
+        connector_id="connector-id",
+        name="delete-me connector",
+        connector_type=ConnectorType.SOURCE,
+        workspace_id=None,
+    )
+
+    assert "Successfully deleted" in result
+    delete.assert_called_once_with(
+        source="connector-id",
+        delete_guard=expected_delete_guard,
+    )
 
 
 @pytest.mark.parametrize(
