@@ -19,6 +19,8 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import TraceArg, get_mcp_config, register_mcp_tools
 from pydantic import BaseModel, ConfigDict, Field
 
+from airbyte_protocol.models import DestinationSyncMode, SyncMode
+
 from airbyte import Destination, Source, get_destination, get_source
 from airbyte._direct_connectors import connector_docs
 from airbyte._direct_connectors.models import (
@@ -3968,6 +3970,124 @@ def set_cloud_connection_selected_streams(
     return (
         f"Successfully set selected streams for connection '{connection_id}' "
         f"to {resolved_streams_list}. URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
+    destructive=True,
+)
+def refresh_cloud_connection_catalog(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to refresh the catalog for."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> str:
+    """Refresh a connection's catalog by re-discovering its source schema."""
+    check_guid_created_in_session(connection_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+    refreshed_catalog = connection.refresh_catalog()
+    stream_count = len(refreshed_catalog["streams"])
+
+    return (
+        f"Successfully refreshed catalog for connection '{connection_id}'. "
+        f"Catalog now contains {stream_count} stream(s). "
+        f"URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
+    destructive=True,
+)
+def set_cloud_connection_stream_sync_mode(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to update."),
+    ],
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream to update."),
+        TraceArg.FINGERPRINT,
+    ],
+    sync_mode: Annotated[
+        SyncMode,
+        Field(description="The source sync mode to set."),
+    ],
+    *,
+    stream_namespace: Annotated[
+        str | None,
+        Field(
+            description="The namespace of the stream, required when its name is ambiguous.",
+            default=None,
+        ),
+    ],
+    destination_sync_mode: Annotated[
+        DestinationSyncMode | None,
+        Field(
+            description=(
+                "The destination sync mode to set. If omitted, the current mode is preserved."
+            ),
+            default=None,
+        ),
+    ],
+    cursor_field: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The cursor field to set. Required for incremental mode when no existing, default, "
+                "or source-defined cursor is available. It can also be set during full-refresh "
+                "syncs to pre-configure a later incremental sync."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> str:
+    """Set the sync and destination modes for one stream in a connection."""
+    check_guid_created_in_session(connection_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+    connection.set_stream_sync_mode(
+        stream_name=stream_name,
+        sync_mode=sync_mode,
+        stream_namespace=stream_namespace,
+        destination_sync_mode=destination_sync_mode,
+        cursor_field=cursor_field,
+    )
+
+    stream_identifier = (
+        f"{stream_namespace}.{stream_name}" if stream_namespace is not None else stream_name
+    )
+    updates = []
+    if destination_sync_mode is not None:
+        updates.append(f"destination sync mode '{destination_sync_mode.value}'")
+    if cursor_field is not None:
+        updates.append(f"cursor field '{cursor_field}'")
+    update_details = f" with {', '.join(updates)}" if updates else ""
+
+    return (
+        f"Successfully set sync mode for stream '{stream_identifier}' "
+        f"on connection '{connection_id}' to '{sync_mode.value}'{update_details}. "
+        f"URL: {connection.connection_url}"
     )
 
 
