@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   slashCommandDispatch:
-    # Only allow slash commands on pull request (not on issues)
-    if: ${{ github.event.issue.pull_request }}
+    # Only allow slash commands on pull request (not on issues). Devin is handled below.
+    if: ${{ github.event.issue.pull_request && github.event.comment.user.login != 'devin-ai-integration[bot]' }}
     runs-on: ubuntu-latest
     steps:
 
@@ -54,3 +54,47 @@ jobs:
           comment-id: ${{ github.event.comment.id }}
           body: |
             > Error: ${{ steps.dispatch.outputs.error-message }}
+
+  # Devin comments as a GitHub App, which has no repository permission level, so the
+  # dispatcher above rejects it. Let it run /evals on PRs whose branch is in this repo:
+  # pushing that branch already took write access. Fork PRs stay maintainer-only.
+  devinEvals:
+    if: >-
+      github.event.issue.pull_request
+      && github.event.comment.user.login == 'devin-ai-integration[bot]'
+      && startsWith(github.event.comment.body, '/evals')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate as GitHub App
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        id: get-app-token
+        with:
+          owner: "airbytehq"
+          repositories: "PyAirbyte"
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+      - name: Dispatch evals
+        env:
+          GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+          PR: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          command=$(head -n 1 <<< "$BODY")
+          if [[ ! "$command" =~ ^/evals([[:space:]]|$) ]]; then
+            exit 0
+          fi
+          head=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" \
+            --json headRepositoryOwner,headRepository \
+            --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)"')
+          if [[ "$head" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::notice::Not dispatching: PR #$PR comes from $head, not $GITHUB_REPOSITORY."
+            exit 0
+          fi
+          full=false
+          if [[ "$command" =~ [[:space:]]full=true([[:space:]]|$) ]]; then
+            full=true
+          fi
+          gh workflow run evals-command.yml -R "$GITHUB_REPOSITORY" \
+            -f pr="$PR" -f comment-id="$COMMENT_ID" -f full="$full"
