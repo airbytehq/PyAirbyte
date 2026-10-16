@@ -1339,7 +1339,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
         if not self._definition_info:
             self._definition_info = self._fetch_definition_info()
-        return _unwrap_builder_manifest(self._definition_info.manifest)
+        return self._definition_info.manifest
 
     @property
     def config_spec_jsonschema(self) -> dict[str, Any] | None:
@@ -1835,11 +1835,14 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
                 },
             )
 
+        # Get the spec from the definition info
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+
         # Build the spec object from the manifest, matching the Builder UI pattern
         spec: dict[str, Any] = {}
-        manifest = self.manifest
-        if manifest:
-            manifest_spec = manifest.get("spec", {})
+        if self._definition_info.manifest:
+            manifest_spec = self._definition_info.manifest.get("spec", {})
             if manifest_spec:
                 spec = {
                     "documentationUrl": manifest_spec.get("documentation_url"),

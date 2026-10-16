@@ -868,34 +868,6 @@ def test_custom_cloud_source_definition_validates_config() -> None:
         definition.validate_config({})
 
 
-def test_custom_cloud_source_definition_config_spec_jsonschema_unwraps_manifest() -> (
-    None
-):
-    definition = CustomCloudSourceDefinition(
-        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
-        definition_id="definition-id",
-        definition_type="yaml",
-    )
-    connection_specification = {
-        "type": "object",
-        "properties": {"greeting": {"type": "string"}},
-    }
-    definition._definition_info = CloudCustomSourceDefinitionInfo(
-        definition_id="definition-id",
-        name="Custom source",
-        version="0.1.0",
-        manifest={
-            "manifest": {
-                "spec": {"connection_specification": connection_specification}
-            },
-            "spec": {"connectionSpecification": {}},
-            "version": 1,
-        },
-    )
-
-    assert definition.config_spec_jsonschema == connection_specification
-
-
 def test_custom_cloud_source_definition_without_spec_skips_config_validation() -> None:
     definition = CustomCloudSourceDefinition(
         workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
