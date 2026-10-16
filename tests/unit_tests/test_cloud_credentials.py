@@ -575,12 +575,12 @@ def test_cloud_client_permanently_delete_workspace_forwards_inputs(
     CloudClient(bearer_token="token").permanently_delete_workspace(
         workspace_id="workspace-id",
         workspace_name="delete-me workspace",
-        safe_mode=True,
+        delete_guard=True,
     )
 
     assert captured_kwargs["workspace_id"] == "workspace-id"
     assert captured_kwargs["workspace_name"] == "delete-me workspace"
-    assert captured_kwargs["safe_mode"] is True
+    assert captured_kwargs["delete_guard"] is True
 
 
 def test_cloud_workspace_list_custom_source_definitions_scopes_organization_shared(
@@ -718,15 +718,32 @@ def test_custom_cloud_source_definition_builder_url_uses_owner_workspace(
 
 
 @pytest.mark.parametrize(
-    ("has_draft", "expected_draft_manifest"),
+    ("has_draft", "stored_manifest", "expected_draft_manifest"),
     [
-        pytest.param(True, {"version": "0.1.0"}, id="preserves-draft"),
-        pytest.param(False, None, id="no-draft"),
+        pytest.param(
+            True, {"version": "0.1.0"}, {"version": "0.1.0"}, id="preserves-draft"
+        ),
+        pytest.param(False, {"version": "0.1.0"}, None, id="no-draft"),
+        pytest.param(
+            True,
+            {
+                "manifest": {"version": "0.1.0", "streams": []},
+                "spec": {"connection_specification": {}},
+                "version": "0.1.0",
+            },
+            {
+                "manifest": {"version": "0.1.0", "streams": []},
+                "spec": {"connection_specification": {}},
+                "version": "0.1.0",
+            },
+            id="preserves-envelope-draft",
+        ),
     ],
 )
 def test_custom_cloud_source_definition_rename_preserves_builder_data(
     monkeypatch: pytest.MonkeyPatch,
     has_draft: bool,
+    stored_manifest: dict[str, object],
     expected_draft_manifest: dict[str, object] | None,
 ) -> None:
     workspace = CloudWorkspace(
@@ -739,7 +756,7 @@ def test_custom_cloud_source_definition_rename_preserves_builder_data(
             "hasDraft": has_draft,
             "componentsFileContent": "components: []",
         },
-        "declarativeManifest": {"manifest": {"version": "0.1.0"}},
+        "declarativeManifest": {"manifest": stored_manifest},
     }
     builder_lookup = MagicMock(
         return_value={
@@ -965,7 +982,7 @@ def test_cloud_workspace_permanently_delete_forwards_inputs(
 
     assert captured_kwargs["workspace_id"] == "workspace-id"
     assert captured_kwargs["workspace_name"] == "delete-me workspace"
-    assert captured_kwargs["safe_mode"] is True
+    assert captured_kwargs["delete_guard"] is True
 
 
 def test_cloud_workspace_explicit_credentials_do_not_resolve_env_vars(
@@ -1801,6 +1818,99 @@ def test_mcp_describe_cloud_organization_resolves_without_arguments(
 
     assert result.id == "organization-id"
     assert result.name == "Organization"
+
+
+def test_mcp_describe_cloud_organization_returns_email_and_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`describe_cloud_organization` reports the contact email and its domain."""
+    _stub_organization_features(monkeypatch)
+
+    class DiscoveryClient:
+        def get_organization(self, **_: object) -> CloudOrganization:
+            return CloudOrganization(
+                organization_id="organization-id",
+                organization_name="Organization",
+                email="Admin@Example.COM",
+            )
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.describe_cloud_organization(
+        None, organization_id="organization-id", organization_name=None
+    )
+
+    assert result.email == "Admin@Example.COM"
+    assert result.email_domain == "example.com"
+
+
+def test_mcp_list_cloud_organizations_hides_email_and_reports_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`list_cloud_organizations` omits contact emails and reports only the domain."""
+    _stub_organization_features(monkeypatch)
+
+    class DiscoveryClient:
+        def list_organizations(self, **_: object) -> list[CloudOrganization]:
+            return [
+                CloudOrganization(
+                    organization_id="organization-id",
+                    organization_name="Organization",
+                    email="Admin@Example.COM",
+                )
+            ]
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(None)
+
+    assert result.organizations[0].email is None
+    assert result.organizations[0].email_domain == "example.com"
+
+
+def test_cloud_organization_email_falls_back_to_org_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An org resolved via `get_organization_info` still resolves its email once."""
+    monkeypatch.setattr(
+        api_util,
+        "get_organization_info",
+        lambda **_: {"organizationId": "organization-id"},
+    )
+    list_calls: list[object] = []
+
+    class _OrganizationResponse:
+        organization_id = "organization-id"
+        email = "listed@example.com"
+
+    monkeypatch.setattr(
+        api_util,
+        "list_organizations_for_user",
+        lambda **_: list_calls.append(_) or [_OrganizationResponse()],
+    )
+    organization = CloudOrganization("organization-id", bearer_token="token")
+
+    assert organization.email == "listed@example.com"
+    assert organization.email == "listed@example.com"
+    assert len(list_calls) == 1
+
+
+def test_cloud_organization_email_domain() -> None:
+    """`email_domain` is the lowercased domain of the contact email, or None."""
+    assert (
+        CloudOrganization(
+            organization_id="organization-id",
+            email="User@Sub.Example.COM",
+        ).email_domain
+        == "sub.example.com"
+    )
+    assert (
+        CloudOrganization(
+            organization_id="organization-id",
+            email="not-an-email",
+        ).email_domain
+        is None
+    )
 
 
 def test_cloud_client_get_organization_uses_unbounded_organization_list(
@@ -3003,6 +3113,7 @@ def test_mcp_list_cloud_workspaces_discovery(
 
     class DiscoveryClient:
         organization_id: str | None = None
+        public_api_root: str = api_util.CLOUD_API_ROOT
 
         def list_workspaces(
             self, *, organization_id: str | None = None, **_: object
@@ -3036,6 +3147,9 @@ def test_mcp_list_cloud_workspaces_discovery(
         assert "permission" in (result.message or "")
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
+        assert result.workspaces[0].workspace_url == (
+            "https://cloud.airbyte.com/workspaces/workspace-id"
+        )
         assert result.workspaces[1].organization_id is None
         assert result.workspaces[0].organization_name == organization_name
         assert result.workspaces[1].organization_name is None

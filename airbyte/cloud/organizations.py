@@ -58,6 +58,7 @@ class CloudOrganization:
         )
         self._organization_info: dict[str, Any] | None = None
         self._organization_info_fetch_failed: bool = False
+        self._email_lookup_attempted: bool = False
 
     def _fetch_organization_info(self, *, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch and cache organization info including billing status."""
@@ -101,7 +102,47 @@ class CloudOrganization:
         if self._email is not None:
             return self._email
         info = self._fetch_organization_info()
-        return info.get("email")
+        email = info.get("email")
+        if isinstance(email, str):
+            return email
+        return self._lookup_email_in_org_listing()
+
+    @property
+    def email_domain(self) -> str | None:
+        """Domain part of the organization's contact email, lowercased."""
+        email = self.email
+        if email is None or "@" not in email:
+            return None
+        return email.rsplit("@", 1)[1].lower()
+
+    def _lookup_email_in_org_listing(self) -> str | None:
+        """Resolve the contact email via the organizations listing.
+
+        The `get_organization_info` Config API response does not include the contact
+        email, so organizations resolved by ID fall back to the public organizations
+        listing, which does carry it.
+        """
+        if self._email_lookup_attempted:
+            return None
+        self._email_lookup_attempted = True
+        try:
+            organizations = api_util.list_organizations_for_user(
+                api_root=self._credentials.public_api_root,
+                client_id=self._credentials.client_id,
+                client_secret=self._credentials.client_secret,
+                bearer_token=self._credentials.bearer_token,
+            )
+        except Exception as ex:
+            logger.debug("Failed to resolve organization email via the org listing.", exc_info=ex)
+            return None
+        for organization in organizations:
+            if organization.organization_id == self.organization_id:
+                email = organization.email
+                if isinstance(email, str):
+                    self._email = email
+                    return email
+                return None
+        return None
 
     def get_billing_status(self) -> CloudOrganizationBillingInfo:
         """Fetch billing status for the organization or raise on failure."""

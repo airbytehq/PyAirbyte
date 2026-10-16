@@ -94,6 +94,7 @@ from airbyte.mcp._scope import record_default_workspace, record_resolved_organiz
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
+    delete_guard_disabled,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -113,8 +114,10 @@ if TYPE_CHECKING:
 DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
-    "resource yourself to satisfy this requirement; ask the user to confirm deletion or "
-    "rename it themselves first."
+    "resource yourself to satisfy this requirement unless and until the user explicitly "
+    "consents to the rename operation. When asking for consent, show the user the resource's "
+    "name and Airbyte URL (as returned by the describe or list tools) so they can confirm the "
+    "correct resource is targeted."
 )
 WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
 MANIFEST_YAML_SOURCE_HINT = (
@@ -129,11 +132,11 @@ def _manifest_yaml_source_hint() -> str | None:
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
-`execute_external_api_query` tool. Call `get_agent_skill_docs` with no `section` input to list all
-available sections, and/or retrieve the relevant section(s) with `get_agent_skill_docs` before
-calling an action. E.g. for GitHub `entity_type='issues'`, `action='list'`, the
-`'actions.issues.list'` section will teach that its expected `api_args` keys are `owner`,
-`repo`, `states`, etc.\
+`execute_external_api_query` tool. Call `get_agent_skill_docs` with the deployed `connector_id`
+(or a `docs_skill_id`) and no `section` to get the overview and list of available sections, then
+retrieve the relevant section(s) before calling an action. E.g. for GitHub `entity_type='issues'`,
+`action='list'`, the `'actions.issues.list'` section will teach that its expected
+`api_args` keys are `owner`, `repo`, `states`, etc.\
 """
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
@@ -333,7 +336,13 @@ class CloudOrganizationResult(BaseModel):
     name: str | None = None
     """Display name of the organization, when available."""
     email: str | None = None
-    """Email associated with the organization, when available."""
+    """Email associated with the organization, when available.
+
+    Only returned by `describe_cloud_organization`; `list_cloud_organizations`
+    reports `email_domain` instead.
+    """
+    email_domain: str | None = None
+    """Domain of the organization's contact email (lowercased), when an email is known."""
     enabled_features: list[OrganizationFeature]
     """Features enabled for this organization; see `OrganizationFeature`."""
 
@@ -2663,10 +2672,12 @@ def list_cloud_workspaces(
             ),
         )
 
+    web_url_root = api_util.get_web_url_root(client.public_api_root)
     results = [
         CloudWorkspaceResult(
             workspace_id=ws.workspace_id,
             workspace_name=ws.name,
+            workspace_url=f"{web_url_root}/workspaces/{ws.workspace_id}",
             organization_id=ws.organization_id,
         )
         for ws in workspaces
@@ -2942,7 +2953,7 @@ def list_cloud_organizations(
             CloudOrganizationResult(
                 id=organization.organization_id,
                 name=organization.organization_name,
-                email=organization.email,
+                email_domain=organization.email_domain,
                 enabled_features=sorted(organization.enabled_features),
             )
             for organization in organizations
@@ -3042,6 +3053,7 @@ def describe_cloud_organization(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+        email_domain=org.email_domain,
         enabled_features=sorted(org.enabled_features),
     )
 
@@ -3597,9 +3609,9 @@ def permanently_delete_custom_source_definition(
             },
         )
 
-    definition.permanently_delete(
-        safe_mode=True,  # Hard-coded safe mode for extra protection when running in LLM agents.
-    )
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
+    definition.permanently_delete(delete_guard=not delete_guard_disabled(ctx))
     return f"Successfully deleted custom source definition '{actual_name}' (ID: {definition_id})"
 
 
@@ -3662,16 +3674,17 @@ def permanently_delete_cloud_connector(
             },
         )
 
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
     if resolved_type == ConnectorType.SOURCE:
         workspace.permanently_delete_source(
             source=connector_id,
-            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+            delete_guard=not delete_guard_disabled(ctx),
         )
     else:
         workspace.permanently_delete_destination(
             destination=connector_id,
-            safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
+            delete_guard=not delete_guard_disabled(ctx),
         )
     return f"Successfully deleted {resolved_type.value} '{actual_name}' (ID: {connector_id})"
 
@@ -3744,9 +3757,10 @@ def permanently_delete_cloud_connection(
             },
         )
 
-    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
     workspace.permanently_delete_connection(
-        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
+        delete_guard=not delete_guard_disabled(ctx),
         connection=connection_id,
         cascade_delete_source=cascade_delete_source,
         cascade_delete_destination=cascade_delete_destination,

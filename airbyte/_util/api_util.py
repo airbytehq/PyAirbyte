@@ -40,6 +40,7 @@ from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteConnectorNotReadyError,
     AirbyteDeferredSetupError,
+    AirbyteDeletionGuardError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
@@ -519,27 +520,27 @@ def permanently_delete_workspace(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete an empty workspace.
 
     Args:
         workspace_id: The workspace ID to delete.
-        workspace_name: Optional workspace name. If not provided and safe mode is enabled,
-            the workspace name is fetched from the API for safety checks.
+        workspace_name: Optional workspace name. If not provided and the delete guard is enabled,
+            the workspace name is fetched from the API for deletion checks.
         api_root: The API root URL.
         client_id: OAuth client ID.
         client_secret: OAuth client secret.
         bearer_token: Bearer token for authentication.
-        safe_mode: If True, the workspace name must contain `delete-me` or `deleteme`
+        delete_guard: If True, the workspace name must contain `delete-me` or `deleteme`
             (case insensitive). Defaults to True.
 
     Raises:
-        AirbyteLibInputError: If safe mode is True and the workspace name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the workspace name does not meet
             the safety requirements.
         AirbyteWorkspaceNotEmptyError: If the workspace contains connections.
     """
-    if safe_mode:
+    if delete_guard:
         if workspace_name is None:
             workspace_info = get_workspace(
                 workspace_id=workspace_id,
@@ -551,15 +552,13 @@ def permanently_delete_workspace(
             workspace_name = workspace_info.name
 
         if not _is_safe_name_to_delete(workspace_name):
-            raise AirbyteLibInputError(
-                message=(
-                    "Cannot delete workspace with safe_mode enabled because the workspace "
-                    "name does not contain 'delete-me' or 'deleteme'."
-                ),
+            web_root = get_web_url_root(api_root)
+            raise AirbyteDeletionGuardError(
+                resource_type="workspace",
+                resource_name=workspace_name,
+                resource_url=f"{web_root}/workspaces/{workspace_id}",
                 context={
                     "workspace_id": workspace_id,
-                    "workspace_name": workspace_name,
-                    "safe_mode": True,
                 },
             )
 
@@ -1259,11 +1258,14 @@ def cancel_job(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.jobs.cancel_job(
-        api.CancelJobRequest(
-            job_id=job_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.jobs.cancel_job(
+            api.CancelJobRequest(
+                job_id=job_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code):
         if response.job_response:
             return response.job_response
@@ -1323,15 +1325,18 @@ def create_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
-        models.SourceCreateRequest(
-            name=name,
-            workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
-            definition_id=definition_id or None,  # Only used for custom sources
-            secret_id=None,  # For OAuth, not yet supported
-        ),
-    )
+    try:
+        response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
+            models.SourceCreateRequest(
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # Speakeasy API wants a dataclass, not a dict
+                definition_id=definition_id or None,  # Only used for custom sources
+                secret_id=None,  # For OAuth, not yet supported
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1400,29 +1405,29 @@ def delete_source(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     workspace_id: str | None = None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a source.
 
     Args:
         source_id: The source ID to delete
-        source_name: Optional source name. If not provided and safe_mode is enabled,
-            the source name will be fetched from the API to perform safety checks.
+        source_name: Optional source name. If not provided and the delete guard is enabled,
+            the source name will be fetched from the API to perform deletion checks.
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        workspace_id: The workspace ID (not currently used)
-        safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+        workspace_id: The workspace ID used in the resource URL in deletion-guard errors.
+        delete_guard: If True, requires the source name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteLibInputError: If safe_mode is True and the source name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the source name does not meet
             the safety requirements.
     """
-    _ = workspace_id  # Not used (yet)
+    resource_workspace_id = workspace_id
 
-    if safe_mode:
+    if delete_guard:
         if source_name is None:
             source_info = get_source(
                 source_id=source_id,
@@ -1432,19 +1437,22 @@ def delete_source(
                 bearer_token=bearer_token,
             )
             source_name = source_info.name
+            if resource_workspace_id is None:
+                resource_workspace_id = source_info.workspace_id
 
         if not _is_safe_name_to_delete(source_name):
-            raise AirbyteLibInputError(
-                message=(
-                    f"Cannot delete source '{source_name}' with safe_mode enabled. "
-                    "To authorize deletion, the source name must contain 'delete-me' or 'deleteme' "
-                    "(case insensitive).\n\n"
-                    "Please rename the source to meet this requirement before attempting deletion."
-                ),
+            web_root = get_web_url_root(api_root)
+            resource_url = (
+                f"{web_root}/workspaces/{resource_workspace_id}/source/{source_id}"
+                if resource_workspace_id is not None
+                else None
+            )
+            raise AirbyteDeletionGuardError(
+                resource_type="source",
+                resource_name=source_name,
+                resource_url=resource_url,
                 context={
                     "source_id": source_id,
-                    "source_name": source_name,
-                    "safe_mode": True,
                 },
             )
 
@@ -1454,11 +1462,14 @@ def delete_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.delete_source(
-        api.DeleteSourceRequest(
-            source_id=source_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.sources.delete_source(
+            api.DeleteSourceRequest(
+                source_id=source_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -1502,15 +1513,18 @@ def patch_source(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.patch_source(
-        api.PatchSourceRequest(
-            source_id=source_id,
-            source_patch_request=models.SourcePatchRequest(
-                name=name,
-                configuration=config,
+    try:
+        response = airbyte_instance.sources.patch_source(
+            api.PatchSourceRequest(
+                source_id=source_id,
+                source_patch_request=models.SourcePatchRequest(
+                    name=name,
+                    configuration=config,
+                ),
             ),
-        ),
-    )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
@@ -1572,14 +1586,17 @@ def create_destination(
         # TODO: We have to hard-code the definition ID for dev-null destination.
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
-    response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
-        models.DestinationCreateRequest(
-            definition_id=definition_id_override,
-            name=name,
-            workspace_id=workspace_id,
-            configuration=config,  # Speakeasy API wants a dataclass, not a dict
-        ),
-    )
+    try:
+        response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
+            models.DestinationCreateRequest(
+                definition_id=definition_id_override,
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # Speakeasy API wants a dataclass, not a dict
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
@@ -1804,29 +1821,29 @@ def delete_destination(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     workspace_id: str | None = None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a destination.
 
     Args:
         destination_id: The destination ID to delete
-        destination_name: Optional destination name. If not provided and safe_mode is enabled,
-            the destination name will be fetched from the API to perform safety checks.
+        destination_name: Optional destination name. If not provided and the delete guard is
+            enabled, the destination name will be fetched from the API to perform deletion checks.
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        workspace_id: The workspace ID (not currently used)
-        safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+        workspace_id: The workspace ID used in the resource URL in deletion-guard errors.
+        delete_guard: If True, requires the destination name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteLibInputError: If safe_mode is True and the destination name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the destination name does not meet
             the safety requirements.
     """
-    _ = workspace_id  # Not used (yet)
+    resource_workspace_id = workspace_id
 
-    if safe_mode:
+    if delete_guard:
         if destination_name is None:
             destination_info = get_destination(
                 destination_id=destination_id,
@@ -1836,20 +1853,22 @@ def delete_destination(
                 bearer_token=bearer_token,
             )
             destination_name = destination_info.name
+            if resource_workspace_id is None:
+                resource_workspace_id = destination_info.workspace_id
 
         if not _is_safe_name_to_delete(destination_name):
-            raise AirbyteLibInputError(
-                message=(
-                    f"Cannot delete destination '{destination_name}' with safe_mode enabled. "
-                    "To authorize deletion, the destination name must contain 'delete-me' or "
-                    "'deleteme' (case insensitive).\n\n"
-                    "Please rename the destination to meet this requirement "
-                    "before attempting deletion."
-                ),
+            web_root = get_web_url_root(api_root)
+            resource_url = (
+                f"{web_root}/workspaces/{resource_workspace_id}/destination/{destination_id}"
+                if resource_workspace_id is not None
+                else None
+            )
+            raise AirbyteDeletionGuardError(
+                resource_type="destination",
+                resource_name=destination_name,
+                resource_url=resource_url,
                 context={
                     "destination_id": destination_id,
-                    "destination_name": destination_name,
-                    "safe_mode": True,
                 },
             )
 
@@ -1859,11 +1878,14 @@ def delete_destination(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.delete_destination(
-        api.DeleteDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.destinations.delete_destination(
+            api.DeleteDestinationRequest(
+                destination_id=destination_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -1907,15 +1929,18 @@ def patch_destination(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.patch_destination(
-        api.PatchDestinationRequest(
-            destination_id=destination_id,
-            destination_patch_request=models.DestinationPatchRequest(
-                name=name,
-                configuration=config,
+    try:
+        response = airbyte_instance.destinations.patch_destination(
+            api.PatchDestinationRequest(
+                destination_id=destination_id,
+                destination_patch_request=models.DestinationPatchRequest(
+                    name=name,
+                    configuration=config,
+                ),
             ),
-        ),
-    )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
@@ -2081,27 +2106,27 @@ def delete_connection(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a connection.
 
     Args:
         connection_id: The connection ID to delete
-        connection_name: Optional connection name. If not provided and safe_mode is enabled,
+        connection_name: Optional connection name. If not provided and the delete guard is enabled,
             the connection name will be fetched from the API to perform safety checks.
         api_root: The API root URL
         workspace_id: The workspace ID
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+        delete_guard: If True, requires the connection name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteLibInputError: If safe_mode is True and the connection name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the connection name does not meet
             the safety requirements.
     """
-    if safe_mode:
+    if delete_guard:
         if connection_name is None:
             connection_info = get_connection(
                 workspace_id=workspace_id,
@@ -2114,33 +2139,30 @@ def delete_connection(
             connection_name = connection_info.name
 
         if not _is_safe_name_to_delete(connection_name):
-            raise AirbyteLibInputError(
-                message=(
-                    f"Cannot delete connection '{connection_name}' with safe_mode enabled. "
-                    "To authorize deletion, the connection name must contain 'delete-me' or "
-                    "'deleteme' (case insensitive).\n\n"
-                    "Please rename the connection to meet this requirement "
-                    "before attempting deletion."
-                ),
+            web_root = get_web_url_root(api_root)
+            raise AirbyteDeletionGuardError(
+                resource_type="connection",
+                resource_name=connection_name,
+                resource_url=f"{web_root}/workspaces/{workspace_id}/connections/{connection_id}",
                 context={
                     "connection_id": connection_id,
-                    "connection_name": connection_name,
-                    "safe_mode": True,
                 },
             )
 
-    _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.delete_connection(
-        api.DeleteConnectionRequest(
-            connection_id=connection_id,
-        ),
-    )
+    try:
+        response = airbyte_instance.connections.delete_connection(
+            api.DeleteConnectionRequest(
+                connection_id=connection_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -2715,9 +2737,14 @@ def create_custom_yaml_source_definition(
         workspace_id=workspace_id,
         create_declarative_source_definition_request=request_body,
     )
-    response = airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if response.declarative_source_definition_response is None:
         raise AirbyteCloudError(
             message="Failed to create custom YAML source definition",
@@ -2745,9 +2772,14 @@ def list_custom_yaml_source_definitions(
     request = api.ListDeclarativeSourceDefinitionsRequest(
         workspace_id=workspace_id,
     )
-    response = airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if (
         not status_ok(response.status_code)
         or response.declarative_source_definitions_response is None
@@ -2784,9 +2816,14 @@ def get_custom_yaml_source_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    response = airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if (
         not status_ok(response.status_code)
         or response.declarative_source_definition_response is None
@@ -2829,9 +2866,14 @@ def update_custom_yaml_source_definition(
         definition_id=definition_id,
         update_declarative_source_definition_request=request_body,
     )
-    response = airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if (
         not status_ok(response.status_code)
         or response.declarative_source_definition_response is None
@@ -2856,7 +2898,7 @@ def delete_custom_yaml_source_definition(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    safe_mode: bool = True,
+    delete_guard: bool = True,
 ) -> None:
     """Delete a custom YAML source definition.
 
@@ -2867,14 +2909,14 @@ def delete_custom_yaml_source_definition(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+        delete_guard: If True, requires the connector name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
-        AirbyteLibInputError: If safe_mode is True and the connector name does not meet
+        AirbyteDeletionGuardError: If delete_guard is True and the connector name does not meet
             the safety requirements.
     """
-    if safe_mode:
+    if delete_guard:
         definition_info = get_custom_yaml_source_definition(
             workspace_id=workspace_id,
             definition_id=definition_id,
@@ -2886,19 +2928,13 @@ def delete_custom_yaml_source_definition(
         connector_name = definition_info.name
 
         if not _is_safe_name_to_delete(definition_info.name):
-            raise AirbyteLibInputError(
-                message=(
-                    f"Cannot delete custom connector definition '{connector_name}' "
-                    "with safe_mode enabled. "
-                    "To authorize deletion, the connector name must contain 'delete-me' or "
-                    "'deleteme' (case insensitive).\n\n"
-                    "Please rename the connector to meet this requirement "
-                    "before attempting deletion."
-                ),
+            web_root = get_web_url_root(api_root)
+            raise AirbyteDeletionGuardError(
+                resource_type="connector",
+                resource_name=connector_name,
+                resource_url=f"{web_root}/workspaces/{workspace_id}/settings/source",
                 context={
                     "definition_id": definition_id,
-                    "connector_name": connector_name,
-                    "safe_mode": True,
                 },
             )
 
@@ -2915,9 +2951,14 @@ def delete_custom_yaml_source_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    response = airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
-        request
-    )
+    try:
+        response = (
+            airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
+                request
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
     if not status_ok(response.status_code):
         raise AirbyteCloudError(
             context={
@@ -3163,7 +3204,10 @@ def list_organizations_for_user(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.organizations.list_organizations_for_user()
+    try:
+        response = airbyte_instance.organizations.list_organizations_for_user()
+    except SDKError as e:
+        raise _wrap_sdk_error(e) from e
 
     if status_ok(response.status_code) and response.organizations_response:
         return response.organizations_response.data
@@ -3530,10 +3574,10 @@ def replace_connection_state(
     perform per-stream deduplication or merging on the backend. Callers that need
     to update a single stream must first fetch the current state, merge the desired
     stream change into the full state object, and then send the complete state back.
-    See ``CloudConnection.set_stream_state()`` for this fetch-modify-push pattern.
+    See `CloudConnection.set_stream_state()` for this fetch-modify-push pattern.
 
-    The provided ``connection_id`` is injected into both the outer request
-    wrapper and the inner ``connection_state`` payload to ensure consistency.
+    The provided `connection_id` is injected into both the outer request
+    wrapper and the inner `connection_state` payload to ensure consistency.
 
     Args:
         connection_id: The connection ID to update state for.
@@ -3669,7 +3713,7 @@ def replace_connection_catalog(
 
     Args:
         connection_id: The connection ID to update catalog for.
-        configured_catalog_dict: The configured catalog dict (``{"streams": [...]}``) to set.
+        configured_catalog_dict: The configured catalog dict (`{"streams": [...]}`) to set.
         api_root: The API root URL.
         client_id: OAuth client ID.
         client_secret: OAuth client secret.

@@ -3170,3 +3170,53 @@ def test_create_connection_rejects_invalid_sdk_response_bytes(
     assert caught.value.message == "Airbyte Cloud returned HTTP 400."
     assert caught.value.guidance is None
     assert caught.value.__cause__ is error
+
+
+@responses.activate
+def test_cancel_job_wraps_sdk_conflict_with_problem_detail() -> None:
+    """A 409 SDK error becomes an AirbyteCloudError carrying the problem detail."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.delete(
+        f"{api_root}/jobs/42",
+        status=409,
+        json={"title": "conflict", "detail": "Job is not currently running."},
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util.cancel_job(
+            job_id=42,
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert exc_info.value.get_message() == "Job is not currently running."
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 409
+
+
+@responses.activate
+def test_patch_source_wraps_sdk_validation_error_with_problem_detail() -> None:
+    """A 422 SDK error becomes an AirbyteCloudError carrying the problem detail."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    detail = "The provided configuration does not fulfill the specification."
+    responses.patch(
+        f"{api_root}/sources/source-id",
+        status=422,
+        json={"title": "invalid-input", "detail": detail},
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util.patch_source(
+            source_id="source-id",
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+            config={"count": "ten"},
+        )
+
+    assert exc_info.value.get_message() == detail
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 422

@@ -218,6 +218,29 @@ class AirbyteLibInputError(AirbyteLibError, ValueError):
 
 
 @dataclass
+class AirbyteDeletionGuardError(AirbyteLibInputError):
+    """Deletion rejected: the resource name must contain 'delete-me' or 'deleteme'.
+
+    Name matching is case insensitive.
+    """
+
+    resource_type: str | None = None
+    """The type of resource (e.g. 'source', 'destination', 'connection', 'workspace')."""
+
+    resource_name: str | None = None
+    """The current name of the resource."""
+
+    resource_url: str | None = None
+    """The web URL of the resource, so the user can confirm it is the right one."""
+
+    guidance: str | None = (
+        "If the user has explicitly consented to renaming the resource, you may rename it "
+        "to meet this requirement and then retry. Otherwise, ask the user before renaming it, "
+        "showing them the resource name and URL so they can confirm it's the right one."
+    )
+
+
+@dataclass
 class AirbyteLibNoStreamsSelectedError(AirbyteLibInputError):
     """No streams were selected for the source."""
 

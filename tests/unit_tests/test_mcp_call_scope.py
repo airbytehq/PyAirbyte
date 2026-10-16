@@ -254,6 +254,7 @@ def test_cloud_tool_records_resolved_organization(monkeypatch, events, tool):
         organization_id=ORGANIZATION,
         organization_name="Example",
         email=None,
+        email_domain=None,
         enabled_features=[],
         get_billing_status=lambda: SimpleNamespace(
             payment_status="okay",

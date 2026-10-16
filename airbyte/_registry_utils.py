@@ -85,7 +85,8 @@ def parse_changelog_html(  # noqa: PLR0914
 
 def registry_entry_commit_date(entry: dict) -> str | None:
     """Return the YYYY-MM-DD date of a registry entry's git commit timestamp."""
-    commit_timestamp = entry.get("generated", {}).get("git", {}).get("commit_timestamp")
+    git_info = (entry.get("generated") or {}).get("git") or {}
+    commit_timestamp = git_info.get("commit_timestamp")
     if isinstance(commit_timestamp, str):
         date_match = re.match(r"(\d{4}-\d{2}-\d{2})", commit_timestamp)
         if date_match:
@@ -110,7 +111,9 @@ def fetch_registry_version_date(connector_name: str, version: str) -> str | None
             docker_repo = connector.get("dockerRepository", "")
             if docker_repo == f"airbyte/{connector_name}":
                 if connector.get("dockerImageTag") == version:
-                    current_version_date = registry_entry_commit_date(connector)
+                    current_version_date = connector.get(
+                        "releaseDate"
+                    ) or registry_entry_commit_date(connector)
                     if current_version_date:
                         return current_version_date
 

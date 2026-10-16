@@ -80,7 +80,7 @@ def test_permanently_delete_connector_guards_and_deletes(
 
     if in_use:
         with pytest.raises(AirbyteConnectorInUseError) as exc_info:
-            getattr(workspace, delete_method)(connector, safe_mode=False)
+            getattr(workspace, delete_method)(connector, delete_guard=False)
 
         assert exc_info.value.get_message() == (
             f"The {connector_type} '{connector_id}' is used by 1 connection(s) and cannot be deleted."
@@ -96,7 +96,7 @@ def test_permanently_delete_connector_guards_and_deletes(
         }
         delete.assert_not_called()
     else:
-        getattr(workspace, delete_method)(connector, safe_mode=False)
+        getattr(workspace, delete_method)(connector, delete_guard=False)
 
         delete.assert_called_once()
         assert (
@@ -170,13 +170,13 @@ def test_cascade_delete_connector_passes_in_use_guard_after_connection_delete(
             workspace.permanently_delete_connection(
                 connection,
                 cascade_delete_source=True,
-                safe_mode=False,
+                delete_guard=False,
             )
         else:
             workspace.permanently_delete_connection(
                 connection,
                 cascade_delete_destination=True,
-                safe_mode=False,
+                delete_guard=False,
             )
 
     assert deleted == ["connection", connector_type]

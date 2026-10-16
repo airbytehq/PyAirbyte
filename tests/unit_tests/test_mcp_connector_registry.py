@@ -715,6 +715,44 @@ def test_fetch_registry_version_date_uses_current_version_commit_timestamp() -> 
         assert fetch_registry_version_date("source-faker", "7.2.1") == "2026-07-10"
 
 
+@pytest.mark.parametrize(
+    "generated",
+    [
+        pytest.param(None, id="null_generated"),
+        pytest.param({"git": None}, id="null_git"),
+    ],
+)
+def test_registry_entry_commit_date_tolerates_null_generated_metadata(
+    generated: object,
+) -> None:
+    """JSON null `generated`/`generated.git` values are treated as missing."""
+    from airbyte._registry_utils import registry_entry_commit_date
+
+    assert registry_entry_commit_date({"generated": generated}) is None
+
+
+def test_registry_entry_release_date_none_with_null_generated() -> None:
+    """An entry with `generated=None` and no `releaseDate` converts without raising."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    metadata = _registry_entry_to_connector_metadata(_registry_entry(generated=None))
+
+    assert metadata.release_date is None
+
+
+def test_fetch_registry_version_date_prefers_release_date_for_current_version() -> None:
+    """An explicit `releaseDate` wins over the current version's commit timestamp."""
+    from airbyte._registry_utils import fetch_registry_version_date
+
+    entry = _registry_entry(
+        releaseDate="2026-07-12",
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59Z"}},
+    )
+    with patch("airbyte._registry_utils.requests.get") as mock_get:
+        mock_get.return_value = _mock_registry_response(entry)
+        assert fetch_registry_version_date("source-faker", "7.2.1") == "2026-07-12"
+
+
 def test_fetch_registry_version_date_reads_release_candidates() -> None:
     """Non-current versions still resolve through `releases.releaseCandidates`."""
     from airbyte._registry_utils import fetch_registry_version_date

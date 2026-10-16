@@ -97,7 +97,7 @@ def test_publish_custom_yaml_source(
             definition_id,
             definition_type="yaml",
         )
-        fetched.permanently_delete(safe_mode=False)
+        fetched.permanently_delete(delete_guard=False)
 
 
 @pytest.mark.requires_creds
@@ -129,10 +129,10 @@ def test_deploy_source_from_custom_yaml_definition(
             if deployed_source is not None:
                 cloud_workspace.permanently_delete_source(
                     deployed_source,
-                    safe_mode=False,
+                    delete_guard=False,
                 )
     finally:
-        definition.permanently_delete(safe_mode=False)
+        definition.permanently_delete(delete_guard=False)
 
 
 @pytest.mark.requires_creds
@@ -164,14 +164,14 @@ def test_yaml_validation_error(
         ("test-delete-me-yaml-source-{suffix}", True),
     ],
 )
-def test_safe_mode_deletion(
+def test_delete_guard_deletion(
     cloud_workspace: CloudWorkspace,
     name_template: str,
     expect_allow: bool,
 ) -> None:
-    """Test safe_mode deletion behavior with different connector names."""
+    """Test delete_guard behavior with different connector names."""
     from airbyte._util import text_util
-    from airbyte.exceptions import AirbyteLibInputError
+    from airbyte.exceptions import AirbyteDeletionGuardError, AirbyteLibInputError
 
     name = name_template.format(suffix=text_util.generate_random_suffix())
 
@@ -190,15 +190,15 @@ def test_safe_mode_deletion(
     )
 
     if expect_allow:
-        definition.permanently_delete(safe_mode=True)
+        definition.permanently_delete(delete_guard=True)
     else:
         try:
             with pytest.raises(AirbyteLibInputError) as exc_info:
-                definition.permanently_delete(safe_mode=True)
+                definition.permanently_delete(delete_guard=True)
 
             error_message = str(exc_info.value).lower()
-            assert "safe_mode" in error_message
+            assert isinstance(exc_info.value, AirbyteDeletionGuardError)
             assert "delete-me" in error_message or "deleteme" in error_message
 
         finally:
-            definition.permanently_delete(safe_mode=False)
+            definition.permanently_delete(delete_guard=False)
