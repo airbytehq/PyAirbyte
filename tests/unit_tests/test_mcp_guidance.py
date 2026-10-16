@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import cast
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -45,6 +46,87 @@ def _airbyte_mcp_app() -> FastMCP:
     from airbyte.mcp.server import app
 
     return app
+
+
+@pytest.mark.parametrize(
+    ("category", "slug"),
+    [
+        pytest.param(
+            guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+            "cloud-mcp-bug-report",
+            id="bug-report",
+        ),
+        pytest.param(
+            guidance.GitHubIssueCategory.CLOUD_MCP_FEATURE_REQUEST,
+            "cloud-mcp-feature-request",
+            id="feature-request",
+        ),
+    ],
+)
+def test_get_github_issue_creation_link(
+    category: guidance.GitHubIssueCategory, slug: str
+) -> None:
+    title = "Bug & regression #42 + edge case? café"
+    description = (
+        "What happened: the `tool+name` call failed & returned #1? Unexpectedly.\n"
+        "Expected: success.\nTool calls: `get_cloud_sync_status`."
+    )
+
+    result = guidance.get_github_issue_creation_link(category, title, description)
+    parsed_url = urlsplit(result.url)
+    query = parse_qs(parsed_url.query)
+
+    assert result.warning is None
+    assert parsed_url.scheme == "https"
+    assert parsed_url.netloc == "github.com"
+    assert parsed_url.path == "/airbytehq/PyAirbyte/issues/new"
+    assert set(query) == {"template", "title", "description"}
+    assert query["template"] == [f"{slug}.yml"]
+    assert query["title"] == [title]
+    assert query["description"] == [description]
+
+
+def test_get_github_issue_creation_link_is_listed_by_app() -> None:
+    assert "get_github_issue_creation_link" in _list_tool_names(_airbyte_mcp_app())
+
+
+def test_get_github_issue_creation_link_warns_for_oversized_encoded_description() -> (
+    None
+):
+    result = guidance.get_github_issue_creation_link(
+        guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+        "Issue",
+        "😀" * 4000,
+    )
+
+    assert result.warning is not None
+    assert "shorten the description" in result.warning
+    assert result.url.startswith("https://github.com/airbytehq/PyAirbyte/issues/new?")
+
+
+def test_get_github_issue_creation_link_accepts_ascii_description_at_field_limit() -> (
+    None
+):
+    result = guidance.get_github_issue_creation_link(
+        guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+        "Issue",
+        "a" * 4000,
+    )
+
+    assert len(result.url) <= guidance.MAX_GITHUB_ISSUE_URL_LENGTH
+    assert result.warning is None
+
+
+def test_get_github_issue_creation_link_warns_for_long_ascii_description() -> None:
+    result = guidance.get_github_issue_creation_link(
+        guidance.GitHubIssueCategory.CLOUD_MCP_BUG_REPORT,
+        "Issue",
+        "a" * 10000,
+    )
+
+    assert result.warning is not None
+    assert "shorten the description" in result.warning
+    assert result.url.startswith("https://github.com/airbytehq/PyAirbyte/issues/new?")
 
 
 @pytest.mark.parametrize(
