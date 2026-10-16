@@ -80,6 +80,12 @@ ACTOR_NOT_READY_PYTHON_GUIDANCE = (
     "once it succeeds, retry this call."
 )
 
+DELETE_RENAME_CONSENT_GUIDANCE = (
+    "If the user has explicitly consented to renaming the {resource_type}, "
+    "you may rename it to meet this requirement and then retry. "
+    "Otherwise, ask the user before renaming it."
+)
+
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
 JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
@@ -555,9 +561,7 @@ def permanently_delete_workspace(
                 message=(
                     "Cannot delete workspace with safe_mode enabled because the workspace "
                     "name does not contain 'delete-me' or 'deleteme'.\n\n"
-                    "If the user has explicitly consented to renaming the workspace, "
-                    "you may rename it to meet this requirement and then retry. "
-                    "Otherwise, ask the user before renaming it."
+                    + DELETE_RENAME_CONSENT_GUIDANCE.format(resource_type="workspace")
                 ),
                 context={
                     "workspace_id": workspace_id,
@@ -1448,9 +1452,7 @@ def delete_source(
                     f"Cannot delete source '{source_name}' with safe_mode enabled. "
                     "To authorize deletion, the source name must contain 'delete-me' or 'deleteme' "
                     "(case insensitive).\n\n"
-                    "If the user has explicitly consented to renaming the source, "
-                    "you may rename it to meet this requirement and then retry. "
-                    "Otherwise, ask the user before renaming it."
+                    + DELETE_RENAME_CONSENT_GUIDANCE.format(resource_type="source")
                 ),
                 context={
                     "source_id": source_id,
@@ -1863,9 +1865,7 @@ def delete_destination(
                     f"Cannot delete destination '{destination_name}' with safe_mode enabled. "
                     "To authorize deletion, the destination name must contain 'delete-me' or "
                     "'deleteme' (case insensitive).\n\n"
-                    "If the user has explicitly consented to renaming the destination, "
-                    "you may rename it to meet this requirement and then retry. "
-                    "Otherwise, ask the user before renaming it."
+                    + DELETE_RENAME_CONSENT_GUIDANCE.format(resource_type="destination")
                 ),
                 context={
                     "destination_id": destination_id,
@@ -2146,9 +2146,7 @@ def delete_connection(
                     f"Cannot delete connection '{connection_name}' with safe_mode enabled. "
                     "To authorize deletion, the connection name must contain 'delete-me' or "
                     "'deleteme' (case insensitive).\n\n"
-                    "If the user has explicitly consented to renaming the connection, "
-                    "you may rename it to meet this requirement and then retry. "
-                    "Otherwise, ask the user before renaming it."
+                    + DELETE_RENAME_CONSENT_GUIDANCE.format(resource_type="connection")
                 ),
                 context={
                     "connection_id": connection_id,
@@ -2943,9 +2941,7 @@ def delete_custom_yaml_source_definition(
                     "with safe_mode enabled. "
                     "To authorize deletion, the connector name must contain 'delete-me' or "
                     "'deleteme' (case insensitive).\n\n"
-                    "If the user has explicitly consented to renaming the connector, "
-                    "you may rename it to meet this requirement and then retry. "
-                    "Otherwise, ask the user before renaming it."
+                    + DELETE_RENAME_CONSENT_GUIDANCE.format(resource_type="connector")
                 ),
                 context={
                     "definition_id": definition_id,
