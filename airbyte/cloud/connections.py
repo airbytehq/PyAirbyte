@@ -58,8 +58,6 @@ class _StreamConfigUpdatePlan:
     catalog: dict[str, Any]
     updated_streams: list[StreamConfigChange]
     unsafe_streams: list[StreamConfigChange]
-    catalog_refreshed: bool
-    stream_count: int
 
 
 def _normalized_cursor_field(value: list[str] | str | None) -> list[str]:
@@ -975,42 +973,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         )
         self._connection_info = None
 
-    def refresh_catalog(self) -> dict[str, Any]:
-        """Refresh the connection's catalog by re-discovering the source schema.
-
-        Triggers a discover operation on the connection's source connector, then
-        replaces the connection's catalog with the refreshed result. This is
-        equivalent to clicking "Refresh source schema" in the Airbyte UI.
-
-        Returns:
-            The refreshed raw syncCatalog dict.
-
-        Raises:
-            AirbyteLibInputError: If the refreshed catalog is empty or missing.
-        """
-        refreshed_response = api_util.get_refreshed_connection_catalog(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
-        refreshed_catalog = refreshed_response.get("syncCatalog")
-        if not isinstance(refreshed_catalog, dict) or not refreshed_catalog.get("streams"):
-            raise AirbyteLibInputError(
-                message="Refreshed catalog is empty or missing.",
-                context={"connection_id": self.connection_id},
-            )
-
-        self.import_raw_catalog(refreshed_catalog)
-        return refreshed_catalog
-
     def plan_stream_config_update(  # noqa: PLR0912, PLR0914, PLR0915
         self,
         overrides: list[StreamConfigOverride],
         *,
-        force_catalog_refresh: bool = False,
         allow_unsafe: bool = False,
     ) -> _StreamConfigUpdatePlan:
         """Validate overrides and plan a catalog update without writing it."""
@@ -1019,18 +985,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 message="At least one stream configuration override must be provided.",
             )
 
-        if force_catalog_refresh:
-            refreshed_response = api_util.get_refreshed_connection_catalog(
-                connection_id=self.connection_id,
-                api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
-                bearer_token=self.workspace.bearer_token,
-                config_api_root=self.workspace.config_api_root,
-            )
-            catalog = refreshed_response.get("syncCatalog")
-        else:
-            catalog = self.dump_raw_catalog(normalize=False)
+        catalog = self.dump_raw_catalog(normalize=False)
 
         if (
             not isinstance(catalog, dict)
@@ -1038,11 +993,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             or not catalog["streams"]
         ):
             raise AirbyteLibInputError(
-                message=(
-                    "Refreshed catalog is empty or missing."
-                    if force_catalog_refresh
-                    else "Connection catalog is empty or missing."
-                ),
+                message="Connection catalog is empty or missing.",
                 context={"connection_id": self.connection_id},
             )
 
@@ -1084,6 +1035,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
 
         validation_errors: list[str] = []
+        missing_streams = False
         updated_streams: list[StreamConfigChange] = []
         override_keys: set[tuple[str, str | None]] = set()
         for index, override in enumerate(overrides, start=1):
@@ -1103,9 +1055,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             ]
 
             if not matching_entries:
-                validation_errors.append(
-                    f"{label}: stream not found. Available streams: {available_streams}."
-                )
+                validation_errors.append(f"{label}: stream not found.")
+                missing_streams = True
                 continue
             if len(matching_entries) > 1:
                 matching_namespaces = [
@@ -1182,13 +1133,18 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         if validation_errors:
             joined_errors = " ".join(validation_errors)
+            message = f"Invalid stream configuration overrides: {joined_errors}"
+            context: dict[str, Any] = {
+                "connection_id": self.connection_id,
+                "validation_errors": validation_errors,
+            }
+            if missing_streams:
+                message += f" Available streams: {available_streams}."
+                context["available_streams"] = available_streams
             raise AirbyteLibInputError(
-                message=f"Invalid stream configuration overrides: {joined_errors}",
+                message=message,
                 guidance="Correct every listed override and try again.",
-                context={
-                    "connection_id": self.connection_id,
-                    "validation_errors": validation_errors,
-                },
+                context=context,
             )
 
         changed_streams = [stream for stream in updated_streams if stream.changed_fields]
@@ -1209,8 +1165,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             catalog=catalog,
             updated_streams=updated_streams,
             unsafe_streams=unsafe_streams,
-            catalog_refreshed=force_catalog_refresh,
-            stream_count=len(catalog["streams"]),
         )
 
     @staticmethod
@@ -1284,23 +1238,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return StreamConfigUpdateResult(
             updated_streams=plan.updated_streams,
             unsafe_streams=plan.unsafe_streams,
+            reset_streams=[stream for stream in plan.updated_streams if stream.changed_fields],
             reset_requested=reset_requested,
-            catalog_refreshed=plan.catalog_refreshed,
-            stream_count=plan.stream_count,
         )
 
     def update_stream_configs(
         self,
         overrides: list[StreamConfigOverride],
         *,
-        force_catalog_refresh: bool = False,
         allow_unsafe: bool = False,
         defer_reset: bool = False,
     ) -> StreamConfigUpdateResult:
         """Update one or more stream configurations in a single catalog write."""
         plan = self.plan_stream_config_update(
             overrides,
-            force_catalog_refresh=force_catalog_refresh,
             allow_unsafe=allow_unsafe,
         )
         return self.apply_stream_config_update(

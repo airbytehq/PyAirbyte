@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Unit tests for editing and refreshing Cloud connection catalogs."""
+"""Unit tests for editing Cloud connection catalogs."""
 
 from __future__ import annotations
 
@@ -150,7 +150,6 @@ def test_batch_overrides_write_once_and_preserve_untouched_catalog_data(
     assert "sync_mode" not in saved_catalog["streams"][0]["config"]
     assert "supported_sync_modes" not in saved_catalog["streams"][0]["stream"]
     assert replace_catalog.call_args.kwargs["skip_reset"] is True
-    assert result.stream_count == 3
     assert len(result.updated_streams) == 2
     get_state.assert_called_once()
 
@@ -240,6 +239,34 @@ def test_all_invalid_overrides_are_reported_before_writing(
     assert len(exc_info.value.context["validation_errors"]) == 2
     replace_catalog.assert_not_called()
     get_state.assert_not_called()
+
+
+def test_multiple_missing_streams_list_available_streams_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, replace_catalog, _ = _mock_catalog_api(
+        monkeypatch,
+        _catalog(_stream_entry("users", namespace="public")),
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        _connection().update_stream_configs([
+            StreamConfigOverride(
+                stream_name="missing-one",
+                sync_mode=SyncMode.full_refresh,
+            ),
+            StreamConfigOverride(
+                stream_name="missing-two",
+                sync_mode=SyncMode.full_refresh,
+            ),
+        ])
+
+    message = exc_info.value.get_message()
+    assert "missing-one" in message
+    assert "missing-two" in message
+    assert message.count("Available streams:") == 1
+    assert exc_info.value.context["available_streams"] == ["public.users"]
+    replace_catalog.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -384,168 +411,21 @@ def test_incremental_sync_uses_default_but_not_source_defined_cursor(
     assert saved_config.get("cursorField") == expected_cursor
 
 
-def test_refresh_and_overrides_use_one_refreshed_catalog_write(
+def test_import_raw_catalog_clears_cached_connection_info(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    refreshed_catalog = _catalog(_stream_entry("users", namespace="public"))
-    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
-    replace_catalog = MagicMock(return_value={})
-    get_state = MagicMock(
-        return_value={"stateType": "not_set", "connectionId": _CONNECTION_ID}
-    )
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-    monkeypatch.setattr(api_util, "get_connection_state", get_state)
-
-    result = _connection().update_stream_configs(
-        [
-            StreamConfigOverride(
-                stream_name="users",
-                stream_namespace="public",
-                sync_mode=SyncMode.incremental,
-                cursor_field="updated_at",
-            )
-        ],
-        force_catalog_refresh=True,
-    )
-
-    get_refreshed.assert_called_once()
-    replace_catalog.assert_called_once()
-    assert result.catalog_refreshed is True
-    assert result.stream_count == 1
-
-
-def test_bad_override_after_refresh_does_not_write(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    refreshed_catalog = _catalog(_stream_entry("users", namespace="public"))
-    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
-    replace_catalog = MagicMock(return_value={})
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-
-    with pytest.raises(AirbyteLibInputError, match="not found"):
-        _connection().update_stream_configs(
-            [
-                StreamConfigOverride(
-                    stream_name="missing", sync_mode=SyncMode.full_refresh
-                )
-            ],
-            force_catalog_refresh=True,
-        )
-
-    get_refreshed.assert_called_once()
-    replace_catalog.assert_not_called()
-
-
-def test_refresh_catalog_gets_and_replaces_catalog_with_config_api_root(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Refresh the source catalog and persist the raw result."""
-    refreshed_catalog = _catalog(_stream_entry("users", namespace="public"))
-    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
-    replace_catalog = MagicMock(return_value={})
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-
-    result = _connection().refresh_catalog()
-
-    assert result == refreshed_catalog
-    get_refreshed.assert_called_once_with(
-        connection_id=_CONNECTION_ID,
-        api_root=_API_ROOT,
-        client_id=None,
-        client_secret=None,
-        bearer_token="token",
-        config_api_root=_CONFIG_API_ROOT,
-    )
-    replace_catalog.assert_called_once_with(
-        connection_id=_CONNECTION_ID,
-        configured_catalog_dict=refreshed_catalog,
-        api_root=_API_ROOT,
-        client_id=None,
-        client_secret=None,
-        bearer_token="token",
-        config_api_root=_CONFIG_API_ROOT,
-        skip_reset=True,
-    )
-
-
-def test_refresh_catalog_clears_cached_connection_info(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A refreshed catalog invalidates previously cached connection information."""
+    """Importing a catalog invalidates previously cached connection information."""
     connection = _connection()
     stale_connection_info = MagicMock()
     stale_connection_info.configurations.streams = [MagicMock(name="old-stream")]
     connection._connection_info = stale_connection_info
-    refreshed_catalog = _catalog(_stream_entry("new-stream"))
-    monkeypatch.setattr(
-        api_util,
-        "get_refreshed_connection_catalog",
-        MagicMock(return_value={"syncCatalog": refreshed_catalog}),
-    )
     replace_catalog = MagicMock(return_value={})
     monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
 
-    connection.refresh_catalog()
+    connection.import_raw_catalog(_catalog(_stream_entry("new-stream")))
 
     replace_catalog.assert_called_once()
     assert connection._connection_info is None
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        pytest.param({}, id="missing-sync-catalog"),
-        pytest.param({"syncCatalog": None}, id="null-sync-catalog"),
-        pytest.param({"syncCatalog": {"streams": []}}, id="empty-sync-catalog"),
-    ],
-)
-def test_refresh_catalog_rejects_empty_or_missing_catalog(
-    monkeypatch: pytest.MonkeyPatch,
-    response: dict[str, Any],
-) -> None:
-    """An absent or empty refreshed catalog is never written."""
-    get_refreshed = MagicMock(return_value=response)
-    replace_catalog = MagicMock(return_value={})
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-
-    with pytest.raises(
-        AirbyteLibInputError, match="Refreshed catalog is empty or missing"
-    ):
-        _connection().refresh_catalog()
-
-    replace_catalog.assert_not_called()
-
-
-def test_get_refreshed_connection_catalog_forwards_config_api_root(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Request discovery through the Config API catalog endpoint."""
-    request = MagicMock(return_value={"syncCatalog": {"streams": []}})
-    monkeypatch.setattr(api_util, "_make_config_api_request", request)
-
-    result = api_util.get_refreshed_connection_catalog(
-        connection_id=_CONNECTION_ID,
-        api_root=_API_ROOT,
-        client_id=None,
-        client_secret=None,
-        bearer_token="token",
-        config_api_root=_CONFIG_API_ROOT,
-    )
-
-    assert result == {"syncCatalog": {"streams": []}}
-    request.assert_called_once_with(
-        path="/web_backend/connections/get",
-        json={"connectionId": _CONNECTION_ID, "withRefreshedCatalog": True},
-        api_root=_API_ROOT,
-        config_api_root=_CONFIG_API_ROOT,
-        client_id=None,
-        client_secret=None,
-        bearer_token="token",
-    )
 
 
 def test_replace_connection_catalog_forwards_skip_reset(

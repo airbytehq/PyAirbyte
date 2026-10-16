@@ -3996,7 +3996,6 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     cron_expression: str | None,
     interval_hours: int | None,
     manual_schedule: bool | None,
-    force_catalog_refresh: bool,
     override_stream_configs: list[StreamConfigOverride] | None,
     workspace_id: str | None,
     allow_unsafe: bool,
@@ -4008,15 +4007,13 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
             cron_expression is not None,
             interval_hours is not None,
             manual_schedule is not None,
-            force_catalog_refresh,
             bool(override_stream_configs),
         )
     ):
         raise AirbyteLibInputError(
             message=(
                 "At least one setting must be provided: 'enabled', 'interval_hours', "
-                "'cron_expression', 'manual_schedule', 'force_catalog_refresh', or "
-                "'override_stream_configs'."
+                "'cron_expression', 'manual_schedule', or 'override_stream_configs'."
             ),
         )
 
@@ -4039,7 +4036,6 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         try:
             plan = connection.plan_stream_config_update(
                 override_stream_configs,
-                force_catalog_refresh=force_catalog_refresh,
                 allow_unsafe=allow_unsafe,
             )
         except AirbyteUnsafeStreamConfigChangeError as error:
@@ -4083,8 +4079,6 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
             for stream in result.updated_streams
         ]
         changes_made.append(f"updated stream configs for {updated_names}")
-        if result.catalog_refreshed:
-            changes_made.append(f"refreshed catalog ({result.stream_count} streams)")
 
         if result.unsafe_streams:
             unsafe_names = [
@@ -4092,20 +4086,20 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
                 for stream in result.unsafe_streams
             ]
             if result.reset_requested:
+                reset_names = [
+                    f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
+                    for stream in result.reset_streams
+                ]
                 changes_made.append(
-                    f"unsafe streams {unsafe_names}; the platform will refresh or reset these "
-                    "streams (refresh keeps data if the destination supports it; otherwise a "
-                    "reset clears that stream's destination data)"
+                    f"unsafe streams {unsafe_names}; the platform will refresh or reset changed "
+                    f"streams {reset_names} (refresh keeps data if the destination supports it; "
+                    "otherwise a reset clears that stream's destination data)"
                 )
             else:
                 changes_made.append(
                     f"unsafe streams {unsafe_names}; no reset was run; these streams have stale "
                     "state and need a refresh/reset before their next sync"
                 )
-    elif force_catalog_refresh:
-        refreshed_catalog = connection.refresh_catalog()
-        changes_made.append(f"refreshed catalog ({len(refreshed_catalog['streams'])} streams)")
-
     changes_summary = ", ".join(changes_made)
     return (
         f"Successfully updated connection '{connection_id}': {changes_summary}. "
@@ -4116,7 +4110,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
 @mcp_tool(
     destructive=False,
 )
-def update_cloud_connection(  # noqa: PLR0913
+def update_cloud_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4182,15 +4176,6 @@ def update_cloud_connection(  # noqa: PLR0913
             default=None,
         ),
     ],
-    force_catalog_refresh: Annotated[
-        bool,
-        Field(
-            description=(
-                "If true, re-discover the source schema and replace the connection's catalog "
-                "with the refreshed result (same as 'Refresh source schema' in the UI)."
-            ),
-        ),
-    ] = False,
     override_stream_configs: Annotated[
         list[StreamConfigOverride] | None,
         Field(
@@ -4214,10 +4199,10 @@ def update_cloud_connection(  # noqa: PLR0913
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
 
-    This tool can update the connection status, schedule, source catalog, and per-stream
-    sync configuration. `interval_hours`, `cron_expression`, and `manual_schedule=True`
-    are mutually exclusive. When stream overrides are provided, they are validated before
-    any settings are written and saved in one catalog update.
+    This tool can update the connection status, schedule, and per-stream sync configuration.
+    `interval_hours`, `cron_expression`, and `manual_schedule=True` are mutually exclusive.
+    Stream overrides are validated before any settings are written and saved in one catalog
+    update.
     """
     check_guid_created_in_session(connection_id)
     return _update_cloud_connection_impl(
@@ -4227,7 +4212,6 @@ def update_cloud_connection(  # noqa: PLR0913
         cron_expression=cron_expression,
         interval_hours=interval_hours,
         manual_schedule=manual_schedule,
-        force_catalog_refresh=force_catalog_refresh,
         override_stream_configs=override_stream_configs,
         workspace_id=workspace_id,
         allow_unsafe=False,
@@ -4304,15 +4288,6 @@ def update_cloud_connection_unsafe(  # noqa: PLR0913
             default=None,
         ),
     ],
-    force_catalog_refresh: Annotated[
-        bool,
-        Field(
-            description=(
-                "If true, re-discover the source schema and replace the connection's catalog "
-                "with the refreshed result (same as 'Refresh source schema' in the UI)."
-            ),
-        ),
-    ] = False,
     override_stream_configs: Annotated[
         list[StreamConfigOverride] | None,
         Field(
@@ -4353,7 +4328,6 @@ def update_cloud_connection_unsafe(  # noqa: PLR0913
         cron_expression=cron_expression,
         interval_hours=interval_hours,
         manual_schedule=manual_schedule,
-        force_catalog_refresh=force_catalog_refresh,
         override_stream_configs=override_stream_configs,
         workspace_id=workspace_id,
         allow_unsafe=True,

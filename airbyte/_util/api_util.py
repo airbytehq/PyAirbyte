@@ -3620,42 +3620,6 @@ def replace_connection_state(
         raise
 
 
-def get_refreshed_connection_catalog(
-    connection_id: str,
-    *,
-    api_root: str,
-    client_id: SecretString | None,
-    client_secret: SecretString | None,
-    bearer_token: SecretString | None,
-    config_api_root: str | None = None,
-) -> dict[str, Any]:
-    """Get a refreshed catalog for a connection.
-
-    Uses the Config API endpoint: POST /v1/web_backend/connections/get
-    with `withRefreshedCatalog` enabled.
-
-    Args:
-        connection_id: The connection ID to get a refreshed catalog for.
-        api_root: The API root URL.
-        client_id: OAuth client ID.
-        client_secret: OAuth client secret.
-        bearer_token: Bearer token for authentication (alternative to client credentials).
-        config_api_root: Optional explicit Config API root URL.
-
-    Returns:
-        Dictionary containing the connection info with refreshed syncCatalog.
-    """
-    return _make_config_api_request(
-        path="/web_backend/connections/get",
-        json={"connectionId": connection_id, "withRefreshedCatalog": True},
-        api_root=api_root,
-        config_api_root=config_api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
-
-
 def get_connection_catalog(
     connection_id: str,
     *,

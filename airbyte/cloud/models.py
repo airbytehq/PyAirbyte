@@ -435,9 +435,8 @@ class StreamConfigUpdateResult(BaseModel):
 
     updated_streams: list[StreamConfigChange]
     unsafe_streams: list[StreamConfigChange]
+    reset_streams: list[StreamConfigChange]
     reset_requested: bool
-    catalog_refreshed: bool
-    stream_count: int
 
 
 class CloudConnectionInfo(BaseModel):

@@ -340,29 +340,10 @@ def test_update_interval_api_failure_is_reported(
         asyncio.run(_update(server, interval_hours=24))
 
 
-def test_update_force_catalog_refresh(
-    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A serialized update can refresh the source catalog."""
-    server, _http, _lookup, _patch = schedule_backend
-    refreshed_catalog = {"streams": [{"stream": {"name": "users"}}]}
-    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
-    replace_catalog = MagicMock(return_value={})
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-
-    result = asyncio.run(_update(server, force_catalog_refresh=True))
-
-    get_refreshed.assert_called_once()
-    replace_catalog.assert_called_once()
-    assert "refreshed catalog (1 streams)" in result
-
-
 @pytest.mark.parametrize(
     ("defer_reset", "expected_skip_reset", "message"),
     [
-        (False, False, "the platform will refresh or reset these streams"),
+        (False, False, "the platform will refresh or reset changed streams"),
         (True, True, "these streams have stale state"),
     ],
 )
@@ -391,7 +372,18 @@ def test_unsafe_update_controls_catalog_reset(
                                 "syncMode": "full_refresh",
                                 "destinationSyncMode": "append",
                             },
-                        }
+                        },
+                        {
+                            "stream": {
+                                "name": "orders",
+                                "namespace": "sales",
+                                "supportedSyncModes": ["full_refresh", "incremental"],
+                            },
+                            "config": {
+                                "syncMode": "full_refresh",
+                                "destinationSyncMode": "append",
+                            },
+                        },
                     ]
                 }
             }
@@ -426,7 +418,12 @@ def test_unsafe_update_controls_catalog_reset(
                     "stream_namespace": "public",
                     "sync_mode": "incremental",
                     "cursor_field": "updated_at",
-                }
+                },
+                {
+                    "stream_name": "orders",
+                    "stream_namespace": "sales",
+                    "destination_sync_mode": "overwrite",
+                },
             ],
         )
     )
@@ -437,104 +434,9 @@ def test_unsafe_update_controls_catalog_reset(
     if defer_reset:
         assert "no reset was run" in result
     else:
+        assert "unsafe streams ['public.users']" in result
+        assert "changed streams ['public.users', 'sales.orders']" in result
         assert "otherwise a reset clears that stream's destination data" in result
-
-
-def test_bad_refreshed_override_prevents_schedule_write(
-    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    server, _http, _lookup, patch = schedule_backend
-    get_refreshed = MagicMock(
-        return_value={"syncCatalog": {"streams": [{"stream": {"name": "users"}}]}}
-    )
-    replace_catalog = MagicMock(return_value={})
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-    monkeypatch.setattr(
-        api_util,
-        "get_connection_state",
-        MagicMock(
-            return_value={
-                "stateType": "not_set",
-                "connectionId": "12345678-1234-1234-1234-1234567890ab",
-            }
-        ),
-    )
-
-    with pytest.raises(ToolError, match="not found"):
-        asyncio.run(
-            _update(
-                server,
-                interval_hours=24,
-                force_catalog_refresh=True,
-                override_stream_configs=[
-                    {"stream_name": "missing", "sync_mode": "full_refresh"}
-                ],
-            )
-        )
-
-    get_refreshed.assert_called_once()
-    replace_catalog.assert_not_called()
-    patch.assert_not_called()
-
-
-def test_update_refreshes_and_overrides_in_one_catalog_write(
-    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    server, _http, _lookup, _patch = schedule_backend
-    get_refreshed = MagicMock(
-        return_value={
-            "syncCatalog": {
-                "streams": [
-                    {
-                        "stream": {
-                            "name": "users",
-                            "namespace": "public",
-                            "supportedSyncModes": ["full_refresh", "incremental"],
-                        },
-                        "config": {
-                            "syncMode": "full_refresh",
-                            "destinationSyncMode": "append",
-                        },
-                    }
-                ]
-            }
-        }
-    )
-    replace_catalog = MagicMock(return_value={})
-    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
-    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-    monkeypatch.setattr(
-        api_util,
-        "get_connection_state",
-        MagicMock(
-            return_value={
-                "stateType": "not_set",
-                "connectionId": "12345678-1234-1234-1234-1234567890ab",
-            }
-        ),
-    )
-
-    result = asyncio.run(
-        _update(
-            server,
-            force_catalog_refresh=True,
-            override_stream_configs=[
-                {
-                    "stream_name": "users",
-                    "stream_namespace": "public",
-                    "sync_mode": "incremental",
-                    "cursor_field": "updated_at",
-                }
-            ],
-        )
-    )
-
-    get_refreshed.assert_called_once()
-    replace_catalog.assert_called_once()
-    assert "refreshed catalog (1 streams)" in result
 
 
 @pytest.mark.parametrize(
@@ -571,7 +473,6 @@ def test_unsafe_change_guidance_uses_destructive_policy(
             cron_expression=None,
             interval_hours=None,
             manual_schedule=None,
-            force_catalog_refresh=False,
             override_stream_configs=[
                 StreamConfigOverride(
                     stream_name="users",
