@@ -11,6 +11,7 @@
 __all__: list[str] = []
 
 from collections.abc import Callable
+from datetime import datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, TypeVar, cast
 
@@ -26,6 +27,7 @@ from airbyte._direct_connectors.models import (
     ExternalApiExecuteResult,
     ExternalApiReadOnlyAction,
     ExternalApiWriteAction,
+    ExternalSearchBackfillRequestResult,
     ExternalSearchResult,
     ExternalSearchStatusResult,
     ExternalSearchStreamStatus,
@@ -2004,8 +2006,10 @@ def _search_disabled_errors(
             f"Show the user this message as-is: Search is currently disabled for {label}. {steps}"
         ),
         "Once search is enabled, the connector's synced data must be indexed before "
-        "searches return results. Call `get_cloud_search_status` to check which streams "
-        "are indexed and whether their backfill is complete.",
+        "searches return results. New syncs are indexed as they run; data already in the "
+        "destination is indexed only after `request_cloud_search_index_backfill`. Call "
+        "`get_cloud_search_status` to check which streams are indexed and whether their "
+        "backfill is complete.",
     ]
 
 
@@ -2055,9 +2059,11 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
         Field(
             description=(
                 "Streams to search, as a list of objects or a JSON array string. Each "
-                "object takes `stream_name` plus optional `source_id`, `namespace`, and "
+                "object takes `stream_name`, `source_id`, and optional `namespace` and "
                 "`fields` (the `entity_data` fields to return; an output projection, not "
-                "a match filter). Omit to search every indexed stream."
+                "a match filter). `source_id` is required on a destination search; on a "
+                "source search it may be omitted, and must match the searched source if "
+                "given. Omit `streams` to search every indexed stream."
             ),
             default=None,
         ),
@@ -2073,7 +2079,10 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     max_context_chars: Annotated[
         int | None,
         Field(
-            description="Truncate each hit's `context` to this many characters.",
+            description=(
+                "Truncate each hit's `context` to this many characters. A truncated keyword "
+                "context stays centered on the match."
+            ),
             default=None,
         ),
     ] = None,
@@ -2113,8 +2122,10 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     """Search indexed data for a deployed Cloud source or destination.
 
     A source searches its own indexed data; a destination searches every indexed source
-    synced to it. When results are empty, call `get_cloud_search_status` to check which
-    streams are indexed and whether their backfill is complete.
+    synced to it. On a destination search, every `streams` entry needs the `source_id`
+    of the source that stream belongs to. When results are empty, call
+    `get_cloud_search_status` to check which streams are indexed and whether their
+    backfill is complete.
 
     Keep responses small: use `streams[].fields` to project each hit's `entity_data`
     (an output projection, not a match filter) and `max_context_chars` to truncate
@@ -2122,6 +2133,11 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     `semantic` and `hybrid` searches. Pass `destination_id` for a source synced to
     several enabled destinations; the IDs are listed by `get_cloud_search_status`.
     Per-index failures are reported in `warnings`.
+
+    A keyword-only hit leaves out of `entity_data` any field longer than 4096 characters
+    or split across keyword chunks; its `context` holds the matched text, centered on the
+    first query term. Read a dropped field's full value with `execute_external_api_query`
+    or `execute_external_sql_query`.
     """
     connector = _get_cloud_connector(
         _get_cloud_workspace(ctx, workspace_id), connector_id, connector_type
@@ -2196,6 +2212,13 @@ def get_cloud_search_status(
     with its destination and connection IDs, and each stream's backfill progress and
     search indexes. A stream is searchable once it has at least one index.
 
+    Turning search on indexes only data from new syncs; data already in the destination
+    is indexed only by a backfill requested with `request_cloud_search_index_backfill`. A
+    stream's `backfill` is null when none was requested. Otherwise `backfill.status` is
+    `starting`, `running`, `finalizing`, `complete`, `failed`, or `cancelled`, with
+    `failed_at` or `cancelled_at` set when the run ended that way. A stream whose table is
+    empty completes with 0 records.
+
     `stream_name` and `namespace` filter the report client-side; a filter that matches
     no stream returns a `warnings` entry listing the indexed streams.
     """
@@ -2242,6 +2265,86 @@ def get_cloud_search_status(
         )
         warnings.append(f"No indexed stream matches {filters}. Indexed streams: {shown}.")
     return status.model_copy(update={"sources": sources, "warnings": warnings})
+
+
+@mcp_tool(
+    pipeline_change=False,
+    external_access=True,
+)
+def request_cloud_search_index_backfill(
+    ctx: Context,
+    *,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection whose destination data to index."),
+    ],
+    streams: Annotated[
+        list[str] | str | None,
+        Field(
+            description=(
+                "Distinct names of the connection's streams to backfill, as a list or a "
+                "JSON array string. Omit to backfill every stream selected in the connection."
+            ),
+            default=None,
+        ),
+        TraceArg.HASH,
+    ] = None,
+    backfill_start_time: Annotated[
+        str | None,
+        Field(
+            description=(
+                "An ISO 8601 timestamp with a timezone, for example "
+                "`2026-01-01T00:00:00Z`. Only rows whose cursor field (a top-level "
+                "timestamp or date) is at or after it are backfilled; streams without such "
+                "a cursor are backfilled in full. Omit to backfill the whole history."
+            ),
+            default=None,
+        ),
+        TraceArg.VALUE,
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ] = None,
+) -> ExternalSearchBackfillRequestResult:
+    """Request a search backfill that indexes data already in a connection's destination.
+
+    Turning search on for a connection does not backfill: it indexes only data written by
+    syncs that run afterwards. Data already in the destination is searchable only after a
+    backfill, which reads it from the destination's tables. Only Snowflake (username and
+    password, or key pair auth) and BigQuery (service account key) destinations support
+    backfill. The connection must have search indexing enabled.
+
+    Each stream gets one run. A stream whose current run is still queued or running keeps
+    it and comes back as `running`, so retrying is safe; a finished stream starts a new
+    run. Without `streams`, the result has one entry with an empty `stream_name` that
+    stands for every stream.
+
+    Track progress with `get_cloud_search_status` on the connection's source or
+    destination: each stream's `backfill.status` moves from `starting` through `running`
+    and `finalizing` to `complete`, `failed`, or `cancelled`. A stream whose table exists
+    but is empty completes with 0 records. A run fails when, for example, the destination
+    is unsupported, its table does not exist, or its credentials cannot read it.
+    """
+    try:
+        start_time = (
+            None if backfill_start_time is None else datetime.fromisoformat(backfill_start_time)
+        )
+    except ValueError:
+        raise AirbyteLibInputError(
+            message="`backfill_start_time` is not an ISO 8601 timestamp.",
+            guidance="Use a timestamp with a timezone, for example `2026-01-01T00:00:00Z`.",
+            input_value=backfill_start_time,
+        ) from None
+    connection = _get_cloud_workspace(ctx, workspace_id).get_connection(connection_id)
+    return connection.request_search_index_backfill(
+        streams=resolve_list_of_strings(streams),
+        backfill_start_time=start_time,
+    )
 
 
 @mcp_tool(
