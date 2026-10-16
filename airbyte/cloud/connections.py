@@ -7,6 +7,8 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from airbyte_protocol.models import DestinationSyncMode, SyncMode
+
 from airbyte._util import api_util
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
@@ -933,6 +935,136 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         self.import_raw_catalog(refreshed_catalog)
         return refreshed_catalog
+
+    def set_stream_sync_mode(
+        self,
+        stream_name: str,
+        *,
+        sync_mode: SyncMode,
+        stream_namespace: str | None = None,
+        destination_sync_mode: DestinationSyncMode | None = None,
+        cursor_field: str | None = None,
+    ) -> None:
+        """Set the sync mode for one stream on this connection.
+
+        Only the requested stream's config is changed. A `cursor_field` can also
+        be set with `full_refresh` to pre-configure it for a later incremental sync.
+
+        Args:
+            stream_name: The name of the stream to modify.
+            sync_mode: The source sync mode to set.
+            stream_namespace: The namespace to select when stream names are ambiguous.
+            destination_sync_mode: The destination sync mode to set, if any.
+            cursor_field: The cursor field to set. Required for incremental mode if the
+                stream has no existing cursor, default cursor, or source-defined cursor.
+
+        Raises:
+            AirbyteLibInputError: If the catalog or stream is missing, the stream name is
+                ambiguous, the sync mode is unsupported, or incremental mode has no cursor.
+        """
+        catalog = self.dump_raw_catalog(normalize=False)
+        if (
+            not isinstance(catalog, dict)
+            or not isinstance(catalog.get("streams"), list)
+            or not catalog["streams"]
+        ):
+            raise AirbyteLibInputError(
+                message="Connection catalog is empty or missing.",
+                context={"connection_id": self.connection_id},
+            )
+
+        matching_entries: list[dict[str, Any]] = []
+        for entry in catalog["streams"]:
+            stream_def = entry.get("stream", {})
+            if stream_def.get("name") != stream_name:
+                continue
+            if stream_namespace is not None and stream_def.get("namespace") != stream_namespace:
+                continue
+            matching_entries.append(entry)
+
+        if not matching_entries:
+            available_streams = []
+            for entry in catalog["streams"]:
+                stream_def = entry.get("stream", {})
+                name = stream_def.get("name")
+                namespace = stream_def.get("namespace")
+                available_streams.append(f"{namespace}.{name}" if namespace else name)
+            raise AirbyteLibInputError(
+                message=f"Stream '{stream_name}' not found in connection catalog.",
+                guidance="Use a stream name from `available_streams`.",
+                context={
+                    "connection_id": self.connection_id,
+                    "stream_name": stream_name,
+                    "stream_namespace": stream_namespace,
+                    "available_streams": available_streams,
+                },
+            )
+
+        if len(matching_entries) > 1:
+            matching_namespaces = [
+                entry.get("stream", {}).get("namespace") for entry in matching_entries
+            ]
+            raise AirbyteLibInputError(
+                message=f"Stream name '{stream_name}' is ambiguous.",
+                guidance="Specify `stream_namespace` to select one of the matching streams.",
+                context={
+                    "connection_id": self.connection_id,
+                    "stream_name": stream_name,
+                    "matching_namespaces": matching_namespaces,
+                },
+            )
+
+        target_entry = matching_entries[0]
+        stream_def = target_entry.get("stream", {})
+        supported_sync_modes: list[str] = stream_def.get("supportedSyncModes", [])
+        if sync_mode.value not in supported_sync_modes:
+            raise AirbyteLibInputError(
+                message=(
+                    f"Sync mode '{sync_mode.value}' is not supported by stream '{stream_name}'."
+                ),
+                guidance="Choose a mode listed in `supported_sync_modes`.",
+                context={
+                    "connection_id": self.connection_id,
+                    "stream_name": stream_name,
+                    "stream_namespace": stream_namespace,
+                    "requested_sync_mode": sync_mode.value,
+                    "supported_sync_modes": supported_sync_modes,
+                },
+            )
+
+        config = target_entry.get("config") or {}
+        if sync_mode is SyncMode.incremental:
+            existing_cursor = config.get("cursorField")
+            source_defined_cursor = bool(stream_def.get("sourceDefinedCursor"))
+            default_cursor_field = stream_def.get("defaultCursorField")
+            if cursor_field is None and not existing_cursor and not source_defined_cursor:
+                if default_cursor_field:
+                    config["cursorField"] = list(default_cursor_field)
+                else:
+                    raise AirbyteLibInputError(
+                        message=(
+                            f"Stream '{stream_name}' needs a cursor field before switching "
+                            "to incremental sync mode."
+                        ),
+                        guidance=(
+                            "Provide `cursor_field` or use a stream with a default or "
+                            "source-defined cursor."
+                        ),
+                        context={
+                            "connection_id": self.connection_id,
+                            "stream_name": stream_name,
+                            "stream_namespace": stream_namespace,
+                        },
+                    )
+
+        config["syncMode"] = sync_mode.value
+        if destination_sync_mode is not None:
+            config["destinationSyncMode"] = destination_sync_mode.value
+        if cursor_field is not None:
+            config["cursorField"] = [cursor_field]
+        target_entry["config"] = config
+
+        self.import_raw_catalog(catalog)
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.

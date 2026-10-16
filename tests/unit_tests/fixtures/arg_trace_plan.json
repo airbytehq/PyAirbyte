@@ -304,6 +304,15 @@
     "stream_names": "fingerprint list",
     "workspace_id": "omit"
   },
+  "set_cloud_connection_stream_sync_mode": {
+    "connection_id": "hash",
+    "cursor_field": "fingerprint",
+    "destination_sync_mode": "value allowed=[\"append\",\"append_dedup\",\"overwrite\",\"soft_delete\",\"update\"]",
+    "stream_name": "fingerprint",
+    "stream_namespace": "hash",
+    "sync_mode": "value allowed=[\"full_refresh\",\"incremental\"]",
+    "workspace_id": "omit"
+  },
   "set_cloud_connection_table_prefix": {
     "connection_id": "hash",
     "prefix": "fingerprint",
