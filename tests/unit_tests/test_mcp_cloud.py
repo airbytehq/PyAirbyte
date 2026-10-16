@@ -1068,6 +1068,43 @@ def test_get_cloud_sync_status_surfaces_library_errors(
         get_attempts.assert_called_once_with()
 
 
+def test_get_cloud_sync_logs_without_jobs_explains_no_syncs_yet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection with no sync history gets an actionable message, not 'not found'."""
+    connection = SimpleNamespace(
+        get_sync_result=MagicMock(return_value=None),
+    )
+    _patch_sync_status_workspace(monkeypatch, connection)
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        cloud_mcp.get_cloud_sync_logs(
+            cast(Context, object()),
+            connection_id="connection-1",
+            job_id=None,
+            workspace_id=None,
+            max_lines=100,
+            from_tail=None,
+            line_offset=None,
+        )
+
+    assert "Connection 'connection-1' has no sync jobs yet." in str(exc_info.value)
+    assert "run_cloud_sync" in (exc_info.value.guidance or "")
+
+    with pytest.raises(AirbyteMissingResourceError) as explicit_exc_info:
+        cloud_mcp.get_cloud_sync_logs(
+            cast(Context, object()),
+            connection_id="connection-1",
+            job_id=42,
+            workspace_id=None,
+            max_lines=100,
+            from_tail=None,
+            line_offset=None,
+        )
+
+    assert "does not exist" in str(explicit_exc_info.value)
+
+
 def test_set_cloud_connection_selected_streams_surfaces_library_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
