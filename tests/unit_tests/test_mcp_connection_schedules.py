@@ -319,3 +319,22 @@ def test_update_interval_api_failure_is_reported(
 
     with pytest.raises(ToolError, match="HTTP 400"):
         asyncio.run(_update(server, interval_hours=24))
+
+
+def test_update_force_catalog_refresh(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A serialized update can refresh the source catalog."""
+    server, _http, _lookup, _patch = schedule_backend
+    refreshed_catalog = {"streams": [{"stream": {"name": "users"}}]}
+    get_refreshed = MagicMock(return_value={"syncCatalog": refreshed_catalog})
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "get_refreshed_connection_catalog", get_refreshed)
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+
+    result = asyncio.run(_update(server, force_catalog_refresh=True))
+
+    get_refreshed.assert_called_once()
+    replace_catalog.assert_called_once()
+    assert "refreshed catalog (1 streams)" in result

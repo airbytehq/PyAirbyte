@@ -902,6 +902,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
         )
+        self._connection_info = None
 
     def refresh_catalog(self) -> dict[str, Any]:
         """Refresh the connection's catalog by re-discovering the source schema.
