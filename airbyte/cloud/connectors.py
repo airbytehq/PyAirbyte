@@ -710,7 +710,7 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     @property
     def _direct_access_enablement_url(self) -> str:
         """Get the web URL where the user can enable direct access for this connector."""
-        return self.connector_url
+        return f"{self.connector_url}/enable-direct-access?skip-consent-screen=false"
 
     def _execute_direct_action(  # noqa: PLR0913  # Explicit args mirror the public methods.
         self,
@@ -1582,12 +1582,12 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
     def permanently_delete(
         self,
         *,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Permanently delete this custom source definition.
 
         Args:
-            safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the connector name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if self.definition_type == "yaml":
@@ -1598,7 +1598,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
-                safe_mode=safe_mode,
+                delete_guard=delete_guard,
             )
         else:
             raise NotImplementedError(
@@ -1698,7 +1698,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             assert builder_project_id is not None
             builder_project = project["builderProject"]
             draft_manifest = (
-                _unwrap_builder_manifest(project["declarativeManifest"]["manifest"])
+                project["declarativeManifest"]["manifest"]
                 if builder_project.get("hasDraft")
                 else None
             )
