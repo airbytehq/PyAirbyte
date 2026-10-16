@@ -18,7 +18,11 @@ import yaml
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
+from airbyte._registry_utils import (
+    fetch_registry_version_date,
+    parse_changelog_html,
+    registry_entry_commit_date,
+)
 from airbyte._util.compat import StrEnum
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
@@ -224,7 +228,7 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
         release_stage=entry.get("releaseStage"),
         source_type=entry.get("sourceType"),
         documentation_url=entry.get("documentationUrl"),
-        release_date=entry.get("releaseDate"),
+        release_date=entry.get("releaseDate") or registry_entry_commit_date(entry),
         github_issue_label=entry.get("githubIssueLabel"),
     )
 
