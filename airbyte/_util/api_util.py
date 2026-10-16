@@ -3582,10 +3582,10 @@ def replace_connection_state(
     perform per-stream deduplication or merging on the backend. Callers that need
     to update a single stream must first fetch the current state, merge the desired
     stream change into the full state object, and then send the complete state back.
-    See ``CloudConnection.set_stream_state()`` for this fetch-modify-push pattern.
+    See `CloudConnection.set_stream_state()` for this fetch-modify-push pattern.
 
-    The provided ``connection_id`` is injected into both the outer request
-    wrapper and the inner ``connection_state`` payload to ensure consistency.
+    The provided `connection_id` is injected into both the outer request
+    wrapper and the inner `connection_state` payload to ensure consistency.
 
     Args:
         connection_id: The connection ID to update state for.
@@ -3685,7 +3685,7 @@ def replace_connection_catalog(
 
     Args:
         connection_id: The connection ID to update catalog for.
-        configured_catalog_dict: The configured catalog dict (``{"streams": [...]}``) to set.
+        configured_catalog_dict: The configured catalog dict (`{"streams": [...]}`) to set.
         api_root: The API root URL.
         client_id: OAuth client ID.
         client_secret: OAuth client secret.

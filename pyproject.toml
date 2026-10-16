@@ -171,7 +171,8 @@ coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 coverage-reset = { shell = "coverage erase" }
 
-check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
+check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq && ./scripts/check_docstring_markdown.uv" }
+lint-docstrings = { cmd = "./scripts/check_docstring_markdown.uv", help = "Fail on reStructuredText syntax in docstrings (pdoc renders Markdown)." }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
