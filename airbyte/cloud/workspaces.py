@@ -927,6 +927,7 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
+            workspace_id=self.workspace_id,
             safe_mode=safe_mode,
         )
 
@@ -971,6 +972,7 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
+            workspace_id=self.workspace_id,
             safe_mode=safe_mode,
         )
 
