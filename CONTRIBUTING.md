@@ -9,6 +9,7 @@ Use **Markdown** formatting in all docstrings — not reStructuredText (reST).
 - Use single backticks for inline code: `` `MyClass` ``, not double backticks (` ``MyClass`` `).
 - Reference methods as `` `get_column_info()` ``, not `:meth:\`get_column_info\``.
 - Use standard Markdown for emphasis, lists, and links.
+- The `Python Docstring Format Check` CI job validates this style; run `poe lint-docstrings` locally or invoke the standalone `./scripts/check_docstring_markdown.uv` script with only uv installed.
 
 ## MCP Tools Are a Presentation Layer
 
