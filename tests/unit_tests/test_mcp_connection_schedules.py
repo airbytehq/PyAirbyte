@@ -17,14 +17,20 @@ from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
 from airbyte._util import api_util
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.models import StreamConfigOverride
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
 )
-from airbyte.exceptions import AirbyteLibInputError
+from airbyte.exceptions import (
+    AirbyteLibInputError,
+    AirbyteUnsafeStreamConfigChangeError,
+)
 from airbyte.mcp import _tool_utils
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte_protocol.models import SyncMode
 
 
 def _connection_response() -> models.ConnectionResponse:
@@ -102,6 +108,15 @@ async def _update(server: FastMCP, **arguments: object) -> str:
     return str(result)
 
 
+async def _unsafe_update(server: FastMCP, **arguments: object) -> str:
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "update_cloud_connection_unsafe",
+            {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments},
+        )
+    return str(result)
+
+
 def test_interval_schema() -> None:
     """Advertise an optional positive whole-hour interval for the update tool."""
     server = FastMCP("schedule-schema-tests")
@@ -119,8 +134,12 @@ def test_interval_schema() -> None:
         assert interval["default"] is None
         assert "interval_hours" not in update.input_schema.get("required", [])
         assert update.annotations is not None
-        assert update.annotations.destructive_hint is True
+        assert update.annotations.destructive_hint is False
         assert update.annotations.read_only_hint is False
+        unsafe = tools["update_cloud_connection_unsafe"]
+        assert unsafe.annotations is not None
+        assert unsafe.annotations.destructive_hint is True
+        assert "set_cloud_connection_stream_sync_mode" not in tools
 
     asyncio.run(inspect_tools())
 
@@ -319,3 +338,148 @@ def test_update_interval_api_failure_is_reported(
 
     with pytest.raises(ToolError, match="HTTP 400"):
         asyncio.run(_update(server, interval_hours=24))
+
+
+def test_unsafe_update_always_requests_catalog_reset(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, _http, _lookup, _patch = schedule_backend
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_catalog",
+        MagicMock(
+            return_value={
+                "syncCatalog": {
+                    "streams": [
+                        {
+                            "stream": {
+                                "name": "users",
+                                "namespace": "public",
+                                "jsonSchema": {"type": "object"},
+                                "supportedSyncModes": ["full_refresh", "incremental"],
+                            },
+                            "config": {
+                                "syncMode": "full_refresh",
+                                "destinationSyncMode": "append",
+                            },
+                        },
+                        {
+                            "stream": {
+                                "name": "orders",
+                                "namespace": "sales",
+                                "jsonSchema": {"type": "object"},
+                                "supportedSyncModes": ["full_refresh", "incremental"],
+                            },
+                            "config": {
+                                "syncMode": "full_refresh",
+                                "destinationSyncMode": "append",
+                            },
+                        },
+                    ]
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_state",
+        MagicMock(
+            return_value={
+                "stateType": "stream",
+                "connectionId": "12345678-1234-1234-1234-1234567890ab",
+                "streamState": [
+                    {
+                        "streamDescriptor": {"name": "users", "namespace": "public"},
+                        "streamState": {"cursor": "saved"},
+                    }
+                ],
+            }
+        ),
+    )
+    replace_catalog = MagicMock(return_value={})
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+
+    result = asyncio.run(
+        _unsafe_update(
+            server,
+            override_stream_configs=[
+                {
+                    "stream_name": "users",
+                    "stream_namespace": "public",
+                    "sync_mode": "incremental",
+                    "cursor_field": "updated_at",
+                },
+                {
+                    "stream_name": "orders",
+                    "stream_namespace": "sales",
+                    "destination_sync_mode": "overwrite",
+                },
+            ],
+        )
+    )
+
+    assert replace_catalog.call_args.kwargs["skip_reset"] is False
+    assert "users" in result
+    assert "the platform will refresh or reset changed streams" in result
+    assert "unsafe streams ['public.users']" in result
+    assert "changed streams ['public.users', 'sales.orders']" in result
+    assert "otherwise a reset clears that stream's destination data" in result
+
+
+@pytest.mark.parametrize(
+    ("allowed", "expected_guidance"),
+    [
+        (False, "Airbyte UI"),
+        (True, "update_cloud_connection_unsafe"),
+        (None, "update_cloud_connection_unsafe"),
+    ],
+)
+def test_unsafe_change_guidance_uses_destructive_policy(
+    schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    allowed: bool | None,
+    expected_guidance: str,
+) -> None:
+    set_enabled = MagicMock()
+    set_schedule = MagicMock()
+    replace_catalog = MagicMock()
+    monkeypatch.setattr(
+        CloudConnection,
+        "update_stream_configs",
+        MagicMock(
+            side_effect=AirbyteUnsafeStreamConfigChangeError(
+                message="unsafe",
+                context={"unsafe_streams": [{"name": "users"}]},
+            )
+        ),
+    )
+    monkeypatch.setattr(CloudConnection, "set_enabled", set_enabled)
+    monkeypatch.setattr(CloudConnection, "set_schedule", set_schedule)
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+    monkeypatch.setattr(cloud_mcp, "destructive_tools_allowed", lambda _ctx: allowed)
+
+    with pytest.raises(AirbyteUnsafeStreamConfigChangeError) as exc_info:
+        cloud_mcp.update_cloud_connection(
+            ctx=None,
+            connection_id="12345678-1234-1234-1234-1234567890ab",
+            enabled=True,
+            cron_expression=None,
+            interval_hours=24,
+            manual_schedule=None,
+            override_stream_configs=[
+                StreamConfigOverride(
+                    stream_name="users",
+                    sync_mode=SyncMode.incremental,
+                    cursor_field="updated_at",
+                )
+            ],
+            workspace_id=None,
+        )
+
+    assert expected_guidance in (exc_info.value.guidance or "")
+    if allowed is False:
+        assert "Connection URL:" in (exc_info.value.guidance or "")
+    set_enabled.assert_not_called()
+    set_schedule.assert_not_called()
+    replace_catalog.assert_not_called()
