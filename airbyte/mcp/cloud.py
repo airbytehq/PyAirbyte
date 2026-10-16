@@ -33,6 +33,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
+from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CheckResult,
     CloudConnector,
@@ -51,7 +52,9 @@ from airbyte.cloud.models import (
     ConnectorType,
     JobTypeEnum,
     OrganizationFeature,
+    StreamConfigChange,
     StreamConfigOverride,
+    StreamConfigUpdateResult,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -3988,19 +3991,14 @@ def set_cloud_connection_selected_streams(
     )
 
 
-def _update_cloud_connection_impl(  # noqa: PLR0913
-    ctx: Context,
-    connection_id: str,
+def _validate_update_connection_args(
     *,
     enabled: bool | None,
     cron_expression: str | None,
     interval_hours: int | None,
     manual_schedule: bool | None,
     override_stream_configs: list[StreamConfigOverride] | None,
-    workspace_id: str | None,
-    allow_unsafe: bool,
-    defer_reset: bool,
-) -> str:
+) -> None:
     if not any(
         (
             enabled is not None,
@@ -4028,78 +4026,137 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     if interval_hours is not None:
         api_util.validate_interval_hours(interval_hours)
 
+
+def _apply_stream_config_overrides(
+    ctx: Context,
+    connection: CloudConnection,
+    overrides: list[StreamConfigOverride] | None,
+    *,
+    allow_unsafe: bool,
+    defer_reset: bool,
+) -> StreamConfigUpdateResult | None:
+    if not overrides:
+        return None
+
+    try:
+        return connection.update_stream_configs(
+            overrides,
+            allow_unsafe=allow_unsafe,
+            defer_reset=defer_reset,
+        )
+    except AirbyteUnsafeStreamConfigChangeError as error:
+        guidance = (
+            "Ask the user to make this change in the Airbyte UI. "
+            f"Connection URL: {connection.connection_url}"
+            if destructive_tools_allowed(ctx) is False
+            else "Retry with `update_cloud_connection_unsafe`."
+        )
+        raise AirbyteUnsafeStreamConfigChangeError(
+            message=error.get_message(),
+            context=error.context,
+            guidance=guidance,
+        ) from error
+
+
+def _set_connection_schedule(
+    connection: CloudConnection,
+    *,
+    cron_expression: str | None,
+    interval_hours: int | None,
+    manual_schedule: bool | None,
+) -> str | None:
+    if cron_expression is not None:
+        connection.set_schedule(cron_expression=cron_expression)
+        return f"schedule set to '{cron_expression}'"
+    if interval_hours is not None:
+        connection.set_schedule(interval_hours=interval_hours)
+        return f"schedule set to 'every {interval_hours} hours'"
+    if manual_schedule is True:
+        connection.set_manual_schedule()
+        return "schedule set to 'manual'"
+    return None
+
+
+def _stream_label(stream: StreamConfigChange) -> str:
+    return f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
+
+
+def _describe_stream_config_result(result: StreamConfigUpdateResult) -> list[str]:
+    updated_names = [_stream_label(stream) for stream in result.updated_streams]
+    changes = [f"updated stream configs for {updated_names}"]
+    if not result.unsafe_streams:
+        return changes
+
+    unsafe_names = [_stream_label(stream) for stream in result.unsafe_streams]
+    if result.reset_requested:
+        reset_names = [_stream_label(stream) for stream in result.reset_streams]
+        changes.append(
+            f"unsafe streams {unsafe_names}; the platform will refresh or reset changed "
+            f"streams {reset_names} (refresh keeps data if the destination supports it; "
+            "otherwise a reset clears that stream's destination data)"
+        )
+    else:
+        changes.append(
+            f"unsafe streams {unsafe_names}; no reset was run; these streams have stale "
+            "state and need a refresh/reset before their next sync"
+        )
+    return changes
+
+
+def _update_cloud_connection_impl(  # noqa: PLR0913
+    ctx: Context,
+    connection_id: str,
+    *,
+    enabled: bool | None,
+    cron_expression: str | None,
+    interval_hours: int | None,
+    manual_schedule: bool | None,
+    override_stream_configs: list[StreamConfigOverride] | None,
+    workspace_id: str | None,
+    allow_unsafe: bool,
+    defer_reset: bool,
+) -> str:
+    _validate_update_connection_args(
+        enabled=enabled,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+        override_stream_configs=override_stream_configs,
+    )
+
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    plan = None
-    if override_stream_configs:
-        try:
-            plan = connection.plan_stream_config_update(
-                override_stream_configs,
-                allow_unsafe=allow_unsafe,
-            )
-        except AirbyteUnsafeStreamConfigChangeError as error:
-            guidance = (
-                "Ask the user to make this change in the Airbyte UI. "
-                f"Connection URL: {connection.connection_url}"
-                if destructive_tools_allowed(ctx) is False
-                else "Retry with `update_cloud_connection_unsafe`."
-            )
-            raise AirbyteUnsafeStreamConfigChangeError(
-                message=error.get_message(),
-                context=error.context,
-                guidance=guidance,
-            ) from error
-
-    changes_made: list[str] = []
+    stream_config_result = _apply_stream_config_overrides(
+        ctx,
+        connection,
+        override_stream_configs,
+        allow_unsafe=allow_unsafe,
+        defer_reset=defer_reset,
+    )
 
     if enabled is not None:
         connection.set_enabled(enabled=enabled)
         status_str = "enabled" if enabled else "disabled"
-        changes_made.append(f"status set to '{status_str}'")
+        status_summary = f"status set to '{status_str}'"
+    else:
+        status_summary = None
 
-    if cron_expression is not None:
-        connection.set_schedule(cron_expression=cron_expression)
-        changes_made.append(f"schedule set to '{cron_expression}'")
-    elif interval_hours is not None:
-        connection.set_schedule(interval_hours=interval_hours)
-        changes_made.append(f"schedule set to 'every {interval_hours} hours'")
-    elif manual_schedule is True:
-        connection.set_manual_schedule()
-        changes_made.append("schedule set to 'manual'")
+    schedule_summary = _set_connection_schedule(
+        connection,
+        cron_expression=cron_expression,
+        interval_hours=interval_hours,
+        manual_schedule=manual_schedule,
+    )
 
-    if plan is not None:
-        result = connection.apply_stream_config_update(
-            plan,
-            allow_unsafe=allow_unsafe,
-            defer_reset=defer_reset,
-        )
-        updated_names = [
-            f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
-            for stream in result.updated_streams
-        ]
-        changes_made.append(f"updated stream configs for {updated_names}")
+    changes_made = (
+        _describe_stream_config_result(stream_config_result) if stream_config_result else []
+    )
+    if status_summary is not None:
+        changes_made.append(status_summary)
+    if schedule_summary is not None:
+        changes_made.append(schedule_summary)
 
-        if result.unsafe_streams:
-            unsafe_names = [
-                f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
-                for stream in result.unsafe_streams
-            ]
-            if result.reset_requested:
-                reset_names = [
-                    f"{stream.namespace}.{stream.name}" if stream.namespace else stream.name
-                    for stream in result.reset_streams
-                ]
-                changes_made.append(
-                    f"unsafe streams {unsafe_names}; the platform will refresh or reset changed "
-                    f"streams {reset_names} (refresh keeps data if the destination supports it; "
-                    "otherwise a reset clears that stream's destination data)"
-                )
-            else:
-                changes_made.append(
-                    f"unsafe streams {unsafe_names}; no reset was run; these streams have stale "
-                    "state and need a refresh/reset before their next sync"
-                )
     changes_summary = ", ".join(changes_made)
     return (
         f"Successfully updated connection '{connection_id}': {changes_summary}. "
@@ -4180,7 +4237,8 @@ def update_cloud_connection(
         list[StreamConfigOverride] | None,
         Field(
             description=(
-                "Update one or more streams' sync mode, destination sync mode, or cursor field. "
+                "Update one or more streams' sync mode, destination sync mode, or top-level "
+                "cursor field. "
                 "Unsafe changes to streams with saved state must be run with "
                 "`update_cloud_connection_unsafe`."
             ),
@@ -4291,7 +4349,10 @@ def update_cloud_connection_unsafe(  # noqa: PLR0913
     override_stream_configs: Annotated[
         list[StreamConfigOverride] | None,
         Field(
-            description="Update one or more streams' sync configuration, including unsafe changes.",
+            description=(
+                "Update one or more streams' sync configuration, including a top-level cursor "
+                "field and unsafe changes."
+            ),
             default=None,
         ),
         TraceArg.FINGERPRINT,

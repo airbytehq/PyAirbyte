@@ -399,7 +399,8 @@ class StreamConfigOverride(BaseModel):
     """The stream name to update."""
 
     stream_namespace: str | None = None
-    """The namespace to match, or `None` to match the name in any namespace."""
+    """The namespace to match; `None` matches any namespace and `""` matches
+    unnamespaced streams."""
 
     sync_mode: SyncMode | None = None
     """The source sync mode to set, or `None` to keep the current mode."""
@@ -407,8 +408,8 @@ class StreamConfigOverride(BaseModel):
     destination_sync_mode: DestinationSyncMode | None = None
     """The destination sync mode to set, or `None` to keep the current mode."""
 
-    cursor_field: str | list[str] | None = None
-    """The cursor field path to set, or `None` to keep the current cursor."""
+    cursor_field: str | None = None
+    """The top-level cursor field name to set, or `None` to keep the current cursor."""
 
     @model_validator(mode="after")
     def require_setting(self) -> StreamConfigOverride:

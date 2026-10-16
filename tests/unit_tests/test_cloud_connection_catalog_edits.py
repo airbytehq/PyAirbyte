@@ -154,7 +154,7 @@ def test_batch_overrides_write_once_and_preserve_untouched_catalog_data(
     get_state.assert_called_once()
 
 
-def test_namespace_selects_same_named_stream_and_cursor_paths_are_preserved(
+def test_namespace_selects_same_named_stream_and_sets_top_level_cursor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     public = _stream_entry("users", namespace="public")
@@ -165,13 +165,44 @@ def test_namespace_selects_same_named_stream_and_cursor_paths_are_preserved(
         StreamConfigOverride(
             stream_name="users",
             stream_namespace="sales",
-            cursor_field=["nested", "updated_at"],
+            cursor_field="updated_at",
         )
     ])
 
     saved = replace_catalog.call_args.kwargs["configured_catalog_dict"]["streams"]
     assert saved[0]["config"].get("cursorField") is None
-    assert saved[1]["config"]["cursorField"] == ["nested", "updated_at"]
+    assert saved[1]["config"]["cursorField"] == ["updated_at"]
+
+
+def test_empty_namespace_selects_unnamespaced_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unnamespaced = _stream_entry("users")
+    public = _stream_entry("users", namespace="public")
+    _, replace_catalog, _ = _mock_catalog_api(
+        monkeypatch,
+        _catalog(unnamespaced, public),
+    )
+
+    _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            stream_namespace="",
+            destination_sync_mode=DestinationSyncMode.overwrite,
+        )
+    ])
+
+    saved = replace_catalog.call_args.kwargs["configured_catalog_dict"]["streams"]
+    assert saved[0]["config"]["destinationSyncMode"] == "overwrite"
+    assert saved[1]["config"]["destinationSyncMode"] == "append"
+
+
+def test_cursor_override_rejects_nested_paths() -> None:
+    with pytest.raises(ValidationError):
+        StreamConfigOverride(
+            stream_name="users",
+            cursor_field=["nested", "updated_at"],
+        )
 
 
 def test_ambiguous_bare_name_is_rejected_without_write(
@@ -212,6 +243,30 @@ def test_duplicate_catalog_stream_is_rejected(
 def test_stream_override_requires_at_least_one_setting() -> None:
     with pytest.raises(ValidationError, match="At least one"):
         StreamConfigOverride(stream_name="users")
+
+
+def test_dedup_destination_mode_requires_a_primary_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _stream_entry(
+        "users",
+        config={
+            "syncMode": "full_refresh",
+            "destinationSyncMode": "append",
+            "primaryKey": [],
+        },
+    )
+    _, replace_catalog, _ = _mock_catalog_api(monkeypatch, _catalog(entry))
+
+    with pytest.raises(AirbyteLibInputError, match="requires a primary key"):
+        _connection().update_stream_configs([
+            StreamConfigOverride(
+                stream_name="users",
+                destination_sync_mode=DestinationSyncMode.append_dedup,
+            )
+        ])
+
+    replace_catalog.assert_not_called()
 
 
 def test_all_invalid_overrides_are_reported_before_writing(
@@ -318,6 +373,7 @@ def test_saved_state_rejects_unsafe_config_changes(
     assert unsafe[0]["name"] == "users"
     assert unsafe[0]["namespace"] == "public"
     assert unsafe[0]["changed_fields"] == ["syncMode", "cursorField"]
+    assert "public.users (syncMode, cursorField)" in exc_info.value.get_message()
     replace_catalog.assert_not_called()
 
 
@@ -368,12 +424,77 @@ def test_no_state_lookup_when_override_does_not_change_config(
         _catalog(_stream_entry("users")),
     )
 
-    _connection().update_stream_configs([
+    result = _connection().update_stream_configs([
         StreamConfigOverride(stream_name="users", sync_mode=SyncMode.full_refresh)
     ])
 
     get_state.assert_not_called()
     replace_catalog.assert_called_once()
+    assert result.reset_streams == []
+
+
+def test_changed_stream_without_state_is_safe_and_does_not_request_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, replace_catalog, get_state = _mock_catalog_api(
+        monkeypatch,
+        _catalog(_stream_entry("users")),
+    )
+
+    result = _connection().update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            destination_sync_mode=DestinationSyncMode.overwrite,
+        )
+    ])
+
+    get_state.assert_called_once()
+    assert replace_catalog.call_args.kwargs["skip_reset"] is True
+    assert result.unsafe_streams == []
+    assert result.reset_requested is False
+    assert result.reset_streams == []
+
+
+def test_deferred_unsafe_update_does_not_report_reset_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, replace_catalog, _ = _mock_catalog_api(
+        monkeypatch,
+        _catalog(_stream_entry("users", namespace="public")),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_connection_state",
+        MagicMock(
+            return_value={
+                "stateType": "stream",
+                "connectionId": _CONNECTION_ID,
+                "streamState": [
+                    {
+                        "streamDescriptor": {"name": "users", "namespace": "public"},
+                        "streamState": {"cursor": "saved"},
+                    }
+                ],
+            }
+        ),
+    )
+
+    result = _connection().update_stream_configs(
+        [
+            StreamConfigOverride(
+                stream_name="users",
+                stream_namespace="public",
+                sync_mode=SyncMode.incremental,
+                cursor_field="updated_at",
+            )
+        ],
+        allow_unsafe=True,
+        defer_reset=True,
+    )
+
+    assert replace_catalog.call_args.kwargs["skip_reset"] is True
+    assert result.reset_requested is False
+    assert result.reset_streams == []
 
 
 @pytest.mark.parametrize(
