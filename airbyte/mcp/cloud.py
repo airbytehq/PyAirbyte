@@ -132,11 +132,11 @@ def _manifest_yaml_source_hint() -> str | None:
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
-`execute_external_api_query` tool. Call `get_agent_skill_docs` with the deployed `connector_id`
-(or a `docs_skill_id`) and no `section` to get the overview and list of available sections, then
-retrieve the relevant section(s) before calling an action. E.g. for GitHub `entity_type='issues'`,
-`action='list'`, the `'actions.issues.list'` section will teach that its expected
-`api_args` keys are `owner`, `repo`, `states`, etc.\
+`execute_external_api_query` tool. Call `get_agent_skill_docs` with no `section` input to list all
+available sections, and/or retrieve the relevant section(s) with `get_agent_skill_docs` before
+calling an action. E.g. for GitHub `entity_type='issues'`, `action='list'`, the
+`'actions.issues.list'` section will teach that its expected `api_args` keys are `owner`,
+`repo`, `states`, etc.\
 """
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
