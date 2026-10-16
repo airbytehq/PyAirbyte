@@ -406,8 +406,12 @@ class CloudDefaultContextResult(BaseModel):
     default_workspace_name: str | None
     """The resolved default workspace name, if available."""
 
-    default_workspace_verified: bool
-    """Whether the resolved default workspace was verified as accessible."""
+    default_workspace_verified: bool | None
+    """Whether the resolved default workspace was verified as accessible.
+
+    `None` when no default workspace ID was resolved, since there is nothing
+    to verify.
+    """
 
     unvalidated_workspace_count: int = 0
     """Number of direct workspace grants not validated due to the validation cap."""
@@ -2376,6 +2380,13 @@ def get_cloud_sync_logs(
     sync_result: SyncResult | None = connection.get_sync_result(job_id=job_id)
 
     if not sync_result:
+        if job_id is None:
+            raise AirbyteMissingResourceError(
+                resource_type="sync job",
+                resource_name_or_id=connection_id,
+                message=f"Connection '{connection_id}' has no sync jobs yet.",
+                guidance="Run a sync first with `run_cloud_sync`, then request its logs.",
+            )
         raise AirbyteMissingResourceError(
             resource_type="sync job",
             resource_name_or_id=connection_id,

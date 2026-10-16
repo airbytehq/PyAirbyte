@@ -1257,6 +1257,25 @@ class CloudDestination(CloudConnector):
         return result
 
 
+_MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
+
+
+def _unwrap_builder_manifest(value: object) -> dict[str, Any] | None:
+    """Return the connector manifest from a builder manifest payload.
+
+    Some builder projects store their draft as a `DeclarativeSourceManifest`
+    envelope (`{"manifest": {...}, "spec": ..., "version": ...}`) rather than
+    the bare manifest; unwrap that envelope so the result matches the shape of
+    `manifest`.
+    """
+    if not isinstance(value, dict):
+        return None
+    nested = value.get("manifest")
+    if isinstance(nested, dict) and not any(key in value for key in _MANIFEST_KEYS):
+        return nested
+    return value
+
+
 class CustomCloudSourceDefinition:  # noqa: PLR0904
     """A custom source connector definition in Airbyte Cloud.
 
@@ -1320,7 +1339,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
         if not self._definition_info:
             self._definition_info = self._fetch_definition_info()
-        return self._definition_info.manifest
+        return _unwrap_builder_manifest(self._definition_info.manifest)
 
     @property
     def config_spec_jsonschema(self) -> dict[str, Any] | None:
@@ -1542,11 +1561,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
 
         declarative_manifest = project_data.get("declarativeManifest", {})
-        manifest = declarative_manifest.get("manifest")
-        if isinstance(manifest, dict):
-            return manifest
-
-        return None
+        return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
 
     @property
     def definition_url(self) -> str:
@@ -1679,7 +1694,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             assert builder_project_id is not None
             builder_project = project["builderProject"]
             draft_manifest = (
-                project["declarativeManifest"]["manifest"]
+                _unwrap_builder_manifest(project["declarativeManifest"]["manifest"])
                 if builder_project.get("hasDraft")
                 else None
             )
@@ -1820,14 +1835,11 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
                 },
             )
 
-        # Get the spec from the definition info
-        if not self._definition_info:
-            self._definition_info = self._fetch_definition_info()
-
         # Build the spec object from the manifest, matching the Builder UI pattern
         spec: dict[str, Any] = {}
-        if self._definition_info.manifest:
-            manifest_spec = self._definition_info.manifest.get("spec", {})
+        manifest = self.manifest
+        if manifest:
+            manifest_spec = manifest.get("spec", {})
             if manifest_spec:
                 spec = {
                     "documentationUrl": manifest_spec.get("documentation_url"),
