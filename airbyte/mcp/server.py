@@ -185,7 +185,8 @@ _INSTRUCTIONS_SAFETY = """
 Safety features:
 - Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name.
   With the user's explicit consent, you may rename the resource to add the marker and
-  then delete it; never rename it to bypass the guard without asking first.
+  then delete it; never rename it to bypass the guard without asking first. When asking,
+  show the resource's name and Airbyte URL so the user can confirm the right resource.
 - Read-only mode: Disables all write operations for cloud resources"""
 
 

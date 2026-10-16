@@ -112,7 +112,9 @@ DELETE_NAME_GUARD_TIP_TEXT = (
     'IMPORTANT: This operation requires the resource name to contain "delete-me" or '
     '"deleteme" (case insensitive). Otherwise, the deletion is rejected. Do not rename the '
     "resource yourself to satisfy this requirement unless and until the user explicitly "
-    "consents to the rename operation."
+    "consents to the rename operation. When asking for consent, show the user the resource's "
+    "name and Airbyte URL (as returned by the describe or list tools) so they can confirm the "
+    "correct resource is targeted."
 )
 WORKSPACE_ID_TIP_TEXT = "Optional; defaults to the session's workspace."
 MANIFEST_YAML_SOURCE_HINT = (
