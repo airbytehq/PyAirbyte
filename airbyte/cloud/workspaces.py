@@ -515,6 +515,83 @@ class CloudWorkspace:
             connector_id=source_id,
         )
 
+    def get_catalog_discover_result(
+        self,
+        discover_request_id: str,
+    ) -> cloud_connectors.CloudSourceCatalogDiscoverResult:
+        """Get the status and completed output for a discover request ID."""
+        return cloud_connectors._get_catalog_discover_result(  # noqa: SLF001
+            workspace=self,
+            discover_request_id=discover_request_id,
+        )
+
+    def compare_source_catalogs(
+        self,
+        source_catalog_id: str,
+        *,
+        compare_to_source_catalog_id: str | None = None,
+        compare_to_connection_id: str | None = None,
+    ) -> cloud_connectors.CloudSourceCatalogDiscoverResult:
+        """Compare a new source catalog with another catalog or a connection."""
+        if not source_catalog_id.strip():
+            raise exc.AirbyteLibInputError(
+                message="`source_catalog_id` must be a non-empty string.",
+            )
+        if compare_to_source_catalog_id is not None and compare_to_connection_id is not None:
+            raise exc.AirbyteLibInputError(
+                message=(
+                    "Provide `compare_to_source_catalog_id` or "
+                    "`compare_to_connection_id`, not both."
+                ),
+            )
+        if compare_to_source_catalog_id is not None:
+            if not compare_to_source_catalog_id.strip():
+                raise exc.AirbyteLibInputError(
+                    message="`compare_to_source_catalog_id` must be a non-empty string.",
+                )
+            current_catalog_id = compare_to_source_catalog_id
+        elif compare_to_connection_id is not None:
+            if not compare_to_connection_id.strip():
+                raise exc.AirbyteLibInputError(
+                    message="`compare_to_connection_id` must be a non-empty string.",
+                )
+            connection = api_util.get_connection_catalog(
+                connection_id=compare_to_connection_id,
+                api_root=self.api_root,
+                config_api_root=self.config_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            )
+            current_catalog_id = connection.get("catalogId")
+            if not current_catalog_id:
+                raise exc.AirbyteLibInputError(
+                    message=("The connection has no saved source catalog to compare against."),
+                    context={"connection_id": compare_to_connection_id},
+                )
+        else:
+            raise exc.AirbyteLibInputError(
+                message=(
+                    "Looking up a source catalog by ID without comparing it is not supported yet."
+                ),
+                context={"source_catalog_id": source_catalog_id},
+            )
+
+        diff = api_util.get_catalog_diff(
+            current_catalog_id=current_catalog_id,
+            new_catalog_id=source_catalog_id,
+            connection_id=compare_to_connection_id,
+            api_root=self.api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+        return cloud_connectors._build_catalog_diff_result(  # noqa: SLF001
+            source_catalog_id=source_catalog_id,
+            response=diff,
+        )
+
     def get_destination(
         self,
         destination_id: str,

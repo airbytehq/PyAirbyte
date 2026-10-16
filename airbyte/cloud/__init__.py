@@ -94,6 +94,9 @@ from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
+    CloudSourceCatalogDiffStreamSummary,
+    CloudSourceCatalogDiscoverResult,
+    CloudSourceCatalogStreamSummary,
     CloudWorkspaceInfo,
     ConnectionStatus,
     JobStatusEnum,
@@ -133,6 +136,9 @@ __all__ = [
     "CloudOrganization",
     "CloudWorkspace",
     "CloudConnection",
+    "CloudSourceCatalogDiffStreamSummary",
+    "CloudSourceCatalogDiscoverResult",
+    "CloudSourceCatalogStreamSummary",
     "CloudClientConfig",
     "CloudDefaultContextInfo",
     "CloudWorkspaceInfo",

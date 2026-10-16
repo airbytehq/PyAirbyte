@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
+from datetime import datetime  # noqa: TC003  # Needed at runtime for Pydantic field types.
 from enum import Enum
 from typing import Any, Literal, Protocol
 
@@ -507,6 +508,41 @@ class CloudSourceInfo(BaseModel):
             definition_id=source.definition_id,
             configuration=_configuration_dict(source.configuration),
         )
+
+
+class CloudSourceCatalogStreamSummary(BaseModel):
+    """Summary of a stream in a source catalog."""
+
+    stream_name: str
+    stream_namespace: str | None = None
+    supported_sync_modes: list[str] = Field(default_factory=list)
+
+
+class CloudSourceCatalogDiffStreamSummary(BaseModel):
+    """Summary of one stream transformation in a catalog diff."""
+
+    stream_name: str
+    stream_namespace: str | None = None
+    transform_type: str
+    breaking_flags: list[bool] = Field(default_factory=list)
+    field_additions_count: int = 0
+    field_removals_count: int = 0
+
+
+class CloudSourceCatalogDiscoverResult(BaseModel):
+    """Status or outcome of discovering a Cloud source catalog."""
+
+    source_id: str | None = None
+    discover_request_id: str | None = None
+    request_status: Literal["pending", "running", "completed", "cancelled"] | None = None
+    outcome: Literal["succeeded", "failed"] | None = None
+    source_catalog_id: str | None = None
+    stream_count: int | None = None
+    updated_at: datetime | None = None
+    failure_reason: str | None = None
+    streams: list[CloudSourceCatalogStreamSummary] | None = None
+    catalog_diff_summary: list[CloudSourceCatalogDiffStreamSummary] | None = None
+    schema_change: Literal["no_change", "non_breaking", "breaking"] | None = None
 
 
 class CloudDestinationInfo(BaseModel):

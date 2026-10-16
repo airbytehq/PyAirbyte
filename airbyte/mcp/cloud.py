@@ -45,6 +45,7 @@ from airbyte.cloud.models import (
     CloudDefaultContextInfo,
     CloudDefaultWorkspaceUpdateInfo,
     CloudOrganizationInfo,
+    CloudSourceCatalogDiscoverResult,
     ConnectionSchedule,
     ConnectionStatus,
     ConnectorFeature,
@@ -4054,15 +4055,6 @@ def update_cloud_connection(
             default=None,
         ),
     ],
-    force_catalog_refresh: Annotated[
-        bool,
-        Field(
-            description=(
-                "If true, re-discover the source schema and replace the connection's catalog "
-                "with the refreshed result (same as 'Refresh source schema' in the UI)."
-            ),
-        ),
-    ] = False,
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4079,11 +4071,9 @@ def update_cloud_connection(
     - Set a cron schedule for automatic syncs
     - Set a basic interval schedule in whole hours between syncs
     - Switch to manual scheduling (no automatic syncs)
-    - Refresh the source schema and replace the connection's catalog
 
     At least one setting must be provided. `interval_hours`, `cron_expression`, and
-    `manual_schedule=True` are mutually exclusive. `force_catalog_refresh` runs after
-    other requested settings.
+    `manual_schedule=True` are mutually exclusive.
     """
     check_guid_created_in_session(connection_id)
 
@@ -4093,12 +4083,11 @@ def update_cloud_connection(
         and cron_expression is None
         and interval_hours is None
         and manual_schedule is None
-        and not force_catalog_refresh
     ):
         raise AirbyteLibInputError(
             message=(
                 "At least one setting must be provided: 'enabled', 'interval_hours', "
-                "'cron_expression', 'manual_schedule', or 'force_catalog_refresh'."
+                "'cron_expression', or 'manual_schedule'."
             ),
         )
 
@@ -4136,15 +4125,144 @@ def update_cloud_connection(
         connection.set_manual_schedule()
         changes_made.append("schedule set to 'manual'")
 
-    if force_catalog_refresh:
-        refreshed_catalog = connection.refresh_catalog()
-        changes_made.append(f"refreshed catalog ({len(refreshed_catalog['streams'])} streams)")
-
     changes_summary = ", ".join(changes_made)
     return (
         f"Successfully updated connection '{connection_id}': {changes_summary}. "
         f"URL: {connection.connection_url}"
     )
+
+
+@mcp_tool(destructive=False, pipeline_change=False)
+def discover_cloud_source_catalog(
+    ctx: Context,
+    *,
+    source_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The source ID. Starts a new asynchronous catalog discover by default; "
+                "set `no_refresh=True` to use the latest saved catalog instead."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    discover_request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The request ID returned when a discover was started. Poll with this "
+                "value to retrieve its status and completed outcome."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    no_refresh: Annotated[
+        bool,
+        Field(
+            description=(
+                "With `source_id`, return the latest saved catalog without starting a "
+                "discover. The latest-saved-catalog mode cannot be applied to a connection."
+            ),
+            default=False,
+        ),
+    ] = False,
+    source_catalog_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The newly discovered source catalog ID to compare. Comparing requires "
+                "exactly one `compare_to_*` argument; summary by ID alone is not supported yet."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    compare_to_source_catalog_id: Annotated[
+        str | None,
+        Field(
+            description="Compare `source_catalog_id` against this saved source catalog ID.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    compare_to_connection_id: Annotated[
+        str | None,
+        Field(
+            description="Compare `source_catalog_id` against this connection's current catalog.",
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ] = None,
+) -> CloudSourceCatalogDiscoverResult:
+    """Start, check, or compare asynchronous Cloud source catalog discovers.
+
+    Starting a discover can be slow. Poll the returned `discover_request_id` to get
+    its status and outcome. Use `no_refresh=True` with `source_id` to read the latest
+    saved catalog; this mode cannot be applied to a connection. Compare catalogs by
+    passing `source_catalog_id` and exactly one comparison target. A catalog summary
+    by ID alone is not supported yet.
+    """
+    if compare_to_source_catalog_id is not None and compare_to_connection_id is not None:
+        raise AirbyteLibInputError(
+            message=(
+                "Provide `compare_to_source_catalog_id` or `compare_to_connection_id`, " "not both."
+            ),
+        )
+    has_comparison_target = (
+        compare_to_source_catalog_id is not None or compare_to_connection_id is not None
+    )
+    if has_comparison_target and source_catalog_id is None:
+        raise AirbyteLibInputError(
+            message="Comparison targets require `source_catalog_id`.",
+        )
+    if source_catalog_id is not None:
+        if source_id is not None or discover_request_id is not None or no_refresh:
+            raise AirbyteLibInputError(
+                message=(
+                    "`source_catalog_id` cannot be combined with `source_id`, "
+                    "`discover_request_id`, or `no_refresh`."
+                ),
+            )
+        workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+        return workspace.compare_source_catalogs(
+            source_catalog_id=source_catalog_id,
+            compare_to_source_catalog_id=compare_to_source_catalog_id,
+            compare_to_connection_id=compare_to_connection_id,
+        )
+
+    if discover_request_id is not None:
+        if source_id is not None:
+            raise AirbyteLibInputError(
+                message="Provide `source_id` or `discover_request_id`, not both.",
+            )
+        if no_refresh:
+            raise AirbyteLibInputError(
+                message="`no_refresh=True` cannot be used with `discover_request_id`.",
+            )
+    elif source_id is None:
+        raise AirbyteLibInputError(
+            message="Provide `source_id` or `discover_request_id`.",
+        )
+
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    if discover_request_id is not None:
+        return workspace.get_catalog_discover_result(discover_request_id)
+
+    assert source_id is not None
+    source = workspace.get_source(source_id=source_id)
+    if no_refresh:
+        return source.get_latest_saved_catalog()
+    return source.start_catalog_discover()
 
 
 @mcp_tool(

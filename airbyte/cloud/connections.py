@@ -904,37 +904,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         )
         self._connection_info = None
 
-    def refresh_catalog(self) -> dict[str, Any]:
-        """Refresh the connection's catalog by re-discovering the source schema.
-
-        Triggers a discover operation on the connection's source connector, then
-        replaces the connection's catalog with the refreshed result. This is
-        equivalent to clicking "Refresh source schema" in the Airbyte UI.
-
-        Returns:
-            The refreshed raw syncCatalog dict.
-
-        Raises:
-            AirbyteLibInputError: If the refreshed catalog is empty or missing.
-        """
-        refreshed_response = api_util.get_refreshed_connection_catalog(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
-        refreshed_catalog = refreshed_response.get("syncCatalog")
-        if not isinstance(refreshed_catalog, dict) or not refreshed_catalog.get("streams"):
-            raise AirbyteLibInputError(
-                message="Refreshed catalog is empty or missing.",
-                context={"connection_id": self.connection_id},
-            )
-
-        self.import_raw_catalog(refreshed_catalog)
-        return refreshed_catalog
-
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
 
