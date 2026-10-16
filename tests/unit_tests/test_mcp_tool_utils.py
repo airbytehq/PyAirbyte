@@ -181,7 +181,6 @@ def test_check_unsupported_mcp_headers_raises_when_present(
         "Remove the `X-MCP-Safe-Mode` header and consider using one of these alternatives:\n"
     )
     assert "X-MCP-Allow-Pipeline-Changes" in guidance
-    assert "X-MCP-Disable-Delete-Guard" in guidance
 
 
 def test_check_unsupported_mcp_headers_is_generic(

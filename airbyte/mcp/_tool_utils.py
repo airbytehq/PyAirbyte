@@ -159,7 +159,6 @@ UNSUPPORTED_MCP_HEADERS: dict[str, str] = {
         "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
         "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
         "- `X-MCP-Allow-Destructive-Tools: 0`: hide destructive tools.\n"
-        "- `X-MCP-Disable-Delete-Guard: 1`: allow deletions without the name marker.\n"
     ),
 }
 """Removed MCP request headers, mapped to replacement guidance.
