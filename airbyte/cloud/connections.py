@@ -461,7 +461,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             _latest_job_info=CloudJobInfo.from_api_response(job_response),
         )
 
-    def request_search_backfill(
+    def request_search_index_backfill(
         self,
         *,
         streams: list[str] | None = None,
@@ -489,7 +489,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             request_body["streams"] = list(streams)
         if backfill_start_time is not None:
             request_body["start_time"] = backfill_start_time.isoformat()
-        return agents_api_util.request_cloud_connection_search_backfill(
+        return agents_api_util.request_cloud_connection_search_index_backfill(
             connection_id=self.connection_id,
             request_body=request_body,
             credentials=self.workspace._credentials,  # noqa: SLF001

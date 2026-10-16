@@ -2001,7 +2001,7 @@ def _search_disabled_errors(
         ),
         "Once search is enabled, the connector's synced data must be indexed before "
         "searches return results. New syncs are indexed as they run; data already in the "
-        "destination is indexed only after `request_cloud_search_backfill`. Call "
+        "destination is indexed only after `request_cloud_search_index_backfill`. Call "
         "`get_cloud_search_status` to check which streams are indexed and whether their "
         "backfill is complete.",
     ]
@@ -2203,7 +2203,7 @@ def get_cloud_search_status(
     search indexes. A stream is searchable once it has at least one index.
 
     Turning search on indexes only data from new syncs; data already in the destination
-    is indexed only by a backfill requested with `request_cloud_search_backfill`. A
+    is indexed only by a backfill requested with `request_cloud_search_index_backfill`. A
     stream's `backfill` is null when none was requested. Otherwise `backfill.status` is
     `starting`, `running`, `finalizing`, `complete`, `failed`, or `cancelled`, with
     `failed_at` or `cancelled_at` set when the run ended that way. A stream whose table is
@@ -2258,11 +2258,10 @@ def get_cloud_search_status(
 
 
 @mcp_tool(
-    open_world=True,
     pipeline_change=False,
     external_access=True,
 )
-def request_cloud_search_backfill(
+def request_cloud_search_index_backfill(
     ctx: Context,
     *,
     connection_id: Annotated[
@@ -2332,7 +2331,7 @@ def request_cloud_search_backfill(
             input_value=backfill_start_time,
         ) from None
     connection = _get_cloud_workspace(ctx, workspace_id).get_connection(connection_id)
-    return connection.request_search_backfill(
+    return connection.request_search_index_backfill(
         streams=resolve_list_of_strings(streams),
         backfill_start_time=start_time,
     )

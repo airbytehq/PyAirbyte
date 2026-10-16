@@ -2506,7 +2506,7 @@ def test_search_tools_return_search_disabled_errors(
         expected_message,
         "Once search is enabled, the connector's synced data must be indexed before "
         "searches return results. New syncs are indexed as they run; data already in the "
-        "destination is indexed only after `request_cloud_search_backfill`. Call "
+        "destination is indexed only after `request_cloud_search_index_backfill`. Call "
         "`get_cloud_search_status` to check which streams are indexed and whether their "
         "backfill is complete.",
     ]
@@ -3487,7 +3487,7 @@ def test_successful_results_redact_caught_cloud_error_credentials(
 def _backfill_workspace(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Patch `_get_cloud_workspace` to return a workspace serving a mock connection."""
     connection = MagicMock()
-    connection.request_search_backfill.return_value = (
+    connection.request_search_index_backfill.return_value = (
         ExternalSearchBackfillRequestResult(streams=[])
     )
     workspace = SimpleNamespace(get_connection=MagicMock(return_value=connection))
@@ -3515,7 +3515,7 @@ def _backfill_workspace(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         ),
     ],
 )
-def test_request_cloud_search_backfill_forwards_args(
+def test_request_cloud_search_index_backfill_forwards_args(
     monkeypatch: pytest.MonkeyPatch,
     streams: list[str] | str | None,
     backfill_start_time: str | None,
@@ -3524,7 +3524,7 @@ def test_request_cloud_search_backfill_forwards_args(
 ) -> None:
     workspace = _backfill_workspace(monkeypatch)
 
-    cloud_mcp.request_cloud_search_backfill(
+    cloud_mcp.request_cloud_search_index_backfill(
         None,
         connection_id="connection-1",
         streams=streams,
@@ -3534,19 +3534,19 @@ def test_request_cloud_search_backfill_forwards_args(
 
     workspace.get_connection.assert_called_once_with("connection-1")
     connection = workspace.get_connection.return_value
-    connection.request_search_backfill.assert_called_once()
-    kwargs = connection.request_search_backfill.call_args.kwargs
+    connection.request_search_index_backfill.assert_called_once()
+    kwargs = connection.request_search_index_backfill.call_args.kwargs
     assert kwargs["streams"] == expected_streams
     assert kwargs["backfill_start_time"] == expected_start_time
 
 
-def test_request_cloud_search_backfill_rejects_invalid_start_time(
+def test_request_cloud_search_index_backfill_rejects_invalid_start_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _backfill_workspace(monkeypatch)
 
     with pytest.raises(AirbyteLibInputError, match="ISO 8601"):
-        cloud_mcp.request_cloud_search_backfill(
+        cloud_mcp.request_cloud_search_index_backfill(
             None,
             connection_id="connection-1",
             backfill_start_time="last tuesday",
@@ -3556,14 +3556,17 @@ def test_request_cloud_search_backfill_rejects_invalid_start_time(
     workspace.get_connection.assert_not_called()
 
 
-def test_request_cloud_search_backfill_is_a_write_tool() -> None:
-    """Requesting a backfill queues work, so the tool is neither read-only nor idempotent."""
+def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
+    """Requesting a backfill queues index work, so the tool is a closed-world write."""
     (annotations,) = [
-        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.request_cloud_search_backfill
+        a
+        for f, a in _REGISTERED_TOOLS
+        if f is cloud_mcp.request_cloud_search_index_backfill
     ]
     assert annotations["readOnlyHint"] is False
     assert annotations["destructiveHint"] is False
     assert annotations["idempotentHint"] is False
-    policy = _TOOL_POLICIES["request_cloud_search_backfill"]
+    assert annotations["openWorldHint"] is False
+    policy = _TOOL_POLICIES["request_cloud_search_index_backfill"]
     assert policy.external_access is True
     assert policy.pipeline_change is False

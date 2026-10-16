@@ -1712,7 +1712,7 @@ _BACKFILL_RESPONSE = {
         ),
     ],
 )
-def test_request_search_backfill_request_shape(
+def test_request_search_index_backfill_request_shape(
     monkeypatch: pytest.MonkeyPatch,
     kwargs: dict[str, Any],
     expected_body: dict[str, Any],
@@ -1723,7 +1723,7 @@ def test_request_search_backfill_request_shape(
     calls = _patch_search(monkeypatch, _BACKFILL_RESPONSE)
     connection = CloudConnection(workspace=workspace, connection_id="connection-1")
 
-    connection.request_search_backfill(**kwargs)
+    connection.request_search_index_backfill(**kwargs)
 
     assert len(calls) == 1
     assert calls[0]["method"] == "POST"
@@ -1731,7 +1731,7 @@ def test_request_search_backfill_request_shape(
     assert calls[0]["json"] == expected_body
 
 
-def test_request_search_backfill_parses_response(
+def test_request_search_index_backfill_parses_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
@@ -1739,7 +1739,7 @@ def test_request_search_backfill_parses_response(
     _patch_search(monkeypatch, _BACKFILL_RESPONSE)
     connection = CloudConnection(workspace=workspace, connection_id="connection-1")
 
-    result = connection.request_search_backfill(streams=["issues", "users"])
+    result = connection.request_search_index_backfill(streams=["issues", "users"])
 
     assert isinstance(result, ExternalSearchBackfillRequestResult)
     assert [(s.stream_name, s.outcome) for s in result.streams] == [
@@ -1755,7 +1755,7 @@ def test_request_search_backfill_parses_response(
     assert running.expected_total_rows == 1200
 
 
-def test_request_search_backfill_rejects_naive_start_time(
+def test_request_search_index_backfill_rejects_naive_start_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cloud requires an RFC 3339 offset, so a naive time fails before any request."""
@@ -1765,7 +1765,9 @@ def test_request_search_backfill_rejects_naive_start_time(
     connection = CloudConnection(workspace=workspace, connection_id="connection-1")
 
     with pytest.raises(AirbyteLibInputError, match="timezone"):
-        connection.request_search_backfill(backfill_start_time=datetime(2026, 1, 1))
+        connection.request_search_index_backfill(
+            backfill_start_time=datetime(2026, 1, 1)
+        )
 
     assert calls == []
 
@@ -1777,7 +1779,7 @@ def test_request_search_backfill_rejects_naive_start_time(
         pytest.param({"streams": [{"stream_name": "issues"}]}, id="missing_backfill"),
     ],
 )
-def test_request_search_backfill_rejects_malformed_response(
+def test_request_search_index_backfill_rejects_malformed_response(
     monkeypatch: pytest.MonkeyPatch,
     payload: dict[str, Any],
 ) -> None:
@@ -1787,10 +1789,10 @@ def test_request_search_backfill_rejects_malformed_response(
     connection = CloudConnection(workspace=workspace, connection_id="connection-1")
 
     with pytest.raises(AirbyteCloudError, match="Malformed Airbyte Cloud backfill"):
-        connection.request_search_backfill()
+        connection.request_search_index_backfill()
 
 
-def test_request_search_backfill_requires_context_layer(
+def test_request_search_index_backfill_requires_context_layer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _make_workspace(monkeypatch)
@@ -1799,7 +1801,7 @@ def test_request_search_backfill_requires_context_layer(
     connection = CloudConnection(workspace=workspace, connection_id="connection-1")
 
     with pytest.raises(AirbyteAgentsUnavailableError):
-        connection.request_search_backfill()
+        connection.request_search_index_backfill()
 
     assert calls == []
 

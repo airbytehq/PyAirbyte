@@ -291,7 +291,7 @@ def get_cloud_connector_search_status(
         ) from ex
 
 
-def request_cloud_connection_search_backfill(
+def request_cloud_connection_search_index_backfill(
     *,
     connection_id: str,
     request_body: dict[str, Any],
