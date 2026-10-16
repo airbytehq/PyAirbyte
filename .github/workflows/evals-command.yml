@@ -69,8 +69,7 @@ jobs:
 
           > Cloud MCP evals queued for `${{ steps.mode.outputs.short-sha }}` (${{ steps.mode.outputs.label }}). [Check job output.](${{ steps.vars.outputs.run-url }})
 
-    # ponytail: one token (valid 1h) covers dispatch, watch and report; evals runs
-    # take ~20 min. Mint a second token before the report if runs get much longer.
+    # The token lasts one hour; a full evals run takes about 20 minutes.
     - name: Authenticate as GitHub App
       uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
       id: get-app-token
