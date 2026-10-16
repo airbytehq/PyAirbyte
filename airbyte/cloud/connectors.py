@@ -100,6 +100,7 @@ from airbyte.cloud.models import (
     _SourceResponseLike,
 )
 from airbyte.registry import ApiDocsUrl, get_connector_api_docs_urls
+from airbyte.secrets.hydration import hydrate_secrets
 
 
 if TYPE_CHECKING:
@@ -1360,7 +1361,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return
 
         try:
-            jsonschema.validate(config, specification)
+            jsonschema.validate(hydrate_secrets(config), specification)
         except jsonschema.ValidationError as ex:
             raise exc.AirbyteConnectorValidationFailedError(
                 connector_name=self.name,

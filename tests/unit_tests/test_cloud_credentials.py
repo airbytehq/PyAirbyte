@@ -868,6 +868,37 @@ def test_custom_cloud_source_definition_validates_config() -> None:
         definition.validate_config({})
 
 
+def test_custom_cloud_source_definition_validates_hydrated_secret_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SOME_ENV", "resolved-value")
+    definition = CustomCloudSourceDefinition(
+        workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),
+        definition_id="definition-id",
+        definition_type="yaml",
+    )
+    definition._definition_info = CloudCustomSourceDefinitionInfo(
+        definition_id="definition-id",
+        name="Custom source",
+        version="0.1.0",
+        manifest={
+            "spec": {
+                "connection_specification": {
+                    "type": "object",
+                    "properties": {
+                        "api_key": {"type": "string", "pattern": "^resolved"}
+                    },
+                }
+            }
+        },
+    )
+    config = {"api_key": "secret_reference::SOME_ENV"}
+
+    definition.validate_config(config)
+
+    assert config == {"api_key": "secret_reference::SOME_ENV"}
+
+
 def test_custom_cloud_source_definition_without_spec_skips_config_validation() -> None:
     definition = CustomCloudSourceDefinition(
         workspace=CloudWorkspace(workspace_id="workspace-id", bearer_token="token"),

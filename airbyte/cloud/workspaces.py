@@ -70,7 +70,7 @@ from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteCloudError
 from airbyte.registry import _get_connector_name_by_definition_id
 from airbyte.secrets.base import SecretString
-from airbyte.secrets.hydration import detect_hardcoded_secrets
+from airbyte.secrets.hydration import detect_hardcoded_secrets, hydrate_secrets
 
 
 if TYPE_CHECKING:
@@ -700,7 +700,7 @@ class CloudWorkspace:
                         "`defer_credentials=True` is given."
                     ),
                 )
-            source_config_dict = dict(source)
+            source_config_dict = hydrate_secrets(source)
         else:
             source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             source_config_dict["sourceType"] = source.name.replace("source-", "")

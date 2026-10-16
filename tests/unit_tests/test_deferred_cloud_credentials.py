@@ -406,6 +406,34 @@ def test_deploy_source_passes_custom_definition_config_without_source_type(
     assert create_kwargs["definition_id"] == DEFINITION_ID
 
 
+def test_deploy_source_hydrates_custom_definition_secret_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Custom source secret references are hydrated without mutating the input config."""
+    monkeypatch.setenv("SOME_ENV", "resolved-value")
+    source_config = {"api_key": "secret_reference::SOME_ENV"}
+    create_kwargs: dict[str, Any] = {}
+    monkeypatch.setattr(
+        api_util,
+        "create_source",
+        lambda **kwargs: (
+            create_kwargs.update(kwargs) or SimpleNamespace(source_id=ACTOR_ID)
+        ),
+    )
+    monkeypatch.setattr(api_util, "list_sources", lambda **_: [])
+    workspace = _workspace()
+
+    deployed = workspace.deploy_source(
+        name="My custom source",
+        source=source_config,
+        definition_id=DEFINITION_ID,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert create_kwargs["config"] == {"api_key": "resolved-value"}
+    assert source_config == {"api_key": "secret_reference::SOME_ENV"}
+
+
 @pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
 def test_deploy_deferred_rejects_plaintext_credentials(
     monkeypatch: pytest.MonkeyPatch,
