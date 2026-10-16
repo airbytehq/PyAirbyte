@@ -132,7 +132,15 @@ Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-
 Local demo mode is opt-in and STDIO-only: set `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1` to
 enable it (it is ignored over the hosted HTTP transport). When enabled, updates and
 deletions are only allowed on resources created in the current session; renames are
-still allowed. The `delete-me` name guard for deletions still applies.
+still allowed. The delete guard still applies.
+
+### Delete Guard
+
+Deletion tools only delete resources whose names contain `delete-me` or `deleteme` (case
+insensitive). To opt out, set `AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD=1` or send the
+`X-MCP-Disable-Delete-Guard: 1` request header; the same environment and header rules as the
+permission settings below apply. The stronger option is to disable deletions entirely with
+`AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=0` or `X-MCP-Allow-Destructive-Tools: 0`.
 
 ## Airbyte Cloud Pipeline and External Access Permissions
 

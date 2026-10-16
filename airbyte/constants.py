@@ -309,6 +309,9 @@ MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCES
 MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS"
 """Environment variable controlling access to destructive Cloud tools."""
 
+MCP_DISABLE_DELETE_GUARD_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD"
+"""Environment variable opt-out for the MCP delete guard."""
+
 MCP_LOCAL_DEMO_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE"
 """Environment variable enabling opt-in local demo mode for STDIO MCP sessions."""
 
@@ -398,6 +401,9 @@ MCP_CONFIG_ALLOW_EXTERNAL_ACCESS: str = "allow_external_access"
 MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS: str = "allow_destructive_tools"
 """Config arg name for the Cloud destructive-tools permission."""
 
+MCP_CONFIG_DISABLE_DELETE_GUARD: str = "disable_delete_guard"
+"""Config arg name for disabling the MCP delete guard."""
+
 MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
 """Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
 
@@ -444,6 +450,9 @@ MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
 
 MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER: str = "X-MCP-Allow-Destructive-Tools"
 """HTTP header key for narrowing destructive-tools permission."""
+
+MCP_DISABLE_DELETE_GUARD_HEADER: str = "X-MCP-Disable-Delete-Guard"
+"""HTTP header key for disabling the MCP delete guard."""
 
 # Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing

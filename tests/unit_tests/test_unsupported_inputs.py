@@ -7,7 +7,10 @@ import pytest
 
 from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.cli import pyab
-from airbyte.constants import CLOUD_MCP_SAFE_MODE_ENV_VAR
+from airbyte.constants import (
+    CLOUD_MCP_SAFE_MODE_ENV_VAR,
+    MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+)
 from airbyte.exceptions import AirbyteLibInputError
 
 
@@ -34,6 +37,7 @@ def test_check_unsupported_env_vars_raises_when_set(
     assert guidance.startswith(
         "Remove `AIRBYTE_CLOUD_MCP_SAFE_MODE` and consider using one of these alternatives:\n"
     )
+    assert MCP_DISABLE_DELETE_GUARD_ENV_VAR in guidance
 
 
 def test_check_unsupported_env_vars_is_generic(

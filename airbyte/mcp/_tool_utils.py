@@ -63,12 +63,15 @@ from airbyte.constants import (
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
+    MCP_CONFIG_DISABLE_DELETE_GUARD,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_INSIDERS,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_READONLY_MODE,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+    MCP_DISABLE_DELETE_GUARD_HEADER,
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
     MCP_INSIDERS_ENV_VAR,
@@ -156,6 +159,7 @@ UNSUPPORTED_MCP_HEADERS: dict[str, str] = {
         "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
         "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
         "- `X-MCP-Allow-Destructive-Tools: 0`: hide destructive tools.\n"
+        "- `X-MCP-Disable-Delete-Guard: 1`: allow deletions without the name marker.\n"
     ),
 }
 """Removed MCP request headers, mapped to replacement guidance.
@@ -251,6 +255,15 @@ ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
     required=False,
 )
 """Config arg for permission to run destructive Cloud tools."""
+
+DISABLE_DELETE_GUARD_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_DISABLE_DELETE_GUARD,
+    http_header_key=MCP_DISABLE_DELETE_GUARD_HEADER,
+    env_var=MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for disabling the MCP delete guard."""
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
@@ -628,6 +641,21 @@ def destructive_tools_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
         app_or_ctx,
         MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
         MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    )
+
+
+def delete_guard_disabled(app_or_ctx: FastMCP | Context) -> bool:
+    """Return whether the delete guard is disabled.
+
+    This is controlled by the opt-in `AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD` setting.
+    """
+    return (
+        _resolve_policy(
+            app_or_ctx,
+            MCP_CONFIG_DISABLE_DELETE_GUARD,
+            MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+        )
+        is True
     )
 
 

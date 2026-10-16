@@ -92,6 +92,7 @@ from airbyte.mcp._scope import record_default_workspace, record_resolved_organiz
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
+    delete_guard_disabled,
     mcp_tool,
     register_guid_created_in_session,
 )
@@ -3606,8 +3607,9 @@ def permanently_delete_custom_source_definition(
             },
         )
 
-    # Delete guard is always on for MCP: name must contain "delete-me" or "deleteme".
-    definition.permanently_delete(delete_guard=True)
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
+    definition.permanently_delete(delete_guard=not delete_guard_disabled(ctx))
     return f"Successfully deleted custom source definition '{actual_name}' (ID: {definition_id})"
 
 
@@ -3670,16 +3672,17 @@ def permanently_delete_cloud_connector(
             },
         )
 
-    # Delete guard is always on for MCP: name must contain "delete-me" or "deleteme".
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
     if resolved_type == ConnectorType.SOURCE:
         workspace.permanently_delete_source(
             source=connector_id,
-            delete_guard=True,
+            delete_guard=not delete_guard_disabled(ctx),
         )
     else:
         workspace.permanently_delete_destination(
             destination=connector_id,
-            delete_guard=True,
+            delete_guard=not delete_guard_disabled(ctx),
         )
     return f"Successfully deleted {resolved_type.value} '{actual_name}' (ID: {connector_id})"
 
@@ -3752,9 +3755,10 @@ def permanently_delete_cloud_connection(
             },
         )
 
-    # Delete guard is always on for MCP: name must contain "delete-me" or "deleteme".
+    # Delete guard is on unless the opt-in AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD setting
+    # disables it.
     workspace.permanently_delete_connection(
-        delete_guard=True,
+        delete_guard=not delete_guard_disabled(ctx),
         connection=connection_id,
         cascade_delete_source=cascade_delete_source,
         cascade_delete_destination=cascade_delete_destination,

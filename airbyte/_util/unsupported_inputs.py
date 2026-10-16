@@ -17,6 +17,7 @@ UNSUPPORTED_ENV_VARS: dict[str, str] = {
         "passthrough tools.\n"
         "- `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: only expose read-only tools.\n"
         "- `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=0`: hide destructive tools.\n"
+        "- `AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD=1`: allow deletions without the name marker.\n"
         "- `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE=1`: only allow changes to "
         "resources created in this session (local mode only; not recommended "
         "except for demos).\n"
