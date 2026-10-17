@@ -229,15 +229,11 @@ def format_user_facing_error(error: BaseException) -> str:
     """Format local error guidance and Cloud problem details without debug context."""
     if text := _format_cloud_error_with_local_guidance(error):
         return text
-    local_error = next(
-        (cause for cause in _chain(error) if isinstance(cause, AirbyteLibError)),
-        None,
-    )
-    if local_error is None:
+    if not isinstance(error, AirbyteLibError):
         return str(error)
-    text = local_error.get_message()
-    if local_error.guidance:
-        text = f"{text} {local_error.guidance}"
+    text = error.get_message()
+    if error.guidance:
+        text = f"{text} {error.guidance}"
     return text
 
 
@@ -279,11 +275,8 @@ def agent_error_text(error: ToolError) -> str:
     """Return local guidance and Cloud details visible to an agent before redaction."""
     if text := _format_cloud_error_with_local_guidance(error):
         return text
-    cause = next(
-        (item for item in _chain(error) if isinstance(item, AirbyteLibError)),
-        None,
-    )
-    if cause is not None:
+    cause = error.__cause__
+    if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)
     return str(error)
 
