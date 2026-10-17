@@ -21,6 +21,7 @@ from airbyte.cloud.models import (
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
+    AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteCloudError,
     AirbyteMissingResourceError,
@@ -826,26 +827,92 @@ def _connection_info_with_status(status: str) -> MagicMock:
     return info
 
 
-def test_run_sync_conflict_on_disabled_connection_raises_input_error(
+@pytest.mark.parametrize(
+    ("scenario", "connection_status"),
+    [
+        pytest.param("running-job", "active", id="running-job"),
+        pytest.param("no-jobs", "active", id="no-jobs"),
+        pytest.param("completed-job", "active", id="completed-job"),
+        pytest.param("disabled", "inactive", id="disabled-connection"),
+    ],
+)
+def test_run_sync_handles_try_again_later_conflicts(
     monkeypatch: pytest.MonkeyPatch,
+    scenario: str,
+    connection_status: str,
 ) -> None:
-    """Verify a 409 on an inactive connection surfaces a disabled-connection hint."""
+    """Explain known running-sync conflicts and preserve unrelated errors."""
     connection = _connection()
+    body = (
+        '{"type":"https://reference.airbyte.com/reference/errors#try-again-later",'
+        '"title":"try-again-later",'
+        '"detail":"A sync is already running for: connection-id"}'
+    )
+    sdk_error = SDKError("Status 409", 409, body, MagicMock())
+    sync_error = _sync_error(409)
+    sync_error.__cause__ = sdk_error
 
     def run_connection(**kwargs: object) -> None:
         """Raise the wrapped 409 sync error."""
         _ = kwargs
-        raise _sync_error(409)
+        raise sync_error
 
     monkeypatch.setattr(api_util, "run_connection", run_connection)
-    fetch_mock = MagicMock(return_value=_connection_info_with_status("inactive"))
+    fetch_mock = MagicMock(return_value=_connection_info_with_status(connection_status))
     monkeypatch.setattr(connection, "_fetch_connection_info", fetch_mock)
 
-    with pytest.raises(AirbyteLibInputError) as exc_info:
-        connection.run_sync()
+    if scenario == "running-job":
+        sync_result = MagicMock(
+            job_id=42,
+            job_url="https://cloud.airbyte.com/jobs/42",
+            is_job_complete=MagicMock(return_value=False),
+        )
+        get_logs = MagicMock(return_value=[sync_result])
+        monkeypatch.setattr(connection, "get_previous_sync_logs", get_logs)
 
-    assert "disabled" in exc_info.value.message
-    assert "enabled=True" in exc_info.value.guidance
+        with pytest.raises(AirbyteConnectionSyncActiveError) as exc_info:
+            connection.run_sync()
+
+        assert "job 42" in exc_info.value.get_message()
+        assert exc_info.value.context == {
+            "connection_id": "connection-id",
+            "job_id": 42,
+            "job_url": "https://cloud.airbyte.com/jobs/42",
+        }
+        assert "`get_cloud_sync_status`" in exc_info.value.guidance
+        get_logs.assert_called_once_with(limit=1, job_type=JobTypeEnum.SYNC)
+        assert exc_info.value.__cause__ is sync_error
+    elif scenario in {"no-jobs", "completed-job"}:
+        sync_results = (
+            []
+            if scenario == "no-jobs"
+            else [
+                MagicMock(
+                    job_id=41,
+                    is_job_complete=MagicMock(return_value=True),
+                )
+            ]
+        )
+        monkeypatch.setattr(
+            connection,
+            "get_previous_sync_logs",
+            MagicMock(return_value=sync_results),
+        )
+
+        with pytest.raises(AirbyteConnectionSyncError) as exc_info:
+            connection.run_sync()
+
+        assert exc_info.value is sync_error
+    else:
+        get_logs = MagicMock()
+        monkeypatch.setattr(connection, "get_previous_sync_logs", get_logs)
+
+        with pytest.raises(AirbyteLibInputError) as exc_info:
+            connection.run_sync()
+
+        assert "disabled" in exc_info.value.message
+        assert "enabled=True" in exc_info.value.guidance
+        get_logs.assert_not_called()
     fetch_mock.assert_called_once_with(force_refresh=True)
 
 

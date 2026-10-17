@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
+from airbyte._util.cloud_errors import parse_cloud_error
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
     _is_protocol_catalog_format,
@@ -35,6 +36,7 @@ from airbyte.cloud.models import (
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteCloudError,
+    AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -375,6 +377,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     ),
                     context={"connection_id": self.connection_id},
                 ) from ex
+            if ex.context and ex.context.get("status_code") == HTTPStatus.CONFLICT:
+                active_sync_error = self._already_running_sync_error(ex)
+                if active_sync_error is not None:
+                    raise active_sync_error from ex
             raise
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -390,6 +396,55 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
 
         return sync_result
+
+    def _already_running_sync_error(
+        self,
+        error: AirbyteConnectionSyncError,
+    ) -> AirbyteConnectionSyncActiveError | None:
+        """Return actionable guidance when Cloud rejects a duplicate running sync."""
+        sdk_error = error.__cause__
+        if not isinstance(sdk_error, api_util.SDKError):
+            return None
+
+        problem = parse_cloud_error(
+            sdk_error.status_code,
+            api_util.error_response_body(sdk_error),
+        )
+        if problem.slug != "try-again-later":
+            return None
+
+        sync_results = self.get_previous_sync_logs(
+            limit=1,
+            job_type=JobTypeEnum.SYNC,
+        )
+        sync_result = sync_results[0] if sync_results else None
+        if sync_result is None or sync_result.is_job_complete():
+            return None
+
+        job_id = sync_result.job_id
+        return AirbyteConnectionSyncActiveError(
+            connection_id=self.connection_id,
+            message=(
+                f"A sync is already running for connection '{self.connection_id}' "
+                f"(job {job_id})."
+            ),
+            guidance=(
+                "Don't start another sync. Monitor the running job with "
+                f"`connection.get_sync_result(job_id={job_id})` or the "
+                "`get_cloud_sync_status` MCP tool "
+                f"(`connection_id='{self.connection_id}', job_id={job_id}`). "
+                "Only if the user wants to restart it, cancel it first with "
+                f"`connection.cancel_sync(job_id={job_id})` or the "
+                "`cancel_cloud_sync` MCP tool "
+                f"(`connection_id='{self.connection_id}', job_id={job_id}`), "
+                f"then run the sync again. Job URL: {sync_result.job_url}."
+            ),
+            context={
+                "connection_id": self.connection_id,
+                "job_id": job_id,
+                "job_url": sync_result.job_url,
+            },
+        )
 
     def _get_latest_cancellable_sync_job_id(self) -> int:
         """Get the latest cancellable sync job ID."""
