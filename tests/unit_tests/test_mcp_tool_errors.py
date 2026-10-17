@@ -28,6 +28,7 @@ from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     AgentErrorTextMiddleware,
     agent_error_text,
+    cloud_error_trace_message,
     redact_agent_text,
     classify_mcp_tool_error,
     format_user_facing_error,
@@ -578,8 +579,6 @@ def test_local_guidance_is_preserved_with_cloud_error(
     tool_error = ToolError("unformatted")
     tool_error.__cause__ = error
     assert agent_error_text(tool_error) == expected
-
-    from airbyte.mcp._error_handling import cloud_error_trace_message
 
     assert cloud_error_trace_message(error) == cloud_message
 
