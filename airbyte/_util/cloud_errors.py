@@ -97,6 +97,7 @@ def parse_problem_payload(body: str | None) -> dict[str, Any] | None:
             parse_constant=_reject_json_constant,
         )
         if isinstance(payload, dict):
+            # Surface unpaired-surrogate failures here, not in callers.
             _problem_message(payload)
     except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
         return None
