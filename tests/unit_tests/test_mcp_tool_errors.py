@@ -586,7 +586,9 @@ def test_local_guidance_is_preserved_with_cloud_error(
 def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
     connection_id = "connection-id"
     job_id = 42
-    message = f"A sync is already running for connection '{connection_id}' (job {job_id})."
+    message = (
+        f"A sync is already running for connection '{connection_id}' (job {job_id})."
+    )
     guidance = "Monitor it with `get_cloud_sync_status`."
     body = json.dumps({
         "type": "https://reference.airbyte.com/reference/errors#try-again-later",

@@ -28,6 +28,7 @@ from airbyte._util.cloud_errors import (
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteCloudApiError,
+    AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
@@ -208,6 +209,9 @@ def _format_cloud_error_with_local_guidance(error: BaseException) -> str | None:
             for cause in _chain(error)
             if isinstance(cause, AirbyteLibError)
             and not isinstance(cause, AirbyteCloudApiError)
+            and not (
+                isinstance(cause, AirbyteCloudError) and cause.get_message() == problem.message
+            )
         ),
         None,
     )
@@ -215,12 +219,6 @@ def _format_cloud_error_with_local_guidance(error: BaseException) -> str | None:
         return _cloud_problem_text(problem)
 
     local_message = local_error.get_message()
-    if (
-        isinstance(local_error, AirbyteConnectorNotReadyError)
-        and local_message == problem.message
-    ):
-        return _cloud_problem_text(problem)
-
     local_text = f"{local_message} {local_error.guidance}"
     if problem.message == local_message or problem.message in local_text:
         return local_text
