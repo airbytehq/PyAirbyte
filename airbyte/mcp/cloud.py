@@ -908,11 +908,9 @@ def create_connection_on_cloud(
     table_prefix: Annotated[
         str | None,
         Field(
-            description=(
-                "Two connections to the same destination cannot write to the same table "
-                "(namespace + name); use `table_prefix`, such as `<source>_`, to keep "
-                "them separate."
-            ),
+            description="Optional prefix for destination table names. Two connections to "
+            "the same destination cannot write to the same table (namespace + name); set "
+            "a prefix such as `<source>_` to keep them separate.",
             default=None,
         ),
         TraceArg.FINGERPRINT,

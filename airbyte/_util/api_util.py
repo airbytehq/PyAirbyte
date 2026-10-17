@@ -26,7 +26,11 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
-from airbyte._util.cloud_errors import CloudErrorInfo, parse_cloud_error
+from airbyte._util.cloud_errors import (
+    CloudErrorInfo,
+    parse_cloud_error,
+    parse_problem_payload,
+)
 from airbyte._util.meta import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     get_cloud_api_analytic_source,
@@ -1957,8 +1961,6 @@ def patch_destination(
 
 # Create and delete connections
 
-_MAX_CONFLICTING_DESTINATION_STREAMS = 10
-
 
 def build_stream_configurations(
     stream_names: list[str],
@@ -1991,22 +1993,24 @@ def build_connection_schedule(
     )
 
 
+_MAX_CONFLICTING_DESTINATION_STREAMS = 10
+
+
 def _format_conflicting_destination_stream(stream: object) -> str | None:
     if not isinstance(stream, dict):
         return None
     name = stream.get("streamName")
-    namespace = stream.get("streamNamespace")
+    namespace = stream.get("streamNamespace", "")
     connection_ids = stream.get("connectionIds")
-    if not isinstance(name, str) or not name.strip():
+    if not isinstance(name, str) or not name:
         return None
+    if namespace is None:
+        namespace = ""
     if not isinstance(namespace, str):
         return None
     if not isinstance(connection_ids, list) or not connection_ids:
         return None
-    if any(
-        not isinstance(connection_id, str) or not connection_id.strip()
-        for connection_id in connection_ids
-    ):
+    if any(not isinstance(connection_id, str) for connection_id in connection_ids):
         return None
 
     stream_name = f"{namespace}.{name}" if namespace else name
@@ -2015,14 +2019,10 @@ def _format_conflicting_destination_stream(stream: object) -> str | None:
 
 
 def _format_conflicting_destination_streams(body: str) -> str | None:
-    try:
-        if len(body.encode("utf-8")) > 64 * 1024:
-            return None
-        payload = json.loads(body)
-    except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
+    payload = parse_problem_payload(body)
+    if payload is None:
         return None
-
-    data = payload.get("data") if isinstance(payload, dict) else None
+    data = payload.get("data")
     streams = data.get("streams") if isinstance(data, dict) else None
     if not isinstance(streams, list) or not streams:
         return None
@@ -2030,9 +2030,10 @@ def _format_conflicting_destination_streams(body: str) -> str | None:
     formatted_streams: list[str] = []
     for stream in streams:
         formatted_stream = _format_conflicting_destination_stream(stream)
-        if formatted_stream is None:
-            return None
-        formatted_streams.append(formatted_stream)
+        if formatted_stream is not None:
+            formatted_streams.append(formatted_stream)
+    if not formatted_streams:
+        return None
 
     stream_list = ", ".join(formatted_streams[:_MAX_CONFLICTING_DESTINATION_STREAMS])
     if len(formatted_streams) > _MAX_CONFLICTING_DESTINATION_STREAMS:

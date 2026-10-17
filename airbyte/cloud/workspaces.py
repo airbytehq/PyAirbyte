@@ -997,8 +997,9 @@ class CloudWorkspace:
             source: The deployed source. You can pass a source ID or a CloudSource object.
             destination: The deployed destination. You can pass a destination ID or a
                 CloudDestination object.
-            table_prefix: Optional prefix to keep connections to the same destination from
-                writing to the same table (namespace + name).
+            table_prefix: Optional prefix for destination table names. Use it to keep
+                connections to the same destination from writing to the same table
+                (namespace + name).
             selected_streams: The selected stream names to sync within the connection.
         """
         if not selected_streams:

@@ -2302,7 +2302,6 @@ def _call_create_connection() -> None:
                 "streams": [
                     {
                         "streamName": "users",
-                        "streamNamespace": "analytics",
                         "connectionIds": ["users-connection"],
                     },
                     {
@@ -2313,7 +2312,7 @@ def _call_create_connection() -> None:
                 ]
             },
             "Another connection on this destination already writes to these tables: "
-            "`analytics.users` (connection `users-connection`), `orders` "
+            "`users` (connection `users-connection`), `orders` "
             "(connection `orders-connection`). Set `table_prefix` (for example "
             "`<source>_`) so this connection writes to different table names.",
             id="conflicting-streams",
@@ -2345,11 +2344,35 @@ def _call_create_connection() -> None:
         pytest.param(
             "https://reference.airbyte.com/reference/errors"
             "#error:connection-conflicting-destination-stream",
-            {"streams": "malformed"},
+            {
+                "streams": [
+                    {
+                        "streamName": "users",
+                        "streamNamespace": "analytics",
+                        "connectionIds": ["users-connection"],
+                    },
+                    {"streamName": 42},
+                    {
+                        "streamName": "orders",
+                        "streamNamespace": None,
+                        "connectionIds": ["orders-connection"],
+                    },
+                ]
+            },
+            "Another connection on this destination already writes to these tables: "
+            "`analytics.users` (connection `users-connection`), `orders` "
+            "(connection `orders-connection`). Set `table_prefix` (for example "
+            "`<source>_`) so this connection writes to different table names.",
+            id="malformed-stream-item-skipped",
+        ),
+        pytest.param(
+            "https://reference.airbyte.com/reference/errors"
+            "#error:connection-conflicting-destination-stream",
+            {"streams": [{"streamName": ""}, {"streamName": "orders"}]},
             "Another connection on this destination may already write to the same tables. "
             "Set `table_prefix` (for example `<source>_`) so this connection writes to "
             "different table names.",
-            id="malformed-stream-data",
+            id="all-stream-items-malformed",
         ),
         pytest.param(
             "https://reference.airbyte.com/reference/errors#bad-request",

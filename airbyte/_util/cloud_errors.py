@@ -83,22 +83,31 @@ def _reject_json_constant(value: str) -> NoReturn:
     raise json.JSONDecodeError("Invalid JSON constant", value, 0)
 
 
+def parse_problem_payload(body: str | None) -> dict[str, Any] | None:
+    """Parse a JSON problem body no larger than 64 KiB."""
+    if not isinstance(body, str) or len(body) > _MAX_PROBLEM_BODY:
+        return None
+    try:
+        if len(body.encode("utf-8")) > _MAX_PROBLEM_BODY:
+            return None
+        # Numeric fields are unused; avoid Python's integer-conversion size limit.
+        payload = json.loads(
+            body,
+            parse_int=lambda _: None,
+            parse_constant=_reject_json_constant,
+        )
+        if isinstance(payload, dict):
+            _problem_message(payload)
+    except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def parse_cloud_error(status_code: int | None, body: str | None) -> CloudErrorInfo:
     """Select detail/title from a JSON object of at most 64 KiB, or a status fallback."""
-    payload: Any = None
-    message = None
-    if isinstance(body, str) and len(body) <= _MAX_PROBLEM_BODY:
-        try:
-            if len(body.encode("utf-8")) <= _MAX_PROBLEM_BODY:
-                # Numeric fields are unused; avoid Python's integer-conversion size limit.
-                payload = json.loads(
-                    body, parse_int=lambda _: None, parse_constant=_reject_json_constant
-                )
-                if isinstance(payload, dict):
-                    message = _problem_message(payload)
-        except (UnicodeEncodeError, json.JSONDecodeError, RecursionError):
-            payload = None
-    problem = payload if isinstance(payload, dict) else {}
+    payload = parse_problem_payload(body)
+    message = _problem_message(payload) if payload is not None else None
+    problem = payload if payload is not None else {}
     problem_type = problem.get("type")
     return CloudErrorInfo(
         status_code=status_code,
