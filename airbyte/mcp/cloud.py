@@ -908,7 +908,11 @@ def create_connection_on_cloud(
     table_prefix: Annotated[
         str | None,
         Field(
-            description="Optional table prefix to use when syncing to the destination.",
+            description=(
+                "Two connections to the same destination cannot write to the same table "
+                "(namespace + name); use `table_prefix`, such as `<source>_`, to keep "
+                "them separate."
+            ),
             default=None,
         ),
         TraceArg.FINGERPRINT,
@@ -922,6 +926,9 @@ def create_connection_on_cloud(
     When `selected_streams` is not provided, the connection selects the source
     connector's suggested streams from the connector registry. If the connector has
     no suggested streams, the call fails with guidance to pass streams explicitly.
+
+    Two connections to the same destination cannot write to the same table (namespace +
+    name). Use `table_prefix` (for example `<source>_`) to keep them separate.
     """
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams) or []
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
