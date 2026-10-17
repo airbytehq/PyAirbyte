@@ -698,7 +698,7 @@ class AirbyteConnectionSyncError(AirbyteCloudConnectionError):
 
 @dataclass
 class AirbyteConnectionSyncActiveError(AirbyteCloudConnectionError):
-    """State update rejected because a sync is currently running (HTTP 423)."""
+    """Rejected because a sync is currently running on this connection."""
 
 
 @dataclass
