@@ -27,6 +27,7 @@ from airbyte.exceptions import (
     AirbyteWorkspaceNotEmptyError,
     AirbyteLibInputError,
 )
+from airbyte.mcp._error_handling import format_user_facing_error
 from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models, utils
@@ -2291,23 +2292,113 @@ def _call_create_connection() -> None:
     )
 
 
-def test_create_connection_400_raises_input_error_without_api_message(
+@pytest.mark.parametrize(
+    ("problem_type", "data", "expected_guidance"),
+    [
+        pytest.param(
+            "https://reference.airbyte.com/reference/errors"
+            "#error:connection-conflicting-destination-stream",
+            {
+                "streams": [
+                    {
+                        "streamName": "users",
+                        "connectionIds": ["users-connection"],
+                    },
+                    {
+                        "streamName": "orders",
+                        "streamNamespace": "",
+                        "connectionIds": ["orders-connection"],
+                    },
+                ]
+            },
+            "Another connection on this destination already writes to these tables: "
+            "`users` (connection `users-connection`), `orders` "
+            "(connection `orders-connection`). Set `table_prefix` (for example "
+            "`<source>_`) so this connection writes to different table names.",
+            id="conflicting-streams",
+        ),
+        pytest.param(
+            "https://reference.airbyte.com/reference/errors"
+            "#error:connection-conflicting-destination-stream",
+            {
+                "streams": [
+                    {
+                        "streamName": f"stream-{index}",
+                        "streamNamespace": "",
+                        "connectionIds": [f"connection-{index}"],
+                    }
+                    for index in range(12)
+                ]
+            },
+            (
+                "Another connection on this destination already writes to these tables: "
+                + ", ".join(
+                    f"`stream-{index}` (connection `connection-{index}`)"
+                    for index in range(10)
+                )
+                + ", and 2 more. Set `table_prefix` (for example `<source>_`) so this "
+                "connection writes to different table names."
+            ),
+            id="stream-list-capped",
+        ),
+        pytest.param(
+            "https://reference.airbyte.com/reference/errors"
+            "#error:connection-conflicting-destination-stream",
+            {
+                "streams": [
+                    {
+                        "streamName": "users",
+                        "streamNamespace": "analytics",
+                        "connectionIds": ["users-connection"],
+                    },
+                    {"streamName": 42},
+                    {
+                        "streamName": "orders",
+                        "streamNamespace": None,
+                        "connectionIds": ["orders-connection"],
+                    },
+                ]
+            },
+            "Another connection on this destination already writes to these tables: "
+            "`analytics.users` (connection `users-connection`), `orders` "
+            "(connection `orders-connection`). Set `table_prefix` (for example "
+            "`<source>_`) so this connection writes to different table names.",
+            id="malformed-stream-item-skipped",
+        ),
+        pytest.param(
+            "https://reference.airbyte.com/reference/errors"
+            "#error:connection-conflicting-destination-stream",
+            {"streams": [{"streamName": ""}, {"streamName": "orders"}]},
+            "Another connection on this destination may already write to the same tables. "
+            "Set `table_prefix` (for example `<source>_`) so this connection writes to "
+            "different table names.",
+            id="all-stream-items-malformed",
+        ),
+        pytest.param(
+            "https://reference.airbyte.com/reference/errors#bad-request",
+            {"message": "Internal API message"},
+            None,
+            id="non-conflict-400",
+        ),
+    ],
+)
+def test_create_connection_400_guidance(
     monkeypatch: pytest.MonkeyPatch,
+    problem_type: str,
+    data: Any,
+    expected_guidance: str | None,
 ) -> None:
-    """A 400 raises `AirbyteLibInputError`; `data.message` is never relayed."""
-    api_message = (
-        "No streams found with name [no_such_stream] and namespace [null]. "
-        "Please call the https://reference.airbyte.com/reference/getstreamproperties "
-        "endpoint to see the valid stream name and namespace combinations."
+    """Use conflicting-stream data for guidance without exposing other API details."""
+    detail = (
+        "The request could not be understood by the server due to malformed syntax."
     )
     body = json.dumps({
         "status": 400,
-        "type": "https://reference.airbyte.com/reference/errors#bad-request",
+        "type": problem_type,
         "title": "bad-request",
-        "detail": "The request could not be understood by the server "
-        "due to malformed syntax.",
+        "detail": detail,
         "documentationUrl": None,
-        "data": {"message": api_message},
+        "data": data,
     })
     raw_response = requests.Response()
     raw_response.status_code = 400
@@ -2326,15 +2417,15 @@ def test_create_connection_400_raises_input_error_without_api_message(
     with pytest.raises(AirbyteLibInputError) as exc_info:
         _call_create_connection()
 
-    assert exc_info.value.get_message() == (
-        "The request could not be understood by the server due to malformed syntax."
-    )
-    assert exc_info.value.guidance is None
-    assert api_message not in str(exc_info.value)
+    assert exc_info.value.get_message() == detail
+    assert exc_info.value.guidance == expected_guidance
+    assert "Internal API message" not in str(exc_info.value)
     assert exc_info.value.context["source_id"] == "source-id"
     assert exc_info.value.context["destination_id"] == "destination-id"
     assert exc_info.value.context["status_code"] == 400
     assert exc_info.value.__cause__ is sdk_error
+    expected_text = f"{detail} {expected_guidance}" if expected_guidance else detail
+    assert format_user_facing_error(exc_info.value) == expected_text
 
 
 def test_create_connection_400_with_non_json_body_uses_fallback_message(

@@ -26,7 +26,11 @@ import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
 
-from airbyte._util.cloud_errors import CloudErrorInfo, parse_cloud_error
+from airbyte._util.cloud_errors import (
+    CloudErrorInfo,
+    parse_cloud_error,
+    parse_problem_payload,
+)
 from airbyte._util.meta import (
     AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER,
     get_cloud_api_analytic_source,
@@ -1989,6 +1993,80 @@ def build_connection_schedule(
     )
 
 
+_MAX_CONFLICTING_DESTINATION_STREAMS = 10
+
+
+def _format_conflicting_destination_stream(stream: object) -> str | None:
+    if not isinstance(stream, dict):
+        return None
+    name = stream.get("streamName")
+    namespace = stream.get("streamNamespace", "")
+    connection_ids = stream.get("connectionIds")
+    if not isinstance(name, str) or not name:
+        return None
+    if namespace is None:
+        namespace = ""
+    if not isinstance(namespace, str):
+        return None
+    if not isinstance(connection_ids, list) or not connection_ids:
+        return None
+    if any(not isinstance(connection_id, str) for connection_id in connection_ids):
+        return None
+
+    stream_name = f"{namespace}.{name}" if namespace else name
+    rendered_ids = ", ".join(f"`{connection_id}`" for connection_id in connection_ids)
+    return f"`{stream_name}` (connection {rendered_ids})"
+
+
+def _format_conflicting_destination_streams(body: str) -> str | None:
+    payload = parse_problem_payload(body)
+    if payload is None:
+        return None
+    data = payload.get("data")
+    streams = data.get("streams") if isinstance(data, dict) else None
+    if not isinstance(streams, list) or not streams:
+        return None
+
+    formatted_streams: list[str] = []
+    for stream in streams:
+        formatted_stream = _format_conflicting_destination_stream(stream)
+        if formatted_stream is not None:
+            formatted_streams.append(formatted_stream)
+    if not formatted_streams:
+        return None
+
+    stream_list = ", ".join(formatted_streams[:_MAX_CONFLICTING_DESTINATION_STREAMS])
+    if len(formatted_streams) > _MAX_CONFLICTING_DESTINATION_STREAMS:
+        remaining_stream_count = len(formatted_streams) - _MAX_CONFLICTING_DESTINATION_STREAMS
+        stream_list = f"{stream_list}, and {remaining_stream_count} more"
+    return stream_list
+
+
+def _conflicting_destination_stream_guidance(error: SDKError) -> str | None:
+    """Explain how to avoid destination table collisions for a known Cloud problem."""
+    body = error_response_body(error)
+    problem = parse_cloud_error(error.status_code, body)
+    if problem.slug != "error:connection-conflicting-destination-stream":
+        return None
+
+    generic_guidance = (
+        "Another connection on this destination may already write to the same tables. "
+        "Set `table_prefix` (for example `<source>_`) so this connection writes to "
+        "different table names."
+    )
+    if body is None:
+        return generic_guidance
+    stream_list = _format_conflicting_destination_streams(body)
+    if stream_list is None:
+        return generic_guidance
+
+    return (
+        "Another connection on this destination already writes to these tables: "
+        f"{stream_list}. Set `table_prefix` (for example `<source>_`) so this "
+        "connection writes to different table names."
+    )
+
+
 def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
@@ -2029,6 +2107,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
         if e.status_code == HTTPStatus.BAD_REQUEST:
             raise AirbyteLibInputError(
                 message=sdk_error_message(e),
+                guidance=_conflicting_destination_stream_guidance(e),
                 context={**base_context, **_get_sdk_error_context(e)},
             ) from e
         raise _wrap_sdk_error(e, base_context) from e
