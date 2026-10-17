@@ -197,6 +197,20 @@ jobs:
         # Eval failures are expected (model variance); they are reported, not fatal.
         gh run watch "$RUN_ID" -R "$EVALS_REPO" --interval 30 > /dev/null
         conclusion=$(gh run view "$RUN_ID" -R "$EVALS_REPO" --json conclusion --jq .conclusion)
+        body_file="$RUNNER_TEMP/evals-comment.md"
+        if [ "$COMPARE" != "true" ]; then
+          dir=$(mktemp -d)
+          if gh run download "$RUN_ID" -R "$EVALS_REPO" \
+            -n "comment-$RUN_ID" -D "$dir"; then
+            comment="$dir/comment.md"
+            if [ -f "$comment" ]; then
+              cp "$comment" "$body_file"
+              echo "body-path=$body_file" >> "$GITHUB_OUTPUT"
+              cat "$body_file"
+              exit 0
+            fi
+          fi
+        fi
         # A changed-tools run with nothing to run uploads no evidence; any other
         # listing or download failure fails the job.
         artifacts=$(gh api "repos/$EVALS_REPO/actions/runs/$RUN_ID/artifacts" --paginate \
@@ -208,7 +222,6 @@ jobs:
           results=$(find "$dir" -name results.json | head -n 1)
           [ -n "$results" ] || { echo "::error::all-evidence artifact has no results.json."; exit 1; }
         fi
-        body_file="$RUNNER_TEMP/evals-comment.md"
         if [ "$COMPARE" = "true" ]; then
           dir=$(mktemp -d)
           if gh run download "$RUN_ID" -R "$EVALS_REPO" \
