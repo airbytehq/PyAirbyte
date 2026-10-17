@@ -17,7 +17,7 @@ on:
         required: false
         default: 'false'
       compare:
-        description: "Also run the PR's base and post the comparison"
+        description: "Compare with the PR's base, or pass a release, PR, commit SHA or branch."
         type: string
         required: false
         default: 'false'
@@ -56,8 +56,6 @@ jobs:
       run: |
         set -euo pipefail
         [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::Invalid PR number: $PR"; exit 1; }
-        [[ "$COMPARE" == "true" || "$COMPARE" == "false" ]] \
-          || { echo "::error::Invalid compare value: $COMPARE"; exit 1; }
         if [ "$FULL" = "true" ]; then
           changed_only=false
           label="full suite"
@@ -65,13 +63,25 @@ jobs:
           changed_only=true
           label="changed tools only"
         fi
+        compare_to=""
         if [ "$COMPARE" = "true" ]; then
+          compare=true
           label="$label, compared with base"
+        elif [ "$COMPARE" = "false" ]; then
+          compare=false
+        elif [[ "$COMPARE" =~ ^#?[A-Za-z0-9][A-Za-z0-9_./-]*$ ]]; then
+          compare=true
+          compare_to="$COMPARE"
+          label="$label, compared with $COMPARE"
+        else
+          echo "::error::Invalid compare value: $COMPARE"
+          exit 1
         fi
         {
           echo "changed-only=$changed_only"
           echo "label=$label"
-          echo "compare=$COMPARE"
+          echo "compare=$compare"
+          echo "compare_to=$compare_to"
           echo "short-sha=${SHA:0:7}"
         } >> "$GITHUB_OUTPUT"
 
@@ -134,6 +144,7 @@ jobs:
         CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
         RUN_ARGS: ${{ steps.args.outputs.run-args }}
         COMPARE: ${{ steps.mode.outputs.compare }}
+        COMPARE_TO: ${{ steps.mode.outputs.compare_to }}
       run: |
         set -euo pipefail
         since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -142,6 +153,9 @@ jobs:
         compare_args=()
         if [ "$COMPARE" = "true" ]; then
           compare_args+=(-f compare=true)
+        fi
+        if [ -n "$COMPARE_TO" ]; then
+          compare_args+=(-f "compare_to=$COMPARE_TO")
         fi
         gh workflow run evals.yml -R "$EVALS_REPO" --ref main \
           -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY" \
