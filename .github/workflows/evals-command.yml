@@ -16,6 +16,11 @@ on:
         type: string
         required: false
         default: 'false'
+      compare:
+        description: "Also run the PR's base and post the comparison"
+        type: string
+        required: false
+        default: 'false'
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
@@ -37,6 +42,7 @@ jobs:
     env:
       PR: ${{ inputs.pr }}
       FULL: ${{ inputs.full }}
+      COMPARE: ${{ inputs.compare }}
       EVALS_REPO: airbytehq/cloud-mcp-evals
     steps:
     - name: Resolve workflow variables
@@ -50,14 +56,24 @@ jobs:
       run: |
         set -euo pipefail
         [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::Invalid PR number: $PR"; exit 1; }
+        [[ "$COMPARE" == "true" || "$COMPARE" == "false" ]] \
+          || { echo "::error::Invalid compare value: $COMPARE"; exit 1; }
         if [ "$FULL" = "true" ]; then
-          echo "changed-only=false" >> "$GITHUB_OUTPUT"
-          echo "label=full suite" >> "$GITHUB_OUTPUT"
+          changed_only=false
+          label="full suite"
         else
-          echo "changed-only=true" >> "$GITHUB_OUTPUT"
-          echo "label=changed tools only" >> "$GITHUB_OUTPUT"
+          changed_only=true
+          label="changed tools only"
         fi
-        echo "short-sha=${SHA:0:7}" >> "$GITHUB_OUTPUT"
+        if [ "$COMPARE" = "true" ]; then
+          label="$label, compared with base"
+        fi
+        {
+          echo "changed-only=$changed_only"
+          echo "label=$label"
+          echo "compare=$COMPARE"
+          echo "short-sha=${SHA:0:7}"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Read run arguments
       id: args
@@ -76,7 +92,7 @@ jobs:
 
         first_line = os.environ["COMMENT_BODY"].split("\n", 1)[0].rstrip("\r")
         first_line = re.sub(r"^\s*/evals(?:\s+|$)", "", first_line, count=1)
-        first_line = re.sub(r"(?<!\S)(?:full|ref)=[^\s]+", "", first_line)
+        first_line = re.sub(r"(?<!\S)(?:full|ref|compare)=[^\s]+", "", first_line)
         print(first_line.strip())
         PY
         )"
@@ -117,13 +133,19 @@ jobs:
         GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
         CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
         RUN_ARGS: ${{ steps.args.outputs.run-args }}
+        COMPARE: ${{ steps.mode.outputs.compare }}
       run: |
         set -euo pipefail
         since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         extra=()
         [[ -n "$RUN_ARGS" ]] && extra=(-f run_args="$RUN_ARGS")
+        compare_args=()
+        if [ "$COMPARE" = "true" ]; then
+          compare_args+=(-f compare=true)
+        fi
         gh workflow run evals.yml -R "$EVALS_REPO" --ref main \
-          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY" "${extra[@]}"
+          -f pyairbyte="#$PR" -f changed_tools_only="$CHANGED_ONLY" \
+          "${extra[@]}" "${compare_args[@]}"
         title="PyAirbyte evals: #$PR"
         for _ in $(seq 18); do
           sleep 10
@@ -155,6 +177,7 @@ jobs:
         RUN_URL: ${{ steps.dispatch.outputs.run-url }}
         LABEL: ${{ steps.args.outputs.label || steps.mode.outputs.label }}
         CHANGED_ONLY: ${{ steps.mode.outputs.changed-only }}
+        COMPARE: ${{ steps.mode.outputs.compare }}
       run: |
         set -euo pipefail
         # Eval failures are expected (model variance); they are reported, not fatal.
@@ -171,17 +194,35 @@ jobs:
           results=$(find "$dir" -name results.json | head -n 1)
           [ -n "$results" ] || { echo "::error::all-evidence artifact has no results.json."; exit 1; }
         fi
-        if [ -n "$results" ]; then
+        body_file="$RUNNER_TEMP/evals-comment.md"
+        if [ "$COMPARE" = "true" ]; then
+          dir=$(mktemp -d)
+          if gh run download "$RUN_ID" -R "$EVALS_REPO" \
+            -n "comparison-$RUN_ID" -D "$dir"; then
+            comparison="$dir/comparison.md"
+            if [ -f "$comparison" ]; then
+              body="$(cat "$comparison")"
+              body="$body"$'\n\n'"[Full summary]($RUN_URL)"
+            else
+              body="Evals run ended ($conclusion) before producing a comparison."
+              body="$body"$'\n\n'"[Full summary]($RUN_URL)"
+            fi
+          else
+            body="Evals run ended ($conclusion) before producing a comparison."
+            body="$body"$'\n\n'"[Full summary]($RUN_URL)"
+          fi
+          printf '%s\n' "$body" > "$body_file"
+        elif [ -n "$results" ]; then
           run_json=$(dirname "$results")/run.json
           commit=$(jq -r '.mcp.airbyte.direct_url.vcs_info.commit_id // "unknown"' "$run_json")
           expected=$(jq -r '.expected_trials // empty' "$run_json")
-          body=$(jq -r --arg expected "$expected" --arg commit "${commit:0:7}" --arg label "$LABEL" '
+          body=$(jq -r --arg expected "$expected" --arg commit "${commit:0:7}" --arg report_label "$LABEL" '
             (if $expected == "" then length else ($expected | tonumber) end) as $total
             | (map(select(.status == "pass")) | length) as $passed
             | ((group_by(.status) | map(select(.[0].status != "pass")
                  | "\(length) \({fail: "failed", error: "errored"}[.[0].status] // .[0].status)"))
                + (if $total > length then ["\($total - length) missing"] else [] end)) as $other
-            | "Cloud MCP evals on `\($commit)` (\($label)): **\($passed) / \($total) passed**"
+            | "Cloud MCP evals on `\($commit)` (\($report_label)): **\($passed) / \($total) passed**"
               + (if ($other | length) > 0 then " (\($other | join(", ")))" else "" end)' "$results")
           body="$body · [summary]($RUN_URL)"
         elif [ "$conclusion" = "success" ] && [ "$CHANGED_ONLY" = "true" ]; then
@@ -192,15 +233,17 @@ jobs:
         else
           body="Evals run ended ($conclusion) before producing results. [summary]($RUN_URL)"
         fi
-        echo "$body"
-        echo "body=$body" >> "$GITHUB_OUTPUT"
+        if [ "$COMPARE" != "true" ]; then
+          printf '> %s\n' "$body" > "$body_file"
+        fi
+        echo "body-path=$body_file" >> "$GITHUB_OUTPUT"
+        cat "$body_file"
 
     - name: Append results comment
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
       with:
         comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
-        body: |
-          > ${{ steps.report.outputs.body }}
+        body-path: ${{ steps.report.outputs.body-path }}
 
     - name: Append failure comment
       if: failure()
