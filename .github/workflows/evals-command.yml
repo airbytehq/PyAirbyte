@@ -188,7 +188,7 @@ jobs:
         artifacts=$(gh api "repos/$EVALS_REPO/actions/runs/$RUN_ID/artifacts" --paginate \
           --jq '.artifacts[] | select(.name | startswith("all-evidence-")) | .name')
         results=""
-        if [ -n "$artifacts" ]; then
+        if [ "$COMPARE" != "true" ] && [ -n "$artifacts" ]; then
           dir=$(mktemp -d)
           gh run download "$RUN_ID" -R "$EVALS_REPO" -p 'all-evidence-*' -D "$dir"
           results=$(find "$dir" -name results.json | head -n 1)
