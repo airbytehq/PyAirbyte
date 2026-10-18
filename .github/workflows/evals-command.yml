@@ -17,10 +17,10 @@ on:
         required: false
         default: 'false'
       compare:
-        description: "Compare with the PR's base, or pass a release, PR, commit SHA or branch."
+        description: "Compare with the PR's base (default). Pass false to skip, or a release, PR, commit SHA or branch to compare against."
         type: string
         required: false
-        default: 'false'
+        default: 'true'
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}

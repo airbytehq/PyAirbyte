@@ -25,7 +25,7 @@ Airbyte Maintainers can execute the following slash commands on your PR:
 - `/uv-lock` - Updates uv.lock file
 - `/test-pr` - Runs tests with the updated PyAirbyte
 - `/prerelease` - Builds and publishes a prerelease version to PyPI
-- `/evals` - Runs the Cloud MCP evals that use the MCP tools this PR changed (`/evals full=true` runs the full suite; `/evals compare=true` runs the PR and its base and posts the difference). Use `/evals compare=main` (or a release, commit, or PR) to compare against a target other than the base. Add any `cloud_mcp_evals run` arguments after it, e.g. `/evals full=true --repeats 3 scenarios/regressions`. Write options as `--repeats 3`, not `--repeats=3`.
+- `/evals` - Runs the Cloud MCP evals that use the MCP tools this PR changed, on this PR and on its base branch, and posts the difference (`/evals full=true` compares the full suite). Use `/evals compare=main` (or a release, commit, or PR) to compare against a different target, or `/evals compare=false` to run only this PR. Add any `cloud_mcp_evals run` arguments after it, e.g. `/evals full=true --repeats 3 scenarios/regressions`. Write options as `--repeats 3`, not `--repeats=3`.
 
 </details>
 
