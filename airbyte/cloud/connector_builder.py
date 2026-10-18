@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
 
 _HTTP_ERROR_STATUS_MIN = 400
+_PROBLEM_LOG_LEVELS = frozenset({"WARN", "ERROR", "FATAL"})
+_FAILING_LOG_LEVELS = frozenset({"ERROR", "FATAL"})
 _MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
 _YAML_LINE_WIDTH = 2**31 - 1
 
@@ -250,6 +252,74 @@ def _draft_from_project_data(project_data: dict[str, Any]) -> dict[str, Any] | N
         return None
     declarative_manifest = project_data.get("declarativeManifest") or {}
     return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
+
+
+class ConnectorBuilderStreamReadiness(BaseModel):
+    """Readiness of one stream, from a Connector Builder test read."""
+
+    stream_name: str
+    passed: bool
+    record_count: int = 0
+    page_count: int = 0
+    test_read_limit_reached: bool = False
+    http_errors: list[ConnectorBuilderPageSummary] = Field(default_factory=list)
+    problem_logs: list[dict[str, Any]] = Field(default_factory=list)
+    inferred_schema: dict[str, Any] | None = None
+    error: str | None = Field(
+        default=None,
+        description="The error raised by the test read itself, if it failed to run.",
+    )
+
+    @classmethod
+    def from_stream_read(
+        cls, result: ConnectorBuilderStreamReadResult
+    ) -> ConnectorBuilderStreamReadiness:
+        """Judge a stream from its test read: records returned, no HTTP or error logs."""
+        http_errors = [
+            page
+            for page in result.pages
+            if page.status is not None and page.status >= _HTTP_ERROR_STATUS_MIN
+        ]
+        problem_logs = [log for log in result.logs if log.get("level") in _PROBLEM_LOG_LEVELS]
+        has_errors = bool(http_errors) or any(
+            log.get("level") in _FAILING_LOG_LEVELS for log in problem_logs
+        )
+        return cls(
+            stream_name=result.stream_name,
+            passed=result.record_count > 0 and not has_errors,
+            record_count=result.record_count,
+            page_count=result.page_count,
+            test_read_limit_reached=result.test_read_limit_reached,
+            http_errors=http_errors,
+            problem_logs=problem_logs,
+            inferred_schema=result.inferred_schema,
+        )
+
+
+class ConnectorBuilderReadinessReport(BaseModel):
+    """Result of test-reading every stream of a Connector Builder draft."""
+
+    passed: bool
+    stream_count: int
+    passed_stream_count: int
+    streams: list[ConnectorBuilderStreamReadiness]
+
+
+class ConnectorBuilderChecklistItem(BaseModel):
+    """One step toward a finished custom source, with status derived from the project."""
+
+    step: str
+    done: bool | None = Field(
+        description="True or False when known; None when it needs a test read to decide.",
+    )
+    detail: str | None = None
+
+
+class ConnectorBuilderChecklist(BaseModel):
+    """Progress toward a finished custom source, derived from the project's current state."""
+
+    items: list[ConnectorBuilderChecklistItem]
+    next_steps: list[str]
 
 
 class CloudConnectorBuilderProject:
@@ -510,6 +580,97 @@ class CloudConnectorBuilderProject:
         )
         return ConnectorBuilderResolvedManifest.from_manifest(resolved_manifest)
 
+    def run_readiness_report(
+        self,
+        *,
+        record_limit: int = 100,
+        page_limit: int = 5,
+        slice_limit: int = 5,
+        stream_limit: int = 5,
+    ) -> ConnectorBuilderReadinessReport:
+        """Test-read every stream of the draft on Airbyte Cloud and judge each one.
+
+        Streams come from `resolve_manifest()`, so dynamic streams are included. A stream
+        passes when its test read returns records with no HTTP errors or error logs.
+        """
+        stream_names = self.resolve_manifest(stream_limit=stream_limit).stream_names
+        streams: list[ConnectorBuilderStreamReadiness] = []
+        for stream_name in stream_names:
+            try:
+                result = self.test_read_stream(
+                    stream_name,
+                    record_limit=record_limit,
+                    page_limit=page_limit,
+                    slice_limit=slice_limit,
+                )
+            except exc.AirbyteLibError as ex:
+                streams.append(
+                    ConnectorBuilderStreamReadiness(
+                        stream_name=stream_name, passed=False, error=str(ex)
+                    )
+                )
+                continue
+            streams.append(ConnectorBuilderStreamReadiness.from_stream_read(result))
+
+        passed_count = sum(stream.passed for stream in streams)
+        return ConnectorBuilderReadinessReport(
+            passed=bool(streams) and passed_count == len(streams),
+            stream_count=len(streams),
+            passed_stream_count=passed_count,
+            streams=streams,
+        )
+
+    def get_checklist(self) -> ConnectorBuilderChecklist:
+        """Derive a checklist of the steps to a finished custom source from the project state.
+
+        Nothing is stored: each step's status is read from the project with one request.
+        Test results aren't stored either, so that step stays unknown (`done=None`) until
+        `run_readiness_report()` is run.
+        """
+        project_data = self.get_project_data()
+        draft = _draft_from_project_data(project_data)
+        spec = ((draft or {}).get("spec") or {}).get("connection_specification") or {}
+        stream_names = [
+            stream.get("name")
+            for stream in (draft or {}).get("streams") or []
+            if isinstance(stream, dict)
+        ]
+        has_dynamic_streams = bool((draft or {}).get("dynamic_streams"))
+        testing_values = project_data.get("testingValues") or {}
+        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
+
+        items = [
+            ConnectorBuilderChecklistItem(step="Save a draft manifest", done=draft is not None),
+            ConnectorBuilderChecklistItem(
+                step="Define the connection spec (user inputs)",
+                done=bool(spec.get("properties")),
+            ),
+            ConnectorBuilderChecklistItem(
+                step="Define at least one stream",
+                done=bool(stream_names) or has_dynamic_streams,
+                detail=", ".join(str(name) for name in stream_names) or None,
+            ),
+            ConnectorBuilderChecklistItem(
+                step="Set testing values (enter secrets in the Connector Builder UI)",
+                done=bool(testing_values),
+                detail=self.url,
+            ),
+            ConnectorBuilderChecklistItem(
+                step="Pass a test read on every stream",
+                done=None,
+                detail="Unknown until checked: run the readiness report.",
+            ),
+            ConnectorBuilderChecklistItem(
+                step="Publish the custom source definition",
+                done=source_definition_id is not None,
+                detail=source_definition_id,
+            ),
+        ]
+        return ConnectorBuilderChecklist(
+            items=items,
+            next_steps=[item.step for item in items if item.done is not True],
+        )
+
     def publish(
         self,
         name: str,
@@ -557,7 +718,11 @@ class CloudConnectorBuilderProject:
 
 __all__ = [
     "CloudConnectorBuilderProject",
+    "ConnectorBuilderChecklist",
+    "ConnectorBuilderChecklistItem",
     "ConnectorBuilderPageSummary",
+    "ConnectorBuilderReadinessReport",
+    "ConnectorBuilderStreamReadiness",
     "ConnectorBuilderProjectInfo",
     "ConnectorBuilderResolvedManifest",
     "ConnectorBuilderStreamReadResult",

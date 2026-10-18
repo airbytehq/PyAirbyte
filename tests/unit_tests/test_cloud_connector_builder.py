@@ -13,6 +13,7 @@ from airbyte._util import api_util
 from airbyte.cloud import connector_builder
 from airbyte.cloud.connector_builder import (
     CloudConnectorBuilderProject,
+    ConnectorBuilderPageSummary,
     ConnectorBuilderResolvedManifest,
     ConnectorBuilderStreamReadResult,
     apply_manifest_text_edit,
@@ -456,3 +457,135 @@ def test_publish_validates_unpublished_draft_unless_disabled(
 
     project.publish("My API")
     validate.assert_called_once()
+
+
+def _stream_read(
+    stream_name: str,
+    *,
+    record_count: int,
+    status: int = 200,
+    logs: list[dict[str, Any]] | None = None,
+) -> ConnectorBuilderStreamReadResult:
+    return ConnectorBuilderStreamReadResult(
+        stream_name=stream_name,
+        record_count=record_count,
+        slice_count=1,
+        page_count=1,
+        test_read_limit_reached=False,
+        records=[],
+        pages=[ConnectorBuilderPageSummary(status=status, record_count=record_count)],
+        logs=logs or [],
+    )
+
+
+def test_run_readiness_report_judges_each_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    monkeypatch.setattr(
+        project,
+        "resolve_manifest",
+        lambda **_: ConnectorBuilderResolvedManifest(
+            manifest={},
+            stream_names=[
+                "ok",
+                "empty",
+                "http_error",
+                "error_log",
+                "warn_log",
+                "broken",
+            ],
+        ),
+    )
+    reads = {
+        "ok": _stream_read("ok", record_count=3),
+        "empty": _stream_read("empty", record_count=0),
+        "http_error": _stream_read("http_error", record_count=1, status=401),
+        "error_log": _stream_read(
+            "error_log", record_count=1, logs=[{"level": "ERROR", "message": "boom"}]
+        ),
+        "warn_log": _stream_read(
+            "warn_log", record_count=1, logs=[{"level": "WARN", "message": "hmm"}]
+        ),
+    }
+
+    def fake_read(stream_name: str, **_: Any) -> ConnectorBuilderStreamReadResult:
+        if stream_name == "broken":
+            raise AirbyteLibInputError(message="read failed")
+        return reads[stream_name]
+
+    monkeypatch.setattr(project, "test_read_stream", fake_read)
+
+    report = project.run_readiness_report()
+
+    assert {stream.stream_name: stream.passed for stream in report.streams} == {
+        "ok": True,
+        "empty": False,
+        "http_error": False,
+        "error_log": False,
+        "warn_log": True,
+        "broken": False,
+    }
+    assert report.passed is False
+    assert (report.stream_count, report.passed_stream_count) == (6, 2)
+    by_name = {stream.stream_name: stream for stream in report.streams}
+    assert by_name["http_error"].http_errors[0].status == 401
+    assert by_name["warn_log"].problem_logs == [{"level": "WARN", "message": "hmm"}]
+    assert by_name["broken"].error is not None
+
+
+def test_run_readiness_report_without_streams_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    monkeypatch.setattr(
+        project,
+        "resolve_manifest",
+        lambda **_: ConnectorBuilderResolvedManifest(manifest={}, stream_names=[]),
+    )
+    assert project.run_readiness_report().passed is False
+
+
+def test_get_checklist_derives_status_from_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(
+        monkeypatch,
+        draft={
+            "version": "6.0.0",
+            "spec": {"connection_specification": {"properties": {"api_key": {}}}},
+            "streams": [{"name": "users"}],
+        },
+    )
+
+    checklist = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_checklist()
+
+    assert [item.done for item in checklist.items] == [
+        True,
+        True,
+        True,
+        False,
+        None,
+        False,
+    ]
+    assert checklist.items[2].detail == "users"
+    assert checklist.next_steps == [
+        "Set testing values (enter secrets in the Connector Builder UI)",
+        "Pass a test read on every stream",
+        "Publish the custom source definition",
+    ]
+
+
+def test_get_checklist_without_draft(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_project_store(monkeypatch, draft=None, source_definition_id="def")
+
+    checklist = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_checklist()
+
+    assert [item.done for item in checklist.items] == [
+        False,
+        False,
+        False,
+        False,
+        None,
+        True,
+    ]

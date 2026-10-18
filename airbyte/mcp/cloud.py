@@ -3874,6 +3874,85 @@ def resolve_connector_builder_manifest(
     }
 
 
+@mcp_tool(read_only=True, idempotent=True, external_access=True)
+def run_connector_builder_readiness_report(
+    ctx: Context,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> dict[str, Any]:
+    """Test-read every stream of a Connector Builder project's draft on Airbyte Cloud.
+
+    Resolves the draft (including dynamic streams), test-reads each stream with the project's
+    testing values, and returns per-stream pass/fail, record and page counts, HTTP errors,
+    warning and error logs, and inferred schemas, plus an overall verdict. A stream passes when
+    it returns records with no HTTP errors or error logs.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    report = project.run_readiness_report()
+    return {
+        "builder_project_id": project.builder_project_id,
+        **report.model_dump(),
+    }
+
+
+@mcp_tool(read_only=True, idempotent=True)
+def get_connector_builder_checklist(
+    ctx: Context,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> dict[str, Any]:
+    """Get the steps to a finished custom source and which are done, with next steps.
+
+    Status is derived from the Connector Builder project's current state, so it can't go stale.
+    Stream test results aren't stored: use `run_connector_builder_readiness_report` for those.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    checklist = project.get_checklist()
+    return {
+        "builder_project_id": project.builder_project_id,
+        "connector_builder_project_url": project.url,
+        **checklist.model_dump(),
+    }
+
+
 @mcp_tool(destructive=True, extra_help_text=_manifest_yaml_source_hint)
 def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,

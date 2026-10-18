@@ -149,6 +149,11 @@
     "connection_id": "hash",
     "workspace_id": "omit"
   },
+  "get_connector_builder_checklist": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "workspace_id": "omit"
+  },
   "get_connector_builder_draft_manifest": {
     "builder_project_id": "hash",
     "definition_id": "hash",
@@ -307,6 +312,11 @@
     "connection_id": "hash",
     "wait": "value allowed=[false,true]",
     "wait_timeout": "hash",
+    "workspace_id": "omit"
+  },
+  "run_connector_builder_readiness_report": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
     "workspace_id": "omit"
   },
   "run_sql_query": {
