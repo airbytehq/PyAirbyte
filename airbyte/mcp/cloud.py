@@ -3759,7 +3759,7 @@ def set_connector_builder_testing_values(
     )
 
 
-@mcp_tool(read_only=True, open_world=True)
+@mcp_tool(read_only=True)
 def test_connector_builder_stream(
     ctx: Context,
     stream_name: Annotated[
@@ -3825,7 +3825,7 @@ def test_connector_builder_stream(
     }
 
 
-@mcp_tool(read_only=True, idempotent=True, open_world=True)
+@mcp_tool(read_only=True, idempotent=True)
 def resolve_connector_builder_manifest(
     ctx: Context,
     *,
