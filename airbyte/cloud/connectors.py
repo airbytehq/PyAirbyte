@@ -88,6 +88,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject, _unwrap_builder_manifest
 from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
@@ -1273,25 +1274,6 @@ class CloudDestination(CloudConnector):
         return result
 
 
-_MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
-
-
-def _unwrap_builder_manifest(value: object) -> dict[str, Any] | None:
-    """Return the connector manifest from a builder manifest payload.
-
-    Some builder projects store their draft as a `DeclarativeSourceManifest`
-    envelope (`{"manifest": {...}, "spec": ..., "version": ...}`) rather than
-    the bare manifest; unwrap that envelope so the result matches the shape of
-    `manifest`.
-    """
-    if not isinstance(value, dict):
-        return None
-    nested = value.get("manifest")
-    if isinstance(nested, dict) and not any(key in value for key in _MANIFEST_KEYS):
-        return nested
-    return value
-
-
 class CustomCloudSourceDefinition:  # noqa: PLR0904
     """A custom source connector definition in Airbyte Cloud.
 
@@ -1464,6 +1446,18 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         self._builder_project_workspace_id = result.get("workspaceId")
 
         return self._connector_builder_project_id
+
+    @property
+    def connector_builder_project(self) -> CloudConnectorBuilderProject | None:
+        """The Connector Builder project behind this definition. YAML connectors only."""
+        if self.definition_type != "yaml":
+            return None
+
+        project_id = self.connector_builder_project_id
+        if not project_id:
+            return None
+
+        return CloudConnectorBuilderProject(self.workspace, project_id)
 
     @property
     def connector_builder_project_url(self) -> str | None:

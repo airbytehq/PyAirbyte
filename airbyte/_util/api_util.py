@@ -3175,6 +3175,166 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
     )
 
 
+def create_connector_builder_project(
+    *,
+    workspace_id: str,
+    name: str,
+    draft_manifest: dict[str, Any] | None,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> str:
+    """Create an unpublished connector builder project and return its ID.
+
+    Calls `POST /v1/connector_builder_projects/create`.
+    """
+    builder_project: dict[str, Any] = {"name": name}
+    if draft_manifest is not None:
+        builder_project["draftManifest"] = draft_manifest
+
+    response = _make_config_api_request(
+        path="/connector_builder_projects/create",
+        json={"workspaceId": workspace_id, "builderProject": builder_project},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    builder_project_id = response.get("builderProjectId")
+    if not isinstance(builder_project_id, str):
+        raise AirbyteCloudError(
+            message="Connector builder project API returned an unexpected response.",
+            context={"workspace_id": workspace_id},
+        )
+    return builder_project_id
+
+
+def read_connector_builder_project_stream(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    manifest: dict[str, Any],
+    stream_name: str,
+    record_limit: int,
+    page_limit: int,
+    slice_limit: int,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> dict[str, Any]:
+    """Run a test read of one stream on Airbyte Cloud, using the project's testing values.
+
+    Calls `POST /v1/connector_builder_projects/read_stream`.
+    """
+    return _make_config_api_request(
+        path="/connector_builder_projects/read_stream",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "manifest": manifest,
+            "streamName": stream_name,
+            "recordLimit": record_limit,
+            "pageLimit": page_limit,
+            "sliceLimit": slice_limit,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def full_resolve_connector_builder_project_manifest(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    manifest: dict[str, Any],
+    stream_limit: int,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> dict[str, Any]:
+    """Resolve a manifest, including dynamic streams, using the project's testing values.
+
+    Calls `POST /v1/connector_builder_projects/full_resolve` and returns the resolved manifest.
+    """
+    response = _make_config_api_request(
+        path="/connector_builder_projects/full_resolve",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "manifest": manifest,
+            "streamLimit": stream_limit,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    resolved_manifest = response.get("manifest")
+    if not isinstance(resolved_manifest, dict):
+        raise AirbyteCloudError(
+            message="Connector builder resolve API returned an unexpected response.",
+            context={"workspace_id": workspace_id, "builder_project_id": builder_project_id},
+        )
+    return resolved_manifest
+
+
+def publish_connector_builder_project(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    name: str,
+    manifest: dict[str, Any],
+    spec: dict[str, Any],
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> str:
+    """Publish a connector builder project as version 1 of a new custom source definition.
+
+    Calls `POST /v1/connector_builder_projects/publish`, which also clears the project's
+    draft, and returns the new source definition ID.
+    """
+    response = _make_config_api_request(
+        path="/connector_builder_projects/publish",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "name": name,
+            "initialDeclarativeManifest": {
+                "manifest": manifest,
+                "spec": spec,
+                "version": 1,
+                "description": "",
+            },
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    source_definition_id = response.get("sourceDefinitionId")
+    if not isinstance(source_definition_id, str):
+        raise AirbyteCloudError(
+            message="Connector builder publish API returned an unexpected response.",
+            context={"workspace_id": workspace_id, "builder_project_id": builder_project_id},
+        )
+    return source_definition_id
+
+
 # Organization and workspace listing
 
 

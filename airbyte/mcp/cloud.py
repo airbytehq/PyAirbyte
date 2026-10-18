@@ -35,6 +35,10 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
+from airbyte.cloud.connector_builder import (
+    CloudConnectorBuilderProject,
+    ManifestTextEditMode,
+)
 from airbyte.cloud.connectors import (
     CheckResult,
     CloudConnector,
@@ -3302,6 +3306,18 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         ),
         TraceArg.FINGERPRINT,
     ],
+    builder_project_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional. Publish this Connector Builder project's draft instead of creating "
+                "a new project. The manifest arguments are then optional and replace the draft "
+                "before publishing. If the project is already published, the draft becomes a "
+                "new active version of its existing definition."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -3312,7 +3328,7 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         manifest_yaml_text=manifest_yaml_text,
         manifest_yaml_file=manifest_yaml_file,
     )
-    if processed_manifest is None:
+    if processed_manifest is None and builder_project_id is None:
         error_message = (
             "Provide the manifest in `manifest_yaml_text` (full YAML contents) or "
             "`manifest_yaml_file` (local path)."
@@ -3341,6 +3357,7 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         unique=unique,
         pre_validate=pre_validate,
         testing_values=testing_values_dict,
+        builder_project_id=builder_project_id,
     )
     register_guid_created_in_session(custom_source.definition_id)
     return (
@@ -3451,6 +3468,25 @@ def get_custom_source_definition(
     return result
 
 
+_BUILDER_PROJECT_ID_DESCRIPTION = (
+    "The Connector Builder project ID. Provide exactly one of `builder_project_id` or "
+    "`definition_id`."
+)
+_BUILDER_DEFINITION_ID_DESCRIPTION = (
+    "The custom source definition ID, for a project that has been published. Provide exactly "
+    "one of `builder_project_id` or `definition_id`."
+)
+_TEST_READ_RECORDS_PREVIEW_LIMIT = 10
+
+
+def _builder_project_ids(project: CloudConnectorBuilderProject) -> dict[str, Any]:
+    return {
+        "builder_project_id": project.builder_project_id,
+        "definition_id": project.source_definition_id,
+        "connector_builder_project_url": project.url,
+    }
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -3458,8 +3494,56 @@ def get_custom_source_definition(
 def get_connector_builder_draft_manifest(
     ctx: Context,
     definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> dict[str, Any]:
+    """Get the Connector Builder draft manifest of a project or custom source definition.
+
+    Returns the working draft manifest that has been saved but not yet published, both as
+    a dict and as `draft_manifest_text`. Airbyte Cloud stores the parsed manifest, so the text
+    is a normalized YAML rendering without comments; text edits with
+    `update_connector_builder_manifest_text` match against it.
+
+    If no draft exists, 'has_draft' will be False and the draft fields will be None.
+    The published manifest is included for comparison, or None if never published.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    draft_manifest = project.draft_manifest
+    return {
+        **_builder_project_ids(project),
+        "name": project.name,
+        "has_draft": draft_manifest is not None,
+        "draft_manifest": draft_manifest,
+        "draft_manifest_text": project.draft_manifest_text,
+        "published_manifest": project.published_manifest,
+    }
+
+
+@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
+def create_connector_builder_project(
+    ctx: Context,
+    name: Annotated[
         str,
-        Field(description="The ID of the custom source definition to retrieve the draft for."),
+        Field(description="The name for the Connector Builder project."),
+        TraceArg.FINGERPRINT,
     ],
     *,
     workspace_id: Annotated[
@@ -3470,30 +3554,323 @@ def get_connector_builder_draft_manifest(
         ),
         TraceArg.OMIT,
     ],
+    manifest_yaml_text: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional initial draft. Full YAML contents of the declarative (low-code) "
+                "connector manifest: the file's text, not a filename or path."
+            ),
+            default=None,
+        ),
+    ] = None,
+    manifest_yaml_file: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional initial draft. Absolute path to a manifest YAML file on the machine "
+                "running this MCP server."
+            ),
+            default=None,
+        ),
+    ] = None,
+    pre_validate: Annotated[
+        bool,
+        Field(
+            description="Whether to validate the manifest client-side before saving.",
+            default=True,
+        ),
+    ] = True,
 ) -> dict[str, Any]:
-    """Get the Connector Builder draft manifest for a custom source definition.
+    """Create an unpublished Connector Builder project to develop a custom YAML source.
 
-    Returns the working draft manifest that has been saved in the Connector Builder UI
-    but not yet published. This is useful for inspecting what a user is currently working
-    on before they publish their changes.
+    The project holds the draft manifest and the testing values used for test reads.
+    Nothing appears in the workspace's source list until the project is published with
+    `publish_custom_source_definition`.
+    """
+    processed_manifest = resolve_manifest_yaml(
+        manifest_yaml_text=manifest_yaml_text,
+        manifest_yaml_file=manifest_yaml_file,
+    )
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.create_connector_builder_project(
+        name,
+        manifest_yaml=processed_manifest,
+        pre_validate=pre_validate,
+    )
+    register_guid_created_in_session(project.builder_project_id)
+    return {
+        "builder_project_id": project.builder_project_id,
+        "definition_id": None,
+        "connector_builder_project_url": project.url,
+        "name": name,
+    }
 
-    If no draft exists, 'has_draft' will be False and 'draft_manifest' will be None.
-    The published manifest is always included for comparison.
+
+@mcp_tool(destructive=True)
+def update_connector_builder_manifest_text(  # Explicit args mirror MCP tool schema.
+    ctx: Context,
+    edit_mode: Annotated[
+        ManifestTextEditMode,
+        Field(
+            description=(
+                "`replace_full`: `new_text` is the whole manifest. "
+                "`replace_text`: replace the single exact match of `old_text`; fails if "
+                "`old_text` matches zero or several places (add surrounding text to make it "
+                "unique). `replace_all`: replace every exact match of `old_text`."
+            ),
+        ),
+    ],
+    new_text: Annotated[
+        str,
+        Field(
+            description=(
+                "The whole manifest YAML for `replace_full`, else the text that replaces "
+                "`old_text`."
+            ),
+        ),
+    ],
+    *,
+    old_text: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The exact text to replace, copied verbatim from `draft_manifest_text`. "
+                "Required unless `edit_mode` is `replace_full`."
+            ),
+            default=None,
+        ),
+    ] = None,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+    pre_validate: Annotated[
+        bool,
+        Field(
+            description="Whether to validate the edited manifest client-side before saving.",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Edit and save a Connector Builder project's draft manifest. Does not publish anything.
+
+    Text edits match against `draft_manifest_text` from `get_connector_builder_draft_manifest`.
+    Returns a unified diff from the previous text to the saved text; base later edits on the
+    saved text.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    definition = workspace.get_custom_source_definition(
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
         definition_id=definition_id,
-        definition_type="yaml",
+    )
+    diff = project.update_draft_manifest_text(
+        edit_mode=edit_mode,
+        new_text=new_text,
+        old_text=old_text,
+        pre_validate=pre_validate,
+    )
+    return (
+        f"Saved the draft manifest of Connector Builder project {project.builder_project_id}."
+        "\n\n" + (diff or "No changes.")
     )
 
+
+@mcp_tool(destructive=True, idempotent=True)
+def set_connector_builder_testing_values(  # Explicit args mirror MCP tool schema.
+    ctx: Context,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+    testing_values: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "Configuration values for test reads, as a JSON object or JSON string. "
+                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
+                "Replaces all existing testing values."
+            ),
+            default=None,
+        ),
+    ] = None,
+    testing_values_secret_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional name of a secret containing testing values in JSON or YAML format. "
+                "The secret is resolved by the MCP server and merged into testing_values, with "
+                "secret values taking precedence."
+            ),
+            default=None,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
+) -> str:
+    """Replace the testing values (connector config) of a Connector Builder project.
+
+    Test reads use these values. Airbyte Cloud stores fields marked `airbyte_secret` in the
+    draft manifest's spec in its secret storage. Requires a saved draft manifest.
+    Don't ask users to paste secrets into the chat: send them the returned project URL to
+    enter secrets in the Connector Builder's testing values form instead.
+    """
+    if testing_values is None and testing_values_secret_name is None:
+        raise AirbyteLibInputError(
+            message="Provide `testing_values` or `testing_values_secret_name`.",
+        )
+    testing_values_dict = resolve_connector_config(
+        config=testing_values,
+        config_secret_name=testing_values_secret_name,
+    )
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    project.set_testing_values(testing_values_dict)
+    return (
+        f"Saved testing values for Connector Builder project {project.builder_project_id}. "
+        f"Users can review them or enter secrets at: {project.url}"
+    )
+
+
+@mcp_tool(read_only=True, open_world=True)
+def test_connector_builder_stream(  # Explicit args mirror MCP tool schema.
+    ctx: Context,
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream to test-read."),
+        TraceArg.FINGERPRINT,
+    ],
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+    record_limit: Annotated[
+        int,
+        Field(description="Maximum records to read (1 to 10,000).", default=100, ge=1, le=10000),
+        TraceArg.VALUE,
+    ] = 100,
+    page_limit: Annotated[
+        int,
+        Field(description="Maximum pages to fetch per slice (1 to 20).", default=5, ge=1, le=20),
+        TraceArg.VALUE,
+    ] = 5,
+    slice_limit: Annotated[
+        int,
+        Field(description="Maximum slices to read (1 to 20).", default=5, ge=1, le=20),
+        TraceArg.VALUE,
+    ] = 5,
+) -> dict[str, Any]:
+    """Test-read one stream of a Connector Builder project's draft manifest on Airbyte Cloud.
+
+    Uses the project's saved testing values as the connector config. Returns counts, a
+    per-page summary of HTTP requests (with response bodies for HTTP errors), connector logs,
+    the inferred schema, and a preview of the first records (`records` holds at most
+    10 records; `record_count` is the total read).
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    result = project.test_read_stream(
+        stream_name,
+        record_limit=record_limit,
+        page_limit=page_limit,
+        slice_limit=slice_limit,
+    )
     return {
-        "definition_id": definition.definition_id,
-        "name": definition.name,
-        "connector_builder_project_id": definition.connector_builder_project_id,
-        "connector_builder_project_url": definition.connector_builder_project_url,
-        "has_draft": definition.has_draft,
-        "draft_manifest": definition.draft_manifest,
-        "published_manifest": definition.manifest,
+        **result.model_dump(),
+        "records": result.records[:_TEST_READ_RECORDS_PREVIEW_LIMIT],
+        "builder_project_id": project.builder_project_id,
+    }
+
+
+@mcp_tool(read_only=True, idempotent=True, open_world=True)
+def resolve_connector_builder_manifest(
+    ctx: Context,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+    stream_limit: Annotated[
+        int,
+        Field(
+            description="Maximum generated streams per dynamic stream (1 to 100).",
+            default=5,
+            ge=1,
+            le=100,
+        ),
+        TraceArg.VALUE,
+    ] = 5,
+) -> dict[str, Any]:
+    """Resolve a Connector Builder project's draft manifest on Airbyte Cloud.
+
+    Expands `$ref`s, `$parameters`, and dynamic streams (using the project's testing values),
+    and lists the resulting stream names.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    resolved = project.resolve_manifest(stream_limit=stream_limit)
+    return {
+        "builder_project_id": project.builder_project_id,
+        "stream_names": resolved.stream_names,
+        "resolved_manifest": resolved.manifest,
     }
 
 

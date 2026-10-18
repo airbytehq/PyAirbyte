@@ -269,6 +269,7 @@ def test_manifest_file_schema_depends_on_trusted_execution(
         tools = asyncio.run(list_tools())
 
         for tool_name in (
+            "create_connector_builder_project",
             "publish_custom_source_definition",
             "update_custom_source_definition",
         ):
