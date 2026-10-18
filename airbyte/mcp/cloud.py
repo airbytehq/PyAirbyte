@@ -3608,7 +3608,7 @@ def create_connector_builder_project(
 
 
 @mcp_tool(destructive=True)
-def update_connector_builder_manifest_text(  # Explicit args mirror MCP tool schema.
+def update_connector_builder_manifest_text(
     ctx: Context,
     edit_mode: Annotated[
         ManifestTextEditMode,
@@ -3689,7 +3689,7 @@ def update_connector_builder_manifest_text(  # Explicit args mirror MCP tool sch
 
 
 @mcp_tool(destructive=True, idempotent=True)
-def set_connector_builder_testing_values(  # Explicit args mirror MCP tool schema.
+def set_connector_builder_testing_values(
     ctx: Context,
     *,
     builder_project_id: Annotated[
@@ -3760,7 +3760,7 @@ def set_connector_builder_testing_values(  # Explicit args mirror MCP tool schem
 
 
 @mcp_tool(read_only=True, open_world=True)
-def test_connector_builder_stream(  # Explicit args mirror MCP tool schema.
+def test_connector_builder_stream(
     ctx: Context,
     stream_name: Annotated[
         str,
