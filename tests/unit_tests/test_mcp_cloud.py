@@ -3570,3 +3570,15 @@ def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
     policy = _TOOL_POLICIES["request_cloud_search_index_backfill"]
     assert policy.external_access is True
     assert policy.pipeline_change is False
+
+
+def test_redact_stream_diagnostics() -> None:
+    leaky = "GET https://api.example.com/data?api_key=s3cret failed: Bearer s3cret"
+    data = cloud_mcp._redact_stream_diagnostics({
+        "pages": [{"url": leaky, "response_body": leaky}],
+        "http_errors": [{"url": leaky, "response_body": None}],
+        "logs": [{"level": "WARN", "message": leaky}],
+        "problem_logs": [{"level": "ERROR", "message": leaky}],
+        "error": leaky,
+    })
+    assert "s3cret" not in str(data)

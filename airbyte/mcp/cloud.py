@@ -3759,6 +3759,20 @@ def set_connector_builder_testing_values(
     )
 
 
+def _redact_stream_diagnostics(stream_data: dict[str, Any]) -> dict[str, Any]:
+    """Redact credentials from a test read's page URLs, error bodies, logs, and error text."""
+    for page in [*stream_data.get("pages", []), *stream_data.get("http_errors", [])]:
+        for key in ("url", "response_body"):
+            if page.get(key):
+                page[key] = redact_agent_text(page[key])
+    for log in [*stream_data.get("logs", []), *stream_data.get("problem_logs", [])]:
+        if isinstance(log.get("message"), str):
+            log["message"] = redact_agent_text(log["message"])
+    if stream_data.get("error"):
+        stream_data["error"] = redact_agent_text(stream_data["error"])
+    return stream_data
+
+
 @mcp_tool(read_only=True, external_access=True)
 def test_connector_builder_stream(
     ctx: Context,
@@ -3819,7 +3833,7 @@ def test_connector_builder_stream(
         slice_limit=slice_limit,
     )
     return {
-        **result.model_dump(),
+        **_redact_stream_diagnostics(result.model_dump()),
         "records": result.records[:_TEST_READ_RECORDS_PREVIEW_LIMIT],
         "builder_project_id": project.builder_project_id,
     }
@@ -3908,9 +3922,13 @@ def run_connector_builder_readiness_report(
         definition_id=definition_id,
     )
     report = project.run_readiness_report()
+    report_data = report.model_dump()
+    report_data["streams"] = [
+        _redact_stream_diagnostics(stream) for stream in report_data["streams"]
+    ]
     return {
         "builder_project_id": project.builder_project_id,
-        **report.model_dump(),
+        **report_data,
     }
 
 

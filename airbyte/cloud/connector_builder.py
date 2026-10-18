@@ -9,6 +9,7 @@ so no connector code runs on the caller's machine.
 from __future__ import annotations
 
 import difflib
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -302,6 +303,13 @@ class ConnectorBuilderReadinessReport(BaseModel):
     passed: bool
     stream_count: int
     passed_stream_count: int
+    capped_dynamic_streams: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Dynamic streams that generated `stream_limit` streams or more, so some generated "
+            "streams may be untested. The report can't pass while this is non-empty."
+        ),
+    )
     streams: list[ConnectorBuilderStreamReadiness]
 
 
@@ -591,9 +599,20 @@ class CloudConnectorBuilderProject:
         """Test-read every stream of the draft on Airbyte Cloud and judge each one.
 
         Streams come from `resolve_manifest()`, so dynamic streams are included. A stream
-        passes when its test read returns records with no HTTP errors or error logs.
+        passes when its test read returns records with no HTTP errors or error logs. A
+        dynamic stream that generates `stream_limit` streams or more may have untested
+        streams, so it's listed in `capped_dynamic_streams` and the report doesn't pass.
         """
-        stream_names = self.resolve_manifest(stream_limit=stream_limit).stream_names
+        resolved = self.resolve_manifest(stream_limit=stream_limit)
+        generated_counts = Counter(
+            stream["dynamic_stream_name"]
+            for stream in resolved.manifest.get("streams") or []
+            if isinstance(stream, dict) and stream.get("dynamic_stream_name")
+        )
+        capped_dynamic_streams = sorted(
+            str(name) for name, count in generated_counts.items() if count >= stream_limit
+        )
+        stream_names = resolved.stream_names
         streams: list[ConnectorBuilderStreamReadiness] = []
         for stream_name in stream_names:
             try:
@@ -614,9 +633,10 @@ class CloudConnectorBuilderProject:
 
         passed_count = sum(stream.passed for stream in streams)
         return ConnectorBuilderReadinessReport(
-            passed=bool(streams) and passed_count == len(streams),
+            passed=(bool(streams) and passed_count == len(streams) and not capped_dynamic_streams),
             stream_count=len(streams),
             passed_stream_count=passed_count,
+            capped_dynamic_streams=capped_dynamic_streams,
             streams=streams,
         )
 

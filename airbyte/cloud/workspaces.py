@@ -1378,9 +1378,6 @@ class CloudWorkspace:
         testing_values: dict[str, Any] | None,
     ) -> cloud_connectors.CustomCloudSourceDefinition:
         project = self.get_connector_builder_project(builder_project_id)
-        if manifest_yaml is not None:
-            project.set_draft_manifest(manifest_yaml, pre_validate=pre_validate)
-
         if unique and project.source_definition_id is None:
             existing = self.list_custom_source_definitions(definition_type="yaml")
             if any(d.name == name for d in existing):
@@ -1388,6 +1385,9 @@ class CloudWorkspace:
                     resource_type="custom_source_definition",
                     resource_name=name,
                 )
+
+        if manifest_yaml is not None:
+            project.set_draft_manifest(manifest_yaml, pre_validate=pre_validate)
 
         definition = project.publish(name, pre_validate=pre_validate)
         if testing_values is not None:

@@ -20,7 +20,7 @@ from airbyte.cloud.connector_builder import (
     render_manifest_text,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteLibInputError
+from airbyte.exceptions import AirbyteDuplicateResourcesError, AirbyteLibInputError
 from airbyte.secrets.base import SecretString
 
 MANIFEST: dict[str, Any] = {
@@ -589,3 +589,55 @@ def test_get_checklist_without_draft(monkeypatch: pytest.MonkeyPatch) -> None:
         None,
         True,
     ]
+
+
+def test_readiness_report_withholds_pass_when_dynamic_streams_are_capped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    generated = [{"name": f"t{i}", "dynamic_stream_name": "tables"} for i in range(2)]
+    monkeypatch.setattr(
+        project,
+        "resolve_manifest",
+        lambda **_: ConnectorBuilderResolvedManifest.from_manifest({
+            "streams": [{"name": "users"}, *generated]
+        }),
+    )
+    monkeypatch.setattr(
+        project,
+        "test_read_stream",
+        lambda stream_name, **_: _stream_read(stream_name, record_count=1),
+    )
+
+    capped = project.run_readiness_report(stream_limit=2)
+    uncapped = project.run_readiness_report(stream_limit=3)
+
+    assert (capped.passed_stream_count, capped.passed) == (3, False)
+    assert capped.capped_dynamic_streams == ["tables"]
+    assert (uncapped.passed, uncapped.capped_dynamic_streams) == (True, [])
+
+
+def test_publish_duplicate_name_leaves_draft_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _patch_project_store(monkeypatch, draft={"version": "6.0.0"})
+    workspace = CloudWorkspace(
+        workspace_id="ws",
+        client_id=SecretString("id"),
+        client_secret=SecretString("secret"),
+    )
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "list_custom_source_definitions",
+        lambda *_, **__: [SimpleNamespace(name="My API")],
+    )
+
+    with pytest.raises(AirbyteDuplicateResourcesError):
+        workspace.publish_custom_source_definition(
+            "My API",
+            builder_project_id="bp",
+            manifest_yaml=MANIFEST,
+            unique=True,
+        )
+
+    assert store["saved"] == []
