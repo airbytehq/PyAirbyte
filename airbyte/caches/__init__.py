@@ -3,40 +3,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pkgutil
 
-from airbyte.caches.base import CacheBase
-from airbyte.caches.bigquery import BigQueryCache
-from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.motherduck import MotherDuckCache
-from airbyte.caches.postgres import PostgresCache
-from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.caches.util import get_default_cache, new_local_cache
+import lazy_loader
 
 
-# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
-if TYPE_CHECKING:
-    # ruff: noqa: TC004
-    from airbyte.caches import base, bigquery, duckdb, motherduck, postgres, snowflake, util
+# Public names are declared once in `__init__.pyi` and loaded on first attribute access, so
+# importing one cache module doesn't import every cache backend (BigQuery, Snowflake, etc.).
+__getattr__, __dir__, _lazy_names = lazy_loader.attach_stub(__name__, __file__)
 
-# We export these classes for easy access: `airbyte.caches...`
-__all__ = [
-    # Factories
-    "get_default_cache",
-    "new_local_cache",
-    # Classes
-    "BigQueryCache",
-    "CacheBase",
-    "DuckDBCache",
-    "MotherDuckCache",
-    "PostgresCache",
-    "SnowflakeCache",
-    # Submodules,
-    "util",
-    "bigquery",
-    "duckdb",
-    "motherduck",
-    "postgres",
-    "snowflake",
-    "base",
-]
+_SUBMODULE_NAMES = {module.name for module in pkgutil.iter_modules(__path__)}
+__all__ = [name for name in _lazy_names if name not in _SUBMODULE_NAMES]

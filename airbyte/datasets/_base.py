@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, cast
 
-from pandas import DataFrame
+import lazy_loader
 
 from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
 
@@ -15,11 +15,15 @@ from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    import pandas as pd
     from pyarrow.dataset import Dataset
 
     from airbyte_protocol.models import ConfiguredAirbyteStream
 
     from airbyte.documents import Document
+else:
+    # Deferred until a DataFrame is requested: pandas (and pyarrow) are slow to import.
+    pd = lazy_loader.load("pandas")
 
 
 class DatasetBase(ABC):
@@ -33,7 +37,7 @@ class DatasetBase(ABC):
         """Return the iterator of records."""
         raise NotImplementedError
 
-    def to_pandas(self) -> DataFrame:
+    def to_pandas(self) -> pd.DataFrame:
         """Return a pandas DataFrame representation of the dataset.
 
         The base implementation simply passes the record iterator to Panda's DataFrame constructor.
@@ -41,7 +45,7 @@ class DatasetBase(ABC):
         # Technically, we return an iterator of Mapping objects. However, pandas
         # expects an iterator of dict objects. This cast is safe because we know
         # duck typing is correct for this use case.
-        return DataFrame(cast("Iterator[dict[str, Any]]", self))
+        return pd.DataFrame(cast("Iterator[dict[str, Any]]", self))
 
     def to_arrow(
         self,

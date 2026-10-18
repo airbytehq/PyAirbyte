@@ -75,8 +75,6 @@ to PyAirbyte so they can run anywhere that PyAirbyte can run.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import (
     get_destination,
@@ -84,15 +82,7 @@ from airbyte.destinations.util import (
 )
 
 
-# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
-if TYPE_CHECKING:
-    # ruff: noqa: TC004  # imports used for more than type checking
-    from airbyte.destinations import util
-
-
 __all__ = [
-    # Modules
-    "util",
     # Methods
     "get_destination",
     "get_noop_destination",

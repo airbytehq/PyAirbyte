@@ -36,7 +36,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from google.cloud import secretmanager_v1 as secretmanager
+import lazy_loader
 
 from airbyte import exceptions as exc
 from airbyte.secrets.base import SecretHandle, SecretSourceEnum, SecretString
@@ -46,9 +46,13 @@ from airbyte.secrets.custom import CustomSecretManager
 if TYPE_CHECKING:
     from collections.abc import Iterable, MutableMapping
 
+    from google.cloud import secretmanager_v1 as secretmanager
     from google.cloud.secretmanager_v1.services.secret_manager_service.pagers import (
         ListSecretsPager,
     )
+else:
+    # Deferred until first use: the GSM client library is slow to import.
+    secretmanager = lazy_loader.load("google.cloud.secretmanager_v1", suppress_warning=True)
 
 
 class GSMSecretHandle(SecretHandle):

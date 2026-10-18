@@ -10,6 +10,7 @@ import warnings
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
 
+import lazy_loader
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
 from rich.console import Console
@@ -32,7 +33,6 @@ from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
-from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
@@ -51,12 +51,16 @@ if TYPE_CHECKING:
     )
 
     from airbyte._executors.base import Executor
-    from airbyte.caches import CacheBase
+    from airbyte.caches import util as _cache_util
+    from airbyte.caches.base import CacheBase
     from airbyte.callbacks import ConfigChangeCallback
     from airbyte.datasets._inmemory import InMemoryDataset
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
+else:
+    # Deferred until a read needs the default cache (DuckDB, SQLAlchemy, pandas, etc.).
+    _cache_util = lazy_loader.load("airbyte.caches.util", suppress_warning=True)
 
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
@@ -819,7 +823,7 @@ class Source(ConnectorBase):
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
         """
-        cache = cache or get_default_cache()
+        cache = cache or _cache_util.get_default_cache()
         progress_tracker = ProgressTracker(
             source=self,
             cache=cache,

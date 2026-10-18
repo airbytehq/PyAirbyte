@@ -12,11 +12,59 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import pkgutil
 import re
 import shutil
 
 import pdoc
 import pdoc.render_helpers
+
+import airbyte as ab
+
+
+# Public (non-underscore) modules that are deliberately left out of the API docs.
+DOCS_EXCLUDED_MODULES = frozenset(
+    {
+        # MCP server process entry points; connectivity is documented in `airbyte.mcp`.
+        "airbyte.mcp.http_main",
+        "airbyte.mcp.server",
+        "airbyte.version",
+    }
+)
+DOCS_EXCLUDED_PACKAGES = ("airbyte.cli.smoke_test_source",)
+
+
+def _raise_import_error(module_name: str) -> None:
+    raise ImportError(f"Failed to import `{module_name}` while discovering docs modules.")
+
+
+def discover_public_modules() -> list[str]:
+    """Return the names of all public `airbyte` modules to document.
+
+    Discovery walks the package on disk, so it does not depend on which submodules a package
+    imports or lists in `__all__`. Any module with an underscore-prefixed path segment is
+    private and skipped, as are `DOCS_EXCLUDED_MODULES` and `DOCS_EXCLUDED_PACKAGES`.
+    """
+    module_names = [
+        ab.__name__,
+        *(
+            module.name
+            for module in pkgutil.walk_packages(
+                ab.__path__,
+                prefix=f"{ab.__name__}.",
+                onerror=_raise_import_error,
+            )
+        ),
+    ]
+    return sorted(
+        name
+        for name in module_names
+        if not any(part.startswith("_") for part in name.split("."))
+        and name not in DOCS_EXCLUDED_MODULES
+        and not any(
+            name == package or name.startswith(f"{package}.") for package in DOCS_EXCLUDED_PACKAGES
+        )
+    )
 
 
 def _regenerate_mcp_markdown() -> None:
@@ -79,8 +127,6 @@ def _validate_includes(root: pathlib.Path) -> None:
 
 def run() -> None:
     """Generate docs for all public modules in PyAirbyte and save them to docs/generated."""
-    public_modules = ["airbyte", "airbyte/cli/pyab.py"]
-
     # Regenerate MCP Markdown first so the `.. include::` directives in the
     # MCP module docstrings resolve on a clean checkout (docs/mcp-generated/
     # is git-ignored).
@@ -109,7 +155,7 @@ def run() -> None:
         docformat="google",
     )
     pdoc.pdoc(
-        *public_modules,
+        *discover_public_modules(),
         output_directory=pathlib.Path("docs/generated"),
     )
 
