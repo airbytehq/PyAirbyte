@@ -78,6 +78,7 @@ from airbyte.exceptions import (
     AirbyteExternalAccessNotEnabledError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteLocalDemoModeError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
 )
@@ -3351,6 +3352,10 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    if builder_project_id is not None:
+        _check_builder_project_created_in_session(
+            workspace.get_connector_builder_project(builder_project_id)
+        )
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
@@ -3479,12 +3484,13 @@ _BUILDER_DEFINITION_ID_DESCRIPTION = (
 _TEST_READ_RECORDS_PREVIEW_LIMIT = 10
 
 
-def _builder_project_ids(project: CloudConnectorBuilderProject) -> dict[str, Any]:
-    return {
-        "builder_project_id": project.builder_project_id,
-        "definition_id": project.source_definition_id,
-        "connector_builder_project_url": project.url,
-    }
+def _check_builder_project_created_in_session(project: CloudConnectorBuilderProject) -> None:
+    try:
+        check_guid_created_in_session(project.builder_project_id)
+    except AirbyteLocalDemoModeError:
+        if project.source_definition_id is None:
+            raise
+        check_guid_created_in_session(project.source_definition_id)
 
 
 @mcp_tool(
@@ -3526,15 +3532,7 @@ def get_connector_builder_draft_manifest(
         builder_project_id,
         definition_id=definition_id,
     )
-    draft_manifest = project.draft_manifest
-    return {
-        **_builder_project_ids(project),
-        "name": project.name,
-        "has_draft": draft_manifest is not None,
-        "draft_manifest": draft_manifest,
-        "draft_manifest_text": project.draft_manifest_text,
-        "published_manifest": project.published_manifest,
-    }
+    return project.get_info().model_dump()
 
 
 @mcp_tool(extra_help_text=_manifest_yaml_source_hint)
@@ -3676,6 +3674,7 @@ def update_connector_builder_manifest_text(
         builder_project_id,
         definition_id=definition_id,
     )
+    _check_builder_project_created_in_session(project)
     diff = project.update_draft_manifest_text(
         edit_mode=edit_mode,
         new_text=new_text,
@@ -3752,6 +3751,7 @@ def set_connector_builder_testing_values(
         builder_project_id,
         definition_id=definition_id,
     )
+    _check_builder_project_created_in_session(project)
     project.set_testing_values(testing_values_dict)
     return (
         f"Saved testing values for Connector Builder project {project.builder_project_id}. "
@@ -3759,7 +3759,7 @@ def set_connector_builder_testing_values(
     )
 
 
-@mcp_tool(read_only=True)
+@mcp_tool(read_only=True, external_access=True)
 def test_connector_builder_stream(
     ctx: Context,
     stream_name: Annotated[
@@ -3825,7 +3825,7 @@ def test_connector_builder_stream(
     }
 
 
-@mcp_tool(read_only=True, idempotent=True)
+@mcp_tool(read_only=True, idempotent=True, external_access=True)
 def resolve_connector_builder_manifest(
     ctx: Context,
     *,

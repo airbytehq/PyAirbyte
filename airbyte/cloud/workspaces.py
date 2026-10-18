@@ -1389,7 +1389,7 @@ class CloudWorkspace:
                     resource_name=name,
                 )
 
-        definition = project.publish(name)
+        definition = project.publish(name, pre_validate=pre_validate)
         if testing_values is not None:
             definition.set_testing_values(testing_values)
         return definition

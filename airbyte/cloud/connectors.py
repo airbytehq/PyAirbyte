@@ -1457,7 +1457,11 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         if not project_id:
             return None
 
-        return CloudConnectorBuilderProject(self.workspace, project_id)
+        return CloudConnectorBuilderProject(
+            self.workspace,
+            project_id,
+            owner_workspace_id=self._builder_project_workspace_id,
+        )
 
     @property
     def connector_builder_project_url(self) -> str | None:

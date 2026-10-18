@@ -232,6 +232,26 @@ class ConnectorBuilderResolvedManifest(BaseModel):
         )
 
 
+class ConnectorBuilderProjectInfo(BaseModel):
+    """A snapshot of a Connector Builder project, read with a single project request."""
+
+    builder_project_id: str
+    definition_id: str | None
+    connector_builder_project_url: str
+    name: str
+    has_draft: bool
+    draft_manifest: dict[str, Any] | None
+    draft_manifest_text: str | None
+    published_manifest: dict[str, Any] | None
+
+
+def _draft_from_project_data(project_data: dict[str, Any]) -> dict[str, Any] | None:
+    if not project_data["builderProject"].get("hasDraft"):
+        return None
+    declarative_manifest = project_data.get("declarativeManifest") or {}
+    return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
+
+
 class CloudConnectorBuilderProject:
     """A Connector Builder project in an Airbyte Cloud workspace."""
 
@@ -239,23 +259,33 @@ class CloudConnectorBuilderProject:
         self,
         workspace: CloudWorkspace,
         builder_project_id: str,
+        *,
+        owner_workspace_id: str | None = None,
     ) -> None:
-        """Initialize a Connector Builder project object. Does not call the API."""
+        """Initialize a Connector Builder project object. Does not call the API.
+
+        Args:
+            workspace: The workspace whose credentials are used.
+            builder_project_id: The Connector Builder project ID.
+            owner_workspace_id: The workspace that owns the project, if it differs from
+                `workspace` (for example, a definition shared from another workspace).
+        """
         self.workspace = workspace
         self.builder_project_id = builder_project_id
+        self.owner_workspace_id = owner_workspace_id or workspace.workspace_id
 
     @property
     def url(self) -> str:
         """The project's Connector Builder URL, where users enter testing values and secrets."""
         return (
             f"{get_web_url_root(self.workspace.api_root)}/workspaces/"
-            f"{self.workspace.workspace_id}/connector-builder/edit/{self.builder_project_id}"
+            f"{self.owner_workspace_id}/connector-builder/edit/{self.builder_project_id}"
         )
 
     def get_project_data(self) -> dict[str, Any]:
         """Fetch the project metadata and draft manifest from the API."""
         return api_util.get_connector_builder_project(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
@@ -274,10 +304,7 @@ class CloudConnectorBuilderProject:
         """The ID of the custom source definition, or `None` if never published."""
         return self.get_project_data()["builderProject"].get("sourceDefinitionId")
 
-    @property
-    def published_manifest(self) -> dict[str, Any] | None:
-        """The active manifest of the published definition, or `None` if never published."""
-        source_definition_id = self.source_definition_id
+    def _published_manifest(self, source_definition_id: str | None) -> dict[str, Any] | None:
         if source_definition_id is None:
             return None
         return self.workspace.get_custom_source_definition(
@@ -286,13 +313,32 @@ class CloudConnectorBuilderProject:
         ).manifest
 
     @property
+    def published_manifest(self) -> dict[str, Any] | None:
+        """The active manifest of the published definition, or `None` if never published."""
+        return self._published_manifest(self.source_definition_id)
+
+    def get_info(self) -> ConnectorBuilderProjectInfo:
+        """Read the project once and return its IDs, URL, draft, and published manifest."""
+        project_data = self.get_project_data()
+        draft_manifest = _draft_from_project_data(project_data)
+        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
+        return ConnectorBuilderProjectInfo(
+            builder_project_id=self.builder_project_id,
+            definition_id=source_definition_id,
+            connector_builder_project_url=self.url,
+            name=project_data["builderProject"]["name"],
+            has_draft=draft_manifest is not None,
+            draft_manifest=draft_manifest,
+            draft_manifest_text=(
+                render_manifest_text(draft_manifest) if draft_manifest is not None else None
+            ),
+            published_manifest=self._published_manifest(source_definition_id),
+        )
+
+    @property
     def draft_manifest(self) -> dict[str, Any] | None:
         """The unpublished draft manifest, or `None` if the project has no draft."""
-        project_data = self.get_project_data()
-        if not project_data["builderProject"].get("hasDraft"):
-            return None
-        declarative_manifest = project_data.get("declarativeManifest") or {}
-        return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
+        return _draft_from_project_data(self.get_project_data())
 
     def _require_draft_manifest(self) -> dict[str, Any]:
         manifest = self.draft_manifest
@@ -321,7 +367,7 @@ class CloudConnectorBuilderProject:
             api_util.validate_yaml_manifest(manifest, raise_on_error=True)
 
         api_util.update_connector_builder_project(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
             name=self.name,
             draft_manifest=manifest,
@@ -394,7 +440,7 @@ class CloudConnectorBuilderProject:
         """
         manifest = self._require_draft_manifest()
         api_util.update_connector_builder_project_testing_values(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
             testing_values=testing_values,
             spec=_builder_testing_values_spec(manifest),
@@ -424,7 +470,7 @@ class CloudConnectorBuilderProject:
             slice_limit: Maximum slices to read (1 to 20).
         """
         response = api_util.read_connector_builder_project_stream(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
             manifest=self._require_draft_manifest(),
             stream_name=stream_name,
@@ -452,7 +498,7 @@ class CloudConnectorBuilderProject:
             stream_limit: Maximum generated streams to return per dynamic stream (1 to 100).
         """
         resolved_manifest = api_util.full_resolve_connector_builder_project_manifest(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
             manifest=self._require_draft_manifest(),
             stream_limit=stream_limit,
@@ -467,6 +513,8 @@ class CloudConnectorBuilderProject:
     def publish(
         self,
         name: str,
+        *,
+        pre_validate: bool = True,
     ) -> CustomCloudSourceDefinition:
         """Publish the draft manifest as a custom source definition.
 
@@ -480,10 +528,13 @@ class CloudConnectorBuilderProject:
                 source_definition_id,
                 definition_type="yaml",
             )
-            return definition.update_definition(manifest_yaml=manifest)
+            return definition.update_definition(manifest_yaml=manifest, pre_validate=pre_validate)
+
+        if pre_validate:
+            api_util.validate_yaml_manifest(manifest, raise_on_error=True)
 
         source_definition_id = api_util.publish_connector_builder_project(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
             name=name,
             manifest=manifest,
@@ -507,6 +558,7 @@ class CloudConnectorBuilderProject:
 __all__ = [
     "CloudConnectorBuilderProject",
     "ConnectorBuilderPageSummary",
+    "ConnectorBuilderProjectInfo",
     "ConnectorBuilderResolvedManifest",
     "ConnectorBuilderStreamReadResult",
     "ManifestTextEditMode",

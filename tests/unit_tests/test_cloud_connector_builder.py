@@ -389,7 +389,9 @@ def test_publish_already_published_project_adds_version(
 
     publish.assert_not_called()
     definition = workspace.get_custom_source_definition.return_value
-    definition.update_definition.assert_called_once_with(manifest_yaml=MANIFEST)
+    definition.update_definition.assert_called_once_with(
+        manifest_yaml=MANIFEST, pre_validate=True
+    )
 
 
 @pytest.mark.parametrize(
@@ -409,3 +411,48 @@ def test_get_connector_builder_project_requires_exactly_one_id(
     )
     with pytest.raises(AirbyteLibInputError, match="exactly one"):
         workspace.get_connector_builder_project(**kwargs)
+
+
+def test_project_uses_owner_workspace() -> None:
+    project = CloudConnectorBuilderProject(
+        _fake_workspace(), "bp", owner_workspace_id="owner"
+    )
+    assert project.url.endswith("/workspaces/owner/connector-builder/edit/bp")
+
+
+def test_get_info_reads_project_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_project_store(monkeypatch, draft={"version": "6.0.0"})
+    calls: list[dict[str, Any]] = []
+    original = api_util.get_connector_builder_project
+
+    def counting_get(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(api_util, "get_connector_builder_project", counting_get)
+
+    info = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_info()
+
+    assert len(calls) == 1
+    assert info.has_draft is True
+    assert info.draft_manifest_text == "version: 6.0.0\n"
+    assert info.definition_id is None
+    assert info.published_manifest is None
+
+
+def test_publish_validates_unpublished_draft_unless_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    validate = MagicMock()
+    monkeypatch.setattr(api_util, "validate_yaml_manifest", validate)
+    monkeypatch.setattr(
+        api_util, "publish_connector_builder_project", MagicMock(return_value="d")
+    )
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+
+    project.publish("My API", pre_validate=False)
+    validate.assert_not_called()
+
+    project.publish("My API")
+    validate.assert_called_once()
