@@ -137,10 +137,8 @@ def _builder_testing_values_spec(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def _publish_spec(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Build the connector spec for publishing, with camelCase `connectionSpecification`."""
-    spec = dict(manifest.get("spec") or {})
-    spec["connectionSpecification"] = spec.get("connection_specification") or {}
-    return spec
+    """Build the connector spec for publishing, with the API's camelCase field names."""
+    return {**(manifest.get("spec") or {}), **_builder_testing_values_spec(manifest)}
 
 
 class ConnectorBuilderPageSummary(BaseModel):
@@ -649,7 +647,8 @@ class CloudConnectorBuilderProject:
         """
         project_data = self.get_project_data()
         draft = _draft_from_project_data(project_data)
-        spec = ((draft or {}).get("spec") or {}).get("connection_specification") or {}
+        spec = ((draft or {}).get("spec") or {}).get("connection_specification")
+        takes_no_inputs = isinstance(spec, dict) and not spec.get("properties")
         stream_names = [
             stream.get("name")
             for stream in (draft or {}).get("streams") or []
@@ -663,7 +662,7 @@ class CloudConnectorBuilderProject:
             ConnectorBuilderChecklistItem(step="Save a draft manifest", done=draft is not None),
             ConnectorBuilderChecklistItem(
                 step="Define the connection spec (user inputs)",
-                done=bool(spec.get("properties")),
+                done=isinstance(spec, dict),
             ),
             ConnectorBuilderChecklistItem(
                 step="Define at least one stream",
@@ -672,7 +671,7 @@ class CloudConnectorBuilderProject:
             ),
             ConnectorBuilderChecklistItem(
                 step="Set testing values (enter secrets in the Connector Builder UI)",
-                done=bool(testing_values),
+                done=bool(testing_values) or takes_no_inputs,
                 detail=self.url,
             ),
             ConnectorBuilderChecklistItem(

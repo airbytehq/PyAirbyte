@@ -591,6 +591,37 @@ def test_get_checklist_without_draft(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
 
+def test_get_checklist_input_free_connector(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+
+    checklist = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_checklist()
+
+    assert [item.done for item in checklist.items] == [
+        True,
+        True,
+        True,
+        True,
+        None,
+        False,
+    ]
+
+
+def test_publish_spec_uses_api_field_names() -> None:
+    manifest = {
+        "spec": {
+            "connection_specification": {"type": "object"},
+            "documentation_url": "https://example.com/docs",
+            "advanced_auth": {"auth_flow_type": "oauth2.0"},
+        }
+    }
+
+    spec = connector_builder._publish_spec(manifest)
+
+    assert spec["connectionSpecification"] == {"type": "object"}
+    assert spec["documentationUrl"] == "https://example.com/docs"
+    assert spec["advancedAuth"] == {"auth_flow_type": "oauth2.0"}
+
+
 def test_readiness_report_withholds_pass_when_dynamic_streams_are_capped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
