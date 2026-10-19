@@ -9,7 +9,7 @@ so no connector code runs on the caller's machine.
 from __future__ import annotations
 
 import difflib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -319,15 +319,18 @@ class ConnectorBuilderReadinessReport(BaseModel):
 
     passed: bool = Field(
         description=(
-            "True when every checklist step before publishing is done: every stream of the "
-            "draft passed and was read to the end."
+            "True when every named stream passed and was read to the end. Covers only the "
+            "named streams; a full sync validates the whole connector."
         ),
     )
     stream_count: int
     passed_stream_count: int
-    untested_streams: list[str] = Field(
+    pending_streams: list[str] = Field(
         default_factory=list,
-        description="Streams declared in the draft that weren't in `stream_names`.",
+        description=(
+            "Named streams that hadn't finished when `timeout_seconds` ran out. "
+            "Pass them in another call to resume."
+        ),
     )
     checklist: list[ConnectorBuilderChecklistItem]
     next_steps: list[str]
@@ -337,9 +340,8 @@ class ConnectorBuilderReadinessReport(BaseModel):
 def _readiness_checklist(
     project_data: dict[str, Any],
     draft: dict[str, Any],
-    declared_streams: list[str],
     streams: list[ConnectorBuilderStreamReadiness],
-    untested_streams: list[str],
+    pending_streams: list[str],
     url: str,
 ) -> list[ConnectorBuilderChecklistItem]:
     spec = (draft.get("spec") or {}).get("connection_specification")
@@ -356,8 +358,7 @@ def _readiness_checklist(
         ),
         ConnectorBuilderChecklistItem(
             step="Define at least one stream",
-            done=bool(declared_streams) or bool(draft.get("dynamic_streams")),
-            detail=", ".join(declared_streams) or None,
+            done=bool(draft.get("streams")) or bool(draft.get("dynamic_streams")),
         ),
         ConnectorBuilderChecklistItem(
             step="Set testing values (enter secrets in the Connector Builder UI)",
@@ -365,21 +366,21 @@ def _readiness_checklist(
             detail=url,
         ),
         ConnectorBuilderChecklistItem(
-            step="Pass a test read on every stream",
-            done=not failed and not untested_streams,
+            step="Pass a test read on the named streams",
+            done=not failed and not pending_streams,
             detail="; ".join(
                 part
                 for part in (
                     f"failed: {', '.join(failed)}" if failed else "",
-                    f"untested: {', '.join(untested_streams)}" if untested_streams else "",
+                    f"pending: {', '.join(pending_streams)}" if pending_streams else "",
                 )
                 if part
             )
             or None,
         ),
         ConnectorBuilderChecklistItem(
-            step="Read every stream to the end within the test-read caps",
-            done=not not_read_to_end and not untested_streams,
+            step="Read the named streams to the end within the test-read caps",
+            done=not not_read_to_end and not pending_streams,
             detail=(
                 f"hit a cap: {', '.join(not_read_to_end)}. Check these with a full sync "
                 "after publishing."
@@ -675,27 +676,6 @@ class CloudConnectorBuilderProject:
         )
         return ConnectorBuilderResolvedManifest.from_manifest(resolved_manifest)
 
-    def _declared_stream_names(self, draft: dict[str, Any]) -> list[str]:
-        """Names of the draft's static streams, with `$ref`s and `$parameters` resolved."""
-        resolved = api_util.full_resolve_connector_builder_project_manifest(
-            workspace_id=self.owner_workspace_id,
-            builder_project_id=self.builder_project_id,
-            manifest=draft,
-            stream_limit=1,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
-        return [
-            stream["name"]
-            for stream in resolved.get("streams") or []
-            if isinstance(stream, dict)
-            and isinstance(stream.get("name"), str)
-            and "dynamic_stream_name" not in stream
-        ]
-
     def run_readiness_report(
         self,
         stream_names: list[str],
@@ -703,14 +683,15 @@ class CloudConnectorBuilderProject:
         record_limit: int = 10_000,
         page_limit: int = 20,
         slice_limit: int = 20,
+        timeout_seconds: float | None = None,
     ) -> ConnectorBuilderReadinessReport:
         """Check the draft's progress and test-read the given streams on Airbyte Cloud.
 
         Reads run in parallel. A stream passes when its test read returns records with no
         HTTP errors or error logs, and is `read_to_end` when it ended within the test-read
         caps (which default to Cloud's maximums). The checklist is derived from the project,
-        so nothing is stored. `passed` needs every declared stream tested, passing, and read
-        to the end; generated dynamic streams count only when named in `stream_names`.
+        so nothing is stored. `passed` covers only the named streams: each must pass and be
+        read to the end. A full sync after publishing validates the whole connector.
 
         Args:
             stream_names: Streams to test-read (at least 1). For
@@ -718,6 +699,8 @@ class CloudConnectorBuilderProject:
             record_limit: Maximum records to read per stream (1 to 10,000).
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).
+            timeout_seconds: Return after this many seconds with the streams finished so far;
+                the rest are listed in `pending_streams`. No limit by default.
         """
         stream_names = list(dict.fromkeys(stream_names))
         if not stream_names:
@@ -749,19 +732,24 @@ class CloudConnectorBuilderProject:
                 )
             return ConnectorBuilderStreamReadiness.from_stream_read(result)
 
-        with ThreadPoolExecutor(max_workers=min(_READINESS_MAX_WORKERS, len(stream_names))) as pool:
-            streams = list(pool.map(read, stream_names))
+        pool = ThreadPoolExecutor(max_workers=min(_READINESS_MAX_WORKERS, len(stream_names)))
+        try:
+            futures = [pool.submit(read, name) for name in stream_names]
+            done, _ = wait(futures, timeout=timeout_seconds)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        streams = [future.result() for future in futures if future in done]
+        pending_streams = [
+            name for name, future in zip(stream_names, futures, strict=True) if future not in done
+        ]
 
-        declared_streams = self._declared_stream_names(draft)
-        untested_streams = [name for name in declared_streams if name not in stream_names]
-        checklist = _readiness_checklist(
-            project_data, draft, declared_streams, streams, untested_streams, self.url
-        )
+        checklist = _readiness_checklist(project_data, draft, streams, pending_streams, self.url)
         return ConnectorBuilderReadinessReport(
-            passed=all(item.done for item in checklist[:6]),
+            passed=not pending_streams
+            and all(stream.passed and stream.read_to_end for stream in streams),
             stream_count=len(streams),
             passed_stream_count=sum(stream.passed for stream in streams),
-            untested_streams=untested_streams,
+            pending_streams=pending_streams,
             checklist=checklist,
             next_steps=[item.step for item in checklist if item.done is not True],
             streams=streams,

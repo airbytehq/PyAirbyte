@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import threading
 import pytest
 import requests
 
@@ -294,11 +295,6 @@ def _patch_project_store(
         store["saved"].append(kwargs)
 
     monkeypatch.setattr(api_util, "get_connector_builder_project", fake_get)
-    monkeypatch.setattr(
-        api_util,
-        "full_resolve_connector_builder_project_manifest",
-        lambda **_: store.get("resolved") or store["draft"],
-    )
     monkeypatch.setattr(api_util, "update_connector_builder_project", fake_update)
     monkeypatch.setattr(api_util, "validate_yaml_manifest", lambda *_, **__: None)
     return store
@@ -591,7 +587,7 @@ def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
     reads["orders"] = _stream_read("orders", record_count=1)
     full = project.run_readiness_report(["users", "orders", "users"])
 
-    assert (partial.passed, partial.untested_streams) == (False, ["orders"])
+    assert partial.passed is True
     assert capped.passed is False
     assert capped.passed_stream_count == 2
     assert [s.read_to_end for s in capped.streams] == [True, False]
@@ -628,8 +624,7 @@ def test_readiness_checklist_requires_testing_values_when_spec_has_inputs(
         True,
         None,
     ]
-    assert report.passed is False
-    assert report.checklist[2].detail == "users"
+    assert report.passed is True
 
 
 def test_publish_spec_uses_api_field_names() -> None:
@@ -674,17 +669,27 @@ def test_publish_duplicate_name_leaves_draft_unchanged(
     assert store["saved"] == []
 
 
-def test_readiness_uses_resolved_stream_names(monkeypatch: pytest.MonkeyPatch) -> None:
-    store = _patch_project_store(
-        monkeypatch, draft={"streams": [{"$ref": "#/definitions/streams/users"}]}
+def test_readiness_timeout_returns_pending_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(
+        monkeypatch, draft={"streams": [{"name": "fast"}, {"name": "slow"}]}
     )
-    store["resolved"] = {
-        "streams": [
-            {"name": "users"},
-            {"name": "generated", "dynamic_stream_name": "tables"},
-        ]
-    }
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
-    _patch_reads(monkeypatch, project, {"users": _stream_read("users", record_count=1)})
-    report = project.run_readiness_report(["users"])
-    assert report.untested_streams == []
+    release = threading.Event()
+
+    def fake_read(
+        _manifest: Any, stream_name: str, **_: Any
+    ) -> ConnectorBuilderStreamReadResult:
+        if stream_name == "slow":
+            release.wait(5)
+        return _stream_read(stream_name, record_count=1)
+
+    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    try:
+        report = project.run_readiness_report(["fast", "slow"], timeout_seconds=0.5)
+    finally:
+        release.set()
+    assert [stream.stream_name for stream in report.streams] == ["fast"]
+    assert report.pending_streams == ["slow"]
+    assert report.passed is False

@@ -3895,7 +3895,7 @@ def run_connector_builder_readiness_report(
         str | list[str],
         Field(
             description=(
-                "Streams to test-read (at least 1). Pass every stream of the draft. "
+                "Streams to test-read (at least 1). The report covers only these streams. "
                 "For dynamic streams, "
                 "get the generated names from `resolve_connector_builder_manifest`."
             ),
@@ -3919,6 +3919,17 @@ def run_connector_builder_readiness_report(
         ),
         TraceArg.OMIT,
     ],
+    timeout_seconds: Annotated[
+        float | None,
+        Field(
+            description=(
+                "Optional. Return after this many seconds with the streams finished so far. "
+                "Unfinished streams are listed in `pending_streams`; pass them in another call "
+                "to resume. No limit by default."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Check a Connector Builder draft's progress and test-read its streams on Airbyte Cloud.
 
@@ -3930,13 +3941,17 @@ def run_connector_builder_readiness_report(
     isn't `read_to_end` and the report doesn't pass. After publishing, run a full sync of
     every stream: `deploy_noop_destination_to_cloud`, deploy the source with
     `deploy_connector_to_cloud`, then `create_connection_on_cloud` and `run_cloud_sync`.
+    The verdict covers only the named streams; the full sync validates the whole connector.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(
         builder_project_id,
         definition_id=definition_id,
     )
-    report = project.run_readiness_report(resolve_list_of_strings(stream_names))
+    report = project.run_readiness_report(
+        resolve_list_of_strings(stream_names),
+        timeout_seconds=timeout_seconds,
+    )
     report_data = report.model_dump()
     report_data["streams"] = [
         _redact_stream_diagnostics(stream) for stream in report_data["streams"]

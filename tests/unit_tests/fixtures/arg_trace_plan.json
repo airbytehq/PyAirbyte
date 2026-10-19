@@ -313,6 +313,7 @@
     "builder_project_id": "hash",
     "definition_id": "hash",
     "stream_names": "fingerprint list",
+    "timeout_seconds": "hash",
     "workspace_id": "omit"
   },
   "run_sql_query": {
