@@ -786,6 +786,21 @@ def _secret_manifest() -> dict[str, Any]:
     [
         pytest.param(_secret_manifest(), True, id="secret-spec-deferred"),
         pytest.param(MANIFEST, False, id="no-secret-spec-ready"),
+        pytest.param(
+            {
+                **MANIFEST,
+                "spec": {
+                    "type": "Spec",
+                    "connection_specification": {
+                        "type": "object",
+                        "required": ["base_url"],
+                        "properties": {"base_url": {"type": "string"}},
+                    },
+                },
+            },
+            True,
+            id="missing-required-deferred",
+        ),
     ],
 )
 def test_create_test_source_uses_non_secret_testing_values(
@@ -892,6 +907,7 @@ def test_run_full_sync_creates_noop_destination_and_connection(
         "source_id": "src",
         "destination_id": "new-dest",
         "connection_id": "conn",
+        "destination_created": True,
         "connection_created": True,
         "job_id": 7,
         "job_url": "https://job",
@@ -952,6 +968,7 @@ def test_readiness_full_sync_gating(
         source_id="src",
         destination_id="dest",
         connection_id="conn",
+        destination_created=False,
         connection_created=True,
         job_id=1,
         job_url="u",
@@ -1076,3 +1093,25 @@ def test_create_test_source_after_publish_cleared_draft(
     project.create_test_source()
 
     assert workspace.deploy_source.call_args.kwargs["defer_credentials"] is True
+
+
+def test_run_readiness_checks_full_sync_only_without_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch,
+        destinations=[SimpleNamespace(connector_id="dest")],
+        connections=[],
+        draft=None,
+    )
+
+    report = project.run_readiness_checks([], run_full_sync=True, test_source_id="src")
+
+    assert report.full_sync is not None
+    assert report.full_sync.destination_created is False
+    project.publish.assert_not_called()
+    workspace.deploy_connection.assert_called_once()
+    draft_step = next(
+        item for item in report.checklist if item.step == "Save a draft manifest"
+    )
+    assert draft_step.done is False

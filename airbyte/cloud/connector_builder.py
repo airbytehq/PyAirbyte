@@ -329,6 +329,7 @@ class ConnectorBuilderFullSync(BaseModel):
 
     source_id: str
     destination_id: str
+    destination_created: bool
     connection_id: str
     connection_created: bool
     job_id: int
@@ -415,7 +416,10 @@ def _readiness_checklist(
     failed = [stream.stream_name for stream in streams if not stream.passed]
     not_read_to_end = [stream.stream_name for stream in streams if not stream.read_to_end]
     return [
-        ConnectorBuilderChecklistItem(step="Save a draft manifest", done=True),
+        ConnectorBuilderChecklistItem(
+            step="Save a draft manifest",
+            done=bool(project_data["builderProject"].get("hasDraft")),
+        ),
         ConnectorBuilderChecklistItem(
             step="Define the connection spec (user inputs)",
             done=isinstance(spec, dict),
@@ -486,6 +490,17 @@ def _capped_dynamic_streams(resolved_manifest: dict[str, Any], stream_limit: int
         if isinstance(stream, dict) and isinstance(stream.get("dynamic_stream_name"), str)
     )
     return sorted(name for name, count in counts.items() if count >= stream_limit)
+
+
+def _spec_missing_required(schema: Any, config: dict[str, Any]) -> bool:  # noqa: ANN401
+    """Return whether `config` lacks a required top-level field that has no default."""
+    if not isinstance(schema, dict):
+        return False
+    properties = schema.get("properties") or {}
+    return any(
+        name not in config and "default" not in (properties.get(name) or {})
+        for name in schema.get("required") or []
+    )
 
 
 def _spec_has_secrets(schema: Any) -> bool:  # noqa: ANN401
@@ -818,9 +833,15 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 message="Pass at least 1 stream name, or set `run_full_sync`.",
             )
         project_data = self.get_project_data()
-        draft = self._require_draft_manifest(project_data)
         if not stream_names:
-            return self._readiness_report(project_data, draft, [], [], []).model_copy(
+            # A full sync alone can run on the published manifest; the first publish clears
+            # the draft.
+            manifest = _draft_from_project_data(project_data) or self._published_manifest(
+                project_data["builderProject"].get("sourceDefinitionId")
+            )
+            if manifest is None:
+                manifest = self._require_draft_manifest(project_data)
+            return self._readiness_report(project_data, manifest, [], [], []).model_copy(
                 update={
                     "full_sync": self.run_full_sync(
                         test_source_id=test_source_id,
@@ -829,6 +850,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 },
             )
 
+        draft = self._require_draft_manifest(project_data)
         deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
 
         def read(stream_name: str) -> ConnectorBuilderStreamReadiness:
@@ -992,7 +1014,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             name=self.test_source_name,
             source=config,
             definition_id=source_definition_id,
-            defer_credentials=_spec_has_secrets(spec),
+            defer_credentials=_spec_has_secrets(spec) or _spec_missing_required(spec, config),
         )
 
     def run_full_sync(
@@ -1055,8 +1077,9 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 message="`test_source_id` isn't a source of this project's published definition.",
                 context={"test_source_id": test_source_id, "definition_id": source_definition_id},
             )
+        destination_created = False
         if test_destination_id is None:
-            test_destination_id = self._get_or_create_test_destination()
+            test_destination_id, destination_created = self._get_or_create_test_destination()
 
         stream_names = resolved.stream_names
         connection_name = f"{self.name} (Connector Builder full sync)"
@@ -1083,22 +1106,24 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         return ConnectorBuilderFullSync(
             source_id=test_source_id,
             destination_id=test_destination_id,
+            destination_created=destination_created,
             connection_id=connection.connection_id,
             connection_created=connection_created,
             job_id=sync_result.job_id,
             job_url=sync_result.job_url,
         )
 
-    def _get_or_create_test_destination(self) -> str:
+    def _get_or_create_test_destination(self) -> tuple[str, bool]:
+        """Return the test destination's ID and whether this call created it."""
         existing = self.workspace.list_destinations(name=CONNECTOR_BUILDER_TEST_DESTINATION_NAME)
         if existing:
-            return existing[0].connector_id
+            return existing[0].connector_id, False
         from airbyte.destinations.util import get_noop_destination  # noqa: PLC0415
 
         return self.workspace.deploy_destination(
             name=CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
             destination=get_noop_destination(),
-        ).connector_id
+        ).connector_id, True
 
     def __repr__(self) -> str:
         """Return a string representation of the project."""
