@@ -36,7 +36,6 @@ from airbyte._direct_connectors.models import (
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connector_builder import (
-    CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
     CloudConnectorBuilderProject,
     ManifestTextEditMode,
 )
@@ -3918,7 +3917,7 @@ def resolve_connector_builder_manifest(
 
 
 @mcp_tool(external_access=True, insiders_only=True)
-def run_connector_builder_readiness_checks(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
+def run_connector_builder_readiness_checks(
     ctx: Context,
     stream_names: Annotated[
         str | list[str] | None,
@@ -3981,17 +3980,6 @@ def run_connector_builder_readiness_checks(  # noqa: PLR0913  # Explicit args mi
             default=None,
         ),
     ] = None,
-    test_destination_id: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Optional. Destination for the full sync. Defaults to the workspace's "
-                f"'{CONNECTOR_BUILDER_TEST_DESTINATION_NAME}' destination, created as a no-op "
-                "destination if missing."
-            ),
-            default=None,
-        ),
-    ] = None,
 ) -> dict[str, Any]:
     """Check a Connector Builder draft's progress and test-read its streams on Airbyte Cloud.
 
@@ -4016,7 +4004,6 @@ def run_connector_builder_readiness_checks(  # noqa: PLR0913  # Explicit args mi
         timeout_seconds=timeout_seconds,
         run_full_sync=run_full_sync,
         test_source_id=test_source_id,
-        test_destination_id=test_destination_id,
     )
     if report.full_sync is not None:
         if report.full_sync.destination_created:

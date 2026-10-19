@@ -697,10 +697,15 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
     ) -> None:
         """Replace the project's testing values, which Cloud stores in its secret storage.
 
-        The spec comes from the draft manifest, so save a draft first. Fields marked
-        `airbyte_secret` in the spec are stored as secrets.
+        The spec comes from the draft manifest, or the published one when there's no draft.
+        Fields marked `airbyte_secret` in the spec are stored as secrets.
         """
-        manifest = self._require_draft_manifest()
+        project_data = self.get_project_data()
+        manifest = _draft_from_project_data(project_data) or self._published_manifest(
+            project_data["builderProject"].get("sourceDefinitionId")
+        )
+        if manifest is None:
+            manifest = self._require_draft_manifest(project_data)
         api_util.update_connector_builder_project_testing_values(
             workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
@@ -803,7 +808,6 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         timeout_seconds: float | None = None,
         run_full_sync: bool = False,
         test_source_id: str | None = None,
-        test_destination_id: str | None = None,
     ) -> ConnectorBuilderReadinessReport:
         """Check the draft's progress and test-read the given streams on Airbyte Cloud.
 
@@ -825,7 +829,6 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             run_full_sync: If every named stream finished and passed (or none are named),
                 publish the draft and start a full sync with `run_full_sync()`.
             test_source_id: The source for the full sync. See `run_full_sync()`.
-            test_destination_id: The destination for the full sync. See `run_full_sync()`.
         """
         stream_names = list(dict.fromkeys(stream_names))
         if not stream_names and not run_full_sync:
@@ -845,7 +848,6 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 update={
                     "full_sync": self.run_full_sync(
                         test_source_id=test_source_id,
-                        test_destination_id=test_destination_id,
                     ),
                 },
             )
@@ -904,7 +906,6 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         ):
             report.full_sync = self.run_full_sync(
                 test_source_id=test_source_id,
-                test_destination_id=test_destination_id,
             )
         return report
 
@@ -1004,10 +1005,8 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             raise exc.AirbyteLibInputError(
                 message="Publish the Connector Builder project before creating a test source.",
             )
-        # The first publish clears the draft, so fall back to the published manifest.
-        manifest = _draft_from_project_data(project_data) or self._published_manifest(
-            source_definition_id
-        )
+        # The source runs the published version, so its spec decides the setup.
+        manifest = self._published_manifest(source_definition_id)
         spec = ((manifest or {}).get("spec") or {}).get("connection_specification")
         config = _drop_masked_secrets(project_data.get("testingValues") or {})
         return self.workspace.deploy_source(
@@ -1021,7 +1020,6 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         self,
         *,
         test_source_id: str | None = None,
-        test_destination_id: str | None = None,
         pre_validate: bool = True,
     ) -> ConnectorBuilderFullSync:
         """Publish the draft and start a full sync of every stream to a no-op destination.
@@ -1033,9 +1031,6 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         Args:
             test_source_id: Source on the published definition to sync from. Defaults to the
                 source from `create_test_source()`.
-            test_destination_id: Destination to sync to. Defaults to the workspace's
-                `CONNECTOR_BUILDER_TEST_DESTINATION_NAME` destination, created as a no-op
-                destination if missing.
             pre_validate: Whether to validate the manifest client-side before publishing.
         """
         project_data = self.get_project_data()
@@ -1058,9 +1053,8 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 guidance="Sync the published source with `run_cloud_sync` instead.",
                 context={"dynamic_streams": capped},
             )
-        if _draft_from_project_data(project_data) is not None:
-            self.publish(self.name, pre_validate=pre_validate)
-        source_definition_id = self.source_definition_id
+        # Check the source and destination first: the first publish clears the draft.
+        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
         if test_source_id is None:
             test_source = self.find_test_source()
             if test_source is None:
@@ -1077,9 +1071,9 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 message="`test_source_id` isn't a source of this project's published definition.",
                 context={"test_source_id": test_source_id, "definition_id": source_definition_id},
             )
-        destination_created = False
-        if test_destination_id is None:
-            test_destination_id, destination_created = self._get_or_create_test_destination()
+        test_destination_id, destination_created = self._get_or_create_test_destination()
+        if _draft_from_project_data(project_data) is not None:
+            self.publish(self.name, pre_validate=pre_validate)
 
         stream_names = resolved.stream_names
         connection_name = f"{self.name} (Connector Builder full sync)"
@@ -1129,7 +1123,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                     f"Destination `{CONNECTOR_BUILDER_TEST_DESTINATION_NAME}` exists "
                     "but isn't a no-op (dev-null) destination."
                 ),
-                guidance="Pass `test_destination_id`, or rename that destination.",
+                guidance="Rename or delete that destination.",
                 context={"destination_ids": [destination.connector_id for destination in existing]},
             )
         from airbyte.destinations.util import get_noop_destination  # noqa: PLC0415

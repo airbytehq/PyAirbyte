@@ -365,6 +365,25 @@ def test_set_testing_values_uses_draft_spec(monkeypatch: pytest.MonkeyPatch) -> 
     }
 
 
+def test_set_testing_values_without_draft_uses_published_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft=None, source_definition_id="def")
+    update_testing_values = MagicMock()
+    monkeypatch.setattr(
+        api_util,
+        "update_connector_builder_project_testing_values",
+        update_testing_values,
+    )
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
+
+    project.set_testing_values({"api_key": "k"})
+
+    spec = update_testing_values.call_args.kwargs["spec"]
+    assert spec["connectionSpecification"]["properties"]["api_key"]["airbyte_secret"]
+
+
 def test_publish_unpublished_project(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
     publish = MagicMock(return_value="def")
@@ -811,13 +830,15 @@ def test_create_test_source_uses_non_secret_testing_values(
 ) -> None:
     _patch_project_store(
         monkeypatch,
-        draft=manifest,
+        draft=MANIFEST,
         source_definition_id="def",
         testing_values={"api_key": "**********", "region": "us"},
     )
     workspace = _fake_workspace()
     workspace.deploy_source = MagicMock()
     project = CloudConnectorBuilderProject(workspace, "bp")
+    # The source runs the published version, so its spec wins over the draft's.
+    monkeypatch.setattr(project, "_published_manifest", lambda _id: manifest)
 
     project.create_test_source()
 
@@ -948,10 +969,15 @@ def test_run_full_sync_reuses_destination_and_connection(
 def test_run_full_sync_without_test_source_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, _ = _full_sync_project(monkeypatch, destinations=[], connections=[])
+    project, workspace = _full_sync_project(
+        monkeypatch, destinations=[], connections=[]
+    )
 
     with pytest.raises(AirbyteLibInputError, match="No test source"):
         project.run_full_sync()
+
+    project.publish.assert_not_called()
+    workspace.deploy_destination.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -993,9 +1019,7 @@ def test_readiness_full_sync_gating(
 
     assert (report.full_sync is not None) is expect_sync
     if expect_sync:
-        run_full_sync.assert_called_once_with(
-            test_source_id="src", test_destination_id=None
-        )
+        run_full_sync.assert_called_once_with(test_source_id="src")
 
 
 def test_readiness_requires_streams_without_full_sync(

@@ -315,7 +315,6 @@
     "definition_id": "hash",
     "run_full_sync": "value allowed=[false,true]",
     "stream_names": "fingerprint list",
-    "test_destination_id": "hash",
     "test_source_id": "hash",
     "timeout_seconds": "hash",
     "workspace_id": "omit"
