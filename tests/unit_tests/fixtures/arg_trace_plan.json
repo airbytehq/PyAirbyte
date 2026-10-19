@@ -309,7 +309,7 @@
     "wait_timeout": "hash",
     "workspace_id": "omit"
   },
-  "run_connector_builder_readiness_report": {
+  "run_connector_builder_readiness_checks": {
     "builder_project_id": "hash",
     "definition_id": "hash",
     "stream_names": "fingerprint list",

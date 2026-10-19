@@ -502,7 +502,7 @@ def _patch_reads(
     monkeypatch.setattr(project, "_test_read_stream", fake_read)
 
 
-def test_run_readiness_report_judges_each_stream(
+def test_run_readiness_checks_judges_each_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     names = ["ok", "empty", "http_error", "error_log", "warn_log", "broken", "dropped"]
@@ -528,7 +528,7 @@ def test_run_readiness_report_judges_each_stream(
         },
     )
 
-    report = project.run_readiness_report(names)
+    report = project.run_readiness_checks(names)
 
     assert [stream.stream_name for stream in report.streams] == names
     assert {stream.stream_name: stream.passed for stream in report.streams} == {
@@ -562,18 +562,18 @@ def test_run_readiness_report_judges_each_stream(
     )
 
 
-def test_run_readiness_report_requires_stream_names() -> None:
+def test_run_readiness_checks_requires_stream_names() -> None:
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
     with pytest.raises(AirbyteLibInputError):
-        project.run_readiness_report([])
+        project.run_readiness_checks([])
 
 
-def test_run_readiness_report_without_draft_fails(
+def test_run_readiness_checks_without_draft_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=None)
     with pytest.raises(AirbyteLibInputError):
-        CloudConnectorBuilderProject(_fake_workspace(), "bp").run_readiness_report([
+        CloudConnectorBuilderProject(_fake_workspace(), "bp").run_readiness_checks([
             "users"
         ])
 
@@ -589,10 +589,10 @@ def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
     }
     _patch_reads(monkeypatch, project, reads)
 
-    partial = project.run_readiness_report(["users"])
-    capped = project.run_readiness_report(["users", "orders"])
+    partial = project.run_readiness_checks(["users"])
+    capped = project.run_readiness_checks(["users", "orders"])
     reads["orders"] = _stream_read("orders", record_count=1)
-    full = project.run_readiness_report(["users", "orders", "users"])
+    full = project.run_readiness_checks(["users", "orders", "users"])
 
     assert partial.passed is True
     assert capped.passed is False
@@ -617,7 +617,7 @@ def test_readiness_checklist_requires_testing_values_when_spec_has_inputs(
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
     _patch_reads(monkeypatch, project, {"users": _stream_read("users", record_count=1)})
 
-    report = project.run_readiness_report(["users"])
+    report = project.run_readiness_checks(["users"])
 
     assert [item.done for item in report.checklist] == [
         True,
@@ -692,7 +692,7 @@ def test_readiness_timeout_splits_pending_and_not_attempted(
     monkeypatch.setattr(project, "_test_read_stream", fake_read)
     names = ["fast", *sorted(slow), "queued"]
     try:
-        report = project.run_readiness_report(names, timeout_seconds=0.5)
+        report = project.run_readiness_checks(names, timeout_seconds=0.5)
     finally:
         release.set()
     assert report.passed_streams == ["fast"]

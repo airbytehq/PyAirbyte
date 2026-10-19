@@ -33,7 +33,7 @@ _FAILING_LOG_LEVELS = frozenset({"ERROR", "FATAL"})
 _MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
 _YAML_LINE_WIDTH = 2**31 - 1
 _READINESS_MAX_WORKERS = 5
-"""Most streams `run_readiness_report()` reads in one call."""
+"""Most streams `run_readiness_checks()` reads in one call."""
 
 ManifestTextEditMode = Literal["replace_full", "replace_text", "replace_all"]
 """How `update_draft_manifest_text()` edits the manifest text.
@@ -711,7 +711,7 @@ class CloudConnectorBuilderProject:
         )
         return ConnectorBuilderResolvedManifest.from_manifest(resolved_manifest)
 
-    def run_readiness_report(
+    def run_readiness_checks(
         self,
         stream_names: list[str],
         *,

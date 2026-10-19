@@ -3889,7 +3889,7 @@ def resolve_connector_builder_manifest(
 
 
 @mcp_tool(read_only=True, idempotent=True, external_access=True)
-def run_connector_builder_readiness_report(
+def run_connector_builder_readiness_checks(
     ctx: Context,
     stream_names: Annotated[
         str | list[str],
@@ -3948,7 +3948,7 @@ def run_connector_builder_readiness_report(
         builder_project_id,
         definition_id=definition_id,
     )
-    report = project.run_readiness_report(
+    report = project.run_readiness_checks(
         resolve_list_of_strings(stream_names),
         timeout_seconds=timeout_seconds,
     )
