@@ -1270,17 +1270,19 @@ def test_run_full_sync_without_test_source_fails(
 
 
 @pytest.mark.parametrize(
-    ("stream_names", "record_count", "expect_sync"),
+    ("stream_names", "record_count", "status", "expect_sync"),
     [
-        pytest.param([], 0, True, id="no-streams"),
-        pytest.param(["users"], 1, True, id="no-failed-streams"),
-        pytest.param(["users"], 0, True, id="zero-records-no-error"),
+        pytest.param([], 0, 200, True, id="no-streams"),
+        pytest.param(["users"], 1, 200, True, id="no-failed-streams"),
+        pytest.param(["users"], 0, 200, True, id="zero-records-no-error"),
+        pytest.param(["users"], 1, 422, False, id="http-error-skips-sync"),
     ],
 )
 def test_readiness_full_sync_gating(
     monkeypatch: pytest.MonkeyPatch,
     stream_names: list[str],
     record_count: int,
+    status: int,
     expect_sync: bool,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
@@ -1296,10 +1298,14 @@ def test_readiness_full_sync_gating(
     )
     run_full_sync = MagicMock(return_value=full_sync)
     monkeypatch.setattr(project, "run_full_sync", run_full_sync)
+    publish = MagicMock()
+    monkeypatch.setattr(project, "publish", publish)
     monkeypatch.setattr(
         project,
         "_test_read_stream",
-        lambda _m, name, **_: _stream_read(name, record_count=record_count),
+        lambda _m, name, **_: _stream_read(
+            name, record_count=record_count, status=status
+        ),
     )
 
     report = project.run_readiness_checks(
@@ -1311,6 +1317,11 @@ def test_readiness_full_sync_gating(
         run_full_sync.assert_called_once_with(
             test_source_id="src", on_resource_created=None
         )
+    else:
+        assert report.full_sync is None
+        assert report.failed_streams == ["users"]
+        run_full_sync.assert_not_called()
+        publish.assert_not_called()
 
 
 def test_readiness_requires_streams_without_full_sync(
