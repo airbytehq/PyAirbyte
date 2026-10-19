@@ -3573,6 +3573,70 @@ def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
     assert policy.pipeline_change is False
 
 
+def test_connector_builder_tools_return_read_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warnings = ["Read 100 records, a multiple of 10. Check the paginator."]
+    read_result = SimpleNamespace(
+        model_dump=lambda: {
+            "stream_name": "users",
+            "warnings": warnings,
+            "pages": [],
+            "http_errors": [],
+            "logs": [],
+            "problem_logs": [],
+            "error": None,
+        },
+        records=[],
+    )
+    readiness_report = SimpleNamespace(
+        full_sync=None,
+        model_dump=lambda: {
+            "full_sync": None,
+            "streams": [
+                {
+                    "stream_name": "users",
+                    "warnings": warnings,
+                    "pages": [],
+                    "http_errors": [],
+                    "problem_logs": [],
+                    "error": None,
+                }
+            ],
+        },
+    )
+    project = SimpleNamespace(
+        builder_project_id="builder-project",
+        url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp",
+        test_read_stream=lambda *_args, **_kwargs: read_result,
+        run_readiness_checks=lambda *_args, **_kwargs: readiness_report,
+    )
+    workspace = SimpleNamespace(
+        get_connector_builder_project=lambda *_args, **_kwargs: project
+    )
+    monkeypatch.setattr(
+        connector_builder_mcp, "_get_cloud_workspace", lambda *_args: workspace
+    )
+    ctx = cast(Context, object())
+
+    stream_result = connector_builder_mcp.test_connector_builder_stream(
+        ctx,
+        "users",
+        builder_project_id="builder-project",
+        workspace_id="ws",
+    )
+    readiness_result = connector_builder_mcp.run_connector_builder_readiness_checks(
+        ctx,
+        ["users"],
+        builder_project_id="builder-project",
+        workspace_id="ws",
+    )
+
+    assert stream_result["warnings"] == warnings
+    assert readiness_result["streams"][0]["warnings"] == warnings
+    assert "passed" not in readiness_result
+
+
 def test_redact_stream_diagnostics() -> None:
     leaky = "GET https://api.example.com/data?api_key=s3cret failed: Bearer s3cret"
     data = connector_builder_mcp._redact_stream_diagnostics({
