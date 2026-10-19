@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from airbyte._util import api_util
 from airbyte.cloud import connector_builder
@@ -489,8 +490,12 @@ def _patch_reads(
     def fake_read(
         _manifest: Any, stream_name: str, **_: Any
     ) -> ConnectorBuilderStreamReadResult:
+        if stream_name == "dropped":
+            raise requests.ConnectionError("connection reset")
         if stream_name not in reads:
-            raise AirbyteLibInputError(message="read failed")
+            raise AirbyteLibInputError(
+                message="read failed", guidance="Fix the stream."
+            )
         return reads[stream_name]
 
     monkeypatch.setattr(project, "_test_read_stream", fake_read)
@@ -499,7 +504,7 @@ def _patch_reads(
 def test_run_readiness_report_judges_each_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    names = ["ok", "empty", "http_error", "error_log", "warn_log", "broken"]
+    names = ["ok", "empty", "http_error", "error_log", "warn_log", "broken", "dropped"]
     _patch_project_store(
         monkeypatch, draft={**MANIFEST, "streams": [{"name": name} for name in names]}
     )
@@ -532,14 +537,21 @@ def test_run_readiness_report_judges_each_stream(
         "error_log": False,
         "warn_log": True,
         "broken": False,
+        "dropped": False,
     }
     assert report.passed is False
-    assert (report.stream_count, report.passed_stream_count) == (6, 2)
+    assert (report.stream_count, report.passed_stream_count) == (7, 2)
     by_name = {stream.stream_name: stream for stream in report.streams}
     assert by_name["http_error"].http_errors[0].status == 401
     assert by_name["warn_log"].problem_logs == [{"level": "WARN", "message": "hmm"}]
-    assert by_name["broken"].error is not None
-    assert report.checklist[4].detail == "failed: empty, http_error, error_log, broken"
+    assert by_name["broken"].error == "read failed Fix the stream."
+    assert (
+        by_name["dropped"].error == "Request to Airbyte Cloud failed: ConnectionError"
+    )
+    assert (
+        report.checklist[4].detail
+        == "failed: empty, http_error, error_log, broken, dropped"
+    )
 
 
 @pytest.mark.parametrize("count", [0, 26])

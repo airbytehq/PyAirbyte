@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import requests
 import yaml
 from pydantic import BaseModel, Field
 
@@ -720,8 +721,17 @@ class CloudConnectorBuilderProject:
                     slice_limit=slice_limit,
                 )
             except exc.AirbyteLibError as ex:
+                error = ex.get_message()
+                if ex.guidance:
+                    error += f" {ex.guidance}"
                 return ConnectorBuilderStreamReadiness(
-                    stream_name=stream_name, passed=False, error=str(ex)
+                    stream_name=stream_name, passed=False, error=error
+                )
+            except requests.RequestException as ex:
+                return ConnectorBuilderStreamReadiness(
+                    stream_name=stream_name,
+                    passed=False,
+                    error=f"Request to Airbyte Cloud failed: {type(ex).__name__}",
                 )
             return ConnectorBuilderStreamReadiness.from_stream_read(result)
 
