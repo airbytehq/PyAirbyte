@@ -723,7 +723,8 @@ def test_readiness_bounds_read_requests_by_timeout(
     project.run_readiness_checks(["users"], timeout_seconds=30)
     project.run_readiness_checks(["users"])
 
-    assert timeouts[0] is not None and 0 < timeouts[0] <= 30
+    # Windows clock granularity can make the remaining time a hair over the timeout.
+    assert timeouts[0] is not None and 0 < timeouts[0] <= 30 + 1e-3
     assert timeouts[1] is None
 
 
