@@ -3924,8 +3924,8 @@ def run_connector_builder_readiness_report(
         Field(
             description=(
                 "Optional. Return after this many seconds with the streams finished so far. "
-                "Unfinished streams are listed in `pending_streams`; pass them in another call "
-                "to resume. No limit by default."
+                "Streams still reading are aborted (`pending_streams`); streams not started are "
+                "listed in `not_attempted_streams` to pass in another call. No limit by default."
             ),
             default=None,
         ),

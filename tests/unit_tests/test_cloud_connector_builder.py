@@ -541,7 +541,14 @@ def test_run_readiness_report_judges_each_stream(
         "dropped": False,
     }
     assert report.passed is False
-    assert (report.stream_count, report.passed_stream_count) == (7, 2)
+    assert report.passed_streams == ["ok", "warn_log"]
+    assert report.failed_streams == [
+        "empty",
+        "http_error",
+        "error_log",
+        "broken",
+        "dropped",
+    ]
     by_name = {stream.stream_name: stream for stream in report.streams}
     assert by_name["http_error"].http_errors[0].status == 401
     assert by_name["warn_log"].problem_logs == [{"level": "WARN", "message": "hmm"}]
@@ -589,15 +596,13 @@ def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
 
     assert partial.passed is True
     assert capped.passed is False
-    assert capped.passed_stream_count == 2
+    assert capped.passed_streams == ["users", "orders"]
+    assert "hit a test-read cap" in capped.next_steps[-1]
     assert [s.read_to_end for s in capped.streams] == [True, False]
     assert capped.checklist[5].done is False
     assert full.passed is True
-    assert full.stream_count == 2
-    assert full.next_steps == [
-        "Publish the custom source definition",
-        "Run a full sync of every stream to a no-op destination",
-    ]
+    assert full.passed_streams == ["users", "orders"]
+    assert full.next_steps[0].startswith("All named streams passed.")
 
 
 def test_readiness_checklist_requires_testing_values_when_spec_has_inputs(
@@ -669,27 +674,33 @@ def test_publish_duplicate_name_leaves_draft_unchanged(
     assert store["saved"] == []
 
 
-def test_readiness_timeout_returns_pending_streams(
+def test_readiness_timeout_splits_pending_and_not_attempted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_project_store(
-        monkeypatch, draft={"streams": [{"name": "fast"}, {"name": "slow"}]}
-    )
+    _patch_project_store(monkeypatch, draft=MANIFEST)
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
     release = threading.Event()
+    slow = {f"slow{i}" for i in range(5)}
 
     def fake_read(
         _manifest: Any, stream_name: str, **_: Any
     ) -> ConnectorBuilderStreamReadResult:
-        if stream_name == "slow":
+        if stream_name in slow:
             release.wait(5)
         return _stream_read(stream_name, record_count=1)
 
     monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    names = ["fast", *sorted(slow), "queued"]
     try:
-        report = project.run_readiness_report(["fast", "slow"], timeout_seconds=0.5)
+        report = project.run_readiness_report(names, timeout_seconds=0.5)
     finally:
         release.set()
-    assert [stream.stream_name for stream in report.streams] == ["fast"]
-    assert report.pending_streams == ["slow"]
+    assert report.passed_streams == ["fast"]
+    assert report.pending_streams == sorted(slow)
+    assert report.not_attempted_streams == ["queued"]
     assert report.passed is False
+    assert any(
+        "not-attempted streams" in step and "queued" in step
+        for step in report.next_steps
+    )
+    assert any("aborted at the timeout" in step for step in report.next_steps)

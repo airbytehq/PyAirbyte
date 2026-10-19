@@ -323,18 +323,53 @@ class ConnectorBuilderReadinessReport(BaseModel):
             "named streams; a full sync validates the whole connector."
         ),
     )
-    stream_count: int
-    passed_stream_count: int
+    passed_streams: list[str] = Field(default_factory=list)
+    failed_streams: list[str] = Field(default_factory=list)
     pending_streams: list[str] = Field(
         default_factory=list,
-        description=(
-            "Named streams that hadn't finished when `timeout_seconds` ran out. "
-            "Pass them in another call to resume."
-        ),
+        description="Streams still reading when `timeout_seconds` ran out, so aborted.",
+    )
+    not_attempted_streams: list[str] = Field(
+        default_factory=list,
+        description="Streams not started before `timeout_seconds` ran out.",
     )
     checklist: list[ConnectorBuilderChecklistItem]
     next_steps: list[str]
     streams: list[ConnectorBuilderStreamReadiness]
+
+
+def _readiness_next_steps(
+    checklist: list[ConnectorBuilderChecklistItem],
+    streams: list[ConnectorBuilderStreamReadiness],
+    pending_streams: list[str],
+    not_attempted_streams: list[str],
+) -> list[str]:
+    steps = [item.step for item in checklist[:4] if item.done is not True]
+    failed = [stream.stream_name for stream in streams if not stream.passed]
+    capped = [stream.stream_name for stream in streams if stream.passed and not stream.read_to_end]
+    if failed:
+        steps.append(f"Fix the failed streams and test them again: {', '.join(failed)}")
+    if pending_streams:
+        steps.append(
+            "These streams were aborted at the timeout. Retry them with a longer "
+            f"`timeout_seconds`, or check them with the full sync: {', '.join(pending_streams)}"
+        )
+    if not_attempted_streams and not failed:
+        steps.append(
+            "Run the report again with the not-attempted streams, skipping any already "
+            f"validated or unchanged since: {', '.join(not_attempted_streams)}"
+        )
+    if not (failed or pending_streams or not_attempted_streams):
+        steps.append(
+            "All named streams passed. Once every stream is validated, publish the custom "
+            "source definition (if not yet) and run a full sync of every stream to a no-op "
+            "destination."
+        )
+    if capped:
+        steps.append(
+            f"These streams hit a test-read cap; check them with the full sync: {', '.join(capped)}"
+        )
+    return steps
 
 
 def _readiness_checklist(
@@ -739,19 +774,27 @@ class CloudConnectorBuilderProject:
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
         streams = [future.result() for future in futures if future in done]
-        pending_streams = [
-            name for name, future in zip(stream_names, futures, strict=True) if future not in done
+        unfinished = [
+            (name, future)
+            for name, future in zip(stream_names, futures, strict=True)
+            if future not in done
         ]
+        pending_streams = [name for name, future in unfinished if not future.cancelled()]
+        not_attempted_streams = [name for name, future in unfinished if future.cancelled()]
+        remaining = [name for name, _ in unfinished]
 
-        checklist = _readiness_checklist(project_data, draft, streams, pending_streams, self.url)
+        checklist = _readiness_checklist(project_data, draft, streams, remaining, self.url)
         return ConnectorBuilderReadinessReport(
-            passed=not pending_streams
+            passed=not remaining
             and all(stream.passed and stream.read_to_end for stream in streams),
-            stream_count=len(streams),
-            passed_stream_count=sum(stream.passed for stream in streams),
+            passed_streams=[stream.stream_name for stream in streams if stream.passed],
+            failed_streams=[stream.stream_name for stream in streams if not stream.passed],
             pending_streams=pending_streams,
+            not_attempted_streams=not_attempted_streams,
             checklist=checklist,
-            next_steps=[item.step for item in checklist if item.done is not True],
+            next_steps=_readiness_next_steps(
+                checklist, streams, pending_streams, not_attempted_streams
+            ),
             streams=streams,
         )
 
