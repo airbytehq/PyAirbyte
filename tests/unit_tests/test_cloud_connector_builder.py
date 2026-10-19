@@ -17,8 +17,10 @@ from airbyte.cloud.connector_builder import (
     CloudConnectorBuilderProject,
     ConnectorBuilderPageSummary,
     ConnectorBuilderResolvedManifest,
+    ConnectorBuilderStreamReadiness,
     ConnectorBuilderStreamReadResult,
 )
+from airbyte.cloud.connector_builder.models import _record_count_warnings
 from airbyte.cloud.connector_builder._util import (
     apply_manifest_text_edit,
     drop_masked_secrets,
@@ -27,7 +29,11 @@ from airbyte.cloud.connector_builder._util import (
     spec_has_secrets,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteDuplicateResourcesError, AirbyteLibInputError
+from airbyte.exceptions import (
+    AirbyteCloudError,
+    AirbyteDuplicateResourcesError,
+    AirbyteLibInputError,
+)
 from airbyte.secrets.base import SecretString
 
 MANIFEST: dict[str, Any] = {
@@ -138,6 +144,103 @@ def test_stream_read_result_from_api_response() -> None:
     assert result.pages[1].response_body == "unauthorized"
     assert result.logs == [{"level": "ERROR", "message": "boom"}]
     assert result.inferred_schema == {"type": "object"}
+
+
+@pytest.mark.parametrize(
+    ("record_count", "page_counts", "limit_reached", "expected"),
+    [
+        pytest.param(
+            100,
+            [100],
+            False,
+            [
+                "Read 100 records, a multiple of 10. A page size or API limit may have cut "
+                "the read short; check the paginator.",
+                "The last page returned a full page of 100 records, the same as the first "
+                "page, so more pages may exist; check the paginator.",
+            ],
+            id="round-single-page",
+        ),
+        pytest.param(7, [5, 2], False, [], id="non-round-partial-last-page"),
+        pytest.param(5, [5, 0], False, [], id="empty-final-page"),
+        pytest.param(
+            10,
+            [5, 5],
+            False,
+            [
+                "Read 10 records, a multiple of 10. A page size or API limit may have cut "
+                "the read short; check the paginator.",
+                "The last page returned a full page of 5 records, the same as the first "
+                "page, so more pages may exist; check the paginator.",
+            ],
+            id="full-final-page",
+        ),
+        pytest.param(
+            0,
+            [0],
+            False,
+            ["Read 0 records. Check the request, record selector, and testing values."],
+            id="zero-records",
+        ),
+        pytest.param(1, [1], False, [], id="one-record"),
+        pytest.param(
+            150,
+            [50, 50, 50],
+            False,
+            [
+                "Read 150 records, a multiple of 10. A page size or API limit may have cut "
+                "the read short; check the paginator.",
+                "The last page returned a full page of 50 records, the same as the first "
+                "page, so more pages may exist; check the paginator.",
+            ],
+            id="multiple-full-pages",
+        ),
+        pytest.param(100, [100], True, [], id="reached-test-read-limit"),
+    ],
+)
+def test_record_count_warnings(
+    record_count: int,
+    page_counts: list[int],
+    limit_reached: bool,
+    expected: list[str],
+) -> None:
+    pages = [ConnectorBuilderPageSummary(record_count=count) for count in page_counts]
+
+    assert (
+        _record_count_warnings(
+            record_count,
+            pages,
+            test_read_limit_reached=limit_reached,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("limit_reached", [False, True])
+def test_stream_read_warnings_propagate_to_readiness_without_failing(
+    limit_reached: bool,
+) -> None:
+    response = {
+        "slices": [
+            {
+                "pages": [
+                    {"records": [{"id": index} for index in range(100)]},
+                ]
+            }
+        ],
+        "test_read_limit_reached": limit_reached,
+    }
+
+    result = ConnectorBuilderStreamReadResult.from_api_response("users", response)
+    readiness = ConnectorBuilderStreamReadiness.from_stream_read(result)
+
+    if limit_reached:
+        assert result.warnings == []
+    else:
+        assert len(result.warnings) == 2
+    assert readiness.warnings == result.warnings
+    assert readiness.failed is False
+    assert readiness.read_to_end is not limit_reached
 
 
 def test_resolved_manifest_lists_stream_names() -> None:
@@ -526,7 +629,7 @@ def _patch_reads(
     monkeypatch.setattr(project, "_test_read_stream", fake_read)
 
 
-def test_run_readiness_checks_judges_each_stream(
+def test_run_readiness_checks_summarizes_each_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     names = ["ok", "empty", "http_error", "error_log", "warn_log", "broken", "dropped"]
@@ -539,8 +642,11 @@ def test_run_readiness_checks_judges_each_stream(
         project,
         {
             "ok": _stream_read("ok", record_count=3),
-            "empty": _stream_read("empty", record_count=0),
-            "http_error": _stream_read("http_error", record_count=1, status=401),
+            "empty": ConnectorBuilderStreamReadResult.from_api_response(
+                "empty",
+                {"slices": [{"pages": [{"records": []}]}]},
+            ),
+            "http_error": _stream_read("http_error", record_count=1, status=422),
             "error_log": _stream_read(
                 "error_log",
                 record_count=1,
@@ -555,41 +661,170 @@ def test_run_readiness_checks_judges_each_stream(
     report = project.run_readiness_checks(names)
 
     assert [stream.stream_name for stream in report.streams] == names
-    assert {stream.stream_name: stream.passed for stream in report.streams} == {
-        "ok": True,
+    assert {stream.stream_name: stream.failed for stream in report.streams} == {
+        "ok": False,
         "empty": False,
-        "http_error": False,
-        "error_log": False,
-        "warn_log": True,
-        "broken": False,
-        "dropped": False,
+        "http_error": True,
+        "error_log": True,
+        "warn_log": False,
+        "broken": True,
+        "dropped": True,
     }
-    assert report.passed is False
-    assert report.passed_streams == ["ok", "warn_log"]
     assert report.failed_streams == [
-        "empty",
         "http_error",
         "error_log",
         "broken",
         "dropped",
     ]
     by_name = {stream.stream_name: stream for stream in report.streams}
-    assert by_name["http_error"].http_errors[0].status == 401
+    assert by_name["empty"].warnings == [
+        "Read 0 records. Check the request, record selector, and testing values."
+    ]
+    assert "empty" not in report.failed_streams
+    assert by_name["http_error"].http_errors[0].status == 422
+    assert by_name["http_error"].read_to_end is False
     assert by_name["warn_log"].problem_logs == [{"level": "WARN", "message": "hmm"}]
     assert by_name["broken"].error == "read failed Fix the stream."
     assert (
         by_name["dropped"].error == "Request to Airbyte Cloud failed: ConnectionError"
     )
-    assert (
-        report.checks[4].detail
-        == "failed: empty, http_error, error_log, broken, dropped"
+    assert report.checks[4].detail == "failed: http_error, error_log, broken, dropped"
+    assert report.checks[5].result == "failed"
+    assert "not read: http_error, broken, dropped (test read failed)" in (
+        report.checks[5].detail or ""
     )
+    assert (
+        report.next_steps[-1] == "Report these streams' `warnings` to the user: empty"
+    )
+    assert not any("All named streams passed" in step for step in report.next_steps)
+    assert not any("ready" in step.lower() for step in report.next_steps)
 
 
 def test_run_readiness_checks_requires_stream_names() -> None:
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
     with pytest.raises(AirbyteLibInputError):
         project.run_readiness_checks([])
+
+
+@pytest.mark.parametrize("method", ["test_read_stream", "run_readiness_checks"])
+@pytest.mark.parametrize(
+    ("limit_name", "limit_value"),
+    [
+        ("record_limit", 5_001),
+        ("page_limit", 21),
+        ("slice_limit", 21),
+    ],
+)
+def test_test_read_limits_reject_out_of_range_without_api_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    limit_name: str,
+    limit_value: int,
+) -> None:
+    def unexpected_api_call(*_: Any, **__: Any) -> Any:
+        pytest.fail("A test-read limit was rejected only after an API call.")
+
+    monkeypatch.setattr(api_util, "get_connector_builder_project", unexpected_api_call)
+    monkeypatch.setattr(
+        api_util, "read_connector_builder_project_stream", unexpected_api_call
+    )
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    expected: dict[str, int] = (
+        {"record_limit": 100, "page_limit": 5, "slice_limit": 5}
+        if method == "test_read_stream"
+        else {
+            "record_limit": connector_builder.TEST_READ_MAX_RECORDS,
+            "page_limit": connector_builder.TEST_READ_MAX_PAGES,
+            "slice_limit": connector_builder.TEST_READ_MAX_SLICES,
+        }
+    )
+
+    with pytest.raises(AirbyteLibInputError) as error:
+        if method == "test_read_stream":
+            project.test_read_stream("users", **{limit_name: limit_value})
+        else:
+            project.run_readiness_checks(["users"], **{limit_name: limit_value})
+
+    expected[limit_name] = limit_value
+    assert error.value.get_message() == "Test-read limits are out of range."
+    assert error.value.context == expected
+
+
+def test_readiness_report_defaults_forward_cloud_test_read_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft={"streams": [{"name": "users"}]})
+    received: list[dict[str, Any]] = []
+
+    def fake_read(**kwargs: Any) -> dict[str, Any]:
+        received.append(kwargs)
+        return {"slices": [{"pages": [{"records": [{"id": 1}]}]}]}
+
+    monkeypatch.setattr(api_util, "read_connector_builder_project_stream", fake_read)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+
+    project.run_readiness_checks(["users"])
+
+    assert len(received) == 1
+    assert received[0]["record_limit"] == connector_builder.TEST_READ_MAX_RECORDS
+    assert received[0]["page_limit"] == connector_builder.TEST_READ_MAX_PAGES
+    assert received[0]["slice_limit"] == connector_builder.TEST_READ_MAX_SLICES
+
+
+def test_readiness_checklist_does_not_call_failed_reads_capped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft={"streams": [{"name": "users"}]})
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+
+    def fail_read(*_: Any, **__: Any) -> ConnectorBuilderStreamReadResult:
+        raise AirbyteCloudError(message="Cloud read failed.")
+
+    monkeypatch.setattr(project, "_test_read_stream", fail_read)
+
+    report = project.run_readiness_checks(["users"])
+
+    assert report.streams[0].read_to_end is False
+    assert report.checks[5].result == "failed"
+    assert report.checks[5].detail == "not read: users (test read failed)"
+    assert "hit a cap" not in (report.checks[5].detail or "")
+
+
+def test_readiness_checklist_marks_failed_capped_stream_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft={"streams": [{"name": "users"}]})
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    _patch_reads(
+        monkeypatch,
+        project,
+        {
+            "users": _stream_read(
+                "users",
+                record_count=1,
+                logs=[{"level": "ERROR", "message": "read failed"}],
+                limit_reached=True,
+            )
+        },
+    )
+
+    report = project.run_readiness_checks(["users"])
+
+    assert report.streams[0].failed is True
+    assert report.streams[0].error is None
+    assert report.streams[0].http_errors == []
+    assert report.failed_streams == ["users"]
+    assert report.checks[5].result == "failed"
+    assert report.checks[5].detail == (
+        "hit a cap: users. Check these with a full sync after publishing."
+    )
+    assert any(
+        "Fix the failed streams and test them again: users" in step
+        for step in report.next_steps
+    )
+    assert any(
+        "hit a test-read cap" in step and "users" in step for step in report.next_steps
+    )
 
 
 def test_run_readiness_checks_without_draft_fails(
@@ -602,7 +837,7 @@ def test_run_readiness_checks_without_draft_fails(
         ])
 
 
-def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
+def test_readiness_report_lists_caps_without_a_success_verdict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
@@ -618,15 +853,22 @@ def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
     reads["orders"] = _stream_read("orders", record_count=1)
     full = project.run_readiness_checks(["users", "orders", "users"])
 
-    assert partial.passed is True
-    assert capped.passed is False
-    assert capped.passed_streams == ["users", "orders"]
-    assert "hit a test-read cap" in capped.next_steps[-1]
+    assert partial.failed_streams == []
+    assert capped.failed_streams == []
+    assert "passed" not in partial.model_dump()
+    assert any(
+        "These streams hit a test-read cap, so later pages weren't read; "
+        "check them with a full sync: orders" == step
+        for step in capped.next_steps
+    )
+    assert not any("Not ready yet" in step for step in capped.next_steps)
+    assert not any("All named streams passed" in step for step in capped.next_steps)
+    assert not any("ready" in step.lower() for step in capped.next_steps)
     assert [s.read_to_end for s in capped.streams] == [True, False]
     assert capped.checks[5].result == "failed"
-    assert full.passed is True
-    assert full.passed_streams == ["users", "orders"]
-    assert full.next_steps[0].startswith("All named streams passed.")
+    assert full.failed_streams == []
+    assert not any("All named streams passed" in step for step in full.next_steps)
+    assert not any("ready" in step.lower() for step in full.next_steps)
 
 
 def test_readiness_checks_require_testing_values_when_spec_has_inputs(
@@ -653,7 +895,7 @@ def test_readiness_checks_require_testing_values_when_spec_has_inputs(
         "passed",
         "unknown",
     ]
-    assert report.passed is True
+    assert report.failed_streams == []
 
 
 def test_publish_spec_uses_api_field_names() -> None:
@@ -719,15 +961,43 @@ def test_readiness_timeout_splits_pending_and_not_attempted(
         report = project.run_readiness_checks(names, timeout_seconds=0.5)
     finally:
         release.set()
-    assert report.passed_streams == ["fast"]
+    assert report.failed_streams == []
     assert report.pending_streams == sorted(slow)
     assert report.not_attempted_streams == ["queued"]
-    assert report.passed is False
     assert any(
         "not-attempted streams" in step and "queued" in step
         for step in report.next_steps
     )
     assert any("still reading at the timeout" in step for step in report.next_steps)
+
+
+def test_readiness_checklist_is_incomplete_when_a_stream_is_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    release = threading.Event()
+
+    def fake_read(
+        _manifest: Any, stream_name: str, **_: Any
+    ) -> ConnectorBuilderStreamReadResult:
+        if stream_name == "pending":
+            release.wait(5)
+        return _stream_read(stream_name, record_count=1)
+
+    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    try:
+        report = project.run_readiness_checks(
+            ["ready", "pending"],
+            timeout_seconds=0.5,
+        )
+    finally:
+        release.set()
+
+    assert report.pending_streams == ["pending"]
+    assert [stream.stream_name for stream in report.streams] == ["ready"]
+    assert all(stream.read_to_end for stream in report.streams)
+    assert report.checks[5].result == "failed"
 
 
 def test_readiness_bounds_read_requests_by_timeout(
@@ -1000,17 +1270,19 @@ def test_run_full_sync_without_test_source_fails(
 
 
 @pytest.mark.parametrize(
-    ("stream_names", "record_count", "expect_sync"),
+    ("stream_names", "record_count", "status", "expect_sync"),
     [
-        pytest.param([], 0, True, id="no-streams"),
-        pytest.param(["users"], 1, True, id="all-passed"),
-        pytest.param(["users"], 0, False, id="failed-skips-sync"),
+        pytest.param([], 0, 200, True, id="no-streams"),
+        pytest.param(["users"], 1, 200, True, id="no-failed-streams"),
+        pytest.param(["users"], 0, 200, True, id="zero-records-no-error"),
+        pytest.param(["users"], 1, 422, False, id="http-error-skips-sync"),
     ],
 )
 def test_readiness_full_sync_gating(
     monkeypatch: pytest.MonkeyPatch,
     stream_names: list[str],
     record_count: int,
+    status: int,
     expect_sync: bool,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
@@ -1026,10 +1298,14 @@ def test_readiness_full_sync_gating(
     )
     run_full_sync = MagicMock(return_value=full_sync)
     monkeypatch.setattr(project, "run_full_sync", run_full_sync)
+    publish = MagicMock()
+    monkeypatch.setattr(project, "publish", publish)
     monkeypatch.setattr(
         project,
         "_test_read_stream",
-        lambda _m, name, **_: _stream_read(name, record_count=record_count),
+        lambda _m, name, **_: _stream_read(
+            name, record_count=record_count, status=status
+        ),
     )
 
     report = project.run_readiness_checks(
@@ -1041,6 +1317,11 @@ def test_readiness_full_sync_gating(
         run_full_sync.assert_called_once_with(
             test_source_id="src", on_resource_created=None
         )
+    else:
+        assert report.full_sync is None
+        assert report.failed_streams == ["users"]
+        run_full_sync.assert_not_called()
+        publish.assert_not_called()
 
 
 def test_readiness_requires_streams_without_full_sync(
@@ -1170,6 +1451,9 @@ def test_run_readiness_checks_full_sync_only_without_draft(
     report = project.run_readiness_checks([], run_full_sync=True, test_source_id="src")
 
     assert report.full_sync is not None
+    report_data = report.model_dump()
+    assert "passed" not in report_data
+    assert report_data["full_sync"] is not None
     assert report.full_sync.destination_created is False
     project.publish.assert_not_called()
     workspace.deploy_connection.assert_called_once()

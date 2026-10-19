@@ -33,6 +33,40 @@ class ConnectorBuilderPageSummary(BaseModel):
     )
 
 
+def _record_count_warnings(
+    record_count: int,
+    pages: list[ConnectorBuilderPageSummary],
+    *,
+    test_read_limit_reached: bool,
+) -> list[str]:
+    """Return informational hints for record counts that may indicate a partial read."""
+    if test_read_limit_reached:
+        return []
+    if record_count == 0:
+        return ["Read 0 records. Check the request, record selector, and testing values."]
+
+    warnings = []
+    if record_count % 10 == 0:
+        warnings.append(
+            f"Read {record_count:,} records, a multiple of 10. A page size or API limit may "
+            "have cut the read short; check the paginator."
+        )
+
+    record_pages = [page for page in pages if page.record_count > 0]
+    if (
+        record_pages
+        and record_pages[0].record_count > 1
+        and pages[-1].record_count > 0
+        and pages[-1].record_count == record_pages[0].record_count
+    ):
+        record_count_per_page = record_pages[0].record_count
+        warnings.append(
+            f"The last page returned a full page of {record_count_per_page:,} records, the "
+            "same as the first page, so more pages may exist; check the paginator."
+        )
+    return warnings
+
+
 class ConnectorBuilderStreamReadResult(BaseModel):
     """Result of a Connector Builder test read of one stream."""
 
@@ -45,6 +79,13 @@ class ConnectorBuilderStreamReadResult(BaseModel):
     pages: list[ConnectorBuilderPageSummary]
     logs: list[dict[str, Any]]
     inferred_schema: dict[str, Any] | None = None
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Hints that the read may be incomplete, such as round record counts. "
+            "They don't fail the read."
+        ),
+    )
 
     @classmethod
     def from_api_response(
@@ -77,12 +118,13 @@ class ConnectorBuilderStreamReadResult(BaseModel):
                     )
                 )
 
+        test_read_limit_reached = bool(response.get("test_read_limit_reached"))
         return cls(
             stream_name=stream_name,
             record_count=len(records),
             slice_count=len(slices),
             page_count=len(pages),
-            test_read_limit_reached=bool(response.get("test_read_limit_reached")),
+            test_read_limit_reached=test_read_limit_reached,
             records=records,
             pages=pages,
             logs=[
@@ -90,6 +132,11 @@ class ConnectorBuilderStreamReadResult(BaseModel):
                 for log in response.get("logs") or []
             ],
             inferred_schema=response.get("inferred_schema"),
+            warnings=_record_count_warnings(
+                len(records),
+                pages,
+                test_read_limit_reached=test_read_limit_reached,
+            ),
         )
 
 
@@ -129,19 +176,31 @@ class ConnectorBuilderStreamReadiness(BaseModel):
     """Readiness of one stream, from a Connector Builder test read."""
 
     stream_name: str
-    passed: bool
+    failed: bool = Field(
+        description=(
+            "True when the test read raised an error, returned HTTP errors, or logged errors."
+        ),
+    )
     record_count: int = 0
     page_count: int = 0
     read_to_end: bool = Field(
         default=False,
         description=(
-            "True when the stream ended within the test-read caps. False means the read hit a "
-            "record, page, or slice cap, so later pages were never read."
+            "True when the stream ended within the test-read caps without HTTP errors. False "
+            "means a record, page, or slice cap was hit, an HTTP error occurred, or the read "
+            "did not run (see `error`)."
         ),
     )
     http_errors: list[ConnectorBuilderPageSummary] = Field(default_factory=list)
     problem_logs: list[dict[str, Any]] = Field(default_factory=list)
     inferred_schema: dict[str, Any] | None = None
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Hints that the read may be incomplete, such as round record counts. "
+            "They don't fail the read."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description="The error raised by the test read itself, if it failed to run.",
@@ -151,7 +210,7 @@ class ConnectorBuilderStreamReadiness(BaseModel):
     def from_stream_read(
         cls, result: ConnectorBuilderStreamReadResult
     ) -> ConnectorBuilderStreamReadiness:
-        """Judge a stream from its test read: records returned, no HTTP or error logs."""
+        """Summarize errors and results from a stream test read."""
         http_errors = [
             page
             for page in result.pages
@@ -163,13 +222,14 @@ class ConnectorBuilderStreamReadiness(BaseModel):
         )
         return cls(
             stream_name=result.stream_name,
-            passed=result.record_count > 0 and not has_errors,
+            failed=has_errors,
             record_count=result.record_count,
             page_count=result.page_count,
-            read_to_end=not result.test_read_limit_reached,
+            read_to_end=not result.test_read_limit_reached and not http_errors,
             http_errors=http_errors,
             problem_logs=problem_logs,
             inferred_schema=result.inferred_schema,
+            warnings=result.warnings,
         )
 
 
@@ -200,13 +260,6 @@ class ConnectorBuilderFullSync(BaseModel):
 class ConnectorBuilderReadinessReport(BaseModel):
     """Readiness checks and per-stream test reads for a Connector Builder draft."""
 
-    passed: bool = Field(
-        description=(
-            "True when every named stream passed and was read to the end. Covers only the "
-            "named streams; a full sync validates the whole connector."
-        ),
-    )
-    passed_streams: list[str] = Field(default_factory=list)
     failed_streams: list[str] = Field(default_factory=list)
     pending_streams: list[str] = Field(
         default_factory=list,

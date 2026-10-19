@@ -22,6 +22,9 @@ from airbyte.cloud.connector_builder.models import (
 )
 from airbyte.cloud.connector_builder.project import (
     CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
+    TEST_READ_MAX_PAGES,
+    TEST_READ_MAX_RECORDS,
+    TEST_READ_MAX_SLICES,
     CloudConnectorBuilderProject,
 )
 
@@ -39,4 +42,7 @@ __all__ = [
     "ConnectorBuilderStreamReadResult",
     "ManifestTextEditMode",
     "ReadinessCheckResult",
+    "TEST_READ_MAX_PAGES",
+    "TEST_READ_MAX_RECORDS",
+    "TEST_READ_MAX_SLICES",
 ]
