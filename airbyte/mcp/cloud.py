@@ -3603,6 +3603,11 @@ def create_connector_builder_project(
         manifest_yaml_text=manifest_yaml_text,
         manifest_yaml_file=manifest_yaml_file,
     )
+    if create_test_source and processed_manifest is None:
+        raise AirbyteLibInputError(
+            message="`create_test_source` needs an initial manifest to publish.",
+            guidance="Pass `manifest_yaml_text` or `manifest_yaml_file`.",
+        )
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.create_connector_builder_project(
         name,
