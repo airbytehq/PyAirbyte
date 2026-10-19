@@ -101,6 +101,8 @@ class ConnectorBuilderProjectCreateResult(BaseModel):
     """The test source ID, set only with `create_test_source`."""
     test_source_settings_url: str | None = None
     """Cloud settings page of the test source, set only with `create_test_source`."""
+    next_steps: list[str] = Field(default_factory=list)
+    """Credential-entry steps, or an empty list if no test source was created."""
 
 
 class ConnectorBuilderStreamTestReadToolResult(ConnectorBuilderStreamReadResult):
@@ -271,9 +273,8 @@ def create_connector_builder_project(
         Field(
             description=(
                 "Optional. Publish the initial manifest (which needs its spec) and create a "
-                "test source on it for a later full sync. Ask the user to enter their "
-                "credentials at both `connector_builder_project_url` (testing values) and "
-                "`test_source_settings_url` (then test and save) before you start building."
+                "test source on it for the full sync. Use this for connectors that need "
+                "credentials."
             ),
             default=False,
         ),
@@ -284,6 +285,12 @@ def create_connector_builder_project(
     The project holds the draft manifest and the testing values used for test reads.
     Nothing appears in the workspace's source list until the project is published with
     `publish_custom_source_definition`.
+
+    For a connector that needs credentials, include the spec in the initial manifest, with
+    secret fields marked `airbyte_secret`, and set `create_test_source`. The test source is
+    saved as a draft, so credentials nobody has tested yet don't block it. Then ask the user
+    to enter their credentials in both places listed in `next_steps`. Never ask for secrets
+    in the chat.
     """
     processed_manifest = resolve_manifest_yaml(
         manifest_yaml_text=manifest_yaml_text,
@@ -315,6 +322,12 @@ def create_connector_builder_project(
         result.definition_id = definition.definition_id
         result.test_source_id = test_source.connector_id
         result.test_source_settings_url = test_source.connector_url
+        result.next_steps = [
+            "Ask the user to enter their credentials in the Connector Builder testing "
+            f"values: {project.connector_builder_project_url}",
+            "Ask the user to enter the same credentials in the test source, then test and "
+            f"save it: {test_source.connector_url}",
+        ]
     return result
 
 
