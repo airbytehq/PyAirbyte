@@ -4004,12 +4004,8 @@ def run_connector_builder_readiness_checks(
         timeout_seconds=timeout_seconds,
         run_full_sync=run_full_sync,
         test_source_id=test_source_id,
+        on_resource_created=register_guid_created_in_session,
     )
-    if report.full_sync is not None:
-        if report.full_sync.destination_created:
-            register_guid_created_in_session(report.full_sync.destination_id)
-        if report.full_sync.connection_created:
-            register_guid_created_in_session(report.full_sync.connection_id)
     report_data = report.model_dump()
     report_data["streams"] = [
         _redact_stream_diagnostics(stream) for stream in report_data["streams"]

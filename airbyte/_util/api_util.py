@@ -1615,8 +1615,6 @@ def create_destination(
     )
     definition_id_override: str | None = None
     if _get_destination_type_str(config) == "dev-null":
-        # TODO: We have to hard-code the definition ID for dev-null destination.
-        #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = DEV_NULL_DESTINATION_DEFINITION_ID
     try:
         response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(

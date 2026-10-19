@@ -935,6 +935,21 @@ def test_run_full_sync_creates_noop_destination_and_connection(
     }
 
 
+def test_run_full_sync_reports_created_resources_before_sync_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch, destinations=[], connections=[]
+    )
+    workspace.deploy_connection.return_value.run_sync.side_effect = RuntimeError("boom")
+    created: list[str] = []
+
+    with pytest.raises(RuntimeError, match="boom"):
+        project.run_full_sync(test_source_id="src", on_resource_created=created.append)
+
+    assert created == ["new-dest", "conn"]
+
+
 def test_run_full_sync_reuses_destination_and_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1018,7 +1033,9 @@ def test_readiness_full_sync_gating(
 
     assert (report.full_sync is not None) is expect_sync
     if expect_sync:
-        run_full_sync.assert_called_once_with(test_source_id="src")
+        run_full_sync.assert_called_once_with(
+            test_source_id="src", on_resource_created=None
+        )
 
 
 def test_readiness_requires_streams_without_full_sync(

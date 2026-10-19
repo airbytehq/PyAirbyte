@@ -24,6 +24,8 @@ from airbyte._util.api_util import get_web_url_root
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from airbyte.cloud.connectors import CloudSource, CustomCloudSourceDefinition
     from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -794,6 +796,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         timeout_seconds: float | None = None,
         run_full_sync: bool = False,
         test_source_id: str | None = None,
+        on_resource_created: Callable[[str], None] | None = None,
     ) -> ConnectorBuilderReadinessReport:
         """Check the draft's progress and test-read the given streams on Airbyte Cloud.
 
@@ -815,6 +818,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             run_full_sync: If every named stream finished and passed (or none are named),
                 publish the draft and start a full sync with `run_full_sync()`.
             test_source_id: The source for the full sync. See `run_full_sync()`.
+            on_resource_created: Passed to `run_full_sync()`.
         """
         stream_names = list(dict.fromkeys(stream_names))
         if not stream_names and not run_full_sync:
@@ -834,6 +838,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 update={
                     "full_sync": self.run_full_sync(
                         test_source_id=test_source_id,
+                        on_resource_created=on_resource_created,
                     ),
                 },
             )
@@ -892,6 +897,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         ):
             report.full_sync = self.run_full_sync(
                 test_source_id=test_source_id,
+                on_resource_created=on_resource_created,
             )
         return report
 
@@ -1007,6 +1013,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         *,
         test_source_id: str | None = None,
         pre_validate: bool = True,
+        on_resource_created: Callable[[str], None] | None = None,
     ) -> ConnectorBuilderFullSync:
         """Publish the draft and start a full sync of every stream to a no-op destination.
 
@@ -1018,6 +1025,8 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             test_source_id: Source on the published definition to sync from. Defaults to the
                 source from `create_test_source()`.
             pre_validate: Whether to validate the manifest client-side before publishing.
+            on_resource_created: Called with the ID of each destination or connection this
+                call creates, as soon as it exists.
         """
         project_data = self.get_project_data()
         has_draft = _draft_from_project_data(project_data) is not None
@@ -1042,6 +1051,8 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 context={"test_source_id": test_source_id, "definition_id": source_definition_id},
             )
         test_destination_id, destination_created = self._get_or_create_test_destination()
+        if destination_created and on_resource_created is not None:
+            on_resource_created(test_destination_id)
         if has_draft:
             self.publish(self.name, pre_validate=pre_validate)
 
@@ -1075,6 +1086,8 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 destination=test_destination_id,
                 selected_streams=stream_names,
             )
+            if on_resource_created is not None:
+                on_resource_created(connection.connection_id)
         else:
             connection.set_selected_streams(stream_names)
         sync_result = connection.run_sync(wait=False)
