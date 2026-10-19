@@ -51,6 +51,33 @@ _MIN_READ_TIMEOUT = 1.0
 """Shortest HTTP timeout for a test read started just before the readiness deadline."""
 CONNECTOR_BUILDER_TEST_DESTINATION_NAME = "Connector Builder Test (No-op)"
 """Name of the no-op destination that full syncs find or create by default."""
+TEST_READ_MAX_RECORDS = 5_000
+"""Most records read per stream by `run_readiness_checks()`."""
+TEST_READ_MAX_PAGES = 20
+TEST_READ_MAX_SLICES = 20
+
+
+def _check_test_read_limits(
+    record_limit: int,
+    page_limit: int,
+    slice_limit: int,
+) -> None:
+    """Reject test-read limits outside Airbyte Cloud's supported range."""
+    limits = (
+        ("record_limit", record_limit, TEST_READ_MAX_RECORDS),
+        ("page_limit", page_limit, TEST_READ_MAX_PAGES),
+        ("slice_limit", slice_limit, TEST_READ_MAX_SLICES),
+    )
+    if any(not 1 <= value <= maximum for _, value, maximum in limits):
+        raise exc.AirbyteLibInputError(
+            message="Test-read limits are out of range.",
+            guidance=(
+                f"Airbyte Cloud accepts record_limit 1 to {TEST_READ_MAX_RECORDS:,}, "
+                f"page_limit 1 to {TEST_READ_MAX_PAGES}, and "
+                f"slice_limit 1 to {TEST_READ_MAX_SLICES}."
+            ),
+            context={name: value for name, value, _ in limits},
+        )
 
 
 class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API facade.
@@ -271,10 +298,11 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
 
         Args:
             stream_name: The stream to read.
-            record_limit: Maximum records to return (1 to 10,000).
+            record_limit: Maximum records to return (1 to 5,000).
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).
         """
+        _check_test_read_limits(record_limit, page_limit, slice_limit)
         return self._test_read_stream(
             self._require_draft_manifest(),
             stream_name,
@@ -339,9 +367,9 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         self,
         stream_names: list[str],
         *,
-        record_limit: int = 10_000,
-        page_limit: int = 20,
-        slice_limit: int = 20,
+        record_limit: int = TEST_READ_MAX_RECORDS,
+        page_limit: int = TEST_READ_MAX_PAGES,
+        slice_limit: int = TEST_READ_MAX_SLICES,
         timeout_seconds: float | None = None,
         run_full_sync: bool = False,
         test_source_id: str | None = None,
@@ -349,26 +377,27 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
     ) -> ConnectorBuilderReadinessReport:
         """Check the draft's progress and test-read the given streams on Airbyte Cloud.
 
-        Reads run in parallel. A stream passes when its test read returns records with no
-        HTTP errors or error logs, and is `read_to_end` when it ended within the test-read
-        caps (which default to Cloud's maximums). The readiness checks are derived from the project,
-        so nothing is stored. `passed` covers only the named streams: each must pass and be
-        read to the end. A full sync after publishing validates the whole connector.
+        Reads run in parallel. A stream is `failed` when its read errored, returned HTTP
+        errors, or logged errors. The report lists failures and warnings without judging
+        readiness; `read_to_end` indicates whether the read ended within the test-read caps.
+        The readiness checks are derived from the project, so nothing is stored. A full sync
+        after publishing validates the whole connector.
 
         Args:
             stream_names: Streams to test-read (at least 1). For
                 dynamic streams, get the generated names from `resolve_manifest()`.
-            record_limit: Maximum records to read per stream (1 to 10,000).
+            record_limit: Maximum records to read per stream (1 to 5,000).
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).
             timeout_seconds: Return after this many seconds with the streams finished so far;
                 the rest are listed in `pending_streams` and `not_attempted_streams`. No limit
                 by default.
-            run_full_sync: If every named stream finished and passed (or none are named),
+            run_full_sync: If no named stream failed or is still pending (or none are named),
                 publish the draft and start a full sync with `run_full_sync()`.
             test_source_id: The source for the full sync. See `run_full_sync()`.
             on_resource_created: Passed to `run_full_sync()`.
         """
+        _check_test_read_limits(record_limit, page_limit, slice_limit)
         stream_names = list(dict.fromkeys(stream_names))
         if not stream_names and not run_full_sync:
             raise exc.AirbyteLibInputError(
@@ -414,12 +443,12 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 if ex.guidance:
                     error += f" {ex.guidance}"
                 return ConnectorBuilderStreamReadiness(
-                    stream_name=stream_name, passed=False, error=error
+                    stream_name=stream_name, failed=True, error=error
                 )
             except requests.RequestException as ex:
                 return ConnectorBuilderStreamReadiness(
                     stream_name=stream_name,
-                    passed=False,
+                    failed=True,
                     error=f"Request to Airbyte Cloud failed: {type(ex).__name__}",
                 )
             return ConnectorBuilderStreamReadiness.from_stream_read(result)
@@ -461,10 +490,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         remaining = pending_streams + not_attempted_streams
         checks = readiness_checks(project_data, draft, streams, remaining, self.url)
         return ConnectorBuilderReadinessReport(
-            passed=not remaining
-            and all(stream.passed and stream.read_to_end for stream in streams),
-            passed_streams=[stream.stream_name for stream in streams if stream.passed],
-            failed_streams=[stream.stream_name for stream in streams if not stream.passed],
+            failed_streams=[stream.stream_name for stream in streams if stream.failed],
             pending_streams=pending_streams,
             not_attempted_streams=not_attempted_streams,
             checks=checks,

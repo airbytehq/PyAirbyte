@@ -15,6 +15,9 @@ from fastmcp_extensions import TraceArg, register_mcp_tools
 from pydantic import Field
 
 from airbyte.cloud.connector_builder import (
+    TEST_READ_MAX_PAGES,
+    TEST_READ_MAX_RECORDS,
+    TEST_READ_MAX_SLICES,
     ManifestTextEditMode,
 )
 from airbyte.exceptions import (
@@ -392,17 +395,32 @@ def test_connector_builder_stream(
     ],
     record_limit: Annotated[
         int,
-        Field(description="Maximum records to read (1 to 10,000).", default=100, ge=1, le=10000),
+        Field(
+            description=f"Maximum records to read (1 to {TEST_READ_MAX_RECORDS:,}).",
+            default=100,
+            ge=1,
+            le=TEST_READ_MAX_RECORDS,
+        ),
         TraceArg.VALUE,
     ] = 100,
     page_limit: Annotated[
         int,
-        Field(description="Maximum pages to fetch per slice (1 to 20).", default=5, ge=1, le=20),
+        Field(
+            description=f"Maximum pages to fetch per slice (1 to {TEST_READ_MAX_PAGES}).",
+            default=5,
+            ge=1,
+            le=TEST_READ_MAX_PAGES,
+        ),
         TraceArg.VALUE,
     ] = 5,
     slice_limit: Annotated[
         int,
-        Field(description="Maximum slices to read (1 to 20).", default=5, ge=1, le=20),
+        Field(
+            description=f"Maximum slices to read (1 to {TEST_READ_MAX_SLICES}).",
+            default=5,
+            ge=1,
+            le=TEST_READ_MAX_SLICES,
+        ),
         TraceArg.VALUE,
     ] = 5,
 ) -> dict[str, Any]:
@@ -411,7 +429,11 @@ def test_connector_builder_stream(
     Uses the project's saved testing values as the connector config. Returns counts, a
     per-page summary of HTTP requests (with response bodies for HTTP errors), connector logs,
     the inferred schema, and a preview of the first records (`records` holds at most
-    10 records; `record_count` is the total read).
+    10 records; `record_count` is the total read). `test_read_limit_reached` true means later
+    records weren't read. Cloud stops at page boundaries, so `record_count` can exceed
+    `record_limit`.
+    `warnings` flags reads that may be incomplete (round record counts, a full last page);
+    check them, but they don't fail the read.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(
@@ -527,9 +549,9 @@ def run_connector_builder_readiness_checks(
         bool,
         Field(
             description=(
-                "Optional. If every named stream passed (or none are named), publish the draft "
-                "and start a full sync of every stream to a no-op destination. Returns the job "
-                "in `full_sync`; poll it with `get_cloud_sync_status`."
+                "Optional. If no named stream failed or is still pending (or none are named), "
+                "publish the draft and start a full sync of every stream to a no-op destination. "
+                "Returns the job in `full_sync`; poll it with `get_cloud_sync_status`."
             ),
             default=False,
         ),
@@ -548,13 +570,16 @@ def run_connector_builder_readiness_checks(
     """Check a Connector Builder draft's progress and test-read its streams on Airbyte Cloud.
 
     Returns readiness checks for the steps to a finished custom source, with next steps, plus
-    per-stream results from parallel test reads using the project's testing values: pass/fail,
+    per-stream results from parallel test reads using the project's testing values: `failed`,
     `read_to_end`, record and page counts, HTTP errors, warning and error logs, and inferred
-    schemas. A stream passes when it returns records with no HTTP errors or error logs.
-    Cloud test reads stop at 20 pages per slice and 20 slices, so a stream that hits a cap
-    isn't `read_to_end` and the report doesn't pass. The verdict covers only the named
-    streams; a full sync validates the whole connector. With `run_full_sync`, the tool
-    publishes the draft and starts that sync once the named streams pass.
+    schemas. A stream is `failed` when its read errored, returned HTTP errors, or logged
+    errors. Cloud test reads stop at 5,000 records, 20 pages per slice, and 20 slices, so a
+    stream that hits a cap isn't `read_to_end`. The report calls out failures and warnings
+    without judging readiness; report every failure and warning to the user. A full sync
+    validates the whole connector. With `run_full_sync`, the tool publishes the draft and
+    starts that sync once no named stream failed or is pending.
+    `warnings` flags reads that may be incomplete (round record counts, a full last page);
+    check them, but they don't fail the read.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(

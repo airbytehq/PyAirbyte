@@ -141,8 +141,12 @@ def readiness_next_steps(
     not_attempted_streams: list[str],
 ) -> list[str]:
     steps = [check.description for check in checks[:4] if check.result != "passed"]
-    failed = [stream.stream_name for stream in streams if not stream.passed]
-    capped = [stream.stream_name for stream in streams if stream.passed and not stream.read_to_end]
+    failed = [stream.stream_name for stream in streams if stream.failed]
+    capped = [
+        stream.stream_name
+        for stream in streams
+        if stream.error is None and not stream.http_errors and not stream.read_to_end
+    ]
     if failed:
         steps.append(f"Fix the failed streams and test them again: {', '.join(failed)}")
     if pending_streams:
@@ -156,16 +160,14 @@ def readiness_next_steps(
             "Run the report again with the not-attempted streams, skipping any already "
             f"validated or unchanged since: {', '.join(not_attempted_streams)}"
         )
-    if not (failed or pending_streams or not_attempted_streams):
-        steps.append(
-            "All named streams passed. Once every stream is validated, publish the custom "
-            "source definition (if not yet) and run a full sync of every stream to a no-op "
-            "destination."
-        )
     if capped:
         steps.append(
-            f"These streams hit a test-read cap; check them with the full sync: {', '.join(capped)}"
+            "These streams hit a test-read cap, so later pages weren't read; "
+            f"check them with a full sync: {', '.join(capped)}"
         )
+    warning_streams = [stream.stream_name for stream in streams if stream.warnings]
+    if warning_streams:
+        steps.append(f"Report these streams' `warnings` to the user: {', '.join(warning_streams)}")
     return steps
 
 
@@ -180,8 +182,15 @@ def readiness_checks(
     takes_no_inputs = isinstance(spec, dict) and not spec.get("properties")
     testing_values = project_data.get("testingValues") or {}
     source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
-    failed = [stream.stream_name for stream in streams if not stream.passed]
-    not_read_to_end = [stream.stream_name for stream in streams if not stream.read_to_end]
+    failed = [stream.stream_name for stream in streams if stream.failed]
+    capped = [
+        stream.stream_name
+        for stream in streams
+        if stream.error is None and not stream.http_errors and not stream.read_to_end
+    ]
+    not_read = [
+        stream.stream_name for stream in streams if stream.error is not None or stream.http_errors
+    ]
     return [
         ConnectorBuilderReadinessCheck(
             description="Save a draft manifest",
@@ -201,7 +210,7 @@ def readiness_checks(
             detail=url,
         ),
         ConnectorBuilderReadinessCheck(
-            description="Pass a test read on the named streams",
+            description="Test-read the named streams without errors",
             result=_result(not failed and not pending_streams),
             detail="; ".join(
                 part
@@ -215,13 +224,21 @@ def readiness_checks(
         ),
         ConnectorBuilderReadinessCheck(
             description="Read the named streams to the end within the test-read caps",
-            result=_result(not not_read_to_end and not pending_streams),
-            detail=(
-                f"hit a cap: {', '.join(not_read_to_end)}. Check these with a full sync "
-                "after publishing."
-                if not_read_to_end
-                else None
-            ),
+            result=_result(not pending_streams and all(stream.read_to_end for stream in streams)),
+            detail="; ".join(
+                part
+                for part in (
+                    (
+                        f"hit a cap: {', '.join(capped)}. Check these with a full sync "
+                        "after publishing."
+                    )
+                    if capped
+                    else "",
+                    f"not read: {', '.join(not_read)} (test read failed)" if not_read else "",
+                )
+                if part
+            )
+            or None,
         ),
         ConnectorBuilderReadinessCheck(
             description="Publish the custom source definition",
