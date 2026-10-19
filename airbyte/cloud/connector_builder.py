@@ -1116,8 +1116,22 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
     def _get_or_create_test_destination(self) -> tuple[str, bool]:
         """Return the test destination's ID and whether this call created it."""
         existing = self.workspace.list_destinations(name=CONNECTOR_BUILDER_TEST_DESTINATION_NAME)
+        noop = [
+            destination
+            for destination in existing
+            if destination.definition_id == api_util.DEV_NULL_DESTINATION_DEFINITION_ID
+        ]
+        if noop:
+            return noop[0].connector_id, False
         if existing:
-            return existing[0].connector_id, False
+            raise exc.AirbyteLibInputError(
+                message=(
+                    f"Destination `{CONNECTOR_BUILDER_TEST_DESTINATION_NAME}` exists "
+                    "but isn't a no-op (dev-null) destination."
+                ),
+                guidance="Pass `test_destination_id`, or rename that destination.",
+                context={"destination_ids": [destination.connector_id for destination in existing]},
+            )
         from airbyte.destinations.util import get_noop_destination  # noqa: PLC0415
 
         return self.workspace.deploy_destination(

@@ -94,6 +94,10 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
+DEV_NULL_DESTINATION_DEFINITION_ID = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
+"""Definition ID of the `destination-dev-null` (no-op) connector on Airbyte Cloud."""
+
+
 def _register_queued_job_status() -> None:
     """Register the `queued` job status on the `airbyte-api` SDK enum.
 
@@ -1585,7 +1589,7 @@ def create_destination(
     if _get_destination_type_str(config) == "dev-null":
         # TODO: We have to hard-code the definition ID for dev-null destination.
         #  https://github.com/airbytehq/PyAirbyte/issues/743
-        definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
+        definition_id_override = DEV_NULL_DESTINATION_DEFINITION_ID
     try:
         response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
             models.DestinationCreateRequest(

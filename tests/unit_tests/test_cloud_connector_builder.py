@@ -921,7 +921,12 @@ def test_run_full_sync_reuses_destination_and_connection(
     existing.run_sync.return_value = SimpleNamespace(job_id=8, job_url="https://job8")
     project, workspace = _full_sync_project(
         monkeypatch,
-        destinations=[SimpleNamespace(connector_id="dest")],
+        destinations=[
+            SimpleNamespace(
+                connector_id="dest",
+                definition_id=api_util.DEV_NULL_DESTINATION_DEFINITION_ID,
+            )
+        ],
         connections=[existing],
     )
 
@@ -1007,7 +1012,12 @@ def test_run_full_sync_resolves_draft_before_publish(
 ) -> None:
     project, _ = _full_sync_project(
         monkeypatch,
-        destinations=[SimpleNamespace(connector_id="dest")],
+        destinations=[
+            SimpleNamespace(
+                connector_id="dest",
+                definition_id=api_util.DEV_NULL_DESTINATION_DEFINITION_ID,
+            )
+        ],
         connections=[],
     )
     calls: list[str] = []
@@ -1028,7 +1038,12 @@ def test_run_full_sync_without_draft_syncs_published_version(
 ) -> None:
     project, workspace = _full_sync_project(
         monkeypatch,
-        destinations=[SimpleNamespace(connector_id="dest")],
+        destinations=[
+            SimpleNamespace(
+                connector_id="dest",
+                definition_id=api_util.DEV_NULL_DESTINATION_DEFINITION_ID,
+            )
+        ],
         connections=[],
         draft=None,
     )
@@ -1100,7 +1115,12 @@ def test_run_readiness_checks_full_sync_only_without_draft(
 ) -> None:
     project, workspace = _full_sync_project(
         monkeypatch,
-        destinations=[SimpleNamespace(connector_id="dest")],
+        destinations=[
+            SimpleNamespace(
+                connector_id="dest",
+                definition_id=api_util.DEV_NULL_DESTINATION_DEFINITION_ID,
+            )
+        ],
         connections=[],
         draft=None,
     )
@@ -1115,3 +1135,19 @@ def test_run_readiness_checks_full_sync_only_without_draft(
         item for item in report.checklist if item.step == "Save a draft manifest"
     )
     assert draft_step.done is False
+
+
+def test_run_full_sync_rejects_non_noop_destination_with_default_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch,
+        destinations=[SimpleNamespace(connector_id="s3", definition_id="s3-def")],
+        connections=[],
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="isn't a no-op"):
+        project.run_full_sync(test_source_id="src")
+
+    workspace.deploy_destination.assert_not_called()
+    workspace.deploy_connection.assert_not_called()
