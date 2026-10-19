@@ -480,10 +480,10 @@ def _drop_masked_secrets(value: Any) -> Any:  # noqa: ANN401
 
 def _capped_dynamic_streams(resolved_manifest: dict[str, Any], stream_limit: int) -> list[str]:
     """Return the dynamic streams whose generated streams reached `stream_limit` when resolved."""
-    counts = Counter(
-        stream.get("dynamic_stream_name")
+    counts: Counter[str] = Counter(
+        stream["dynamic_stream_name"]
         for stream in resolved_manifest.get("streams") or []
-        if isinstance(stream, dict) and stream.get("dynamic_stream_name")
+        if isinstance(stream, dict) and isinstance(stream.get("dynamic_stream_name"), str)
     )
     return sorted(name for name, count in counts.items() if count >= stream_limit)
 
