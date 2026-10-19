@@ -9,7 +9,7 @@ so no connector code runs on the caller's machine.
 from __future__ import annotations
 
 import difflib
-from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -31,6 +31,9 @@ _PROBLEM_LOG_LEVELS = frozenset({"WARN", "ERROR", "FATAL"})
 _FAILING_LOG_LEVELS = frozenset({"ERROR", "FATAL"})
 _MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
 _YAML_LINE_WIDTH = 2**31 - 1
+_READINESS_MAX_WORKERS = 5
+READINESS_MAX_STREAMS = 25
+"""Most streams `run_readiness_report()` reads in one call."""
 
 ManifestTextEditMode = Literal["replace_full", "replace_text", "replace_all"]
 """How `update_draft_manifest_text()` edits the manifest text.
@@ -260,7 +263,13 @@ class ConnectorBuilderStreamReadiness(BaseModel):
     passed: bool
     record_count: int = 0
     page_count: int = 0
-    test_read_limit_reached: bool = False
+    read_to_end: bool = Field(
+        default=False,
+        description=(
+            "True when the stream ended within the test-read caps. False means the read hit a "
+            "record, page, or slice cap, so later pages were never read."
+        ),
+    )
     http_errors: list[ConnectorBuilderPageSummary] = Field(default_factory=list)
     problem_logs: list[dict[str, Any]] = Field(default_factory=list)
     inferred_schema: dict[str, Any] | None = None
@@ -288,44 +297,109 @@ class ConnectorBuilderStreamReadiness(BaseModel):
             passed=result.record_count > 0 and not has_errors,
             record_count=result.record_count,
             page_count=result.page_count,
-            test_read_limit_reached=result.test_read_limit_reached,
+            read_to_end=not result.test_read_limit_reached,
             http_errors=http_errors,
             problem_logs=problem_logs,
             inferred_schema=result.inferred_schema,
         )
 
 
-class ConnectorBuilderReadinessReport(BaseModel):
-    """Result of test-reading every stream of a Connector Builder draft."""
-
-    passed: bool
-    stream_count: int
-    passed_stream_count: int
-    capped_dynamic_streams: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Dynamic streams that generated `stream_limit` streams or more, so some generated "
-            "streams may be untested. The report can't pass while this is non-empty."
-        ),
-    )
-    streams: list[ConnectorBuilderStreamReadiness]
-
-
 class ConnectorBuilderChecklistItem(BaseModel):
-    """One step toward a finished custom source, with status derived from the project."""
+    """One step toward a finished custom source."""
 
     step: str
     done: bool | None = Field(
-        description="True or False when known; None when it needs a test read to decide.",
+        description="True or False when known; None when this report can't tell.",
     )
     detail: str | None = None
 
 
-class ConnectorBuilderChecklist(BaseModel):
-    """Progress toward a finished custom source, derived from the project's current state."""
+class ConnectorBuilderReadinessReport(BaseModel):
+    """Checklist and per-stream test reads for a Connector Builder draft."""
 
-    items: list[ConnectorBuilderChecklistItem]
+    passed: bool = Field(
+        description=(
+            "True when every checklist step before publishing is done: every stream of the "
+            "draft passed and was read to the end."
+        ),
+    )
+    stream_count: int
+    passed_stream_count: int
+    untested_streams: list[str] = Field(
+        default_factory=list,
+        description="Streams declared in the draft that weren't in `stream_names`.",
+    )
+    checklist: list[ConnectorBuilderChecklistItem]
     next_steps: list[str]
+    streams: list[ConnectorBuilderStreamReadiness]
+
+
+def _readiness_checklist(
+    project_data: dict[str, Any],
+    draft: dict[str, Any],
+    streams: list[ConnectorBuilderStreamReadiness],
+    untested_streams: list[str],
+    url: str,
+) -> list[ConnectorBuilderChecklistItem]:
+    spec = (draft.get("spec") or {}).get("connection_specification")
+    takes_no_inputs = isinstance(spec, dict) and not spec.get("properties")
+    declared_streams = [
+        str(stream.get("name")) for stream in draft.get("streams") or [] if isinstance(stream, dict)
+    ]
+    testing_values = project_data.get("testingValues") or {}
+    source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
+    failed = [stream.stream_name for stream in streams if not stream.passed]
+    not_read_to_end = [stream.stream_name for stream in streams if not stream.read_to_end]
+    return [
+        ConnectorBuilderChecklistItem(step="Save a draft manifest", done=True),
+        ConnectorBuilderChecklistItem(
+            step="Define the connection spec (user inputs)",
+            done=isinstance(spec, dict),
+        ),
+        ConnectorBuilderChecklistItem(
+            step="Define at least one stream",
+            done=bool(declared_streams) or bool(draft.get("dynamic_streams")),
+            detail=", ".join(declared_streams) or None,
+        ),
+        ConnectorBuilderChecklistItem(
+            step="Set testing values (enter secrets in the Connector Builder UI)",
+            done=bool(testing_values) or takes_no_inputs,
+            detail=url,
+        ),
+        ConnectorBuilderChecklistItem(
+            step="Pass a test read on every stream",
+            done=not failed and not untested_streams,
+            detail="; ".join(
+                part
+                for part in (
+                    f"failed: {', '.join(failed)}" if failed else "",
+                    f"untested: {', '.join(untested_streams)}" if untested_streams else "",
+                )
+                if part
+            )
+            or None,
+        ),
+        ConnectorBuilderChecklistItem(
+            step="Read every stream to the end within the test-read caps",
+            done=not not_read_to_end and not untested_streams,
+            detail=(
+                f"hit a cap: {', '.join(not_read_to_end)}. Check these with a full sync "
+                "after publishing."
+                if not_read_to_end
+                else None
+            ),
+        ),
+        ConnectorBuilderChecklistItem(
+            step="Publish the custom source definition",
+            done=source_definition_id is not None,
+            detail=source_definition_id,
+        ),
+        ConnectorBuilderChecklistItem(
+            step="Run a full sync of every stream to a no-op destination",
+            done=None,
+            detail="Not tracked by this report. Run it after publishing.",
+        ),
+    ]
 
 
 class CloudConnectorBuilderProject:
@@ -416,8 +490,8 @@ class CloudConnectorBuilderProject:
         """The unpublished draft manifest, or `None` if the project has no draft."""
         return _draft_from_project_data(self.get_project_data())
 
-    def _require_draft_manifest(self) -> dict[str, Any]:
-        manifest = self.draft_manifest
+    def _require_draft_manifest(self, project_data: dict[str, Any] | None = None) -> dict[str, Any]:
+        manifest = _draft_from_project_data(project_data or self.get_project_data())
         if manifest is None:
             raise exc.AirbyteLibInputError(
                 message="This Connector Builder project has no draft manifest.",
@@ -545,10 +619,27 @@ class CloudConnectorBuilderProject:
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).
         """
+        return self._test_read_stream(
+            self._require_draft_manifest(),
+            stream_name,
+            record_limit=record_limit,
+            page_limit=page_limit,
+            slice_limit=slice_limit,
+        )
+
+    def _test_read_stream(
+        self,
+        manifest: dict[str, Any],
+        stream_name: str,
+        *,
+        record_limit: int,
+        page_limit: int,
+        slice_limit: int,
+    ) -> ConnectorBuilderStreamReadResult:
         response = api_util.read_connector_builder_project_stream(
             workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
-            manifest=self._require_draft_manifest(),
+            manifest=manifest,
             stream_name=stream_name,
             record_limit=record_limit,
             page_limit=page_limit,
@@ -588,106 +679,69 @@ class CloudConnectorBuilderProject:
 
     def run_readiness_report(
         self,
+        stream_names: list[str],
         *,
-        record_limit: int = 100,
-        page_limit: int = 5,
-        slice_limit: int = 5,
-        stream_limit: int = 5,
+        record_limit: int = 10_000,
+        page_limit: int = 20,
+        slice_limit: int = 20,
     ) -> ConnectorBuilderReadinessReport:
-        """Test-read every stream of the draft on Airbyte Cloud and judge each one.
+        """Check the draft's progress and test-read the given streams on Airbyte Cloud.
 
-        Streams come from `resolve_manifest()`, so dynamic streams are included. A stream
-        passes when its test read returns records with no HTTP errors or error logs. A
-        dynamic stream that generates `stream_limit` streams or more may have untested
-        streams, so it's listed in `capped_dynamic_streams` and the report doesn't pass.
+        Reads run in parallel. A stream passes when its test read returns records with no
+        HTTP errors or error logs, and is `read_to_end` when it ended within the test-read
+        caps (which default to Cloud's maximums). The checklist is derived from the project,
+        so nothing is stored. `passed` needs every declared stream tested, passing, and read
+        to the end; generated dynamic streams count only when named in `stream_names`.
+
+        Args:
+            stream_names: Streams to test-read, 1 to `READINESS_MAX_STREAMS` per call. For
+                dynamic streams, get the generated names from `resolve_manifest()`.
+            record_limit: Maximum records to read per stream (1 to 10,000).
+            page_limit: Maximum pages to fetch per slice (1 to 20).
+            slice_limit: Maximum slices to read (1 to 20).
         """
-        resolved = self.resolve_manifest(stream_limit=stream_limit)
-        generated_counts = Counter(
-            stream["dynamic_stream_name"]
-            for stream in resolved.manifest.get("streams") or []
-            if isinstance(stream, dict) and stream.get("dynamic_stream_name")
-        )
-        capped_dynamic_streams = sorted(
-            str(name) for name, count in generated_counts.items() if count >= stream_limit
-        )
-        stream_names = resolved.stream_names
-        streams: list[ConnectorBuilderStreamReadiness] = []
-        for stream_name in stream_names:
+        stream_names = list(dict.fromkeys(stream_names))
+        if not 1 <= len(stream_names) <= READINESS_MAX_STREAMS:
+            raise exc.AirbyteLibInputError(
+                message=f"Pass 1 to {READINESS_MAX_STREAMS} stream names.",
+                guidance="Split larger sets of streams across several calls.",
+                context={"stream_count": len(stream_names)},
+            )
+        project_data = self.get_project_data()
+        draft = self._require_draft_manifest(project_data)
+
+        def read(stream_name: str) -> ConnectorBuilderStreamReadiness:
             try:
-                result = self.test_read_stream(
+                result = self._test_read_stream(
+                    draft,
                     stream_name,
                     record_limit=record_limit,
                     page_limit=page_limit,
                     slice_limit=slice_limit,
                 )
             except exc.AirbyteLibError as ex:
-                streams.append(
-                    ConnectorBuilderStreamReadiness(
-                        stream_name=stream_name, passed=False, error=str(ex)
-                    )
+                return ConnectorBuilderStreamReadiness(
+                    stream_name=stream_name, passed=False, error=str(ex)
                 )
-                continue
-            streams.append(ConnectorBuilderStreamReadiness.from_stream_read(result))
+            return ConnectorBuilderStreamReadiness.from_stream_read(result)
 
-        passed_count = sum(stream.passed for stream in streams)
+        with ThreadPoolExecutor(max_workers=min(_READINESS_MAX_WORKERS, len(stream_names))) as pool:
+            streams = list(pool.map(read, stream_names))
+
+        untested_streams = [
+            str(stream.get("name"))
+            for stream in draft.get("streams") or []
+            if isinstance(stream, dict) and stream.get("name") not in stream_names
+        ]
+        checklist = _readiness_checklist(project_data, draft, streams, untested_streams, self.url)
         return ConnectorBuilderReadinessReport(
-            passed=(bool(streams) and passed_count == len(streams) and not capped_dynamic_streams),
+            passed=all(item.done for item in checklist[:6]),
             stream_count=len(streams),
-            passed_stream_count=passed_count,
-            capped_dynamic_streams=capped_dynamic_streams,
+            passed_stream_count=sum(stream.passed for stream in streams),
+            untested_streams=untested_streams,
+            checklist=checklist,
+            next_steps=[item.step for item in checklist if item.done is not True],
             streams=streams,
-        )
-
-    def get_checklist(self) -> ConnectorBuilderChecklist:
-        """Derive a checklist of the steps to a finished custom source from the project state.
-
-        Nothing is stored: each step's status is read from the project with one request.
-        Test results aren't stored either, so that step stays unknown (`done=None`) until
-        `run_readiness_report()` is run.
-        """
-        project_data = self.get_project_data()
-        draft = _draft_from_project_data(project_data)
-        spec = ((draft or {}).get("spec") or {}).get("connection_specification")
-        takes_no_inputs = isinstance(spec, dict) and not spec.get("properties")
-        stream_names = [
-            stream.get("name")
-            for stream in (draft or {}).get("streams") or []
-            if isinstance(stream, dict)
-        ]
-        has_dynamic_streams = bool((draft or {}).get("dynamic_streams"))
-        testing_values = project_data.get("testingValues") or {}
-        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
-
-        items = [
-            ConnectorBuilderChecklistItem(step="Save a draft manifest", done=draft is not None),
-            ConnectorBuilderChecklistItem(
-                step="Define the connection spec (user inputs)",
-                done=isinstance(spec, dict),
-            ),
-            ConnectorBuilderChecklistItem(
-                step="Define at least one stream",
-                done=bool(stream_names) or has_dynamic_streams,
-                detail=", ".join(str(name) for name in stream_names) or None,
-            ),
-            ConnectorBuilderChecklistItem(
-                step="Set testing values (enter secrets in the Connector Builder UI)",
-                done=bool(testing_values) or takes_no_inputs,
-                detail=self.url,
-            ),
-            ConnectorBuilderChecklistItem(
-                step="Pass a test read on every stream",
-                done=None,
-                detail="Unknown until checked: run the readiness report.",
-            ),
-            ConnectorBuilderChecklistItem(
-                step="Publish the custom source definition",
-                done=source_definition_id is not None,
-                detail=source_definition_id,
-            ),
-        ]
-        return ConnectorBuilderChecklist(
-            items=items,
-            next_steps=[item.step for item in items if item.done is not True],
         )
 
     def publish(
@@ -736,8 +790,8 @@ class CloudConnectorBuilderProject:
 
 
 __all__ = [
+    "READINESS_MAX_STREAMS",
     "CloudConnectorBuilderProject",
-    "ConnectorBuilderChecklist",
     "ConnectorBuilderChecklistItem",
     "ConnectorBuilderPageSummary",
     "ConnectorBuilderReadinessReport",

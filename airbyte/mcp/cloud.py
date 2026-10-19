@@ -36,6 +36,7 @@ from airbyte._direct_connectors.models import (
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connector_builder import (
+    READINESS_MAX_STREAMS,
     CloudConnectorBuilderProject,
     ManifestTextEditMode,
 )
@@ -3891,6 +3892,17 @@ def resolve_connector_builder_manifest(
 @mcp_tool(read_only=True, idempotent=True, external_access=True)
 def run_connector_builder_readiness_report(
     ctx: Context,
+    stream_names: Annotated[
+        str | list[str],
+        Field(
+            description=(
+                f"Streams to test-read, 1 to {READINESS_MAX_STREAMS} per call. Pass every "
+                "stream of the draft (split larger sets across calls). For dynamic streams, "
+                "get the generated names from `resolve_connector_builder_manifest`."
+            ),
+        ),
+        TraceArg.FINGERPRINT,
+    ],
     *,
     builder_project_id: Annotated[
         str | None,
@@ -3909,65 +3921,31 @@ def run_connector_builder_readiness_report(
         TraceArg.OMIT,
     ],
 ) -> dict[str, Any]:
-    """Test-read every stream of a Connector Builder project's draft on Airbyte Cloud.
+    """Check a Connector Builder draft's progress and test-read its streams on Airbyte Cloud.
 
-    Resolves the draft (including dynamic streams), test-reads each stream with the project's
-    testing values, and returns per-stream pass/fail, record and page counts, HTTP errors,
-    warning and error logs, and inferred schemas, plus an overall verdict. A stream passes when
-    it returns records with no HTTP errors or error logs.
+    Returns a checklist of the steps to a finished custom source, with next steps, plus
+    per-stream results from parallel test reads using the project's testing values: pass/fail,
+    `read_to_end`, record and page counts, HTTP errors, warning and error logs, and inferred
+    schemas. A stream passes when it returns records with no HTTP errors or error logs.
+    Cloud test reads stop at 20 pages per slice and 20 slices, so a stream that hits a cap
+    isn't `read_to_end` and the report doesn't pass. After publishing, run a full sync of
+    every stream: `deploy_noop_destination_to_cloud`, deploy the source with
+    `deploy_connector_to_cloud`, then `create_connection_on_cloud` and `run_cloud_sync`.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(
         builder_project_id,
         definition_id=definition_id,
     )
-    report = project.run_readiness_report()
+    report = project.run_readiness_report(resolve_list_of_strings(stream_names))
     report_data = report.model_dump()
     report_data["streams"] = [
         _redact_stream_diagnostics(stream) for stream in report_data["streams"]
     ]
     return {
         "builder_project_id": project.builder_project_id,
-        **report_data,
-    }
-
-
-@mcp_tool(read_only=True, idempotent=True)
-def get_connector_builder_checklist(
-    ctx: Context,
-    *,
-    builder_project_id: Annotated[
-        str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
-    ] = None,
-    definition_id: Annotated[
-        str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
-    ] = None,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-        TraceArg.OMIT,
-    ],
-) -> dict[str, Any]:
-    """Get the steps to a finished custom source and which are done, with next steps.
-
-    Status is derived from the Connector Builder project's current state, so it can't go stale.
-    Stream test results aren't stored: use `run_connector_builder_readiness_report` for those.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    project = workspace.get_connector_builder_project(
-        builder_project_id,
-        definition_id=definition_id,
-    )
-    checklist = project.get_checklist()
-    return {
-        "builder_project_id": project.builder_project_id,
         "connector_builder_project_url": project.url,
-        **checklist.model_dump(),
+        **report_data,
     }
 
 

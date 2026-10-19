@@ -272,6 +272,7 @@ def _patch_project_store(
     *,
     draft: dict[str, Any] | None,
     source_definition_id: str | None = None,
+    testing_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     store: dict[str, Any] = {"draft": draft, "saved": []}
 
@@ -284,6 +285,7 @@ def _patch_project_store(
                 "sourceDefinitionId": source_definition_id,
             },
             "declarativeManifest": {"manifest": store["draft"], "isDraft": True},
+            "testingValues": testing_values,
         }
 
     def fake_update(**kwargs: Any) -> None:
@@ -465,59 +467,64 @@ def _stream_read(
     record_count: int,
     status: int = 200,
     logs: list[dict[str, Any]] | None = None,
+    limit_reached: bool = False,
 ) -> ConnectorBuilderStreamReadResult:
     return ConnectorBuilderStreamReadResult(
         stream_name=stream_name,
         record_count=record_count,
         slice_count=1,
         page_count=1,
-        test_read_limit_reached=False,
+        test_read_limit_reached=limit_reached,
         records=[],
         pages=[ConnectorBuilderPageSummary(status=status, record_count=record_count)],
         logs=logs or [],
     )
 
 
-def test_run_readiness_report_judges_each_stream(
+def _patch_reads(
     monkeypatch: pytest.MonkeyPatch,
+    project: CloudConnectorBuilderProject,
+    reads: dict[str, ConnectorBuilderStreamReadResult],
 ) -> None:
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
-    monkeypatch.setattr(
-        project,
-        "resolve_manifest",
-        lambda **_: ConnectorBuilderResolvedManifest(
-            manifest={},
-            stream_names=[
-                "ok",
-                "empty",
-                "http_error",
-                "error_log",
-                "warn_log",
-                "broken",
-            ],
-        ),
-    )
-    reads = {
-        "ok": _stream_read("ok", record_count=3),
-        "empty": _stream_read("empty", record_count=0),
-        "http_error": _stream_read("http_error", record_count=1, status=401),
-        "error_log": _stream_read(
-            "error_log", record_count=1, logs=[{"level": "ERROR", "message": "boom"}]
-        ),
-        "warn_log": _stream_read(
-            "warn_log", record_count=1, logs=[{"level": "WARN", "message": "hmm"}]
-        ),
-    }
-
-    def fake_read(stream_name: str, **_: Any) -> ConnectorBuilderStreamReadResult:
-        if stream_name == "broken":
+    def fake_read(
+        _manifest: Any, stream_name: str, **_: Any
+    ) -> ConnectorBuilderStreamReadResult:
+        if stream_name not in reads:
             raise AirbyteLibInputError(message="read failed")
         return reads[stream_name]
 
-    monkeypatch.setattr(project, "test_read_stream", fake_read)
+    monkeypatch.setattr(project, "_test_read_stream", fake_read)
 
-    report = project.run_readiness_report()
 
+def test_run_readiness_report_judges_each_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = ["ok", "empty", "http_error", "error_log", "warn_log", "broken"]
+    _patch_project_store(
+        monkeypatch, draft={**MANIFEST, "streams": [{"name": name} for name in names]}
+    )
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    _patch_reads(
+        monkeypatch,
+        project,
+        {
+            "ok": _stream_read("ok", record_count=3),
+            "empty": _stream_read("empty", record_count=0),
+            "http_error": _stream_read("http_error", record_count=1, status=401),
+            "error_log": _stream_read(
+                "error_log",
+                record_count=1,
+                logs=[{"level": "ERROR", "message": "boom"}],
+            ),
+            "warn_log": _stream_read(
+                "warn_log", record_count=1, logs=[{"level": "WARN", "message": "hmm"}]
+            ),
+        },
+    )
+
+    report = project.run_readiness_report(names)
+
+    assert [stream.stream_name for stream in report.streams] == names
     assert {stream.stream_name: stream.passed for stream in report.streams} == {
         "ok": True,
         "empty": False,
@@ -532,78 +539,81 @@ def test_run_readiness_report_judges_each_stream(
     assert by_name["http_error"].http_errors[0].status == 401
     assert by_name["warn_log"].problem_logs == [{"level": "WARN", "message": "hmm"}]
     assert by_name["broken"].error is not None
+    assert report.checklist[4].detail == "failed: empty, http_error, error_log, broken"
 
 
-def test_run_readiness_report_without_streams_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.parametrize("count", [0, 26])
+def test_run_readiness_report_rejects_stream_counts_out_of_range(count: int) -> None:
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
-    monkeypatch.setattr(
-        project,
-        "resolve_manifest",
-        lambda **_: ConnectorBuilderResolvedManifest(manifest={}, stream_names=[]),
-    )
-    assert project.run_readiness_report().passed is False
+    with pytest.raises(AirbyteLibInputError):
+        project.run_readiness_report([f"s{i}" for i in range(count)])
 
 
-def test_get_checklist_derives_status_from_project(
+def test_run_readiness_report_without_draft_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_project_store(
-        monkeypatch,
-        draft={
-            "version": "6.0.0",
-            "spec": {"connection_specification": {"properties": {"api_key": {}}}},
-            "streams": [{"name": "users"}],
-        },
-    )
-
-    checklist = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_checklist()
-
-    assert [item.done for item in checklist.items] == [
-        True,
-        True,
-        True,
-        False,
-        None,
-        False,
-    ]
-    assert checklist.items[2].detail == "users"
-    assert checklist.next_steps == [
-        "Set testing values (enter secrets in the Connector Builder UI)",
-        "Pass a test read on every stream",
-        "Publish the custom source definition",
-    ]
+    _patch_project_store(monkeypatch, draft=None)
+    with pytest.raises(AirbyteLibInputError):
+        CloudConnectorBuilderProject(_fake_workspace(), "bp").run_readiness_report([
+            "users"
+        ])
 
 
-def test_get_checklist_without_draft(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_project_store(monkeypatch, draft=None, source_definition_id="def")
-
-    checklist = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_checklist()
-
-    assert [item.done for item in checklist.items] == [
-        False,
-        False,
-        False,
-        False,
-        None,
-        True,
-    ]
-
-
-def test_get_checklist_input_free_connector(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    reads = {
+        "users": _stream_read("users", record_count=1),
+        "orders": _stream_read("orders", record_count=1, limit_reached=True),
+    }
+    _patch_reads(monkeypatch, project, reads)
 
-    checklist = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_checklist()
+    partial = project.run_readiness_report(["users"])
+    capped = project.run_readiness_report(["users", "orders"])
+    reads["orders"] = _stream_read("orders", record_count=1)
+    full = project.run_readiness_report(["users", "orders", "users"])
 
-    assert [item.done for item in checklist.items] == [
+    assert (partial.passed, partial.untested_streams) == (False, ["orders"])
+    assert capped.passed is False
+    assert capped.passed_stream_count == 2
+    assert [s.read_to_end for s in capped.streams] == [True, False]
+    assert capped.checklist[5].done is False
+    assert full.passed is True
+    assert full.stream_count == 2
+    assert full.next_steps == [
+        "Publish the custom source definition",
+        "Run a full sync of every stream to a no-op destination",
+    ]
+
+
+def test_readiness_checklist_requires_testing_values_when_spec_has_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    draft = {
+        "version": "6.0.0",
+        "spec": {"connection_specification": {"properties": {"api_key": {}}}},
+        "streams": [{"name": "users"}],
+    }
+    _patch_project_store(monkeypatch, draft=draft, source_definition_id="def")
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    _patch_reads(monkeypatch, project, {"users": _stream_read("users", record_count=1)})
+
+    report = project.run_readiness_report(["users"])
+
+    assert [item.done for item in report.checklist] == [
         True,
+        True,
+        True,
+        False,
         True,
         True,
         True,
         None,
-        False,
     ]
+    assert report.passed is False
+    assert report.checklist[2].detail == "users"
 
 
 def test_publish_spec_uses_api_field_names() -> None:
@@ -620,32 +630,6 @@ def test_publish_spec_uses_api_field_names() -> None:
     assert spec["connectionSpecification"] == {"type": "object"}
     assert spec["documentationUrl"] == "https://example.com/docs"
     assert spec["advancedAuth"] == {"auth_flow_type": "oauth2.0"}
-
-
-def test_readiness_report_withholds_pass_when_dynamic_streams_are_capped(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
-    generated = [{"name": f"t{i}", "dynamic_stream_name": "tables"} for i in range(2)]
-    monkeypatch.setattr(
-        project,
-        "resolve_manifest",
-        lambda **_: ConnectorBuilderResolvedManifest.from_manifest({
-            "streams": [{"name": "users"}, *generated]
-        }),
-    )
-    monkeypatch.setattr(
-        project,
-        "test_read_stream",
-        lambda stream_name, **_: _stream_read(stream_name, record_count=1),
-    )
-
-    capped = project.run_readiness_report(stream_limit=2)
-    uncapped = project.run_readiness_report(stream_limit=3)
-
-    assert (capped.passed_stream_count, capped.passed) == (3, False)
-    assert capped.capped_dynamic_streams == ["tables"]
-    assert (uncapped.passed, uncapped.capped_dynamic_streams) == (True, [])
 
 
 def test_publish_duplicate_name_leaves_draft_unchanged(
