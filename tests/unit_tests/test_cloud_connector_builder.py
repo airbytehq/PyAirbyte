@@ -703,4 +703,267 @@ def test_readiness_timeout_splits_pending_and_not_attempted(
         "not-attempted streams" in step and "queued" in step
         for step in report.next_steps
     )
-    assert any("aborted at the timeout" in step for step in report.next_steps)
+    assert any("still reading at the timeout" in step for step in report.next_steps)
+
+
+def test_readiness_bounds_read_requests_by_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    timeouts: list[float | None] = []
+
+    def fake_read(
+        _manifest: Any, stream_name: str, **kwargs: Any
+    ) -> ConnectorBuilderStreamReadResult:
+        timeouts.append(kwargs["timeout_seconds"])
+        return _stream_read(stream_name, record_count=1)
+
+    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    project.run_readiness_checks(["users"], timeout_seconds=30)
+    project.run_readiness_checks(["users"])
+
+    assert timeouts[0] is not None and 0 < timeouts[0] <= 30
+    assert timeouts[1] is None
+
+
+def test_drop_masked_secrets() -> None:
+    values = {
+        "api_key": "**********",
+        "region": "us",
+        "auth": {"token": "**********", "kind": "bearer"},
+        "items": [{"secret": "**********", "id": 1}],
+    }
+
+    assert connector_builder._drop_masked_secrets(values) == {
+        "region": "us",
+        "auth": {"kind": "bearer"},
+        "items": [{"id": 1}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        pytest.param({"type": "object", "properties": {}}, False, id="no-inputs"),
+        pytest.param(
+            {"properties": {"region": {"type": "string"}}}, False, id="no-secrets"
+        ),
+        pytest.param(
+            {
+                "properties": {
+                    "auth": {
+                        "oneOf": [{"properties": {"key": {"airbyte_secret": True}}}]
+                    }
+                }
+            },
+            True,
+            id="nested-secret",
+        ),
+    ],
+)
+def test_spec_has_secrets(spec: dict[str, Any], expected: bool) -> None:
+    assert connector_builder._spec_has_secrets(spec) is expected
+
+
+def _secret_manifest() -> dict[str, Any]:
+    return {
+        **MANIFEST,
+        "spec": {
+            "connection_specification": {
+                "type": "object",
+                "properties": {
+                    "api_key": {"type": "string", "airbyte_secret": True},
+                    "region": {"type": "string"},
+                },
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("manifest", "deferred"),
+    [
+        pytest.param(_secret_manifest(), True, id="secret-spec-deferred"),
+        pytest.param(MANIFEST, False, id="no-secret-spec-ready"),
+    ],
+)
+def test_create_test_source_uses_non_secret_testing_values(
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: dict[str, Any],
+    deferred: bool,
+) -> None:
+    _patch_project_store(
+        monkeypatch,
+        draft=manifest,
+        source_definition_id="def",
+        testing_values={"api_key": "**********", "region": "us"},
+    )
+    workspace = _fake_workspace()
+    workspace.deploy_source = MagicMock()
+    project = CloudConnectorBuilderProject(workspace, "bp")
+
+    project.create_test_source()
+
+    workspace.deploy_source.assert_called_once_with(
+        name="My API (Connector Builder test)",
+        source={"region": "us"},
+        definition_id="def",
+        defer_credentials=deferred,
+    )
+
+
+def test_create_test_source_requires_publish(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+
+    with pytest.raises(AirbyteLibInputError, match="Publish"):
+        project.create_test_source()
+
+
+def _full_sync_project(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    destinations: list[Any],
+    connections: list[Any],
+    sources: list[Any] | None = None,
+) -> tuple[CloudConnectorBuilderProject, Any]:
+    _patch_project_store(monkeypatch, draft=MANIFEST, source_definition_id="def")
+    workspace = _fake_workspace()
+    workspace.list_sources = MagicMock(return_value=sources or [])
+    workspace.list_destinations = MagicMock(return_value=destinations)
+    workspace.list_connections = MagicMock(return_value=connections)
+    workspace.deploy_destination = MagicMock(
+        return_value=SimpleNamespace(connector_id="new-dest")
+    )
+    new_connection = MagicMock(connection_id="conn")
+    new_connection.run_sync.return_value = SimpleNamespace(
+        job_id=7, job_url="https://job"
+    )
+    workspace.deploy_connection = MagicMock(return_value=new_connection)
+    project = CloudConnectorBuilderProject(workspace, "bp")
+    monkeypatch.setattr(project, "publish", MagicMock())
+    monkeypatch.setattr(
+        project,
+        "resolve_manifest",
+        MagicMock(return_value=SimpleNamespace(stream_names=["users", "orders"])),
+    )
+    return project, workspace
+
+
+def test_run_full_sync_creates_noop_destination_and_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch,
+        destinations=[],
+        connections=[],
+        sources=[
+            SimpleNamespace(connector_id="other", definition_id="other-def"),
+            SimpleNamespace(connector_id="src", definition_id="def"),
+        ],
+    )
+
+    result = project.run_full_sync()
+
+    project.publish.assert_called_once_with("My API", pre_validate=True)
+    workspace.list_sources.assert_called_once_with(
+        name="My API (Connector Builder test)"
+    )
+    assert workspace.deploy_destination.call_args.kwargs["name"] == (
+        connector_builder.CONNECTOR_BUILDER_TEST_DESTINATION_NAME
+    )
+    workspace.deploy_connection.assert_called_once_with(
+        "My API (Connector Builder full sync)",
+        source="src",
+        destination="new-dest",
+        selected_streams=["users", "orders"],
+    )
+    assert result.model_dump() == {
+        "source_id": "src",
+        "destination_id": "new-dest",
+        "connection_id": "conn",
+        "job_id": 7,
+        "job_url": "https://job",
+    }
+
+
+def test_run_full_sync_reuses_destination_and_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = MagicMock(connection_id="old", source_id="src", destination_id="dest")
+    existing.run_sync.return_value = SimpleNamespace(job_id=8, job_url="https://job8")
+    project, workspace = _full_sync_project(
+        monkeypatch,
+        destinations=[SimpleNamespace(connector_id="dest")],
+        connections=[existing],
+    )
+
+    result = project.run_full_sync(test_source_id="src")
+
+    workspace.deploy_destination.assert_not_called()
+    workspace.deploy_connection.assert_not_called()
+    existing.set_selected_streams.assert_called_once_with(["users", "orders"])
+    existing.run_sync.assert_called_once_with(wait=False)
+    assert (result.connection_id, result.job_id) == ("old", 8)
+
+
+def test_run_full_sync_without_test_source_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, _ = _full_sync_project(monkeypatch, destinations=[], connections=[])
+
+    with pytest.raises(AirbyteLibInputError, match="No test source"):
+        project.run_full_sync()
+
+
+@pytest.mark.parametrize(
+    ("stream_names", "record_count", "expect_sync"),
+    [
+        pytest.param([], 0, True, id="no-streams"),
+        pytest.param(["users"], 1, True, id="all-passed"),
+        pytest.param(["users"], 0, False, id="failed-skips-sync"),
+    ],
+)
+def test_readiness_full_sync_gating(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_names: list[str],
+    record_count: int,
+    expect_sync: bool,
+) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    full_sync = connector_builder.ConnectorBuilderFullSync(
+        source_id="src",
+        destination_id="dest",
+        connection_id="conn",
+        job_id=1,
+        job_url="u",
+    )
+    run_full_sync = MagicMock(return_value=full_sync)
+    monkeypatch.setattr(project, "run_full_sync", run_full_sync)
+    monkeypatch.setattr(
+        project,
+        "_test_read_stream",
+        lambda _m, name, **_: _stream_read(name, record_count=record_count),
+    )
+
+    report = project.run_readiness_checks(
+        stream_names, run_full_sync=True, test_source_id="src"
+    )
+
+    assert (report.full_sync is not None) is expect_sync
+    if expect_sync:
+        run_full_sync.assert_called_once_with(
+            test_source_id="src", test_destination_id=None
+        )
+
+
+def test_readiness_requires_streams_without_full_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+
+    with pytest.raises(AirbyteLibInputError, match="run_full_sync"):
+        project.run_readiness_checks([])

@@ -18,6 +18,7 @@
     "workspace_id": "omit"
   },
   "create_connector_builder_project": {
+    "create_test_source": "value allowed=[false,true]",
     "manifest_yaml_file": "hash",
     "manifest_yaml_text": "hash",
     "name": "fingerprint",
@@ -312,7 +313,10 @@
   "run_connector_builder_readiness_checks": {
     "builder_project_id": "hash",
     "definition_id": "hash",
+    "run_full_sync": "value allowed=[false,true]",
     "stream_names": "fingerprint list",
+    "test_destination_id": "hash",
+    "test_source_id": "hash",
     "timeout_seconds": "hash",
     "workspace_id": "omit"
   },

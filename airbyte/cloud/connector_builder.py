@@ -9,6 +9,7 @@ so no connector code runs on the caller's machine.
 from __future__ import annotations
 
 import difflib
+import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -23,7 +24,7 @@ from airbyte._util.api_util import get_web_url_root
 
 
 if TYPE_CHECKING:
-    from airbyte.cloud.connectors import CustomCloudSourceDefinition
+    from airbyte.cloud.connectors import CloudSource, CustomCloudSourceDefinition
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -33,7 +34,15 @@ _FAILING_LOG_LEVELS = frozenset({"ERROR", "FATAL"})
 _MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
 _YAML_LINE_WIDTH = 2**31 - 1
 _READINESS_MAX_WORKERS = 5
-"""Most streams `run_readiness_checks()` reads in one call."""
+"""Most streams `run_readiness_checks()` reads at once."""
+_MIN_READ_TIMEOUT = 1.0
+"""Shortest HTTP timeout for a test read started just before the readiness deadline."""
+_SECRETS_MASK = "**********"
+"""Placeholder Cloud returns instead of a stored secret value."""
+_FULL_SYNC_STREAM_LIMIT = 100
+"""Most streams per dynamic stream selected for the full sync (Cloud's resolve maximum)."""
+CONNECTOR_BUILDER_TEST_DESTINATION_NAME = "Connector Builder Test (No-op)"
+"""Name of the no-op destination that full syncs find or create by default."""
 
 ManifestTextEditMode = Literal["replace_full", "replace_text", "replace_all"]
 """How `update_draft_manifest_text()` edits the manifest text.
@@ -314,6 +323,16 @@ class ConnectorBuilderChecklistItem(BaseModel):
     detail: str | None = None
 
 
+class ConnectorBuilderFullSync(BaseModel):
+    """A full sync started for a published Connector Builder project."""
+
+    source_id: str
+    destination_id: str
+    connection_id: str
+    job_id: int
+    job_url: str
+
+
 class ConnectorBuilderReadinessReport(BaseModel):
     """Checklist and per-stream test reads for a Connector Builder draft."""
 
@@ -327,7 +346,10 @@ class ConnectorBuilderReadinessReport(BaseModel):
     failed_streams: list[str] = Field(default_factory=list)
     pending_streams: list[str] = Field(
         default_factory=list,
-        description="Streams still reading when `timeout_seconds` ran out, so aborted.",
+        description=(
+            "Streams still reading when `timeout_seconds` ran out. Their results are dropped, "
+            "and Cloud may still finish those reads."
+        ),
     )
     not_attempted_streams: list[str] = Field(
         default_factory=list,
@@ -336,6 +358,10 @@ class ConnectorBuilderReadinessReport(BaseModel):
     checklist: list[ConnectorBuilderChecklistItem]
     next_steps: list[str]
     streams: list[ConnectorBuilderStreamReadiness]
+    full_sync: ConnectorBuilderFullSync | None = Field(
+        default=None,
+        description="The full sync started with `run_full_sync=True`, if any.",
+    )
 
 
 def _readiness_next_steps(
@@ -351,8 +377,9 @@ def _readiness_next_steps(
         steps.append(f"Fix the failed streams and test them again: {', '.join(failed)}")
     if pending_streams:
         steps.append(
-            "These streams were aborted at the timeout. Retry them with a longer "
-            f"`timeout_seconds`, or check them with the full sync: {', '.join(pending_streams)}"
+            "These streams were still reading at the timeout, so their results were dropped. "
+            "Retry them with a longer `timeout_seconds`, or check them with the full sync: "
+            f"{', '.join(pending_streams)}"
         )
     if not_attempted_streams and not failed:
         steps.append(
@@ -436,7 +463,31 @@ def _readiness_checklist(
     ]
 
 
-class CloudConnectorBuilderProject:
+def _drop_masked_secrets(value: Any) -> Any:  # noqa: ANN401
+    """Return a copy of `value` without the masked secret fields Cloud returns."""
+    if isinstance(value, dict):
+        return {
+            key: _drop_masked_secrets(nested)
+            for key, nested in value.items()
+            if nested != _SECRETS_MASK
+        }
+    if isinstance(value, list):
+        return [_drop_masked_secrets(nested) for nested in value]
+    return value
+
+
+def _spec_has_secrets(schema: Any) -> bool:  # noqa: ANN401
+    """Return whether a connection spec marks any field `airbyte_secret`."""
+    if isinstance(schema, dict):
+        return schema.get("airbyte_secret") is True or any(
+            _spec_has_secrets(nested) for nested in schema.values()
+        )
+    if isinstance(schema, list):
+        return any(_spec_has_secrets(nested) for nested in schema)
+    return False
+
+
+class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API facade.
     """A Connector Builder project in an Airbyte Cloud workspace."""
 
     def __init__(
@@ -669,6 +720,7 @@ class CloudConnectorBuilderProject:
         record_limit: int,
         page_limit: int,
         slice_limit: int,
+        timeout_seconds: float | None = None,
     ) -> ConnectorBuilderStreamReadResult:
         response = api_util.read_connector_builder_project_stream(
             workspace_id=self.owner_workspace_id,
@@ -683,6 +735,7 @@ class CloudConnectorBuilderProject:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
+            timeout_seconds=timeout_seconds,
         )
         return ConnectorBuilderStreamReadResult.from_api_response(stream_name, response)
 
@@ -719,6 +772,9 @@ class CloudConnectorBuilderProject:
         page_limit: int = 20,
         slice_limit: int = 20,
         timeout_seconds: float | None = None,
+        run_full_sync: bool = False,
+        test_source_id: str | None = None,
+        test_destination_id: str | None = None,
     ) -> ConnectorBuilderReadinessReport:
         """Check the draft's progress and test-read the given streams on Airbyte Cloud.
 
@@ -735,15 +791,37 @@ class CloudConnectorBuilderProject:
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).
             timeout_seconds: Return after this many seconds with the streams finished so far;
-                the rest are listed in `pending_streams`. No limit by default.
+                the rest are listed in `pending_streams` and `not_attempted_streams`. No limit
+                by default.
+            run_full_sync: If every named stream finished and passed (or none are named),
+                publish the draft and start a full sync with `run_full_sync()`.
+            test_source_id: The source for the full sync. See `run_full_sync()`.
+            test_destination_id: The destination for the full sync. See `run_full_sync()`.
         """
         stream_names = list(dict.fromkeys(stream_names))
-        if not stream_names:
-            raise exc.AirbyteLibInputError(message="Pass at least 1 stream name.")
+        if not stream_names and not run_full_sync:
+            raise exc.AirbyteLibInputError(
+                message="Pass at least 1 stream name, or set `run_full_sync`.",
+            )
         project_data = self.get_project_data()
         draft = self._require_draft_manifest(project_data)
+        if not stream_names:
+            return self._readiness_report(project_data, draft, [], [], []).model_copy(
+                update={
+                    "full_sync": self.run_full_sync(
+                        test_source_id=test_source_id,
+                        test_destination_id=test_destination_id,
+                    ),
+                },
+            )
+
+        deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
 
         def read(stream_name: str) -> ConnectorBuilderStreamReadiness:
+            # Bound each HTTP request by the deadline so worker threads end with the call.
+            request_timeout = (
+                None if deadline is None else max(deadline - time.monotonic(), _MIN_READ_TIMEOUT)
+            )
             try:
                 result = self._test_read_stream(
                     draft,
@@ -751,6 +829,7 @@ class CloudConnectorBuilderProject:
                     record_limit=record_limit,
                     page_limit=page_limit,
                     slice_limit=slice_limit,
+                    timeout_seconds=request_timeout,
                 )
             except exc.AirbyteLibError as ex:
                 error = ex.get_message()
@@ -781,8 +860,27 @@ class CloudConnectorBuilderProject:
         ]
         pending_streams = [name for name, future in unfinished if not future.cancelled()]
         not_attempted_streams = [name for name, future in unfinished if future.cancelled()]
-        remaining = [name for name, _ in unfinished]
+        report = self._readiness_report(
+            project_data, draft, streams, pending_streams, not_attempted_streams
+        )
+        if run_full_sync and not (
+            report.failed_streams or report.pending_streams or report.not_attempted_streams
+        ):
+            report.full_sync = self.run_full_sync(
+                test_source_id=test_source_id,
+                test_destination_id=test_destination_id,
+            )
+        return report
 
+    def _readiness_report(
+        self,
+        project_data: dict[str, Any],
+        draft: dict[str, Any],
+        streams: list[ConnectorBuilderStreamReadiness],
+        pending_streams: list[str],
+        not_attempted_streams: list[str],
+    ) -> ConnectorBuilderReadinessReport:
+        remaining = pending_streams + not_attempted_streams
         checklist = _readiness_checklist(project_data, draft, streams, remaining, self.url)
         return ConnectorBuilderReadinessReport(
             passed=not remaining
@@ -838,13 +936,131 @@ class CloudConnectorBuilderProject:
             definition_type="yaml",
         )
 
+    @property
+    def test_source_name(self) -> str:
+        """Name of the source that `create_test_source()` creates for full syncs."""
+        return f"{self.name} (Connector Builder test)"
+
+    def find_test_source(self) -> CloudSource | None:
+        """Return the source made by `create_test_source()` for this project, if it exists."""
+        source_definition_id = self.source_definition_id
+        if source_definition_id is None:
+            return None
+        return next(
+            (
+                source
+                for source in self.workspace.list_sources(name=self.test_source_name)
+                if source.definition_id == source_definition_id
+            ),
+            None,
+        )
+
+    def create_test_source(self) -> CloudSource:
+        """Create a source on the published definition for full syncs.
+
+        The source gets the project's non-secret testing values. When the spec has secret
+        fields, the source is a draft (deferred credentials): a person enters the secrets at
+        its `connector_url`, then tests and saves. Publish the project first.
+        """
+        project_data = self.get_project_data()
+        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
+        if source_definition_id is None:
+            raise exc.AirbyteLibInputError(
+                message="Publish the Connector Builder project before creating a test source.",
+            )
+        draft = self._require_draft_manifest(project_data)
+        spec = (draft.get("spec") or {}).get("connection_specification")
+        config = _drop_masked_secrets(project_data.get("testingValues") or {})
+        return self.workspace.deploy_source(
+            name=self.test_source_name,
+            source=config,
+            definition_id=source_definition_id,
+            defer_credentials=_spec_has_secrets(spec),
+        )
+
+    def run_full_sync(
+        self,
+        *,
+        test_source_id: str | None = None,
+        test_destination_id: str | None = None,
+        pre_validate: bool = True,
+    ) -> ConnectorBuilderFullSync:
+        """Publish the draft and start a full sync of every stream to a no-op destination.
+
+        Returns without waiting for the sync to finish.
+
+        Args:
+            test_source_id: Source on the published definition to sync from. Defaults to the
+                source from `create_test_source()`.
+            test_destination_id: Destination to sync to. Defaults to the workspace's
+                `CONNECTOR_BUILDER_TEST_DESTINATION_NAME` destination, created as a no-op
+                destination if missing.
+            pre_validate: Whether to validate the manifest client-side before publishing.
+        """
+        self.publish(self.name, pre_validate=pre_validate)
+        if test_source_id is None:
+            test_source = self.find_test_source()
+            if test_source is None:
+                raise exc.AirbyteLibInputError(
+                    message="No test source found for this Connector Builder project.",
+                    guidance=(
+                        "Pass `test_source_id`, or create one with `create_test_source()` "
+                        "and have the user complete its settings."
+                    ),
+                )
+            test_source_id = test_source.connector_id
+        if test_destination_id is None:
+            test_destination_id = self._get_or_create_test_destination()
+
+        stream_names = self.resolve_manifest(stream_limit=_FULL_SYNC_STREAM_LIMIT).stream_names
+        connection_name = f"{self.name} (Connector Builder full sync)"
+        connection = next(
+            (
+                connection
+                for connection in self.workspace.list_connections(name=connection_name)
+                if connection.source_id == test_source_id
+                and connection.destination_id == test_destination_id
+            ),
+            None,
+        )
+        if connection is None:
+            connection = self.workspace.deploy_connection(
+                connection_name,
+                source=test_source_id,
+                destination=test_destination_id,
+                selected_streams=stream_names,
+            )
+        else:
+            connection.set_selected_streams(stream_names)
+        sync_result = connection.run_sync(wait=False)
+        return ConnectorBuilderFullSync(
+            source_id=test_source_id,
+            destination_id=test_destination_id,
+            connection_id=connection.connection_id,
+            job_id=sync_result.job_id,
+            job_url=sync_result.job_url,
+        )
+
+    def _get_or_create_test_destination(self) -> str:
+        existing = self.workspace.list_destinations(name=CONNECTOR_BUILDER_TEST_DESTINATION_NAME)
+        if existing:
+            return existing[0].connector_id
+        from airbyte.destinations.util import get_noop_destination  # noqa: PLC0415
+
+        return self.workspace.deploy_destination(
+            name=CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
+            destination=get_noop_destination(),
+        ).connector_id
+
     def __repr__(self) -> str:
         """Return a string representation of the project."""
         return f"CloudConnectorBuilderProject(builder_project_id={self.builder_project_id!r})"
 
 
 __all__ = [
+    "CONNECTOR_BUILDER_TEST_DESTINATION_NAME",
     "CloudConnectorBuilderProject",
+    "ConnectorBuilderFullSync",
     "ConnectorBuilderChecklistItem",
     "ConnectorBuilderPageSummary",
     "ConnectorBuilderReadinessReport",

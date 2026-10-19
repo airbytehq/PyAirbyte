@@ -3226,10 +3226,12 @@ def read_connector_builder_project_stream(  # noqa: PLR0913
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Run a test read of one stream on Airbyte Cloud, using the project's testing values.
 
-    Calls `POST /v1/connector_builder_projects/read_stream`.
+    Calls `POST /v1/connector_builder_projects/read_stream`. `timeout_seconds` bounds the HTTP
+    request only; it doesn't cancel the read on the Cloud side.
     """
     return _make_config_api_request(
         path="/connector_builder_projects/read_stream",
@@ -3247,6 +3249,7 @@ def read_connector_builder_project_stream(  # noqa: PLR0913
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        timeout=None if timeout_seconds is None else (timeout_seconds, timeout_seconds),
     )
 
 

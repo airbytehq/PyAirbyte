@@ -36,6 +36,7 @@ from airbyte._direct_connectors.models import (
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connector_builder import (
+    CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
     CloudConnectorBuilderProject,
     ManifestTextEditMode,
 )
@@ -3535,7 +3536,7 @@ def get_connector_builder_draft_manifest(
     return project.get_info().model_dump()
 
 
-@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(extra_help_text=_manifest_yaml_source_hint, insiders_only=True)
 def create_connector_builder_project(
     ctx: Context,
     name: Annotated[
@@ -3579,8 +3580,20 @@ def create_connector_builder_project(
             default=True,
         ),
     ] = True,
+    create_test_source: Annotated[
+        bool,
+        Field(
+            description=(
+                "Optional. Publish the initial manifest (which needs its spec) and create a "
+                "test source on it for a later full sync. Ask the user to enter their "
+                "credentials at both `connector_builder_project_url` (testing values) and "
+                "`test_source_settings_url` (then test and save) before you start building."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> dict[str, Any]:
-    """Create an unpublished Connector Builder project to develop a custom YAML source.
+    """Create a Connector Builder project to develop a custom YAML source.
 
     The project holds the draft manifest and the testing values used for test reads.
     Nothing appears in the workspace's source list until the project is published with
@@ -3597,15 +3610,26 @@ def create_connector_builder_project(
         pre_validate=pre_validate,
     )
     register_guid_created_in_session(project.builder_project_id)
-    return {
+    result: dict[str, Any] = {
         "builder_project_id": project.builder_project_id,
         "definition_id": None,
         "connector_builder_project_url": project.url,
         "name": name,
     }
+    if create_test_source:
+        definition = project.publish(name, pre_validate=pre_validate)
+        register_guid_created_in_session(definition.definition_id)
+        test_source = project.create_test_source()
+        register_guid_created_in_session(test_source.connector_id)
+        result |= {
+            "definition_id": definition.definition_id,
+            "test_source_id": test_source.connector_id,
+            "test_source_settings_url": test_source.connector_url,
+        }
+    return result
 
 
-@mcp_tool(destructive=True)
+@mcp_tool(destructive=True, insiders_only=True)
 def update_connector_builder_manifest_text(
     ctx: Context,
     edit_mode: Annotated[
@@ -3687,7 +3711,7 @@ def update_connector_builder_manifest_text(
     )
 
 
-@mcp_tool(destructive=True, idempotent=True)
+@mcp_tool(destructive=True, idempotent=True, insiders_only=True)
 def set_connector_builder_testing_values(
     ctx: Context,
     *,
@@ -3773,7 +3797,7 @@ def _redact_stream_diagnostics(stream_data: dict[str, Any]) -> dict[str, Any]:
     return stream_data
 
 
-@mcp_tool(read_only=True, external_access=True)
+@mcp_tool(read_only=True, external_access=True, insiders_only=True)
 def test_connector_builder_stream(
     ctx: Context,
     stream_name: Annotated[
@@ -3839,7 +3863,7 @@ def test_connector_builder_stream(
     }
 
 
-@mcp_tool(read_only=True, idempotent=True, external_access=True)
+@mcp_tool(read_only=True, idempotent=True, external_access=True, insiders_only=True)
 def resolve_connector_builder_manifest(
     ctx: Context,
     *,
@@ -3888,20 +3912,21 @@ def resolve_connector_builder_manifest(
     }
 
 
-@mcp_tool(read_only=True, idempotent=True, external_access=True)
-def run_connector_builder_readiness_checks(
+@mcp_tool(external_access=True, insiders_only=True)
+def run_connector_builder_readiness_checks(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     stream_names: Annotated[
-        str | list[str],
+        str | list[str] | None,
         Field(
             description=(
-                "Streams to test-read (at least 1). The report covers only these streams. "
-                "For dynamic streams, "
-                "get the generated names from `resolve_connector_builder_manifest`."
+                "Streams to test-read. The report covers only these streams. Required unless "
+                "`run_full_sync` is set. For dynamic streams, get the generated names from "
+                "`resolve_connector_builder_manifest`."
             ),
+            default=None,
         ),
         TraceArg.FINGERPRINT,
-    ],
+    ] = None,
     *,
     builder_project_id: Annotated[
         str | None,
@@ -3924,8 +3949,40 @@ def run_connector_builder_readiness_checks(
         Field(
             description=(
                 "Optional. Return after this many seconds with the streams finished so far. "
-                "Streams still reading are aborted (`pending_streams`); streams not started are "
+                "Streams still reading are dropped (`pending_streams`); streams not started are "
                 "listed in `not_attempted_streams` to pass in another call. No limit by default."
+            ),
+            default=None,
+        ),
+    ] = None,
+    run_full_sync: Annotated[
+        bool,
+        Field(
+            description=(
+                "Optional. If every named stream passed (or none are named), publish the draft "
+                "and start a full sync of every stream to a no-op destination. Returns the job "
+                "in `full_sync`; poll it with `get_cloud_sync_status`."
+            ),
+            default=False,
+        ),
+    ] = False,
+    test_source_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional. Source on the published definition for the full sync. Defaults to "
+                "the test source from `create_connector_builder_project(create_test_source=True)`."
+            ),
+            default=None,
+        ),
+    ] = None,
+    test_destination_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional. Destination for the full sync. Defaults to the workspace's "
+                f"'{CONNECTOR_BUILDER_TEST_DESTINATION_NAME}' destination, created as a no-op "
+                "destination if missing."
             ),
             default=None,
         ),
@@ -3938,20 +3995,26 @@ def run_connector_builder_readiness_checks(
     `read_to_end`, record and page counts, HTTP errors, warning and error logs, and inferred
     schemas. A stream passes when it returns records with no HTTP errors or error logs.
     Cloud test reads stop at 20 pages per slice and 20 slices, so a stream that hits a cap
-    isn't `read_to_end` and the report doesn't pass. After publishing, run a full sync of
-    every stream: `deploy_noop_destination_to_cloud`, deploy the source with
-    `deploy_connector_to_cloud`, then `create_connection_on_cloud` and `run_cloud_sync`.
-    The verdict covers only the named streams; the full sync validates the whole connector.
+    isn't `read_to_end` and the report doesn't pass. The verdict covers only the named
+    streams; a full sync validates the whole connector. With `run_full_sync`, the tool
+    publishes the draft and starts that sync once the named streams pass.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(
         builder_project_id,
         definition_id=definition_id,
     )
+    if run_full_sync:
+        _check_builder_project_created_in_session(project)
     report = project.run_readiness_checks(
-        resolve_list_of_strings(stream_names),
+        resolve_list_of_strings(stream_names) or [],
         timeout_seconds=timeout_seconds,
+        run_full_sync=run_full_sync,
+        test_source_id=test_source_id,
+        test_destination_id=test_destination_id,
     )
+    if report.full_sync is not None:
+        register_guid_created_in_session(report.full_sync.connection_id)
     report_data = report.model_dump()
     report_data["streams"] = [
         _redact_stream_diagnostics(stream) for stream in report_data["streams"]
