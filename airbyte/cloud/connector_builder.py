@@ -33,7 +33,6 @@ _FAILING_LOG_LEVELS = frozenset({"ERROR", "FATAL"})
 _MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
 _YAML_LINE_WIDTH = 2**31 - 1
 _READINESS_MAX_WORKERS = 5
-READINESS_MAX_STREAMS = 25
 """Most streams `run_readiness_report()` reads in one call."""
 
 ManifestTextEditMode = Literal["replace_full", "replace_text", "replace_all"]
@@ -714,19 +713,15 @@ class CloudConnectorBuilderProject:
         to the end; generated dynamic streams count only when named in `stream_names`.
 
         Args:
-            stream_names: Streams to test-read, 1 to `READINESS_MAX_STREAMS` per call. For
+            stream_names: Streams to test-read (at least 1). For
                 dynamic streams, get the generated names from `resolve_manifest()`.
             record_limit: Maximum records to read per stream (1 to 10,000).
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).
         """
         stream_names = list(dict.fromkeys(stream_names))
-        if not 1 <= len(stream_names) <= READINESS_MAX_STREAMS:
-            raise exc.AirbyteLibInputError(
-                message=f"Pass 1 to {READINESS_MAX_STREAMS} stream names.",
-                guidance="Split larger sets of streams across several calls.",
-                context={"stream_count": len(stream_names)},
-            )
+        if not stream_names:
+            raise exc.AirbyteLibInputError(message="Pass at least 1 stream name.")
         project_data = self.get_project_data()
         draft = self._require_draft_manifest(project_data)
 
@@ -818,7 +813,6 @@ class CloudConnectorBuilderProject:
 
 
 __all__ = [
-    "READINESS_MAX_STREAMS",
     "CloudConnectorBuilderProject",
     "ConnectorBuilderChecklistItem",
     "ConnectorBuilderPageSummary",

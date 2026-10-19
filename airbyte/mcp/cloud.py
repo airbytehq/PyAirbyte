@@ -36,7 +36,6 @@ from airbyte._direct_connectors.models import (
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
 from airbyte.cloud.connector_builder import (
-    READINESS_MAX_STREAMS,
     CloudConnectorBuilderProject,
     ManifestTextEditMode,
 )
@@ -3896,8 +3895,8 @@ def run_connector_builder_readiness_report(
         str | list[str],
         Field(
             description=(
-                f"Streams to test-read, 1 to {READINESS_MAX_STREAMS} per call. Pass every "
-                "stream of the draft (split larger sets across calls). For dynamic streams, "
+                "Streams to test-read (at least 1). Pass every stream of the draft. "
+                "For dynamic streams, "
                 "get the generated names from `resolve_connector_builder_manifest`."
             ),
         ),

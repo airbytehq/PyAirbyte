@@ -559,11 +559,10 @@ def test_run_readiness_report_judges_each_stream(
     )
 
 
-@pytest.mark.parametrize("count", [0, 26])
-def test_run_readiness_report_rejects_stream_counts_out_of_range(count: int) -> None:
+def test_run_readiness_report_requires_stream_names() -> None:
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
     with pytest.raises(AirbyteLibInputError):
-        project.run_readiness_report([f"s{i}" for i in range(count)])
+        project.run_readiness_report([])
 
 
 def test_run_readiness_report_without_draft_fails(
