@@ -926,6 +926,34 @@ def list_destinations(
 # Get and run connections
 
 
+def get_source_stream_names(
+    source_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> list[str]:
+    """Discover a source's streams (bypassing the cached catalog) and return their names."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    try:
+        response = airbyte_instance.streams.get_stream_properties(
+            api.GetStreamPropertiesRequest(source_id=source_id, ignore_cache=True),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"source_id": source_id, "api_root": api_root}) from e
+    return [
+        stream.stream_name
+        for stream in response.stream_properties_response or []
+        if stream.stream_name
+    ]
+
+
 def get_connection(
     workspace_id: str,
     connection_id: str,

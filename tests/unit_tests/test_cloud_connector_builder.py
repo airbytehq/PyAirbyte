@@ -865,7 +865,7 @@ def _full_sync_project(
     connections: list[Any],
     sources: list[Any] | None = None,
     draft: dict[str, Any] | None = MANIFEST,
-    resolved_streams: list[dict[str, Any]] | None = None,
+    discovered_streams: list[str] | None = None,
 ) -> tuple[CloudConnectorBuilderProject, Any]:
     _patch_project_store(monkeypatch, draft=draft, source_definition_id="def")
     workspace = _fake_workspace()
@@ -884,13 +884,12 @@ def _full_sync_project(
     project = CloudConnectorBuilderProject(workspace, "bp")
     monkeypatch.setattr(project, "publish", MagicMock())
     monkeypatch.setattr(
-        project,
-        "resolve_manifest",
+        api_util,
+        "get_source_stream_names",
         MagicMock(
-            return_value=SimpleNamespace(
-                stream_names=["users", "orders"],
-                manifest={"streams": resolved_streams or []},
-            )
+            return_value=["users", "orders"]
+            if discovered_streams is None
+            else discovered_streams
         ),
     )
     monkeypatch.setattr(project, "_published_manifest", lambda _id: MANIFEST)
@@ -1032,10 +1031,10 @@ def test_readiness_requires_streams_without_full_sync(
         project.run_readiness_checks([])
 
 
-def test_run_full_sync_resolves_draft_before_publish(
+def test_run_full_sync_selects_streams_discovered_after_publish(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, _ = _full_sync_project(
+    project, workspace = _full_sync_project(
         monkeypatch,
         destinations=[
             SimpleNamespace(
@@ -1044,18 +1043,37 @@ def test_run_full_sync_resolves_draft_before_publish(
             )
         ],
         connections=[],
+        discovered_streams=["users", "tables_a", "tables_b"],
     )
     calls: list[str] = []
-    project.resolve_manifest.side_effect = lambda **kwargs: (
-        calls.append("resolve"),
-        SimpleNamespace(stream_names=["users"], manifest={"streams": []}),
-    )[1]
     project.publish.side_effect = lambda *_, **__: calls.append("publish")
+    api_util.get_source_stream_names.side_effect = lambda *_, **__: (
+        calls.append("discover"),
+        ["users", "tables_a", "tables_b"],
+    )[1]
 
     project.run_full_sync(test_source_id="src")
 
-    assert calls == ["resolve", "publish"]
-    assert project.resolve_manifest.call_args.kwargs["manifest"] == MANIFEST
+    assert calls == ["publish", "discover"]
+    assert api_util.get_source_stream_names.call_args.args == ("src",)
+    assert workspace.deploy_connection.call_args.kwargs["selected_streams"] == [
+        "users",
+        "tables_a",
+        "tables_b",
+    ]
+
+
+def test_run_full_sync_rejects_source_without_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch, destinations=[], connections=[], discovered_streams=[]
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="no streams"):
+        project.run_full_sync(test_source_id="src")
+
+    workspace.deploy_connection.assert_not_called()
 
 
 def test_run_full_sync_without_draft_syncs_published_version(
@@ -1076,7 +1094,6 @@ def test_run_full_sync_without_draft_syncs_published_version(
     project.run_full_sync(test_source_id="src")
 
     project.publish.assert_not_called()
-    assert project.resolve_manifest.call_args.kwargs["manifest"] == MANIFEST
     workspace.deploy_connection.assert_called_once()
 
 
@@ -1091,28 +1108,6 @@ def test_run_full_sync_rejects_source_of_other_definition(
     with pytest.raises(AirbyteLibInputError, match="published definition"):
         project.run_full_sync(test_source_id="src")
 
-    workspace.deploy_connection.assert_not_called()
-
-
-def test_run_full_sync_rejects_capped_dynamic_streams(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    limit = connector_builder._FULL_SYNC_STREAM_LIMIT
-    project, workspace = _full_sync_project(
-        monkeypatch,
-        destinations=[],
-        connections=[],
-        resolved_streams=[
-            {"name": "users", "dynamic_stream_name": None},
-            *({"name": f"t{i}", "dynamic_stream_name": "tables"} for i in range(limit)),
-        ],
-    )
-
-    with pytest.raises(AirbyteLibInputError, match="Dynamic streams") as excinfo:
-        project.run_full_sync(test_source_id="src")
-
-    assert excinfo.value.context == {"dynamic_streams": ["tables"]}
-    project.publish.assert_not_called()
     workspace.deploy_connection.assert_not_called()
 
 
