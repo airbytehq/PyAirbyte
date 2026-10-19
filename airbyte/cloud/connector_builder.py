@@ -338,15 +338,13 @@ class ConnectorBuilderReadinessReport(BaseModel):
 def _readiness_checklist(
     project_data: dict[str, Any],
     draft: dict[str, Any],
+    declared_streams: list[str],
     streams: list[ConnectorBuilderStreamReadiness],
     untested_streams: list[str],
     url: str,
 ) -> list[ConnectorBuilderChecklistItem]:
     spec = (draft.get("spec") or {}).get("connection_specification")
     takes_no_inputs = isinstance(spec, dict) and not spec.get("properties")
-    declared_streams = [
-        str(stream.get("name")) for stream in draft.get("streams") or [] if isinstance(stream, dict)
-    ]
     testing_values = project_data.get("testingValues") or {}
     source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
     failed = [stream.stream_name for stream in streams if not stream.passed]
@@ -678,6 +676,27 @@ class CloudConnectorBuilderProject:
         )
         return ConnectorBuilderResolvedManifest.from_manifest(resolved_manifest)
 
+    def _declared_stream_names(self, draft: dict[str, Any]) -> list[str]:
+        """Names of the draft's static streams, with `$ref`s and `$parameters` resolved."""
+        resolved = api_util.full_resolve_connector_builder_project_manifest(
+            workspace_id=self.owner_workspace_id,
+            builder_project_id=self.builder_project_id,
+            manifest=draft,
+            stream_limit=1,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
+        )
+        return [
+            stream["name"]
+            for stream in resolved.get("streams") or []
+            if isinstance(stream, dict)
+            and isinstance(stream.get("name"), str)
+            and "dynamic_stream_name" not in stream
+        ]
+
     def run_readiness_report(
         self,
         stream_names: list[str],
@@ -738,12 +757,11 @@ class CloudConnectorBuilderProject:
         with ThreadPoolExecutor(max_workers=min(_READINESS_MAX_WORKERS, len(stream_names))) as pool:
             streams = list(pool.map(read, stream_names))
 
-        untested_streams = [
-            str(stream.get("name"))
-            for stream in draft.get("streams") or []
-            if isinstance(stream, dict) and stream.get("name") not in stream_names
-        ]
-        checklist = _readiness_checklist(project_data, draft, streams, untested_streams, self.url)
+        declared_streams = self._declared_stream_names(draft)
+        untested_streams = [name for name in declared_streams if name not in stream_names]
+        checklist = _readiness_checklist(
+            project_data, draft, declared_streams, streams, untested_streams, self.url
+        )
         return ConnectorBuilderReadinessReport(
             passed=all(item.done for item in checklist[:6]),
             stream_count=len(streams),

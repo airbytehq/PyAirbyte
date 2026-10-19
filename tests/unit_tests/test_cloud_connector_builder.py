@@ -294,6 +294,11 @@ def _patch_project_store(
         store["saved"].append(kwargs)
 
     monkeypatch.setattr(api_util, "get_connector_builder_project", fake_get)
+    monkeypatch.setattr(
+        api_util,
+        "full_resolve_connector_builder_project_manifest",
+        lambda **_: store.get("resolved") or store["draft"],
+    )
     monkeypatch.setattr(api_util, "update_connector_builder_project", fake_update)
     monkeypatch.setattr(api_util, "validate_yaml_manifest", lambda *_, **__: None)
     return store
@@ -668,3 +673,19 @@ def test_publish_duplicate_name_leaves_draft_unchanged(
         )
 
     assert store["saved"] == []
+
+
+def test_readiness_uses_resolved_stream_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _patch_project_store(
+        monkeypatch, draft={"streams": [{"$ref": "#/definitions/streams/users"}]}
+    )
+    store["resolved"] = {
+        "streams": [
+            {"name": "users"},
+            {"name": "generated", "dynamic_stream_name": "tables"},
+        ]
+    }
+    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    _patch_reads(monkeypatch, project, {"users": _stream_read("users", record_count=1)})
+    report = project.run_readiness_report(["users"])
+    assert report.untested_streams == []
