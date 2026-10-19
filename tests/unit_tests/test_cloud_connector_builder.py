@@ -827,9 +827,12 @@ def _full_sync_project(
     destinations: list[Any],
     connections: list[Any],
     sources: list[Any] | None = None,
+    draft: dict[str, Any] | None = MANIFEST,
+    resolved_streams: list[dict[str, Any]] | None = None,
 ) -> tuple[CloudConnectorBuilderProject, Any]:
-    _patch_project_store(monkeypatch, draft=MANIFEST, source_definition_id="def")
+    _patch_project_store(monkeypatch, draft=draft, source_definition_id="def")
     workspace = _fake_workspace()
+    workspace.get_source = MagicMock(return_value=SimpleNamespace(definition_id="def"))
     workspace.list_sources = MagicMock(return_value=sources or [])
     workspace.list_destinations = MagicMock(return_value=destinations)
     workspace.list_connections = MagicMock(return_value=connections)
@@ -846,8 +849,14 @@ def _full_sync_project(
     monkeypatch.setattr(
         project,
         "resolve_manifest",
-        MagicMock(return_value=SimpleNamespace(stream_names=["users", "orders"])),
+        MagicMock(
+            return_value=SimpleNamespace(
+                stream_names=["users", "orders"],
+                manifest={"streams": resolved_streams or []},
+            )
+        ),
     )
+    monkeypatch.setattr(project, "_published_manifest", lambda _id: MANIFEST)
     return project, workspace
 
 
@@ -883,6 +892,7 @@ def test_run_full_sync_creates_noop_destination_and_connection(
         "source_id": "src",
         "destination_id": "new-dest",
         "connection_id": "conn",
+        "connection_created": True,
         "job_id": 7,
         "job_url": "https://job",
     }
@@ -905,7 +915,12 @@ def test_run_full_sync_reuses_destination_and_connection(
     workspace.deploy_connection.assert_not_called()
     existing.set_selected_streams.assert_called_once_with(["users", "orders"])
     existing.run_sync.assert_called_once_with(wait=False)
-    assert (result.connection_id, result.job_id) == ("old", 8)
+    workspace.get_source.assert_called_once_with("src")
+    assert (result.connection_id, result.connection_created, result.job_id) == (
+        "old",
+        False,
+        8,
+    )
 
 
 def test_run_full_sync_without_test_source_fails(
@@ -937,6 +952,7 @@ def test_readiness_full_sync_gating(
         source_id="src",
         destination_id="dest",
         connection_id="conn",
+        connection_created=True,
         job_id=1,
         job_url="u",
     )
@@ -967,3 +983,96 @@ def test_readiness_requires_streams_without_full_sync(
 
     with pytest.raises(AirbyteLibInputError, match="run_full_sync"):
         project.run_readiness_checks([])
+
+
+def test_run_full_sync_resolves_draft_before_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, _ = _full_sync_project(
+        monkeypatch,
+        destinations=[SimpleNamespace(connector_id="dest")],
+        connections=[],
+    )
+    calls: list[str] = []
+    project.resolve_manifest.side_effect = lambda **kwargs: (
+        calls.append("resolve"),
+        SimpleNamespace(stream_names=["users"], manifest={"streams": []}),
+    )[1]
+    project.publish.side_effect = lambda *_, **__: calls.append("publish")
+
+    project.run_full_sync(test_source_id="src")
+
+    assert calls == ["resolve", "publish"]
+    assert project.resolve_manifest.call_args.kwargs["manifest"] == MANIFEST
+
+
+def test_run_full_sync_without_draft_syncs_published_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch,
+        destinations=[SimpleNamespace(connector_id="dest")],
+        connections=[],
+        draft=None,
+    )
+
+    project.run_full_sync(test_source_id="src")
+
+    project.publish.assert_not_called()
+    assert project.resolve_manifest.call_args.kwargs["manifest"] == MANIFEST
+    workspace.deploy_connection.assert_called_once()
+
+
+def test_run_full_sync_rejects_source_of_other_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, workspace = _full_sync_project(
+        monkeypatch, destinations=[], connections=[]
+    )
+    workspace.get_source.return_value = SimpleNamespace(definition_id="other-def")
+
+    with pytest.raises(AirbyteLibInputError, match="published definition"):
+        project.run_full_sync(test_source_id="src")
+
+    workspace.deploy_connection.assert_not_called()
+
+
+def test_run_full_sync_rejects_capped_dynamic_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limit = connector_builder._FULL_SYNC_STREAM_LIMIT
+    project, workspace = _full_sync_project(
+        monkeypatch,
+        destinations=[],
+        connections=[],
+        resolved_streams=[
+            {"name": "users", "dynamic_stream_name": None},
+            *({"name": f"t{i}", "dynamic_stream_name": "tables"} for i in range(limit)),
+        ],
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="Dynamic streams") as excinfo:
+        project.run_full_sync(test_source_id="src")
+
+    assert excinfo.value.context == {"dynamic_streams": ["tables"]}
+    project.publish.assert_not_called()
+    workspace.deploy_connection.assert_not_called()
+
+
+def test_create_test_source_after_publish_cleared_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(
+        monkeypatch,
+        draft=None,
+        source_definition_id="def",
+        testing_values={"api_key": "**********", "region": "us"},
+    )
+    workspace = _fake_workspace()
+    workspace.deploy_source = MagicMock()
+    project = CloudConnectorBuilderProject(workspace, "bp")
+    monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
+
+    project.create_test_source()
+
+    assert workspace.deploy_source.call_args.kwargs["defer_credentials"] is True

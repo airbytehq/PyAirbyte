@@ -4013,7 +4013,7 @@ def run_connector_builder_readiness_checks(  # noqa: PLR0913  # Explicit args mi
         test_source_id=test_source_id,
         test_destination_id=test_destination_id,
     )
-    if report.full_sync is not None:
+    if report.full_sync is not None and report.full_sync.connection_created:
         register_guid_created_in_session(report.full_sync.connection_id)
     report_data = report.model_dump()
     report_data["streams"] = [

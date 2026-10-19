@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import difflib
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -329,6 +330,7 @@ class ConnectorBuilderFullSync(BaseModel):
     source_id: str
     destination_id: str
     connection_id: str
+    connection_created: bool
     job_id: int
     job_url: str
 
@@ -474,6 +476,16 @@ def _drop_masked_secrets(value: Any) -> Any:  # noqa: ANN401
     if isinstance(value, list):
         return [_drop_masked_secrets(nested) for nested in value]
     return value
+
+
+def _capped_dynamic_streams(resolved_manifest: dict[str, Any], stream_limit: int) -> list[str]:
+    """Return the dynamic streams whose generated streams reached `stream_limit` when resolved."""
+    counts = Counter(
+        stream.get("dynamic_stream_name")
+        for stream in resolved_manifest.get("streams") or []
+        if isinstance(stream, dict) and stream.get("dynamic_stream_name")
+    )
+    return sorted(name for name, count in counts.items() if count >= stream_limit)
 
 
 def _spec_has_secrets(schema: Any) -> bool:  # noqa: ANN401
@@ -743,6 +755,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         self,
         *,
         stream_limit: int = 5,
+        manifest: dict[str, Any] | None = None,
     ) -> ConnectorBuilderResolvedManifest:
         """Resolve the draft manifest on Airbyte Cloud, including dynamic streams.
 
@@ -750,11 +763,12 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
 
         Args:
             stream_limit: Maximum generated streams to return per dynamic stream (1 to 100).
+            manifest: Manifest to resolve instead of the draft.
         """
         resolved_manifest = api_util.full_resolve_connector_builder_project_manifest(
             workspace_id=self.owner_workspace_id,
             builder_project_id=self.builder_project_id,
-            manifest=self._require_draft_manifest(),
+            manifest=manifest if manifest is not None else self._require_draft_manifest(),
             stream_limit=stream_limit,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
@@ -968,8 +982,11 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             raise exc.AirbyteLibInputError(
                 message="Publish the Connector Builder project before creating a test source.",
             )
-        draft = self._require_draft_manifest(project_data)
-        spec = (draft.get("spec") or {}).get("connection_specification")
+        # The first publish clears the draft, so fall back to the published manifest.
+        manifest = _draft_from_project_data(project_data) or self._published_manifest(
+            source_definition_id
+        )
+        spec = ((manifest or {}).get("spec") or {}).get("connection_specification")
         config = _drop_masked_secrets(project_data.get("testingValues") or {})
         return self.workspace.deploy_source(
             name=self.test_source_name,
@@ -987,7 +1004,9 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
     ) -> ConnectorBuilderFullSync:
         """Publish the draft and start a full sync of every stream to a no-op destination.
 
-        Returns without waiting for the sync to finish.
+        Without a draft, syncs the published version. Fails if a dynamic stream generates more
+        streams than resolve returns (100), since the sync couldn't select them all. Returns
+        without waiting for the sync to finish.
 
         Args:
             test_source_id: Source on the published definition to sync from. Defaults to the
@@ -997,7 +1016,29 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                 destination if missing.
             pre_validate: Whether to validate the manifest client-side before publishing.
         """
-        self.publish(self.name, pre_validate=pre_validate)
+        project_data = self.get_project_data()
+        manifest = _draft_from_project_data(project_data)
+        if manifest is None:
+            manifest = self._published_manifest(
+                project_data["builderProject"].get("sourceDefinitionId")
+            )
+            if manifest is None:
+                self._require_draft_manifest(project_data)
+        # Resolve before publishing: the first publish clears the draft.
+        resolved = self.resolve_manifest(stream_limit=_FULL_SYNC_STREAM_LIMIT, manifest=manifest)
+        capped = _capped_dynamic_streams(resolved.manifest, _FULL_SYNC_STREAM_LIMIT)
+        if capped:
+            raise exc.AirbyteLibInputError(
+                message=(
+                    f"Dynamic streams generate {_FULL_SYNC_STREAM_LIMIT} or more streams, "
+                    "more than a full sync can select."
+                ),
+                guidance="Sync the published source with `run_cloud_sync` instead.",
+                context={"dynamic_streams": capped},
+            )
+        if _draft_from_project_data(project_data) is not None:
+            self.publish(self.name, pre_validate=pre_validate)
+        source_definition_id = self.source_definition_id
         if test_source_id is None:
             test_source = self.find_test_source()
             if test_source is None:
@@ -1009,10 +1050,15 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
                     ),
                 )
             test_source_id = test_source.connector_id
+        elif self.workspace.get_source(test_source_id).definition_id != source_definition_id:
+            raise exc.AirbyteLibInputError(
+                message="`test_source_id` isn't a source of this project's published definition.",
+                context={"test_source_id": test_source_id, "definition_id": source_definition_id},
+            )
         if test_destination_id is None:
             test_destination_id = self._get_or_create_test_destination()
 
-        stream_names = self.resolve_manifest(stream_limit=_FULL_SYNC_STREAM_LIMIT).stream_names
+        stream_names = resolved.stream_names
         connection_name = f"{self.name} (Connector Builder full sync)"
         connection = next(
             (
@@ -1023,6 +1069,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             ),
             None,
         )
+        connection_created = connection is None
         if connection is None:
             connection = self.workspace.deploy_connection(
                 connection_name,
@@ -1037,6 +1084,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             source_id=test_source_id,
             destination_id=test_destination_id,
             connection_id=connection.connection_id,
+            connection_created=connection_created,
             job_id=sync_result.job_id,
             job_url=sync_result.job_url,
         )
