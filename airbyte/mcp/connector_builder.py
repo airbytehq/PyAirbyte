@@ -287,10 +287,15 @@ def create_connector_builder_project(
     `publish_custom_source_definition`.
 
     For a connector that needs credentials, include the spec in the initial manifest, with
-    secret fields marked `airbyte_secret`, and set `create_test_source`. The test source is
-    saved as a draft, so credentials nobody has tested yet don't block it. Then ask the user
-    to enter their credentials in both places listed in `next_steps`. Never ask for secrets
-    in the chat.
+    secret fields marked `airbyte_secret`, and set `create_test_source`. Put the credentials
+    under one `credentials` object whose `oneOf` lists the auth options the API supports.
+    Each option has a constant `auth_type` and its own fields, for example `api_key`
+    (`api_key`), `access_token` (`access_token`), or `oauth2.0` (`client_id`,
+    `client_secret`, `refresh_token`). With more than one option, use a
+    `SelectiveAuthenticator` with `authenticator_selection_path: ["credentials", "auth_type"]`.
+    The test source is saved as a draft, so credentials nobody has tested yet don't block it.
+    Then ask the user to enter their credentials in both places listed in `next_steps`. Never
+    ask for secrets in the chat.
     """
     processed_manifest = resolve_manifest_yaml(
         manifest_yaml_text=manifest_yaml_text,
