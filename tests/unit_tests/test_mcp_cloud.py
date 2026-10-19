@@ -39,6 +39,7 @@ from airbyte.cloud.models import (
 )
 from airbyte.constants import MCP_DISABLE_DELETE_GUARD_ENV_VAR, MCP_INSIDERS_ENV_VAR
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp import connector_builder as connector_builder_mcp
 from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
 from airbyte.mcp._tool_utils import _TOOL_POLICIES  # noqa: PLC2701
@@ -3574,7 +3575,7 @@ def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
 
 def test_redact_stream_diagnostics() -> None:
     leaky = "GET https://api.example.com/data?api_key=s3cret failed: Bearer s3cret"
-    data = cloud_mcp._redact_stream_diagnostics({
+    data = connector_builder_mcp._redact_stream_diagnostics({
         "pages": [{"url": leaky, "response_body": leaky}],
         "http_errors": [{"url": leaky, "response_body": None}],
         "logs": [{"level": "WARN", "message": leaky}],

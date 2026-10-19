@@ -18,7 +18,7 @@ from airbyte.exceptions import (
     AirbyteLibInputError,
     AirbyteTrustedExecutionRequiredError,
 )
-from airbyte.mcp import cloud, local
+from airbyte.mcp import cloud, connector_builder, local
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
@@ -261,6 +261,7 @@ def test_manifest_file_schema_depends_on_trusted_execution(
         _set_trusted(monkeypatch, enabled=enabled)
         app = FastMCP(f"manifest-schema-{enabled}")
         cloud.register_cloud_tools(app)
+        connector_builder.register_connector_builder_tools(app)
 
         async def list_tools() -> dict[str, object]:
             async with Client(app) as client:

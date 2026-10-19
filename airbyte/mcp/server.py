@@ -121,6 +121,7 @@ from airbyte.mcp._user_identity import (
     current_airbyte_user_id,
 )
 from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.connector_builder import register_connector_builder_tools
 from airbyte.mcp.guidance import (
     KAPA_API_KEY_CONFIG_ARG,
     KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
@@ -602,6 +603,7 @@ app.middleware.insert(0, AirbyteUserMiddleware())
 
 # Register tools from each module
 register_cloud_tools(app)
+register_connector_builder_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)

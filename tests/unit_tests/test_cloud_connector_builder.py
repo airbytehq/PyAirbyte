@@ -18,8 +18,13 @@ from airbyte.cloud.connector_builder import (
     ConnectorBuilderPageSummary,
     ConnectorBuilderResolvedManifest,
     ConnectorBuilderStreamReadResult,
+)
+from airbyte.cloud.connector_builder._util import (
     apply_manifest_text_edit,
+    drop_masked_secrets,
+    publish_spec,
     render_manifest_text,
+    spec_has_secrets,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteDuplicateResourcesError, AirbyteLibInputError
@@ -576,7 +581,7 @@ def test_run_readiness_checks_judges_each_stream(
         by_name["dropped"].error == "Request to Airbyte Cloud failed: ConnectionError"
     )
     assert (
-        report.checklist[4].detail
+        report.checks[4].detail
         == "failed: empty, http_error, error_log, broken, dropped"
     )
 
@@ -618,13 +623,13 @@ def test_readiness_report_passes_only_when_every_stream_is_read_to_end(
     assert capped.passed_streams == ["users", "orders"]
     assert "hit a test-read cap" in capped.next_steps[-1]
     assert [s.read_to_end for s in capped.streams] == [True, False]
-    assert capped.checklist[5].done is False
+    assert capped.checks[5].result == "failed"
     assert full.passed is True
     assert full.passed_streams == ["users", "orders"]
     assert full.next_steps[0].startswith("All named streams passed.")
 
 
-def test_readiness_checklist_requires_testing_values_when_spec_has_inputs(
+def test_readiness_checks_require_testing_values_when_spec_has_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     draft = {
@@ -638,15 +643,15 @@ def test_readiness_checklist_requires_testing_values_when_spec_has_inputs(
 
     report = project.run_readiness_checks(["users"])
 
-    assert [item.done for item in report.checklist] == [
-        True,
-        True,
-        True,
-        False,
-        True,
-        True,
-        True,
-        None,
+    assert [check.result for check in report.checks] == [
+        "passed",
+        "passed",
+        "passed",
+        "failed",
+        "passed",
+        "passed",
+        "passed",
+        "unknown",
     ]
     assert report.passed is True
 
@@ -660,7 +665,7 @@ def test_publish_spec_uses_api_field_names() -> None:
         }
     }
 
-    spec = connector_builder._publish_spec(manifest)
+    spec = publish_spec(manifest)
 
     assert spec["connectionSpecification"] == {"type": "object"}
     assert spec["documentationUrl"] == "https://example.com/docs"
@@ -755,7 +760,7 @@ def test_drop_masked_secrets() -> None:
         "items": [{"secret": "**********", "id": 1}],
     }
 
-    assert connector_builder._drop_masked_secrets(values) == {
+    assert drop_masked_secrets(values) == {
         "region": "us",
         "auth": {"kind": "bearer"},
         "items": [{"id": 1}],
@@ -783,7 +788,7 @@ def test_drop_masked_secrets() -> None:
     ],
 )
 def test_spec_has_secrets(spec: dict[str, Any], expected: bool) -> None:
-    assert connector_builder._spec_has_secrets(spec) is expected
+    assert spec_has_secrets(spec) is expected
 
 
 def _secret_manifest() -> dict[str, Any]:
@@ -1168,10 +1173,10 @@ def test_run_readiness_checks_full_sync_only_without_draft(
     assert report.full_sync.destination_created is False
     project.publish.assert_not_called()
     workspace.deploy_connection.assert_called_once()
-    draft_step = next(
-        item for item in report.checklist if item.step == "Save a draft manifest"
+    draft_check = next(
+        check for check in report.checks if check.description == "Save a draft manifest"
     )
-    assert draft_step.done is False
+    assert draft_check.result == "failed"
 
 
 def test_run_full_sync_rejects_non_noop_destination_with_default_name(

@@ -57,7 +57,8 @@ from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connector_builder import CloudConnectorBuilderProject, parse_manifest_yaml
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
+from airbyte.cloud.connector_builder._util import parse_manifest_yaml
 from airbyte.cloud.models import (
     ConnectorFeature,
     ConnectorType,

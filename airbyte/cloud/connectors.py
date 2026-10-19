@@ -88,7 +88,8 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
-from airbyte.cloud.connector_builder import CloudConnectorBuilderProject, _unwrap_builder_manifest
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
+from airbyte.cloud.connector_builder._util import unwrap_builder_manifest
 from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
@@ -1575,7 +1576,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
 
         declarative_manifest = project_data.get("declarativeManifest", {})
-        return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
+        return unwrap_builder_manifest(declarative_manifest.get("manifest"))
 
     @property
     def definition_url(self) -> str:
