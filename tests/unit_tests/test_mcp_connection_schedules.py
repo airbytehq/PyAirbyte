@@ -181,6 +181,7 @@ def test_direct_update_rejects_invalid_intervals_before_status_change(
             interval_hours=interval_hours,
             cron_expression=None,
             manual_schedule=None,
+            override_stream_configs=None,
             workspace_id=None,
         )
 

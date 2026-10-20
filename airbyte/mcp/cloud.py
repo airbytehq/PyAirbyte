@@ -4269,7 +4269,7 @@ def update_cloud_connection(
             default=None,
         ),
         TraceArg.FINGERPRINT,
-    ] = None,
+    ],
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4277,7 +4277,7 @@ def update_cloud_connection(
             default=None,
         ),
         TraceArg.OMIT,
-    ] = None,
+    ],
 ) -> str:
     """Update a connection's settings and stream configurations on Airbyte Cloud.
 
@@ -4379,7 +4379,7 @@ def update_cloud_connection_unsafe(
             default=None,
         ),
         TraceArg.FINGERPRINT,
-    ] = None,
+    ],
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4387,7 +4387,7 @@ def update_cloud_connection_unsafe(
             default=None,
         ),
         TraceArg.OMIT,
-    ] = None,
+    ],
 ) -> str:
     """Update connection settings and override stream configurations despite saved state.
 
