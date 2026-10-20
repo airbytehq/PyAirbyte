@@ -336,7 +336,7 @@ class CloudConnectorBuilderProject:
         )
         return ConnectorBuilderStreamReadResult._from_api_response(stream_name, response)  # noqa: SLF001
 
-    def resolve_manifest(
+    def get_resolved_manifest(
         self,
         *,
         stream_limit: int = 5,
@@ -383,7 +383,7 @@ class CloudConnectorBuilderProject:
 
         Args:
             stream_names: Streams to test-read (at least 1). For
-                dynamic streams, get the generated names from `resolve_manifest()`.
+                dynamic streams, get the generated names from `get_resolved_manifest()`.
             record_limit: Maximum records to read per stream (1 to 5,000).
             page_limit: Maximum pages to fetch per slice (1 to 20).
             slice_limit: Maximum slices to read (1 to 20).

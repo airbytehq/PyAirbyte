@@ -298,7 +298,7 @@
     "streams": "hash list",
     "workspace_id": "omit"
   },
-  "resolve_connector_builder_manifest": {
+  "get_connector_builder_resolved_manifest": {
     "builder_project_id": "hash",
     "definition_id": "hash",
     "stream_limit": "value int",

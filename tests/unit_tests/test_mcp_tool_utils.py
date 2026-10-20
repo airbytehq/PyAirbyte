@@ -300,7 +300,7 @@ def test_server_tools_register_expected_policies() -> None:
         "update_connector_builder_manifest_text",
         "set_connector_builder_testing_values",
         "run_connector_builder_stream_test_read",
-        "resolve_connector_builder_manifest",
+        "get_connector_builder_resolved_manifest",
         "run_connector_builder_readiness_checks",
     }
 

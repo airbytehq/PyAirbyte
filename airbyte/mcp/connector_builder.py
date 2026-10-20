@@ -497,7 +497,7 @@ def run_connector_builder_stream_test_read(
     external_access=True,
     insiders_only=True,
 )
-def resolve_connector_builder_manifest(
+def get_connector_builder_resolved_manifest(
     ctx: Context,
     *,
     builder_project_id: Annotated[
@@ -543,7 +543,7 @@ def resolve_connector_builder_manifest(
         builder_project_id,
         definition_id=definition_id,
     )
-    resolved = project.resolve_manifest(stream_limit=stream_limit)
+    resolved = project.get_resolved_manifest(stream_limit=stream_limit)
     return {
         "builder_project_id": project.builder_project_id,
         "stream_names": resolved.stream_names,
@@ -563,7 +563,7 @@ def run_connector_builder_readiness_checks(
             description=(
                 "Streams to test-read. The report covers only these streams. Required unless "
                 "`run_full_sync` is set. For dynamic streams, get the generated names from "
-                "`resolve_connector_builder_manifest`."
+                "`get_connector_builder_resolved_manifest`."
             ),
             default=None,
         ),
