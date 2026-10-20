@@ -88,7 +88,7 @@ class ConnectorBuilderStreamReadResult(BaseModel):
     )
 
     @classmethod
-    def from_api_response(
+    def _from_api_response(
         cls,
         stream_name: str,
         response: dict[str, Any],
@@ -147,7 +147,7 @@ class ConnectorBuilderResolvedManifest(BaseModel):
     stream_names: list[str]
 
     @classmethod
-    def from_manifest(cls, manifest: dict[str, Any]) -> ConnectorBuilderResolvedManifest:
+    def _from_manifest(cls, manifest: dict[str, Any]) -> ConnectorBuilderResolvedManifest:
         """Build a result from a resolved manifest."""
         return cls(
             manifest_dict=manifest,
@@ -207,7 +207,7 @@ class ConnectorBuilderStreamReadiness(BaseModel):
     )
 
     @classmethod
-    def from_stream_read(
+    def _from_stream_read(
         cls, result: ConnectorBuilderStreamReadResult
     ) -> ConnectorBuilderStreamReadiness:
         """Summarize errors and results from a stream test read."""

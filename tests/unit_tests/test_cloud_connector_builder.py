@@ -107,7 +107,7 @@ def test_render_manifest_text_keeps_order_and_does_not_wrap() -> None:
     assert len(text.splitlines()) == 2
 
 
-def test_stream_read_result_from_api_response() -> None:
+def test_stream_read_result__from_api_response() -> None:
     response = {
         "logs": [{"level": "ERROR", "message": "boom", "stacktrace": "..."}],
         "slices": [
@@ -133,7 +133,7 @@ def test_stream_read_result_from_api_response() -> None:
         "inferred_schema": {"type": "object"},
     }
 
-    result = ConnectorBuilderStreamReadResult.from_api_response("users", response)
+    result = ConnectorBuilderStreamReadResult._from_api_response("users", response)
 
     assert result.record_count == 2
     assert result.slice_count == 1
@@ -231,8 +231,8 @@ def test_stream_read_warnings_propagate_to_readiness_without_failing(
         "test_read_limit_reached": limit_reached,
     }
 
-    result = ConnectorBuilderStreamReadResult.from_api_response("users", response)
-    readiness = ConnectorBuilderStreamReadiness.from_stream_read(result)
+    result = ConnectorBuilderStreamReadResult._from_api_response("users", response)
+    readiness = ConnectorBuilderStreamReadiness._from_stream_read(result)
 
     if limit_reached:
         assert result.warnings == []
@@ -244,7 +244,7 @@ def test_stream_read_warnings_propagate_to_readiness_without_failing(
 
 
 def test_resolved_manifest_lists_stream_names() -> None:
-    resolved = ConnectorBuilderResolvedManifest.from_manifest(MANIFEST)
+    resolved = ConnectorBuilderResolvedManifest._from_manifest(MANIFEST)
     assert resolved.stream_names == ["users", "orders"]
 
 
@@ -666,7 +666,7 @@ def test_run_readiness_checks_summarizes_each_stream(
         project,
         {
             "ok": _stream_read("ok", record_count=3),
-            "empty": ConnectorBuilderStreamReadResult.from_api_response(
+            "empty": ConnectorBuilderStreamReadResult._from_api_response(
                 "empty",
                 {"slices": [{"pages": [{"records": []}]}]},
             ),

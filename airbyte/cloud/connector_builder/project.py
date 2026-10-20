@@ -334,7 +334,7 @@ class CloudConnectorBuilderProject:
             config_api_root=self.workspace.config_api_root,
             timeout_seconds=timeout_seconds,
         )
-        return ConnectorBuilderStreamReadResult.from_api_response(stream_name, response)
+        return ConnectorBuilderStreamReadResult._from_api_response(stream_name, response)  # noqa: SLF001
 
     def resolve_manifest(
         self,
@@ -359,7 +359,7 @@ class CloudConnectorBuilderProject:
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
         )
-        return ConnectorBuilderResolvedManifest.from_manifest(resolved_manifest)
+        return ConnectorBuilderResolvedManifest._from_manifest(resolved_manifest)  # noqa: SLF001
 
     def run_readiness_checks(
         self,
@@ -449,7 +449,7 @@ class CloudConnectorBuilderProject:
                     failed=True,
                     error=f"Request to Airbyte Cloud failed: {type(ex).__name__}",
                 )
-            return ConnectorBuilderStreamReadiness.from_stream_read(result)
+            return ConnectorBuilderStreamReadiness._from_stream_read(result)  # noqa: SLF001
 
         pool = ThreadPoolExecutor(max_workers=min(_READINESS_MAX_WORKERS, len(stream_names)))
         try:
