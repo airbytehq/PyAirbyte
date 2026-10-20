@@ -184,7 +184,7 @@ def create_connector_builder_project(
     result: dict[str, Any] = {
         "builder_project_id": project.builder_project_id,
         "definition_id": None,
-        "connector_builder_project_url": project.url,
+        "connector_builder_project_url": project.connector_builder_project_url,
         "name": name,
     }
     if create_test_source:
@@ -350,7 +350,7 @@ def set_connector_builder_testing_values(
     project.set_testing_values(testing_values_dict)
     return (
         f"Saved testing values for Connector Builder project {project.builder_project_id}. "
-        f"Users can review them or enter secrets at: {project.url}"
+        f"Users can review them or enter secrets at: {project.connector_builder_project_url}"
     )
 
 
@@ -601,7 +601,7 @@ def run_connector_builder_readiness_checks(
     ]
     return {
         "builder_project_id": project.builder_project_id,
-        "connector_builder_project_url": project.url,
+        "connector_builder_project_url": project.connector_builder_project_url,
         **report_data,
     }
 

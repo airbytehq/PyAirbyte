@@ -103,7 +103,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         self.owner_workspace_id = owner_workspace_id or workspace.workspace_id
 
     @property
-    def url(self) -> str:
+    def connector_builder_project_url(self) -> str:
         """The project's Connector Builder URL, where users enter testing values and secrets."""
         return (
             f"{get_web_url_root(self.workspace.api_root)}/workspaces/"
@@ -153,7 +153,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         return ConnectorBuilderProjectInfo(
             builder_project_id=self.builder_project_id,
             definition_id=source_definition_id,
-            connector_builder_project_url=self.url,
+            connector_builder_project_url=self.connector_builder_project_url,
             name=project_data["builderProject"]["name"],
             has_draft=draft_manifest is not None,
             draft_manifest=draft_manifest,
@@ -488,7 +488,9 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         not_attempted_streams: list[str],
     ) -> ConnectorBuilderReadinessReport:
         remaining = pending_streams + not_attempted_streams
-        checks = readiness_checks(project_data, draft, streams, remaining, self.url)
+        checks = readiness_checks(
+            project_data, draft, streams, remaining, self.connector_builder_project_url
+        )
         return ConnectorBuilderReadinessReport(
             failed_streams=[stream.stream_name for stream in streams if stream.failed],
             pending_streams=pending_streams,

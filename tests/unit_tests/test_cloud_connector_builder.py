@@ -411,7 +411,7 @@ def _patch_project_store(
 def test_project_url() -> None:
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
     assert (
-        project.url
+        project.connector_builder_project_url
         == "https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp"
     )
 
@@ -549,7 +549,9 @@ def test_project_uses_owner_workspace() -> None:
     project = CloudConnectorBuilderProject(
         _fake_workspace(), "bp", owner_workspace_id="owner"
     )
-    assert project.url.endswith("/workspaces/owner/connector-builder/edit/bp")
+    assert project.connector_builder_project_url.endswith(
+        "/workspaces/owner/connector-builder/edit/bp"
+    )
 
 
 def test_get_info_reads_project_once(monkeypatch: pytest.MonkeyPatch) -> None:
