@@ -282,7 +282,7 @@ class CloudConnectorBuilderProject:
             config_api_root=self.workspace.config_api_root,
         )
 
-    def test_read_stream(
+    def run_stream_test_read(
         self,
         stream_name: str,
         *,
@@ -301,7 +301,7 @@ class CloudConnectorBuilderProject:
             slice_limit: Maximum slices to read (1 to 20).
         """
         _check_test_read_limits(record_limit, page_limit, slice_limit)
-        return self._test_read_stream(
+        return self._run_stream_test_read(
             self._require_draft_manifest(),
             stream_name,
             record_limit=record_limit,
@@ -309,7 +309,7 @@ class CloudConnectorBuilderProject:
             slice_limit=slice_limit,
         )
 
-    def _test_read_stream(
+    def _run_stream_test_read(
         self,
         manifest: dict[str, Any],
         stream_name: str,
@@ -428,7 +428,7 @@ class CloudConnectorBuilderProject:
                 None if deadline is None else max(deadline - time.monotonic(), _MIN_READ_TIMEOUT)
             )
             try:
-                result = self._test_read_stream(
+                result = self._run_stream_test_read(
                     draft,
                     stream_name,
                     record_limit=record_limit,

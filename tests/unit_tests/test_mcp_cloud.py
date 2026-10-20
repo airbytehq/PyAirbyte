@@ -3608,7 +3608,7 @@ def test_connector_builder_tools_return_read_warnings(
     project = SimpleNamespace(
         builder_project_id="builder-project",
         connector_builder_project_url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp",
-        test_read_stream=lambda *_args, **_kwargs: read_result,
+        run_stream_test_read=lambda *_args, **_kwargs: read_result,
         run_readiness_checks=lambda *_args, **_kwargs: readiness_report,
     )
     workspace = SimpleNamespace(
@@ -3619,7 +3619,7 @@ def test_connector_builder_tools_return_read_warnings(
     )
     ctx = cast(Context, object())
 
-    stream_result = connector_builder_mcp.test_connector_builder_stream(
+    stream_result = connector_builder_mcp.run_connector_builder_stream_test_read(
         ctx,
         "users",
         builder_project_id="builder-project",

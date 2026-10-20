@@ -369,7 +369,7 @@ def _redact_stream_diagnostics(stream_data: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp_tool(read_only=True, external_access=True, insiders_only=True)
-def test_connector_builder_stream(
+def run_connector_builder_stream_test_read(
     ctx: Context,
     stream_name: Annotated[
         str,
@@ -440,7 +440,7 @@ def test_connector_builder_stream(
         builder_project_id,
         definition_id=definition_id,
     )
-    result = project.test_read_stream(
+    result = project.run_stream_test_read(
         stream_name,
         record_limit=record_limit,
         page_limit=page_limit,

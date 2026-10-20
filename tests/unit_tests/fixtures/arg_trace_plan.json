@@ -379,7 +379,7 @@
     "source_connector_name": "fingerprint",
     "streams": "fingerprint list"
   },
-  "test_connector_builder_stream": {
+  "run_connector_builder_stream_test_read": {
     "builder_project_id": "hash",
     "definition_id": "hash",
     "page_limit": "value int",

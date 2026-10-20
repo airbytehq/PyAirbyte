@@ -648,7 +648,7 @@ def _patch_reads(
             )
         return reads[stream_name]
 
-    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
 
 
 def test_run_readiness_checks_summarizes_each_stream(
@@ -732,7 +732,7 @@ def test_run_readiness_checks_requires_stream_names() -> None:
         project.run_readiness_checks([])
 
 
-@pytest.mark.parametrize("method", ["test_read_stream", "run_readiness_checks"])
+@pytest.mark.parametrize("method", ["run_stream_test_read", "run_readiness_checks"])
 @pytest.mark.parametrize(
     ("limit_name", "limit_value"),
     [
@@ -759,7 +759,7 @@ def test_test_read_limits_reject_out_of_range_without_api_calls(
     )
     expected: dict[str, int] = (
         {"record_limit": 100, "page_limit": 5, "slice_limit": 5}
-        if method == "test_read_stream"
+        if method == "run_stream_test_read"
         else {
             "record_limit": connector_builder._util.TEST_READ_MAX_RECORDS,
             "page_limit": connector_builder._util.TEST_READ_MAX_PAGES,
@@ -768,8 +768,8 @@ def test_test_read_limits_reject_out_of_range_without_api_calls(
     )
 
     with pytest.raises(AirbyteLibInputError) as error:
-        if method == "test_read_stream":
-            project.test_read_stream("users", **{limit_name: limit_value})
+        if method == "run_stream_test_read":
+            project.run_stream_test_read("users", **{limit_name: limit_value})
         else:
             project.run_readiness_checks(["users"], **{limit_name: limit_value})
 
@@ -812,7 +812,7 @@ def test_readiness_checklist_does_not_call_failed_reads_capped(
     def fail_read(*_: Any, **__: Any) -> ConnectorBuilderStreamReadResult:
         raise AirbyteCloudError(message="Cloud read failed.")
 
-    monkeypatch.setattr(project, "_test_read_stream", fail_read)
+    monkeypatch.setattr(project, "_run_stream_test_read", fail_read)
 
     report = project.run_readiness_checks(["users"])
 
@@ -995,7 +995,7 @@ def test_readiness_timeout_splits_pending_and_not_attempted(
             release.wait(5)
         return _stream_read(stream_name, record_count=1)
 
-    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
     names = ["fast", *sorted(slow), "queued"]
     try:
         report = project.run_readiness_checks(names, timeout_seconds=0.5)
@@ -1027,7 +1027,7 @@ def test_readiness_checklist_is_incomplete_when_a_stream_is_pending(
             release.wait(5)
         return _stream_read(stream_name, record_count=1)
 
-    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
     try:
         report = project.run_readiness_checks(
             ["ready", "pending"],
@@ -1057,7 +1057,7 @@ def test_readiness_bounds_read_requests_by_timeout(
         timeouts.append(kwargs["timeout_seconds"])
         return _stream_read(stream_name, record_count=1)
 
-    monkeypatch.setattr(project, "_test_read_stream", fake_read)
+    monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
     project.run_readiness_checks(["users"], timeout_seconds=30)
     project.run_readiness_checks(["users"])
 
@@ -1350,7 +1350,7 @@ def test_readiness_full_sync_gating(
     monkeypatch.setattr(project, "publish", publish)
     monkeypatch.setattr(
         project,
-        "_test_read_stream",
+        "_run_stream_test_read",
         lambda _m, name, **_: _stream_read(
             name, record_count=record_count, status=status
         ),

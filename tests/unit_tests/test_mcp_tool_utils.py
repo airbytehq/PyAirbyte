@@ -299,7 +299,7 @@ def test_server_tools_register_expected_policies() -> None:
         "create_connector_builder_project",
         "update_connector_builder_manifest_text",
         "set_connector_builder_testing_values",
-        "test_connector_builder_stream",
+        "run_connector_builder_stream_test_read",
         "resolve_connector_builder_manifest",
         "run_connector_builder_readiness_checks",
     }
