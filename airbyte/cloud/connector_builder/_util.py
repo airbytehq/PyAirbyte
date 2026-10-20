@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 from airbyte import exceptions as exc
-from airbyte.cloud.connector_builder.models import (
+from airbyte.cloud.connector_builder._models import (
     ConnectorBuilderReadinessCheck,
     ConnectorBuilderStreamReadiness,
     ManifestTextEditMode,
@@ -24,7 +24,7 @@ _SECRETS_MASK = "**********"
 CONNECTOR_BUILDER_TEST_DESTINATION_NAME = "Connector Builder Test (No-op)"
 """Name of the no-op destination that full syncs find or create by default."""
 TEST_READ_MAX_RECORDS = 5_000
-"""Most records read per stream by `run_readiness_checks()`."""
+"""Most records read per stream by `_run_readiness_checks()`."""
 TEST_READ_MAX_PAGES = 20
 TEST_READ_MAX_SLICES = 20
 

@@ -8,17 +8,10 @@ so no connector code runs on the caller's machine.
 
 from __future__ import annotations
 
-from airbyte.cloud.connector_builder.models import (
-    ConnectorBuilderFullSync,
+from airbyte.cloud.connector_builder._models import (
     ConnectorBuilderPageSummary,
-    ConnectorBuilderProjectInfo,
-    ConnectorBuilderReadinessCheck,
-    ConnectorBuilderReadinessReport,
     ConnectorBuilderResolvedManifest,
-    ConnectorBuilderStreamReadiness,
     ConnectorBuilderStreamReadResult,
-    ManifestTextEditMode,
-    ReadinessCheckResult,
 )
 from airbyte.cloud.connector_builder.project import (
     CloudConnectorBuilderProject,
@@ -27,14 +20,7 @@ from airbyte.cloud.connector_builder.project import (
 
 __all__ = [
     "CloudConnectorBuilderProject",
-    "ConnectorBuilderFullSync",
     "ConnectorBuilderPageSummary",
-    "ConnectorBuilderProjectInfo",
-    "ConnectorBuilderReadinessCheck",
-    "ConnectorBuilderReadinessReport",
     "ConnectorBuilderResolvedManifest",
-    "ConnectorBuilderStreamReadiness",
     "ConnectorBuilderStreamReadResult",
-    "ManifestTextEditMode",
-    "ReadinessCheckResult",
 ]

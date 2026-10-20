@@ -13,6 +13,15 @@ import requests
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud.connector_builder._models import (
+    ConnectorBuilderFullSync,
+    ConnectorBuilderProjectInfo,
+    ConnectorBuilderReadinessReport,
+    ConnectorBuilderResolvedManifest,
+    ConnectorBuilderStreamReadiness,
+    ConnectorBuilderStreamReadResult,
+    ManifestTextEditMode,
+)
 from airbyte.cloud.connector_builder._util import (
     CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
     TEST_READ_MAX_PAGES,
@@ -30,15 +39,6 @@ from airbyte.cloud.connector_builder._util import (
     spec_has_secrets,
     spec_missing_required,
 )
-from airbyte.cloud.connector_builder.models import (
-    ConnectorBuilderFullSync,
-    ConnectorBuilderProjectInfo,
-    ConnectorBuilderReadinessReport,
-    ConnectorBuilderResolvedManifest,
-    ConnectorBuilderStreamReadiness,
-    ConnectorBuilderStreamReadResult,
-    ManifestTextEditMode,
-)
 
 
 if TYPE_CHECKING:
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 
 _READINESS_MAX_WORKERS = 5
-"""Most streams `run_readiness_checks()` reads at once."""
+"""Most streams `_run_readiness_checks()` reads at once."""
 _MIN_READ_TIMEOUT = 1.0
 """Shortest HTTP timeout for a test read started just before the readiness deadline."""
 
@@ -143,7 +143,7 @@ class CloudConnectorBuilderProject:
         """The active manifest of the published definition, or `None` if never published."""
         return self._published_manifest(self.source_definition_id)
 
-    def get_info(self) -> ConnectorBuilderProjectInfo:
+    def _get_info(self) -> ConnectorBuilderProjectInfo:
         """Read the project once and return its IDs, URL, draft, and published manifest."""
         project_data = self._get_project_data()
         draft_manifest = draft_from_project_data(project_data)
@@ -155,7 +155,7 @@ class CloudConnectorBuilderProject:
             name=project_data["builderProject"]["name"],
             has_draft=draft_manifest is not None,
             draft_manifest_dict=draft_manifest,
-            draft_manifest_text=(
+            draft_manifest_yaml=(
                 render_manifest_text(draft_manifest) if draft_manifest is not None else None
             ),
             published_manifest_dict=self._published_manifest(source_definition_id),
@@ -206,12 +206,12 @@ class CloudConnectorBuilderProject:
         )
 
     @property
-    def draft_manifest_text(self) -> str | None:
+    def draft_manifest_yaml(self) -> str | None:
         """The draft manifest rendered by `render_manifest_text()`, or `None` if no draft."""
         manifest = self.draft_manifest_dict
         return render_manifest_text(manifest) if manifest is not None else None
 
-    def update_draft_manifest_text(
+    def _update_draft_manifest_yaml(
         self,
         *,
         edit_mode: ManifestTextEditMode,
@@ -221,7 +221,7 @@ class CloudConnectorBuilderProject:
     ) -> str:
         """Edit the draft manifest as text and save it. Does not publish anything.
 
-        Edits match against `draft_manifest_text`. Returns a unified diff from the previous
+        Edits match against `draft_manifest_yaml`. Returns a unified diff from the previous
         rendering to the rendering of the saved draft.
 
         Args:
@@ -230,7 +230,7 @@ class CloudConnectorBuilderProject:
             old_text: The exact text to replace. Required unless `edit_mode` is `replace_full`.
             pre_validate: Whether to validate the edited manifest client-side before saving.
         """
-        current_text = self.draft_manifest_text
+        current_text = self.draft_manifest_yaml
         if current_text is None and edit_mode != "replace_full":
             raise exc.AirbyteLibInputError(
                 message="This Connector Builder project has no draft manifest to edit.",
@@ -245,7 +245,7 @@ class CloudConnectorBuilderProject:
         )
         self.replace_draft_manifest(edited_text, pre_validate=pre_validate)
 
-        saved_text = self.draft_manifest_text or ""
+        saved_text = self.draft_manifest_yaml or ""
         return "".join(
             difflib.unified_diff(
                 (current_text or "").splitlines(keepends=True),
@@ -255,7 +255,7 @@ class CloudConnectorBuilderProject:
             )
         )
 
-    def set_testing_values(
+    def replace_testing_values(
         self,
         testing_values: dict[str, Any],
     ) -> None:
@@ -361,7 +361,7 @@ class CloudConnectorBuilderProject:
         )
         return ConnectorBuilderResolvedManifest._from_manifest(resolved_manifest)  # noqa: SLF001
 
-    def run_readiness_checks(
+    def _run_readiness_checks(
         self,
         stream_names: list[str],
         *,
@@ -391,9 +391,9 @@ class CloudConnectorBuilderProject:
                 the rest are listed in `pending_streams` and `not_attempted_streams`. No limit
                 by default.
             run_full_sync: If no named stream failed or is still pending (or none are named),
-                publish the draft and start a full sync with `run_full_sync()`.
-            test_source_id: The source for the full sync. See `run_full_sync()`.
-            on_resource_created: Passed to `run_full_sync()`.
+                publish the draft and start a full sync with `_run_full_sync()`.
+            test_source_id: The source for the full sync. See `_run_full_sync()`.
+            on_resource_created: Passed to `_run_full_sync()`.
         """
         _check_test_read_limits(record_limit, page_limit, slice_limit)
         stream_names = list(dict.fromkeys(stream_names))
@@ -412,7 +412,7 @@ class CloudConnectorBuilderProject:
                 manifest = self._require_draft_manifest(project_data)
             return self._readiness_report(project_data, manifest, [], [], []).model_copy(
                 update={
-                    "full_sync": self.run_full_sync(
+                    "full_sync": self._run_full_sync(
                         test_source_id=test_source_id,
                         on_resource_created=on_resource_created,
                     ),
@@ -471,7 +471,7 @@ class CloudConnectorBuilderProject:
         if run_full_sync and not (
             report.failed_streams or report.pending_streams or report.not_attempted_streams
         ):
-            report.full_sync = self.run_full_sync(
+            report.full_sync = self._run_full_sync(
                 test_source_id=test_source_id,
                 on_resource_created=on_resource_created,
             )
@@ -541,11 +541,11 @@ class CloudConnectorBuilderProject:
         )
 
     def _get_default_test_source_name(self) -> str:
-        """Default name of the source `get_or_create_default_test_source()` finds or creates."""
+        """Default name of the source `_get_or_create_default_test_source()` finds or creates."""
         return f"{self.name} (Connector Builder test)"
 
     @overload
-    def get_or_create_default_test_source(
+    def _get_or_create_default_test_source(
         self,
         *,
         allow_create: Literal[True] = True,
@@ -553,14 +553,14 @@ class CloudConnectorBuilderProject:
     ) -> CloudSource: ...
 
     @overload
-    def get_or_create_default_test_source(
+    def _get_or_create_default_test_source(
         self,
         *,
         allow_create: bool,
         default_source_name: str | Callable[[CloudConnectorBuilderProject], str] | None = None,
     ) -> CloudSource | None: ...
 
-    def get_or_create_default_test_source(
+    def _get_or_create_default_test_source(
         self,
         *,
         allow_create: bool = True,
@@ -610,7 +610,7 @@ class CloudConnectorBuilderProject:
             defer_credentials=spec_has_secrets(spec) or spec_missing_required(spec, config),
         )
 
-    def run_full_sync(
+    def _run_full_sync(
         self,
         *,
         test_source_id: str | None = None,
@@ -625,7 +625,7 @@ class CloudConnectorBuilderProject:
 
         Args:
             test_source_id: Source on the published definition to sync from. Defaults to the
-                source from `get_or_create_default_test_source()`.
+                source from `_get_or_create_default_test_source()`.
             pre_validate: Whether to validate the manifest client-side before publishing.
             on_resource_created: Called with the ID of each destination or connection this
                 call creates, as soon as it exists.
@@ -637,14 +637,13 @@ class CloudConnectorBuilderProject:
             self._require_draft_manifest(project_data)
         # Check the source and destination first: the first publish clears the draft.
         if test_source_id is None:
-            test_source = self.get_or_create_default_test_source(allow_create=False)
+            test_source = self._get_or_create_default_test_source(allow_create=False)
             if test_source is None:
                 raise exc.AirbyteLibInputError(
                     message="No test source found for this Connector Builder project.",
                     guidance=(
-                        "Pass `test_source_id`, or create one with "
-                        "`get_or_create_default_test_source()` and have the user complete its "
-                        "settings."
+                        "Pass `test_source_id`, or create a source on this project's published "
+                        "definition and have the user complete its settings."
                     ),
                 )
             test_source_id = test_source.connector_id

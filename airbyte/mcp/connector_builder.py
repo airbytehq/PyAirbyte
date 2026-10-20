@@ -14,7 +14,7 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import TraceArg, register_mcp_tools
 from pydantic import Field
 
-from airbyte.cloud.connector_builder import ManifestTextEditMode
+from airbyte.cloud.connector_builder._models import ManifestTextEditMode
 from airbyte.cloud.connector_builder._util import (
     TEST_READ_MAX_PAGES,
     TEST_READ_MAX_RECORDS,
@@ -68,12 +68,18 @@ def get_connector_builder_draft_manifest(
     ctx: Context,
     definition_id: Annotated[
         str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     *,
     builder_project_id: Annotated[
         str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -87,7 +93,7 @@ def get_connector_builder_draft_manifest(
     """Get the Connector Builder draft manifest of a project or custom source definition.
 
     Returns the working draft manifest that has been saved but not yet published, both as
-    a dict and as `draft_manifest_text`. Airbyte Cloud stores the parsed manifest, so the text
+    a dict and as `draft_manifest_yaml`. Airbyte Cloud stores the parsed manifest, so the text
     is a normalized YAML rendering without comments; text edits with
     `update_connector_builder_manifest_text` match against it.
 
@@ -99,10 +105,13 @@ def get_connector_builder_draft_manifest(
         builder_project_id,
         definition_id=definition_id,
     )
-    return project.get_info().model_dump(by_alias=True)
+    return project._get_info().model_dump(by_alias=True)  # noqa: SLF001
 
 
-@mcp_tool(extra_help_text=_manifest_yaml_source_hint, insiders_only=True)
+@mcp_tool(
+    extra_help_text=_manifest_yaml_source_hint,
+    insiders_only=True,
+)
 def create_connector_builder_project(
     ctx: Context,
     name: Annotated[
@@ -190,7 +199,7 @@ def create_connector_builder_project(
     if create_test_source:
         definition = project.publish(name, pre_validate=pre_validate)
         register_guid_created_in_session(definition.definition_id)
-        test_source = project.get_or_create_default_test_source()
+        test_source = project._get_or_create_default_test_source()  # noqa: SLF001
         register_guid_created_in_session(test_source.connector_id)
         result |= {
             "definition_id": definition.definition_id,
@@ -200,7 +209,10 @@ def create_connector_builder_project(
     return result
 
 
-@mcp_tool(destructive=True, insiders_only=True)
+@mcp_tool(
+    destructive=True,
+    insiders_only=True,
+)
 def update_connector_builder_manifest_text(
     ctx: Context,
     edit_mode: Annotated[
@@ -228,7 +240,7 @@ def update_connector_builder_manifest_text(
         str | None,
         Field(
             description=(
-                "The exact text to replace, copied verbatim from `draft_manifest_text`. "
+                "The exact text to replace, copied verbatim from `draft_manifest_yaml`. "
                 "Required unless `edit_mode` is `replace_full`."
             ),
             default=None,
@@ -236,11 +248,17 @@ def update_connector_builder_manifest_text(
     ] = None,
     builder_project_id: Annotated[
         str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     definition_id: Annotated[
         str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -260,7 +278,7 @@ def update_connector_builder_manifest_text(
 ) -> str:
     """Edit and save a Connector Builder project's draft manifest. Does not publish anything.
 
-    Text edits match against `draft_manifest_text` from `get_connector_builder_draft_manifest`.
+    Text edits match against `draft_manifest_yaml` from `get_connector_builder_draft_manifest`.
     Returns a unified diff from the previous text to the saved text; base later edits on the
     saved text.
     """
@@ -270,7 +288,7 @@ def update_connector_builder_manifest_text(
         definition_id=definition_id,
     )
     _check_builder_project_created_in_session(project)
-    diff = project.update_draft_manifest_text(
+    diff = project._update_draft_manifest_yaml(  # noqa: SLF001
         edit_mode=edit_mode,
         new_text=new_text,
         old_text=old_text,
@@ -282,17 +300,27 @@ def update_connector_builder_manifest_text(
     )
 
 
-@mcp_tool(destructive=True, idempotent=True, insiders_only=True)
+@mcp_tool(
+    destructive=True,
+    idempotent=True,
+    insiders_only=True,
+)
 def set_connector_builder_testing_values(
     ctx: Context,
     *,
     builder_project_id: Annotated[
         str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     definition_id: Annotated[
         str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -347,7 +375,7 @@ def set_connector_builder_testing_values(
         definition_id=definition_id,
     )
     _check_builder_project_created_in_session(project)
-    project.set_testing_values(testing_values_dict)
+    project.replace_testing_values(testing_values_dict)
     return (
         f"Saved testing values for Connector Builder project {project.builder_project_id}. "
         f"Users can review them or enter secrets at: {project.connector_builder_project_url}"
@@ -368,7 +396,11 @@ def _redact_stream_diagnostics(stream_data: dict[str, Any]) -> dict[str, Any]:
     return stream_data
 
 
-@mcp_tool(read_only=True, external_access=True, insiders_only=True)
+@mcp_tool(
+    read_only=True,
+    external_access=True,
+    insiders_only=True,
+)
 def run_connector_builder_stream_test_read(
     ctx: Context,
     stream_name: Annotated[
@@ -379,11 +411,17 @@ def run_connector_builder_stream_test_read(
     *,
     builder_project_id: Annotated[
         str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     definition_id: Annotated[
         str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -453,17 +491,28 @@ def run_connector_builder_stream_test_read(
     }
 
 
-@mcp_tool(read_only=True, idempotent=True, external_access=True, insiders_only=True)
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    external_access=True,
+    insiders_only=True,
+)
 def resolve_connector_builder_manifest(
     ctx: Context,
     *,
     builder_project_id: Annotated[
         str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     definition_id: Annotated[
         str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -502,7 +551,10 @@ def resolve_connector_builder_manifest(
     }
 
 
-@mcp_tool(external_access=True, insiders_only=True)
+@mcp_tool(
+    external_access=True,
+    insiders_only=True,
+)
 def run_connector_builder_readiness_checks(
     ctx: Context,
     stream_names: Annotated[
@@ -520,11 +572,17 @@ def run_connector_builder_readiness_checks(
     *,
     builder_project_id: Annotated[
         str | None,
-        Field(description=_BUILDER_PROJECT_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     definition_id: Annotated[
         str | None,
-        Field(description=_BUILDER_DEFINITION_ID_DESCRIPTION, default=None),
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
     ] = None,
     workspace_id: Annotated[
         str | None,
@@ -588,7 +646,7 @@ def run_connector_builder_readiness_checks(
     )
     if run_full_sync:
         _check_builder_project_created_in_session(project)
-    report = project.run_readiness_checks(
+    report = project._run_readiness_checks(  # noqa: SLF001
         resolve_list_of_strings(stream_names) or [],
         timeout_seconds=timeout_seconds,
         run_full_sync=run_full_sync,

@@ -1449,7 +1449,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         return self._connector_builder_project_id
 
     @property
-    def connector_builder_project(self) -> CloudConnectorBuilderProject | None:
+    def _connector_builder_project(self) -> CloudConnectorBuilderProject | None:
         """The Connector Builder project behind this definition. YAML connectors only."""
         if self.definition_type != "yaml":
             return None

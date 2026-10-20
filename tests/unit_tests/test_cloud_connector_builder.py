@@ -13,14 +13,17 @@ import requests
 
 from airbyte._util import api_util
 from airbyte.cloud import connector_builder
+from airbyte.cloud.connector_builder import _models
 from airbyte.cloud.connector_builder import (
     CloudConnectorBuilderProject,
     ConnectorBuilderPageSummary,
     ConnectorBuilderResolvedManifest,
-    ConnectorBuilderStreamReadiness,
     ConnectorBuilderStreamReadResult,
 )
-from airbyte.cloud.connector_builder.models import _record_count_warnings
+from airbyte.cloud.connector_builder._models import (
+    ConnectorBuilderStreamReadiness,
+    _record_count_warnings,
+)
 from airbyte.cloud.connector_builder._util import (
     apply_manifest_text_edit,
     drop_masked_secrets,
@@ -57,7 +60,7 @@ MANIFEST: dict[str, Any] = {
     ],
 )
 def test_apply_manifest_text_edit(
-    edit_mode: connector_builder.ManifestTextEditMode,
+    edit_mode: _models.ManifestTextEditMode,
     new_text: str,
     old_text: str | None,
     expected: str,
@@ -90,7 +93,7 @@ def test_apply_manifest_text_edit_replace_all_replaces_every_match() -> None:
     ],
 )
 def test_apply_manifest_text_edit_errors(
-    edit_mode: connector_builder.ManifestTextEditMode,
+    edit_mode: _models.ManifestTextEditMode,
     old_text: str | None,
     match: str,
 ) -> None:
@@ -419,7 +422,7 @@ def test_project_url() -> None:
     )
 
 
-def test_update_draft_manifest_text_saves_and_returns_diff(
+def test_update_draft_manifest_yaml_saves_and_returns_diff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = _patch_project_store(monkeypatch, draft={"version": "6.0.0", "streams": []})
@@ -427,7 +430,7 @@ def test_update_draft_manifest_text_saves_and_returns_diff(
         workspace=_fake_workspace(), builder_project_id="bp"
     )
 
-    diff = project.update_draft_manifest_text(
+    diff = project._update_draft_manifest_yaml(
         edit_mode="replace_text",
         old_text="version: 6.0.0",
         new_text="version: 6.1.0",
@@ -439,7 +442,7 @@ def test_update_draft_manifest_text_saves_and_returns_diff(
     assert "+version: 6.1.0" in diff
 
 
-def test_update_draft_manifest_text_without_draft_requires_replace_full(
+def test_update_draft_manifest_yaml_without_draft_requires_replace_full(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = _patch_project_store(monkeypatch, draft=None)
@@ -448,17 +451,19 @@ def test_update_draft_manifest_text_without_draft_requires_replace_full(
     )
 
     with pytest.raises(AirbyteLibInputError, match="no draft manifest"):
-        project.update_draft_manifest_text(
+        project._update_draft_manifest_yaml(
             edit_mode="replace_all", old_text="a", new_text="b"
         )
 
-    project.update_draft_manifest_text(
+    project._update_draft_manifest_yaml(
         edit_mode="replace_full", new_text="version: 6.0.0\n"
     )
     assert store["draft"] == {"version": "6.0.0"}
 
 
-def test_set_testing_values_uses_draft_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_replace_testing_values_uses_draft_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
     update_testing_values = MagicMock()
     monkeypatch.setattr(
@@ -469,7 +474,7 @@ def test_set_testing_values_uses_draft_spec(monkeypatch: pytest.MonkeyPatch) -> 
 
     CloudConnectorBuilderProject(
         workspace=_fake_workspace(), builder_project_id="bp"
-    ).set_testing_values({"api_key": "k"})
+    ).replace_testing_values({"api_key": "k"})
 
     kwargs = update_testing_values.call_args.kwargs
     assert kwargs["testing_values"] == {"api_key": "k"}
@@ -480,7 +485,7 @@ def test_set_testing_values_uses_draft_spec(monkeypatch: pytest.MonkeyPatch) -> 
     }
 
 
-def test_set_testing_values_without_draft_uses_published_spec(
+def test_replace_testing_values_without_draft_uses_published_spec(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=None, source_definition_id="def")
@@ -495,7 +500,7 @@ def test_set_testing_values_without_draft_uses_published_spec(
     )
     monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
 
-    project.set_testing_values({"api_key": "k"})
+    project.replace_testing_values({"api_key": "k"})
 
     spec = update_testing_values.call_args.kwargs["spec"]
     assert spec["connectionSpecification"]["properties"]["api_key"]["airbyte_secret"]
@@ -580,11 +585,11 @@ def test_get_info_reads_project_once(monkeypatch: pytest.MonkeyPatch) -> None:
 
     info = CloudConnectorBuilderProject(
         workspace=_fake_workspace(), builder_project_id="bp"
-    ).get_info()
+    )._get_info()
 
     assert len(calls) == 1
     assert info.has_draft is True
-    assert info.draft_manifest_text == "version: 6.0.0\n"
+    assert info.draft_manifest_yaml == "version: 6.0.0\n"
     assert info.definition_id is None
     assert info.published_manifest_dict is None
     dumped = info.model_dump(by_alias=True)
@@ -682,7 +687,7 @@ def test_run_readiness_checks_summarizes_each_stream(
         },
     )
 
-    report = project.run_readiness_checks(names)
+    report = project._run_readiness_checks(names)
 
     assert [stream.stream_name for stream in report.streams] == names
     assert {stream.stream_name: stream.failed for stream in report.streams} == {
@@ -729,10 +734,10 @@ def test_run_readiness_checks_requires_stream_names() -> None:
         workspace=_fake_workspace(), builder_project_id="bp"
     )
     with pytest.raises(AirbyteLibInputError):
-        project.run_readiness_checks([])
+        project._run_readiness_checks([])
 
 
-@pytest.mark.parametrize("method", ["run_stream_test_read", "run_readiness_checks"])
+@pytest.mark.parametrize("method", ["run_stream_test_read", "_run_readiness_checks"])
 @pytest.mark.parametrize(
     ("limit_name", "limit_value"),
     [
@@ -771,7 +776,7 @@ def test_test_read_limits_reject_out_of_range_without_api_calls(
         if method == "run_stream_test_read":
             project.run_stream_test_read("users", **{limit_name: limit_value})
         else:
-            project.run_readiness_checks(["users"], **{limit_name: limit_value})
+            project._run_readiness_checks(["users"], **{limit_name: limit_value})
 
     expected[limit_name] = limit_value
     assert error.value.get_message() == "Test-read limits are out of range."
@@ -793,7 +798,7 @@ def test_readiness_report_defaults_forward_cloud_test_read_limits(
         workspace=_fake_workspace(), builder_project_id="bp"
     )
 
-    project.run_readiness_checks(["users"])
+    project._run_readiness_checks(["users"])
 
     assert len(received) == 1
     assert received[0]["record_limit"] == connector_builder._util.TEST_READ_MAX_RECORDS
@@ -814,7 +819,7 @@ def test_readiness_checklist_does_not_call_failed_reads_capped(
 
     monkeypatch.setattr(project, "_run_stream_test_read", fail_read)
 
-    report = project.run_readiness_checks(["users"])
+    report = project._run_readiness_checks(["users"])
 
     assert report.streams[0].read_to_end is False
     assert report.checks[5].result == "failed"
@@ -842,7 +847,7 @@ def test_readiness_checklist_marks_failed_capped_stream_incomplete(
         },
     )
 
-    report = project.run_readiness_checks(["users"])
+    report = project._run_readiness_checks(["users"])
 
     assert report.streams[0].failed is True
     assert report.streams[0].error is None
@@ -868,7 +873,7 @@ def test_run_readiness_checks_without_draft_fails(
     with pytest.raises(AirbyteLibInputError):
         CloudConnectorBuilderProject(
             workspace=_fake_workspace(), builder_project_id="bp"
-        ).run_readiness_checks(["users"])
+        )._run_readiness_checks(["users"])
 
 
 def test_readiness_report_lists_caps_without_a_success_verdict(
@@ -884,10 +889,10 @@ def test_readiness_report_lists_caps_without_a_success_verdict(
     }
     _patch_reads(monkeypatch, project, reads)
 
-    partial = project.run_readiness_checks(["users"])
-    capped = project.run_readiness_checks(["users", "orders"])
+    partial = project._run_readiness_checks(["users"])
+    capped = project._run_readiness_checks(["users", "orders"])
     reads["orders"] = _stream_read("orders", record_count=1)
-    full = project.run_readiness_checks(["users", "orders", "users"])
+    full = project._run_readiness_checks(["users", "orders", "users"])
 
     assert partial.failed_streams == []
     assert capped.failed_streams == []
@@ -921,7 +926,7 @@ def test_readiness_checks_require_testing_values_when_spec_has_inputs(
     )
     _patch_reads(monkeypatch, project, {"users": _stream_read("users", record_count=1)})
 
-    report = project.run_readiness_checks(["users"])
+    report = project._run_readiness_checks(["users"])
 
     assert [check.result for check in report.checks] == [
         "passed",
@@ -998,7 +1003,7 @@ def test_readiness_timeout_splits_pending_and_not_attempted(
     monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
     names = ["fast", *sorted(slow), "queued"]
     try:
-        report = project.run_readiness_checks(names, timeout_seconds=0.5)
+        report = project._run_readiness_checks(names, timeout_seconds=0.5)
     finally:
         release.set()
     assert report.failed_streams == []
@@ -1029,7 +1034,7 @@ def test_readiness_checklist_is_incomplete_when_a_stream_is_pending(
 
     monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
     try:
-        report = project.run_readiness_checks(
+        report = project._run_readiness_checks(
             ["ready", "pending"],
             timeout_seconds=0.5,
         )
@@ -1058,8 +1063,8 @@ def test_readiness_bounds_read_requests_by_timeout(
         return _stream_read(stream_name, record_count=1)
 
     monkeypatch.setattr(project, "_run_stream_test_read", fake_read)
-    project.run_readiness_checks(["users"], timeout_seconds=30)
-    project.run_readiness_checks(["users"])
+    project._run_readiness_checks(["users"], timeout_seconds=30)
+    project._run_readiness_checks(["users"])
 
     # Windows clock granularity can make the remaining time a hair over the timeout.
     assert timeouts[0] is not None and 0 < timeouts[0] <= 30 + 1e-3
@@ -1159,7 +1164,7 @@ def test_create_test_source_uses_non_secret_testing_values(
     # The source runs the published version, so its spec wins over the draft's.
     monkeypatch.setattr(project, "_published_manifest", lambda _id: manifest)
 
-    project.get_or_create_default_test_source()
+    project._get_or_create_default_test_source()
 
     workspace.deploy_source.assert_called_once_with(
         name="My API (Connector Builder test)",
@@ -1176,7 +1181,7 @@ def test_create_test_source_requires_publish(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     with pytest.raises(AirbyteLibInputError, match="Publish"):
-        project.get_or_create_default_test_source()
+        project._get_or_create_default_test_source()
 
 
 def _full_sync_project(
@@ -1230,7 +1235,7 @@ def test_run_full_sync_creates_noop_destination_and_connection(
         ],
     )
 
-    result = project.run_full_sync()
+    result = project._run_full_sync()
 
     project.publish.assert_called_once_with("My API", pre_validate=True)
     workspace.list_sources.assert_called_once_with(
@@ -1266,7 +1271,7 @@ def test_run_full_sync_reports_created_resources_before_sync_fails(
     created: list[str] = []
 
     with pytest.raises(RuntimeError, match="boom"):
-        project.run_full_sync(test_source_id="src", on_resource_created=created.append)
+        project._run_full_sync(test_source_id="src", on_resource_created=created.append)
 
     assert created == ["new-dest", "conn"]
 
@@ -1287,7 +1292,7 @@ def test_run_full_sync_reuses_destination_and_connection(
         connections=[existing],
     )
 
-    result = project.run_full_sync(test_source_id="src")
+    result = project._run_full_sync(test_source_id="src")
 
     workspace.deploy_destination.assert_not_called()
     workspace.deploy_connection.assert_not_called()
@@ -1309,7 +1314,7 @@ def test_run_full_sync_without_test_source_fails(
     )
 
     with pytest.raises(AirbyteLibInputError, match="No test source"):
-        project.run_full_sync()
+        project._run_full_sync()
 
     project.publish.assert_not_called()
     workspace.deploy_destination.assert_not_called()
@@ -1335,7 +1340,7 @@ def test_readiness_full_sync_gating(
     project = CloudConnectorBuilderProject(
         workspace=_fake_workspace(), builder_project_id="bp"
     )
-    full_sync = connector_builder.ConnectorBuilderFullSync(
+    full_sync = _models.ConnectorBuilderFullSync(
         source_id="src",
         destination_id="dest",
         connection_id="conn",
@@ -1345,7 +1350,7 @@ def test_readiness_full_sync_gating(
         job_url="u",
     )
     run_full_sync = MagicMock(return_value=full_sync)
-    monkeypatch.setattr(project, "run_full_sync", run_full_sync)
+    monkeypatch.setattr(project, "_run_full_sync", run_full_sync)
     publish = MagicMock()
     monkeypatch.setattr(project, "publish", publish)
     monkeypatch.setattr(
@@ -1356,7 +1361,7 @@ def test_readiness_full_sync_gating(
         ),
     )
 
-    report = project.run_readiness_checks(
+    report = project._run_readiness_checks(
         stream_names, run_full_sync=True, test_source_id="src"
     )
 
@@ -1381,7 +1386,7 @@ def test_readiness_requires_streams_without_full_sync(
     )
 
     with pytest.raises(AirbyteLibInputError, match="run_full_sync"):
-        project.run_readiness_checks([])
+        project._run_readiness_checks([])
 
 
 def test_run_full_sync_selects_streams_discovered_after_publish(
@@ -1405,7 +1410,7 @@ def test_run_full_sync_selects_streams_discovered_after_publish(
         ["users", "tables_a", "tables_b"],
     )[1]
 
-    project.run_full_sync(test_source_id="src")
+    project._run_full_sync(test_source_id="src")
 
     assert calls == ["publish", "discover"]
     assert api_util.get_source_stream_names.call_args.args == ("src",)
@@ -1424,7 +1429,7 @@ def test_run_full_sync_rejects_source_without_streams(
     )
 
     with pytest.raises(AirbyteLibInputError, match="no streams"):
-        project.run_full_sync(test_source_id="src")
+        project._run_full_sync(test_source_id="src")
 
     workspace.deploy_connection.assert_not_called()
 
@@ -1444,7 +1449,7 @@ def test_run_full_sync_without_draft_syncs_published_version(
         draft=None,
     )
 
-    project.run_full_sync(test_source_id="src")
+    project._run_full_sync(test_source_id="src")
 
     project.publish.assert_not_called()
     workspace.deploy_connection.assert_called_once()
@@ -1459,7 +1464,7 @@ def test_run_full_sync_rejects_source_of_other_definition(
     workspace.get_source.return_value = SimpleNamespace(definition_id="other-def")
 
     with pytest.raises(AirbyteLibInputError, match="published definition"):
-        project.run_full_sync(test_source_id="src")
+        project._run_full_sync(test_source_id="src")
 
     workspace.deploy_connection.assert_not_called()
 
@@ -1478,7 +1483,7 @@ def test_create_test_source_after_publish_cleared_draft(
     project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
     monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
 
-    project.get_or_create_default_test_source()
+    project._get_or_create_default_test_source()
 
     assert workspace.deploy_source.call_args.kwargs["defer_credentials"] is True
 
@@ -1498,7 +1503,7 @@ def test_run_readiness_checks_full_sync_only_without_draft(
         draft=None,
     )
 
-    report = project.run_readiness_checks([], run_full_sync=True, test_source_id="src")
+    report = project._run_readiness_checks([], run_full_sync=True, test_source_id="src")
 
     assert report.full_sync is not None
     report_data = report.model_dump()
@@ -1523,7 +1528,7 @@ def test_run_full_sync_rejects_non_noop_destination_with_default_name(
     )
 
     with pytest.raises(AirbyteLibInputError, match="isn't a no-op"):
-        project.run_full_sync(test_source_id="src")
+        project._run_full_sync(test_source_id="src")
 
     workspace.deploy_destination.assert_not_called()
     workspace.deploy_connection.assert_not_called()

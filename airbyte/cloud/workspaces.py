@@ -1455,10 +1455,10 @@ class CloudWorkspace:
             )
 
         assert definition_id is not None
-        project = self.get_custom_source_definition(
+        project = self.get_custom_source_definition(  # noqa: SLF001
             definition_id,
             definition_type="yaml",
-        ).connector_builder_project
+        )._connector_builder_project
         if project is None:
             raise exc.AirbyteLibInputError(
                 message="No Connector Builder project was found for this definition.",

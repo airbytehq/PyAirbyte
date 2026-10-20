@@ -3609,7 +3609,7 @@ def test_connector_builder_tools_return_read_warnings(
         builder_project_id="builder-project",
         connector_builder_project_url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp",
         run_stream_test_read=lambda *_args, **_kwargs: read_result,
-        run_readiness_checks=lambda *_args, **_kwargs: readiness_report,
+        _run_readiness_checks=lambda *_args, **_kwargs: readiness_report,
     )
     workspace = SimpleNamespace(
         get_connector_builder_project=lambda *_args, **_kwargs: project

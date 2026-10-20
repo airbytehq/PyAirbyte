@@ -12,7 +12,7 @@ _HTTP_ERROR_STATUS_MIN = 400
 _PROBLEM_LOG_LEVELS = frozenset({"WARN", "ERROR", "FATAL"})
 _FAILING_LOG_LEVELS = frozenset({"ERROR", "FATAL"})
 ManifestTextEditMode = Literal["replace_full", "replace_text", "replace_all"]
-"""How `update_draft_manifest_text()` edits the manifest text.
+"""How `_update_draft_manifest_yaml()` edits the manifest text.
 
 - `replace_full`: `new_text` is the whole manifest.
 - `replace_text`: replace the single exact match of `old_text`; fails on zero or several matches.
@@ -168,7 +168,7 @@ class ConnectorBuilderProjectInfo(BaseModel):
     name: str
     has_draft: bool
     draft_manifest_dict: dict[str, Any] | None = Field(serialization_alias="draft_manifest")
-    draft_manifest_text: str | None
+    draft_manifest_yaml: str | None
     published_manifest_dict: dict[str, Any] | None = Field(serialization_alias="published_manifest")
 
 
