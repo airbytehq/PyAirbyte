@@ -286,8 +286,10 @@ def spec_missing_required(
     schema: Any,  # noqa: ANN401
     config: dict[str, Any],
 ) -> bool:
-    """Return whether `config` lacks a required field that has no default, including inside
-    nested objects and `oneOf` options."""
+    """Return whether `config` lacks a required field that has no default.
+
+    Checks nested objects and `oneOf` options too.
+    """
     if not isinstance(schema, dict) or not isinstance(config, dict):
         return False
     properties = schema.get("properties")
