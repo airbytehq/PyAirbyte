@@ -46,6 +46,7 @@ from airbyte.mcp.cloud import (
     _check_builder_project_created_in_session,
     _get_cloud_workspace,
     _manifest_yaml_source_hint,
+    _testing_values_secret_hint,
 )
 
 
@@ -303,6 +304,7 @@ def update_connector_builder_manifest_text(
 @mcp_tool(
     destructive=True,
     idempotent=True,
+    extra_help_text=_testing_values_secret_hint,
     insiders_only=True,
 )
 def set_connector_builder_testing_values(
@@ -335,7 +337,6 @@ def set_connector_builder_testing_values(
         Field(
             description=(
                 "Configuration values for test reads, as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "Replaces all existing testing values."
             ),
             default=None,
@@ -363,7 +364,11 @@ def set_connector_builder_testing_values(
     """
     if testing_values is None and testing_values_secret_name is None:
         raise AirbyteLibInputError(
-            message="Provide `testing_values` or `testing_values_secret_name`.",
+            message=(
+                "Provide `testing_values` or `testing_values_secret_name`."
+                if is_trusted_execution_enabled()
+                else "Provide `testing_values`."
+            ),
         )
     testing_values_dict = resolve_connector_config(
         config=testing_values,
@@ -672,7 +677,7 @@ def register_connector_builder_tools(app: FastMCP) -> None:
     """
     exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
     if not is_trusted_execution_enabled():
-        exclude_args.append("manifest_yaml_file")
+        exclude_args.extend(("manifest_yaml_file", "testing_values_secret_name"))
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(

@@ -127,8 +127,23 @@ MANIFEST_YAML_SOURCE_HINT = (
 )
 
 
+TESTING_VALUES_SECRET_HINT = (
+    "`testing_values` supports inline secret refs via `secret_reference::ENV_VAR_NAME`."
+)
+
+
 def _manifest_yaml_source_hint() -> str | None:
     return MANIFEST_YAML_SOURCE_HINT if is_trusted_execution_enabled() else None
+
+
+def _testing_values_secret_hint() -> str | None:
+    return TESTING_VALUES_SECRET_HINT if is_trusted_execution_enabled() else None
+
+
+def _manifest_and_testing_values_hint() -> str | None:
+    if not is_trusted_execution_enabled():
+        return None
+    return f"{MANIFEST_YAML_SOURCE_HINT} {TESTING_VALUES_SECRET_HINT}"
 
 
 SKILL_DOCS_SECTION_HINT = """\
@@ -3236,7 +3251,7 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(extra_help_text=_manifest_and_testing_values_hint)
 def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
@@ -3292,7 +3307,6 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project, allowing immediate test read operations."
             ),
@@ -3479,7 +3493,7 @@ def get_custom_source_definition(
     return result
 
 
-@mcp_tool(destructive=True, extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(destructive=True, extra_help_text=_manifest_and_testing_values_hint)
 def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     definition_id: Annotated[
@@ -3539,7 +3553,6 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project. The entire testing values object "
                 "is overwritten, so pass the full set of values you want to persist."
@@ -3582,7 +3595,9 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
         required_args = ["name", "manifest_yaml_text"]
         if is_trusted_execution_enabled():
             required_args.append("manifest_yaml_file")
-        required_args.extend(("testing_values", "testing_values_secret_name"))
+        required_args.append("testing_values")
+        if is_trusted_execution_enabled():
+            required_args.append("testing_values_secret_name")
         raise AirbyteLibInputError(
             message=(
                 f"At least one of {', '.join(required_args)} must be provided to update "
@@ -4312,7 +4327,7 @@ def register_cloud_tools(app: FastMCP) -> None:
     """
     exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
     if not is_trusted_execution_enabled():
-        exclude_args.append("manifest_yaml_file")
+        exclude_args.extend(("manifest_yaml_file", "testing_values_secret_name"))
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(

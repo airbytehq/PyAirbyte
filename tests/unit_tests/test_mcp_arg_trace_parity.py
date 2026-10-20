@@ -85,6 +85,13 @@ def test_inventory_matches_fixture() -> None:
     ):
         if "manifest_yaml_file" not in plan[name]:
             expected[name].pop("manifest_yaml_file", None)
+    for name in (
+        "publish_custom_source_definition",
+        "set_connector_builder_testing_values",
+        "update_custom_source_definition",
+    ):
+        if "testing_values_secret_name" not in plan[name]:
+            expected[name].pop("testing_values_secret_name", None)
     assert plan == expected
 
 
