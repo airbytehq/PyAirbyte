@@ -139,7 +139,7 @@ class CloudConnectorBuilderProject:
         ).manifest
 
     @property
-    def published_manifest(self) -> dict[str, Any] | None:
+    def published_manifest_dict(self) -> dict[str, Any] | None:
         """The active manifest of the published definition, or `None` if never published."""
         return self._published_manifest(self.source_definition_id)
 
@@ -154,15 +154,15 @@ class CloudConnectorBuilderProject:
             connector_builder_project_url=self.connector_builder_project_url,
             name=project_data["builderProject"]["name"],
             has_draft=draft_manifest is not None,
-            draft_manifest=draft_manifest,
+            draft_manifest_dict=draft_manifest,
             draft_manifest_text=(
                 render_manifest_text(draft_manifest) if draft_manifest is not None else None
             ),
-            published_manifest=self._published_manifest(source_definition_id),
+            published_manifest_dict=self._published_manifest(source_definition_id),
         )
 
     @property
-    def draft_manifest(self) -> dict[str, Any] | None:
+    def draft_manifest_dict(self) -> dict[str, Any] | None:
         """The unpublished draft manifest, or `None` if the project has no draft."""
         return draft_from_project_data(self._get_project_data())
 
@@ -208,7 +208,7 @@ class CloudConnectorBuilderProject:
     @property
     def draft_manifest_text(self) -> str | None:
         """The draft manifest rendered by `render_manifest_text()`, or `None` if no draft."""
-        manifest = self.draft_manifest
+        manifest = self.draft_manifest_dict
         return render_manifest_text(manifest) if manifest is not None else None
 
     def update_draft_manifest_text(

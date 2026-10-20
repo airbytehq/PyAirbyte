@@ -586,7 +586,10 @@ def test_get_info_reads_project_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert info.has_draft is True
     assert info.draft_manifest_text == "version: 6.0.0\n"
     assert info.definition_id is None
-    assert info.published_manifest is None
+    assert info.published_manifest_dict is None
+    dumped = info.model_dump(by_alias=True)
+    assert "draft_manifest" in dumped
+    assert dumped["published_manifest"] is None
 
 
 def test_publish_validates_unpublished_draft_unless_disabled(

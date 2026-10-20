@@ -143,14 +143,14 @@ class ConnectorBuilderStreamReadResult(BaseModel):
 class ConnectorBuilderResolvedManifest(BaseModel):
     """A manifest resolved by Airbyte Cloud, with dynamic streams expanded."""
 
-    manifest: dict[str, Any]
+    manifest_dict: dict[str, Any]
     stream_names: list[str]
 
     @classmethod
     def from_manifest(cls, manifest: dict[str, Any]) -> ConnectorBuilderResolvedManifest:
         """Build a result from a resolved manifest."""
         return cls(
-            manifest=manifest,
+            manifest_dict=manifest,
             stream_names=[
                 stream["name"]
                 for stream in manifest.get("streams") or []
@@ -167,9 +167,9 @@ class ConnectorBuilderProjectInfo(BaseModel):
     connector_builder_project_url: str
     name: str
     has_draft: bool
-    draft_manifest: dict[str, Any] | None
+    draft_manifest_dict: dict[str, Any] | None = Field(serialization_alias="draft_manifest")
     draft_manifest_text: str | None
-    published_manifest: dict[str, Any] | None
+    published_manifest_dict: dict[str, Any] | None = Field(serialization_alias="published_manifest")
 
 
 class ConnectorBuilderStreamReadiness(BaseModel):

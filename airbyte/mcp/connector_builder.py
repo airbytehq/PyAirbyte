@@ -99,7 +99,7 @@ def get_connector_builder_draft_manifest(
         builder_project_id,
         definition_id=definition_id,
     )
-    return project.get_info().model_dump()
+    return project.get_info().model_dump(by_alias=True)
 
 
 @mcp_tool(extra_help_text=_manifest_yaml_source_hint, insiders_only=True)
@@ -498,7 +498,7 @@ def resolve_connector_builder_manifest(
     return {
         "builder_project_id": project.builder_project_id,
         "stream_names": resolved.stream_names,
-        "resolved_manifest": resolved.manifest,
+        "resolved_manifest": resolved.manifest_dict,
     }
 
 
