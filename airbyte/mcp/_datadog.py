@@ -89,7 +89,12 @@ _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
 _ARG_PREFIX = "airbyte.mcp"
 # Same classification and validation as the OTel backend; intent is exported separately.
-_ARG_TRACER = ArgTracer(_ARG_PREFIX, rules=ARG_TRACE_RULES, key=_arg_key)
+_ARG_TRACER = ArgTracer(
+    _ARG_PREFIX,
+    rules=ARG_TRACE_RULES,
+    key=_arg_key,
+    skip=(INTENT_ARG,),
+)
 _TOOL_ERROR_MESSAGE = "tool resulted in an error"
 _STATUS_CODE = "airbyte.mcp.upstream.status_code"
 _UPSTREAM_METHOD = "airbyte.mcp.upstream.method"

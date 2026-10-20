@@ -15,6 +15,7 @@ from fastmcp import Client, FastMCP
 from fastmcp.server.auth import AccessToken
 from fastmcp_extensions import capture_tool_spans
 from fastmcp_extensions.otel import middleware as otel_middleware
+from fastmcp_extensions.otel._extras import declared_parameters  # noqa: PLC2701
 from fastmcp_extensions.otel.middleware import trace_plan
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -141,15 +142,23 @@ def test_datadog_and_otel_classification_agree(traced_app: FastMCP) -> None:
     plan = asyncio.run(trace_plan(traced_app))
     tools = asyncio.run(traced_app.list_tools(run_middleware=False))
     assert {tool.name for tool in tools} == set(plan)
+    parameters = {tool.name: declared_parameters(tool) for tool in tools}
+    assert any("intent" in names for names in parameters.values())
     for tool in tools:
         classes = _datadog._ARG_TRACER.classes(
             tool.name,
             getattr(tool, "fn", None),
-            plan[tool.name]["args"],
+            parameters[tool.name],
         )
-        assert {name: cls.describe() for name, cls in classes.items()} == plan[
+        assert "intent" not in classes, tool.name
+        expected = {
+            name: mode
+            for name, mode in plan[tool.name]["args"].items()
+            if name != "intent"
+        }
+        assert {name: cls.describe() for name, cls in classes.items()} == expected, (
             tool.name
-        ]["args"], tool.name
+        )
 
 
 def _call_all(app: FastMCP) -> dict[str, dict[str, object]]:

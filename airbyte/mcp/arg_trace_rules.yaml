@@ -61,4 +61,4 @@ support_level: value
 min_support_level: value
 sql_dialect: value
 backfill_start_time: value
-defer_credentials: value
+defer_credentials: value  # Overrides the `credential` secret-name heuristic.

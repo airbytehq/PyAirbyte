@@ -36,5 +36,6 @@ Non-Cloud MCP trace messages are the first line of the exception class's docstri
 with no IDs, values or URLs.
 
 ## MCP Argument Tracing
+
 Trace classes come from `airbyte/mcp/arg_trace_rules.yaml`; do not put `TraceArg` markers in tool signatures.
-When parity reports an unclassified argument, add or adjust a YAML rule; `poe mcp-arg-trace-plan` writes the full plan and each decision source to gitignored `arg_trace_plan.json`.
+When `tests/unit_tests/test_mcp_arg_trace_parity.py` reports an unclassified argument, add or adjust a YAML rule; `poe mcp-arg-trace-plan` writes the full plan and each decision source to gitignored `arg_trace_plan.json`.
