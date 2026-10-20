@@ -190,7 +190,7 @@ def create_connector_builder_project(
     if create_test_source:
         definition = project.publish(name, pre_validate=pre_validate)
         register_guid_created_in_session(definition.definition_id)
-        test_source = project.create_test_source()
+        test_source = project.get_or_create_default_test_source()
         register_guid_created_in_session(test_source.connector_id)
         result |= {
             "definition_id": definition.definition_id,

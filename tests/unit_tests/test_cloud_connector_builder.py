@@ -374,6 +374,7 @@ def _fake_workspace() -> Any:
         client_secret=None,
         bearer_token=SecretString("token"),
         get_custom_source_definition=MagicMock(),
+        list_sources=MagicMock(return_value=[]),
     )
 
 
@@ -1117,7 +1118,7 @@ def test_create_test_source_uses_non_secret_testing_values(
     # The source runs the published version, so its spec wins over the draft's.
     monkeypatch.setattr(project, "_published_manifest", lambda _id: manifest)
 
-    project.create_test_source()
+    project.get_or_create_default_test_source()
 
     workspace.deploy_source.assert_called_once_with(
         name="My API (Connector Builder test)",
@@ -1132,7 +1133,7 @@ def test_create_test_source_requires_publish(monkeypatch: pytest.MonkeyPatch) ->
     project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
 
     with pytest.raises(AirbyteLibInputError, match="Publish"):
-        project.create_test_source()
+        project.get_or_create_default_test_source()
 
 
 def _full_sync_project(
@@ -1430,7 +1431,7 @@ def test_create_test_source_after_publish_cleared_draft(
     project = CloudConnectorBuilderProject(workspace, "bp")
     monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
 
-    project.create_test_source()
+    project.get_or_create_default_test_source()
 
     assert workspace.deploy_source.call_args.kwargs["defer_credentials"] is True
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import difflib
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import requests
 
@@ -543,42 +543,70 @@ class CloudConnectorBuilderProject:
         )
 
     def _get_default_test_source_name(self) -> str:
-        """Name of the source that `create_test_source()` creates for full syncs."""
+        """Default name of the source `get_or_create_default_test_source()` finds or creates."""
         return f"{self.name} (Connector Builder test)"
 
-    def find_test_source(self) -> CloudSource | None:
-        """Return the source made by `create_test_source()` for this project, if it exists."""
-        source_definition_id = self.source_definition_id
+    @overload
+    def get_or_create_default_test_source(
+        self,
+        *,
+        allow_create: Literal[True] = True,
+        default_source_name: str | Callable[[CloudConnectorBuilderProject], str] | None = None,
+    ) -> CloudSource: ...
+
+    @overload
+    def get_or_create_default_test_source(
+        self,
+        *,
+        allow_create: bool,
+        default_source_name: str | Callable[[CloudConnectorBuilderProject], str] | None = None,
+    ) -> CloudSource | None: ...
+
+    def get_or_create_default_test_source(
+        self,
+        *,
+        allow_create: bool = True,
+        default_source_name: str | Callable[[CloudConnectorBuilderProject], str] | None = None,
+    ) -> CloudSource | None:
+        """Return the project's test source on the published definition, creating it if needed.
+
+        A new source gets the project's non-secret testing values. When the spec has secret
+        fields, the source is a draft (deferred credentials): a person enters the secrets at
+        its `connector_url`, then tests and saves. Publish the project first.
+
+        Args:
+            allow_create: Whether to create the source when it doesn't exist. When False,
+                returns `None` instead.
+            default_source_name: The source name, or a callable that takes this project and
+                returns it. Defaults to "<project name> (Connector Builder test)".
+        """
+        source_name = (
+            default_source_name(self) if callable(default_source_name) else default_source_name
+        ) or self._get_default_test_source_name()
+        project_data = self.get_project_data()
+        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
         if source_definition_id is None:
-            return None
-        return next(
+            if not allow_create:
+                return None
+            raise exc.AirbyteLibInputError(
+                message="Publish the Connector Builder project before creating a test source.",
+            )
+        existing = next(
             (
                 source
-                for source in self.workspace.list_sources(name=self._get_default_test_source_name())
+                for source in self.workspace.list_sources(name=source_name)
                 if source.definition_id == source_definition_id
             ),
             None,
         )
-
-    def create_test_source(self) -> CloudSource:
-        """Create a source on the published definition for full syncs.
-
-        The source gets the project's non-secret testing values. When the spec has secret
-        fields, the source is a draft (deferred credentials): a person enters the secrets at
-        its `connector_url`, then tests and saves. Publish the project first.
-        """
-        project_data = self.get_project_data()
-        source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
-        if source_definition_id is None:
-            raise exc.AirbyteLibInputError(
-                message="Publish the Connector Builder project before creating a test source.",
-            )
+        if existing is not None or not allow_create:
+            return existing
         # The source runs the published version, so its spec decides the setup.
         manifest = self._published_manifest(source_definition_id)
         spec = ((manifest or {}).get("spec") or {}).get("connection_specification")
         config = drop_masked_secrets(project_data.get("testingValues") or {})
         return self.workspace.deploy_source(
-            name=self._get_default_test_source_name(),
+            name=source_name,
             source=config,
             definition_id=source_definition_id,
             defer_credentials=spec_has_secrets(spec) or spec_missing_required(spec, config),
@@ -599,7 +627,7 @@ class CloudConnectorBuilderProject:
 
         Args:
             test_source_id: Source on the published definition to sync from. Defaults to the
-                source from `create_test_source()`.
+                source from `get_or_create_default_test_source()`.
             pre_validate: Whether to validate the manifest client-side before publishing.
             on_resource_created: Called with the ID of each destination or connection this
                 call creates, as soon as it exists.
@@ -611,13 +639,14 @@ class CloudConnectorBuilderProject:
             self._require_draft_manifest(project_data)
         # Check the source and destination first: the first publish clears the draft.
         if test_source_id is None:
-            test_source = self.find_test_source()
+            test_source = self.get_or_create_default_test_source(allow_create=False)
             if test_source is None:
                 raise exc.AirbyteLibInputError(
                     message="No test source found for this Connector Builder project.",
                     guidance=(
-                        "Pass `test_source_id`, or create one with `create_test_source()` "
-                        "and have the user complete its settings."
+                        "Pass `test_source_id`, or create one with "
+                        "`get_or_create_default_test_source()` and have the user complete its "
+                        "settings."
                     ),
                 )
             test_source_id = test_source.connector_id
