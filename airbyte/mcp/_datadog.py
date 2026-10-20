@@ -33,6 +33,7 @@ from mcp.types import (
 )
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
+from airbyte.mcp._arg_trace_rules import ARG_TRACE_RULES
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
     classify_mcp_tool_error,
@@ -88,7 +89,12 @@ _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
 _ARG_PREFIX = "airbyte.mcp"
 # Same classification and validation as the OTel backend; intent is exported separately.
-_ARG_TRACER = ArgTracer(_ARG_PREFIX, key=_arg_key, skip=(INTENT_ARG,))
+_ARG_TRACER = ArgTracer(
+    _ARG_PREFIX,
+    rules=ARG_TRACE_RULES,
+    key=_arg_key,
+    skip=(INTENT_ARG,),
+)
 _TOOL_ERROR_MESSAGE = "tool resulted in an error"
 _STATUS_CODE = "airbyte.mcp.upstream.status_code"
 _UPSTREAM_METHOD = "airbyte.mcp.upstream.method"

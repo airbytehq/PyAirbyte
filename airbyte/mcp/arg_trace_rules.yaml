@@ -1,0 +1,64 @@
+# How each MCP tool argument is recorded in trace spans.
+# Keys are argument names or fnmatch globs; `tool:arg` keys apply to one tool.
+# The first matching key wins. `bool`, `Literal`, and `Enum` arguments are
+# recorded as their value, and dict or model arguments as presence, so they
+# need no rule unless they should be recorded differently.
+
+# Tool-scoped exceptions.
+get_stream_previews:streams: fingerprint
+sync_source_to_cache:streams: fingerprint
+
+# Not recorded.
+workspace_id: omit
+intent: omit
+
+# Identifiers, numbers, and opaque inputs: keyed hash.
+"*_id": hash
+streams: hash
+cursor: hash
+sql: hash
+sql_query: hash
+user_email: hash
+api_args: hash
+manifest_yaml_file: hash
+manifest_yaml_text: hash
+wait_timeout: hash
+min_similarity: hash
+"max_*": hash
+"num_*": hash
+"*_hours": hash
+"*_seconds": hash
+"*_number": hash
+"*_offset": hash
+
+# Free text and names: keyed hash plus a similarity fingerprint.
+name: fingerprint
+"*_name": fingerprint
+"*_names": fingerprint
+name_contains: fingerprint
+selected_streams: fingerprint
+"*_fields": fingerprint
+scenarios: fingerprint
+config_file: fingerprint
+manifest_path: fingerprint
+"*prefix": fingerprint
+"namespace*": fingerprint
+reuse_namespace: fingerprint
+cron_expression: fingerprint
+docker_image: fingerprint
+keyword_filter: fingerprint
+prompt: fingerprint
+query: fingerprint
+search: fingerprint
+section: fingerprint
+
+# Small fixed vocabularies or bounded numbers: raw value.
+limit: value
+page_size: value
+connector_type: value
+entity_type: value
+support_level: value
+min_support_level: value
+sql_dialect: value
+backfill_start_time: value
+defer_credentials: value  # Overrides the `credential` secret-name heuristic.

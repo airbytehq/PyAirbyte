@@ -7,27 +7,27 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import socket
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.server.auth import AccessToken
 from fastmcp_extensions import capture_tool_spans
 from fastmcp_extensions.otel import middleware as otel_middleware
+from fastmcp_extensions.otel._extras import declared_parameters  # noqa: PLC2701
 from fastmcp_extensions.otel.middleware import trace_plan
 from opentelemetry import trace
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import ReadableSpan
 
+from airbyte.mcp import _datadog
 from airbyte.mcp import _otel as observability
+from airbyte.mcp._arg_trace_rules import ARG_TRACE_RULES
 from airbyte.mcp import cloud
 from airbyte.mcp.server import app as server_app
 
 
-FIXTURE = Path(__file__).parent / "fixtures" / "arg_trace_plan.json"
 ARG = "airbyte.mcp.arg."
 SENTINEL = "SENTINELqzxprivatevalue"
 CONNECTOR_ID = "11111111-1111-1111-1111-111111111111"
@@ -57,30 +57,6 @@ CALLS: dict[str, dict[str, object]] = {
     },
     "list_cloud_connections": {"name_contains": SENTINEL, "limit": 5},
 }
-
-
-def _plan() -> dict[str, dict[str, str]]:
-    plan = asyncio.run(trace_plan(server_app))
-    return {name: entry["args"] for name, entry in plan.items()}
-
-
-def test_inventory_matches_fixture() -> None:
-    plan = _plan()
-    if os.environ.get("UPDATE_ARG_TRACE_FIXTURE"):
-        assert all(
-            "manifest_yaml_file" in plan[name]
-            for name in (
-                "publish_custom_source_definition",
-                "update_custom_source_definition",
-            )
-        ), "Enable trusted execution when regenerating the fixture."
-        FIXTURE.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
-
-    expected = json.loads(FIXTURE.read_text())
-    for name in ("publish_custom_source_definition", "update_custom_source_definition"):
-        if "manifest_yaml_file" not in plan[name]:
-            expected[name].pop("manifest_yaml_file", None)
-    assert plan == expected
 
 
 @pytest.fixture
@@ -132,6 +108,59 @@ def traced_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[FastMCP]:
         observability._reset_for_tests()
 
 
+def test_every_arg_is_classified_by_a_rule(traced_app: FastMCP) -> None:
+    plan = asyncio.run(trace_plan(traced_app, include_sources=True))
+    unclassified = [
+        f"{tool}.{name} uses source {source}; add or adjust a rule in "
+        "`airbyte/mcp/arg_trace_rules.yaml` (do not add `TraceArg` markers)."
+        for tool, entry in plan.items()
+        for name, source in entry["arg_sources"].items()
+        if source in {"default", "marker"}
+    ]
+    assert not unclassified, "\n".join(unclassified)
+
+
+def test_no_dead_rules(traced_app: FastMCP) -> None:
+    plan = asyncio.run(trace_plan(traced_app, include_sources=True))
+    used_rules = {
+        source.removeprefix("rule:")
+        for entry in plan.values()
+        for source in entry["arg_sources"].values()
+        if source.startswith("rule:")
+    }
+    unused_rules = set(ARG_TRACE_RULES) - used_rules
+    if not any("manifest_yaml_file" in entry["arg_sources"] for entry in plan.values()):
+        # The app excludes this argument during import when trusted execution is off.
+        unused_rules.discard("manifest_yaml_file")
+    assert not unused_rules, (
+        "Rules in `airbyte/mcp/arg_trace_rules.yaml` matched no tool arguments: "
+        f"{sorted(unused_rules)}"
+    )
+
+
+def test_datadog_and_otel_classification_agree(traced_app: FastMCP) -> None:
+    plan = asyncio.run(trace_plan(traced_app))
+    tools = asyncio.run(traced_app.list_tools(run_middleware=False))
+    assert {tool.name for tool in tools} == set(plan)
+    parameters = {tool.name: declared_parameters(tool) for tool in tools}
+    assert any("intent" in names for names in parameters.values())
+    for tool in tools:
+        classes = _datadog._ARG_TRACER.classes(
+            tool.name,
+            getattr(tool, "fn", None),
+            parameters[tool.name],
+        )
+        assert "intent" not in classes, tool.name
+        expected = {
+            name: mode
+            for name, mode in plan[tool.name]["args"].items()
+            if name != "intent"
+        }
+        assert {name: cls.describe() for name, cls in classes.items()} == expected, (
+            tool.name
+        )
+
+
 def _call_all(app: FastMCP) -> dict[str, dict[str, object]]:
     async def run() -> list[ReadableSpan]:
         with capture_tool_spans() as spans:
@@ -159,11 +188,14 @@ def _expected_keys(mode: str, value: object) -> set[str]:
     return keys | {"count"} if isinstance(value, list) else keys
 
 
-def test_records_match_fixture_and_exclude_raw_values(
+def test_records_match_plan_and_exclude_raw_values(
     traced_app: FastMCP, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    plan = json.loads(FIXTURE.read_text())
+    plan = {
+        name: entry["args"]
+        for name, entry in asyncio.run(trace_plan(traced_app)).items()
+    }
     attributes = _call_all(traced_app)
     for tool, arguments in CALLS.items():
         attrs = attributes[tool]
