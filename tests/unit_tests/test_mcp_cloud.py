@@ -38,7 +38,9 @@ from airbyte.cloud.models import (
     JobStatusEnum,
 )
 from airbyte.constants import MCP_DISABLE_DELETE_GUARD_ENV_VAR, MCP_INSIDERS_ENV_VAR
+from airbyte.cloud.connector_builder import _models as _builder_models
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp import connector_builder as connector_builder_mcp
 from airbyte.mcp import guidance as guidance_mcp
 from airbyte.mcp._arg_resolvers import resolve_list_of_dicts
 from airbyte.mcp._tool_utils import _TOOL_POLICIES  # noqa: PLC2701
@@ -3570,3 +3572,93 @@ def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
     policy = _TOOL_POLICIES["request_cloud_search_index_backfill"]
     assert policy.external_access is True
     assert policy.pipeline_change is False
+
+
+def test_connector_builder_tools_return_read_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warnings = ["Read 100 records, a multiple of 10. Check the paginator."]
+    read_result = _builder_models.ConnectorBuilderStreamReadResult(
+        stream_name="users",
+        record_count=0,
+        slice_count=0,
+        page_count=0,
+        test_read_limit_reached=False,
+        records=[],
+        pages=[],
+        logs=[],
+        warnings=warnings,
+    )
+    readiness_report = _builder_models.ConnectorBuilderReadinessReport(
+        checks=[],
+        next_steps=[],
+        streams=[
+            _builder_models.ConnectorBuilderStreamReadiness(
+                stream_name="users",
+                failed=False,
+                warnings=warnings,
+            )
+        ],
+    )
+    project_info = _builder_models.ConnectorBuilderProjectInfo(
+        builder_project_id="builder-project",
+        definition_id=None,
+        connector_builder_project_url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp",
+        name="Users",
+        has_draft=True,
+        draft_manifest_dict={"version": "6.0.0"},
+        draft_manifest_yaml="version: 6.0.0\n",
+        published_manifest_dict=None,
+    )
+    project = SimpleNamespace(
+        builder_project_id="builder-project",
+        connector_builder_project_url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp",
+        run_stream_test_read=lambda *_args, **_kwargs: read_result,
+        _run_readiness_checks=lambda *_args, **_kwargs: readiness_report,
+        _get_info=lambda: project_info,
+    )
+    workspace = SimpleNamespace(
+        get_connector_builder_project=lambda *_args, **_kwargs: project
+    )
+    monkeypatch.setattr(
+        connector_builder_mcp, "_get_cloud_workspace", lambda *_args: workspace
+    )
+    ctx = cast(Context, object())
+
+    stream_result = connector_builder_mcp.run_connector_builder_stream_test_read(
+        ctx,
+        "users",
+        builder_project_id="builder-project",
+        workspace_id="ws",
+    )
+    readiness_result = connector_builder_mcp.run_connector_builder_readiness_checks(
+        ctx,
+        ["users"],
+        builder_project_id="builder-project",
+        workspace_id="ws",
+    )
+
+    draft_result = connector_builder_mcp.get_connector_builder_draft_manifest(
+        ctx,
+        builder_project_id="builder-project",
+        workspace_id="ws",
+    )
+
+    assert stream_result.warnings == warnings
+    assert stream_result.builder_project_id == "builder-project"
+    assert readiness_result.streams[0].warnings == warnings
+    assert "passed" not in readiness_result.model_dump()
+    assert draft_result.draft_manifest == {"version": "6.0.0"}
+    assert draft_result.published_manifest is None
+
+
+def test_redact_stream_diagnostics() -> None:
+    leaky = "GET https://api.example.com/data?api_key=s3cret failed: Bearer s3cret"
+    data = connector_builder_mcp._redact_stream_diagnostics({
+        "pages": [{"url": leaky, "response_body": leaky}],
+        "http_errors": [{"url": leaky, "response_body": None}],
+        "logs": [{"level": "WARN", "message": leaky}],
+        "problem_logs": [{"level": "ERROR", "message": leaky}],
+        "error": leaky,
+    })
+    assert "s3cret" not in str(data)

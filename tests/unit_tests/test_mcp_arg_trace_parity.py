@@ -70,6 +70,7 @@ def test_inventory_matches_fixture() -> None:
         assert all(
             "manifest_yaml_file" in plan[name]
             for name in (
+                "create_connector_builder_project",
                 "publish_custom_source_definition",
                 "update_custom_source_definition",
             )
@@ -77,9 +78,19 @@ def test_inventory_matches_fixture() -> None:
         FIXTURE.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
 
     expected = json.loads(FIXTURE.read_text())
-    for name in ("publish_custom_source_definition", "update_custom_source_definition"):
+    for name in (
+        "create_connector_builder_project",
+        "publish_custom_source_definition",
+        "update_custom_source_definition",
+    ):
         if "manifest_yaml_file" not in plan[name]:
             expected[name].pop("manifest_yaml_file", None)
+    for name in (
+        "publish_custom_source_definition",
+        "update_custom_source_definition",
+    ):
+        if "testing_values_secret_name" not in plan[name]:
+            expected[name].pop("testing_values_secret_name", None)
     assert plan == expected
 
 

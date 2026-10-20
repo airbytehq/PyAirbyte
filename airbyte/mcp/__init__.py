@@ -414,11 +414,12 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import cloud, guidance, interactive, local, registry
+from airbyte.mcp import cloud, connector_builder, guidance, interactive, local, registry
 
 
 __all__: list[str] = [
     "cloud",
+    "connector_builder",
     "guidance",
     "interactive",
     "local",

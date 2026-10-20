@@ -39,10 +39,7 @@ import contextlib
 import uuid
 from dataclasses import dataclass, field
 from functools import cached_property
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
-
-import yaml
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors import api_util as agents_api_util
@@ -60,6 +57,8 @@ from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
+from airbyte.cloud.connector_builder._util import parse_manifest_yaml
 from airbyte.cloud.models import (
     ConnectorFeature,
     ConnectorType,
@@ -75,6 +74,7 @@ from airbyte.secrets.hydration import detect_hardcoded_secrets, hydrate_secrets
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from airbyte.cloud.organizations import CloudOrganization
     from airbyte.sources.base import Source
@@ -1257,11 +1257,14 @@ class CloudWorkspace:
         unique: bool = True,
         pre_validate: bool = True,
         testing_values: dict[str, Any] | None = None,
+        builder_project_id: str | None = None,
     ) -> cloud_connectors.CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
         You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
-        and docker_tag (for Docker connectors), but not both.
+        and docker_tag (for Docker connectors), but not both. To publish an existing
+        Connector Builder project, pass `builder_project_id`; `manifest_yaml` is then optional
+        and replaces the project's draft before publishing.
 
         Args:
             name: Display name for the connector definition
@@ -1274,6 +1277,9 @@ class CloudWorkspace:
                 Connector Builder UI. If provided, these values are stored as the complete
                 testing values object for the connector builder project (replaces any existing
                 values), allowing immediate test read operations.
+            builder_project_id: Optional Connector Builder project to publish. If the project
+                is already published, its draft becomes a new active version of the existing
+                definition.
 
         Returns:
             CustomCloudSourceDefinition object representing the created definition
@@ -1282,6 +1288,20 @@ class CloudWorkspace:
             AirbyteLibInputError: If both or neither of manifest_yaml and docker_image provided
             AirbyteDuplicateResourcesError: If unique=True and name already exists
         """
+        if builder_project_id is not None:
+            if docker_image is not None:
+                raise exc.AirbyteLibInputError(
+                    message="docker_image cannot be combined with builder_project_id.",
+                )
+            return self._publish_connector_builder_project(
+                builder_project_id,
+                name=name,
+                manifest_yaml=manifest_yaml,
+                unique=unique,
+                pre_validate=pre_validate,
+                testing_values=testing_values,
+            )
+
         is_yaml = manifest_yaml is not None
         is_docker = docker_image is not None
 
@@ -1314,18 +1334,12 @@ class CloudWorkspace:
                 )
 
         if is_yaml:
-            manifest_dict: dict[str, Any]
-            if isinstance(manifest_yaml, Path):
-                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
-            elif isinstance(manifest_yaml, str):
-                manifest_dict = yaml.safe_load(manifest_yaml)
-            elif manifest_yaml is not None:
-                manifest_dict = manifest_yaml
-            else:
+            if manifest_yaml is None:
                 raise exc.AirbyteLibInputError(
                     message="manifest_yaml is required for YAML connectors",
                     context={"name": name},
                 )
+            manifest_dict = parse_manifest_yaml(manifest_yaml)
 
             if pre_validate:
                 api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
@@ -1353,6 +1367,104 @@ class CloudWorkspace:
             "Docker custom source definitions are not yet supported. "
             "Only YAML manifest-based custom sources are currently available."
         )
+
+    def _publish_connector_builder_project(
+        self,
+        builder_project_id: str,
+        *,
+        name: str,
+        manifest_yaml: dict[str, Any] | Path | str | None,
+        unique: bool,
+        pre_validate: bool,
+        testing_values: dict[str, Any] | None,
+    ) -> cloud_connectors.CustomCloudSourceDefinition:
+        project = self.get_connector_builder_project(builder_project_id)
+        if unique and project.source_definition_id is None:
+            existing = self.list_custom_source_definitions(definition_type="yaml")
+            if any(d.name == name for d in existing):
+                raise exc.AirbyteDuplicateResourcesError(
+                    resource_type="custom_source_definition",
+                    resource_name=name,
+                )
+
+        if manifest_yaml is not None:
+            project.replace_draft_manifest(manifest_yaml, pre_validate=pre_validate)
+
+        definition = project.publish(name, pre_validate=pre_validate)
+        if testing_values is not None:
+            definition.set_testing_values(testing_values)
+        return definition
+
+    def create_connector_builder_project(
+        self,
+        name: str,
+        *,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        pre_validate: bool = True,
+    ) -> CloudConnectorBuilderProject:
+        """Create an unpublished Connector Builder project.
+
+        Nothing appears in the workspace's source list until the project is published.
+
+        Args:
+            name: Display name for the project.
+            manifest_yaml: Optional initial draft manifest (dict, YAML file path, or YAML text).
+            pre_validate: Whether to validate the manifest client-side before saving.
+        """
+        manifest_dict: dict[str, Any] | None = None
+        if manifest_yaml is not None:
+            manifest_dict = parse_manifest_yaml(manifest_yaml)
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+        builder_project_id = api_util.create_connector_builder_project(
+            workspace_id=self.workspace_id,
+            name=name,
+            draft_manifest=manifest_dict,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            config_api_root=self.config_api_root,
+        )
+        return CloudConnectorBuilderProject(workspace=self, builder_project_id=builder_project_id)
+
+    def get_connector_builder_project(
+        self,
+        builder_project_id: str | None = None,
+        *,
+        definition_id: str | None = None,
+    ) -> CloudConnectorBuilderProject:
+        """Get a Connector Builder project by its ID or by its published definition's ID.
+
+        Args:
+            builder_project_id: The Connector Builder project ID.
+            definition_id: The ID of the custom source definition published from the project.
+
+        Raises:
+            AirbyteLibInputError: If not exactly one ID is given, or the definition has no
+                Connector Builder project.
+        """
+        if (builder_project_id is None) == (definition_id is None):
+            raise exc.AirbyteLibInputError(
+                message="Provide exactly one of `builder_project_id` or `definition_id`.",
+            )
+        if builder_project_id is not None:
+            return CloudConnectorBuilderProject(
+                workspace=self, builder_project_id=builder_project_id
+            )
+
+        assert definition_id is not None
+        project = self.get_custom_source_definition(  # noqa: SLF001
+            definition_id,
+            definition_type="yaml",
+        )._connector_builder_project
+        if project is None:
+            raise exc.AirbyteLibInputError(
+                message="No Connector Builder project was found for this definition.",
+                context={"definition_id": definition_id},
+            )
+        return project
 
     def list_custom_source_definitions(
         self,

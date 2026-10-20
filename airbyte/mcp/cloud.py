@@ -35,6 +35,7 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util
 from airbyte.cloud.client import _MAX_WORKSPACES_TO_VALIDATE, CloudClient
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
 from airbyte.cloud.connectors import (
     CheckResult,
     CloudConnector,
@@ -74,6 +75,7 @@ from airbyte.exceptions import (
     AirbyteExternalAccessNotEnabledError,
     AirbyteLibError,
     AirbyteLibInputError,
+    AirbyteLocalDemoModeError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
 )
@@ -125,8 +127,23 @@ MANIFEST_YAML_SOURCE_HINT = (
 )
 
 
+TESTING_VALUES_SECRET_HINT = (
+    "`testing_values` supports inline secret refs via `secret_reference::ENV_VAR_NAME`."
+)
+
+
 def _manifest_yaml_source_hint() -> str | None:
     return MANIFEST_YAML_SOURCE_HINT if is_trusted_execution_enabled() else None
+
+
+def _testing_values_secret_hint() -> str | None:
+    return TESTING_VALUES_SECRET_HINT if is_trusted_execution_enabled() else None
+
+
+def _manifest_and_testing_values_hint() -> str | None:
+    if not is_trusted_execution_enabled():
+        return None
+    return f"{MANIFEST_YAML_SOURCE_HINT} {TESTING_VALUES_SECRET_HINT}"
 
 
 SKILL_DOCS_SECTION_HINT = """\
@@ -3211,6 +3228,15 @@ def get_cloud_organization_billing_status(
     )
 
 
+def _check_builder_project_created_in_session(project: CloudConnectorBuilderProject) -> None:
+    try:
+        check_guid_created_in_session(project.builder_project_id)
+    except AirbyteLocalDemoModeError:
+        if project.source_definition_id is None:
+            raise
+        check_guid_created_in_session(project.source_definition_id)
+
+
 def _get_custom_source_definition_description(
     custom_source: CustomCloudSourceDefinition,
 ) -> str:
@@ -3225,7 +3251,7 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool(extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(extra_help_text=_manifest_and_testing_values_hint)
 def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
@@ -3281,7 +3307,6 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project, allowing immediate test read operations."
             ),
@@ -3302,6 +3327,18 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         ),
         TraceArg.FINGERPRINT,
     ],
+    builder_project_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional. Publish this Connector Builder project's draft instead of creating "
+                "a new project. The manifest arguments are then optional and replace the draft "
+                "before publishing. If the project is already published, the draft becomes a "
+                "new active version of its existing definition."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -3312,7 +3349,7 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         manifest_yaml_text=manifest_yaml_text,
         manifest_yaml_file=manifest_yaml_file,
     )
-    if processed_manifest is None:
+    if processed_manifest is None and builder_project_id is None:
         error_message = (
             "Provide the manifest in `manifest_yaml_text` (full YAML contents) or "
             "`manifest_yaml_file` (local path)."
@@ -3335,12 +3372,17 @@ def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror M
         )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    if builder_project_id is not None:
+        _check_builder_project_created_in_session(
+            workspace.get_connector_builder_project(builder_project_id)
+        )
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
         unique=unique,
         pre_validate=pre_validate,
         testing_values=testing_values_dict,
+        builder_project_id=builder_project_id,
     )
     register_guid_created_in_session(custom_source.definition_id)
     return (
@@ -3451,53 +3493,7 @@ def get_custom_source_definition(
     return result
 
 
-@mcp_tool(
-    read_only=True,
-    idempotent=True,
-)
-def get_connector_builder_draft_manifest(
-    ctx: Context,
-    definition_id: Annotated[
-        str,
-        Field(description="The ID of the custom source definition to retrieve the draft for."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-        TraceArg.OMIT,
-    ],
-) -> dict[str, Any]:
-    """Get the Connector Builder draft manifest for a custom source definition.
-
-    Returns the working draft manifest that has been saved in the Connector Builder UI
-    but not yet published. This is useful for inspecting what a user is currently working
-    on before they publish their changes.
-
-    If no draft exists, 'has_draft' will be False and 'draft_manifest' will be None.
-    The published manifest is always included for comparison.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    definition = workspace.get_custom_source_definition(
-        definition_id=definition_id,
-        definition_type="yaml",
-    )
-
-    return {
-        "definition_id": definition.definition_id,
-        "name": definition.name,
-        "connector_builder_project_id": definition.connector_builder_project_id,
-        "connector_builder_project_url": definition.connector_builder_project_url,
-        "has_draft": definition.has_draft,
-        "draft_manifest": definition.draft_manifest,
-        "published_manifest": definition.manifest,
-    }
-
-
-@mcp_tool(destructive=True, extra_help_text=_manifest_yaml_source_hint)
+@mcp_tool(destructive=True, extra_help_text=_manifest_and_testing_values_hint)
 def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     definition_id: Annotated[
@@ -3557,7 +3553,6 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
-                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project. The entire testing values object "
                 "is overwritten, so pass the full set of values you want to persist."
@@ -3600,7 +3595,9 @@ def update_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MC
         required_args = ["name", "manifest_yaml_text"]
         if is_trusted_execution_enabled():
             required_args.append("manifest_yaml_file")
-        required_args.extend(("testing_values", "testing_values_secret_name"))
+        required_args.append("testing_values")
+        if is_trusted_execution_enabled():
+            required_args.append("testing_values_secret_name")
         raise AirbyteLibInputError(
             message=(
                 f"At least one of {', '.join(required_args)} must be provided to update "
@@ -4330,7 +4327,7 @@ def register_cloud_tools(app: FastMCP) -> None:
     """
     exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else []
     if not is_trusted_execution_enabled():
-        exclude_args.append("manifest_yaml_file")
+        exclude_args.extend(("manifest_yaml_file", "testing_values_secret_name"))
     if exclude_args:
         _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(

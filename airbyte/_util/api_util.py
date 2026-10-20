@@ -94,6 +94,10 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 
+DEV_NULL_DESTINATION_DEFINITION_ID = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
+"""Definition ID of the `destination-dev-null` (no-op) connector on Airbyte Cloud."""
+
+
 def _register_queued_job_status() -> None:
     """Register the `queued` job status on the `airbyte-api` SDK enum.
 
@@ -922,6 +926,34 @@ def list_destinations(
 # Get and run connections
 
 
+def get_source_stream_names(
+    source_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> list[str]:
+    """Discover a source's streams (bypassing the cached catalog) and return their names."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    try:
+        response = airbyte_instance.streams.get_stream_properties(
+            api.GetStreamPropertiesRequest(source_id=source_id, ignore_cache=True),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, {"source_id": source_id, "api_root": api_root}) from e
+    return [
+        stream.stream_name
+        for stream in response.stream_properties_response or []
+        if stream.stream_name
+    ]
+
+
 def get_connection(
     workspace_id: str,
     connection_id: str,
@@ -1583,9 +1615,7 @@ def create_destination(
     )
     definition_id_override: str | None = None
     if _get_destination_type_str(config) == "dev-null":
-        # TODO: We have to hard-code the definition ID for dev-null destination.
-        #  https://github.com/airbytehq/PyAirbyte/issues/743
-        definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
+        definition_id_override = DEV_NULL_DESTINATION_DEFINITION_ID
     try:
         response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
             models.DestinationCreateRequest(
@@ -3047,6 +3077,7 @@ def get_connector_builder_project(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    version: int | None = None,
 ) -> dict[str, Any]:
     """Get a connector builder project, including the draft manifest if one exists.
 
@@ -3063,6 +3094,8 @@ def get_connector_builder_project(
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
+        version: Optional published manifest version. When set, `declarativeManifest`
+            holds that published version instead of the draft.
 
     Returns:
         A dictionary containing the builder project details. Key fields include:
@@ -3070,11 +3103,43 @@ def get_connector_builder_project(
         - declarativeManifest: The draft manifest data (if hasDraft is True),
           which contains a 'manifest' field with the actual YAML manifest dict.
     """
+    request_body: dict[str, Any] = {
+        "workspaceId": workspace_id,
+        "builderProjectId": builder_project_id,
+    }
+    if version is not None:
+        request_body["version"] = version
     return _make_config_api_request(
         path="/connector_builder_projects/get_with_manifest",
+        json=request_body,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def list_declarative_manifest_versions(
+    *,
+    workspace_id: str,
+    source_definition_id: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> list[dict[str, Any]]:
+    """List the published manifest versions of a declarative custom source definition.
+
+    Calls `POST /v1/declarative_source_definitions/list_manifests`. Each item has `version`,
+    `isActive` and `description`, but not the manifest.
+    """
+    response = _make_config_api_request(
+        path="/declarative_source_definitions/list_manifests",
         json={
             "workspaceId": workspace_id,
-            "builderProjectId": builder_project_id,
+            "sourceDefinitionId": source_definition_id,
         },
         api_root=api_root,
         config_api_root=config_api_root,
@@ -3082,6 +3147,7 @@ def get_connector_builder_project(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.get("manifestVersions") or []
 
 
 def update_connector_builder_project(  # noqa: PLR0913
@@ -3166,6 +3232,210 @@ def update_connector_builder_project_testing_values(  # noqa: PLR0913
             "builderProjectId": builder_project_id,
             "testingValues": testing_values,
             "spec": spec,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def create_connector_builder_project(
+    *,
+    workspace_id: str,
+    name: str,
+    draft_manifest: dict[str, Any] | None,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> str:
+    """Create an unpublished connector builder project and return its ID.
+
+    Calls `POST /v1/connector_builder_projects/create`.
+    """
+    builder_project: dict[str, Any] = {"name": name}
+    if draft_manifest is not None:
+        builder_project["draftManifest"] = draft_manifest
+
+    response = _make_config_api_request(
+        path="/connector_builder_projects/create",
+        json={"workspaceId": workspace_id, "builderProject": builder_project},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    builder_project_id = response.get("builderProjectId")
+    if not isinstance(builder_project_id, str):
+        raise AirbyteCloudError(
+            message="Connector builder project API returned an unexpected response.",
+            context={"workspace_id": workspace_id},
+        )
+    return builder_project_id
+
+
+def read_connector_builder_project_stream(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    manifest: dict[str, Any],
+    stream_name: str,
+    record_limit: int,
+    page_limit: int,
+    slice_limit: int,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Run a test read of one stream on Airbyte Cloud, using the project's testing values.
+
+    Calls `POST /v1/connector_builder_projects/read_stream`. `timeout_seconds` bounds the HTTP
+    request only; it doesn't cancel the read on the Cloud side.
+    """
+    return _make_config_api_request(
+        path="/connector_builder_projects/read_stream",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "manifest": manifest,
+            "streamName": stream_name,
+            "recordLimit": record_limit,
+            "pageLimit": page_limit,
+            "sliceLimit": slice_limit,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        timeout=None if timeout_seconds is None else (timeout_seconds, timeout_seconds),
+    )
+
+
+def full_resolve_connector_builder_project_manifest(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    manifest: dict[str, Any],
+    stream_limit: int,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> dict[str, Any]:
+    """Resolve a manifest, including dynamic streams, using the project's testing values.
+
+    Calls `POST /v1/connector_builder_projects/full_resolve` and returns the resolved manifest.
+    """
+    response = _make_config_api_request(
+        path="/connector_builder_projects/full_resolve",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "manifest": manifest,
+            "streamLimit": stream_limit,
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    resolved_manifest = response.get("manifest")
+    if not isinstance(resolved_manifest, dict):
+        raise AirbyteCloudError(
+            message="Connector builder resolve API returned an unexpected response.",
+            context={"workspace_id": workspace_id, "builder_project_id": builder_project_id},
+        )
+    return resolved_manifest
+
+
+def publish_connector_builder_project(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    name: str,
+    manifest: dict[str, Any],
+    spec: dict[str, Any],
+    description: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> str:
+    """Publish a connector builder project as version 1 of a new custom source definition.
+
+    Calls `POST /v1/connector_builder_projects/publish`, which also clears the project's
+    draft, and returns the new source definition ID.
+    """
+    response = _make_config_api_request(
+        path="/connector_builder_projects/publish",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "name": name,
+            "initialDeclarativeManifest": {
+                "manifest": manifest,
+                "spec": spec,
+                "version": 1,
+                "description": description,
+            },
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    source_definition_id = response.get("sourceDefinitionId")
+    if not isinstance(source_definition_id, str):
+        raise AirbyteCloudError(
+            message="Connector builder publish API returned an unexpected response.",
+            context={"workspace_id": workspace_id, "builder_project_id": builder_project_id},
+        )
+    return source_definition_id
+
+
+def create_declarative_manifest_version(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    source_definition_id: str,
+    manifest: dict[str, Any],
+    spec: dict[str, Any],
+    version: int,
+    description: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> None:
+    """Publish a manifest as a new active version of a declarative custom source definition.
+
+    Calls `POST /v1/declarative_source_definitions/create_manifest`, which also deletes the
+    definition's Connector Builder draft.
+    """
+    _make_config_api_request(
+        path="/declarative_source_definitions/create_manifest",
+        json={
+            "workspaceId": workspace_id,
+            "sourceDefinitionId": source_definition_id,
+            "setAsActiveManifest": True,
+            "declarativeManifest": {
+                "manifest": manifest,
+                "spec": spec,
+                "version": version,
+                "description": description,
+            },
         },
         api_root=api_root,
         config_api_root=config_api_root,

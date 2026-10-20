@@ -18,7 +18,7 @@ from airbyte.exceptions import (
     AirbyteLibInputError,
     AirbyteTrustedExecutionRequiredError,
 )
-from airbyte.mcp import cloud, local
+from airbyte.mcp import cloud, connector_builder, local
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
@@ -261,6 +261,7 @@ def test_manifest_file_schema_depends_on_trusted_execution(
         _set_trusted(monkeypatch, enabled=enabled)
         app = FastMCP(f"manifest-schema-{enabled}")
         cloud.register_cloud_tools(app)
+        connector_builder.register_connector_builder_tools(app)
 
         async def list_tools() -> dict[str, object]:
             async with Client(app) as client:
@@ -269,6 +270,7 @@ def test_manifest_file_schema_depends_on_trusted_execution(
         tools = asyncio.run(list_tools())
 
         for tool_name in (
+            "create_connector_builder_project",
             "publish_custom_source_definition",
             "update_custom_source_definition",
         ):
@@ -286,6 +288,22 @@ def test_manifest_file_schema_depends_on_trusted_execution(
                     "manifest_yaml_text"
                     not in properties["manifest_yaml_file"]["description"]
                 )
+
+        for tool_name in (
+            "publish_custom_source_definition",
+            "update_custom_source_definition",
+        ):
+            tool = tools[tool_name]
+            properties = tool.input_schema["properties"]  # type: ignore[attr-defined]
+            assert "testing_values" in properties
+            assert ("testing_values_secret_name" in properties) is enabled
+            assert (
+                "secret_reference::" not in properties["testing_values"]["description"]
+            )
+            assert (
+                cloud.TESTING_VALUES_SECRET_HINT
+                in (getattr(tool, "description", None) or "")
+            ) is enabled
 
 
 @pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])

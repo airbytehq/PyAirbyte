@@ -164,6 +164,7 @@ PyAirbyte server that is:
 
 - `index.md` — server overview (name, version, instructions, totals, module table)
 - `cloud.md` — tools registered by `airbyte.mcp.cloud`
+- `connector_builder.md` — tools registered by `airbyte.mcp.connector_builder`
 - `local.md` — tools registered by `airbyte.mcp.local`
 - `registry.md` — tools registered by `airbyte.mcp.registry`
 - `guidance.md` — tools and prompts registered by `airbyte.mcp.guidance`

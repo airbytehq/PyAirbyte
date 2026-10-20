@@ -49,6 +49,7 @@ def test_existing_includes_name_generated_mcp_modules() -> None:
     repo_root = Path(__file__).parents[2]
     generated_modules = {
         "cloud",
+        "connector_builder",
         "local",
         "interactive",
         "registry",
