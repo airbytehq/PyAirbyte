@@ -921,7 +921,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return _normalize_catalog_to_protocol(raw)
         return raw
 
-    def import_raw_catalog(self, catalog: dict[str, Any], *, skip_reset: bool = True) -> None:
+    def import_raw_catalog(
+        self,
+        catalog: dict[str, Any],
+        *,
+        skip_reset: bool = True,
+    ) -> None:
         """Replace the configured catalog for this connection.
 
         > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and

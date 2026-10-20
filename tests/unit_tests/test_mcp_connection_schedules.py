@@ -108,7 +108,10 @@ async def _update(server: FastMCP, **arguments: object) -> str:
     return str(result)
 
 
-async def _unsafe_update(server: FastMCP, **arguments: object) -> str:
+async def _unsafe_update(
+    server: FastMCP,
+    **arguments: object,
+) -> str:
     async with Client(server) as client:
         result = await client.call_tool(
             "update_cloud_connection_unsafe",
