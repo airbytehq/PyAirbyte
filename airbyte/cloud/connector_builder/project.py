@@ -176,7 +176,7 @@ class CloudConnectorBuilderProject:
             )
         return manifest
 
-    def set_draft_manifest(
+    def replace_draft_manifest(
         self,
         manifest_yaml: dict[str, Any] | Path | str,
         *,
@@ -243,7 +243,7 @@ class CloudConnectorBuilderProject:
             new_text=new_text,
             old_text=old_text,
         )
-        self.set_draft_manifest(edited_text, pre_validate=pre_validate)
+        self.replace_draft_manifest(edited_text, pre_validate=pre_validate)
 
         saved_text = self.draft_manifest_text or ""
         return "".join(

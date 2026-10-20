@@ -1388,7 +1388,7 @@ class CloudWorkspace:
                 )
 
         if manifest_yaml is not None:
-            project.set_draft_manifest(manifest_yaml, pre_validate=pre_validate)
+            project.replace_draft_manifest(manifest_yaml, pre_validate=pre_validate)
 
         definition = project.publish(name, pre_validate=pre_validate)
         if testing_values is not None:
