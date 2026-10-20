@@ -1116,9 +1116,12 @@ def test_readiness_checks_require_testing_values_when_spec_has_inputs(
         "Ask the user to enter testing values, including secrets, in the Connector Builder UI"
     )
     assert testing_values_check.result == expected_result
-    assert testing_values_check.detail == project.url
+    assert testing_values_check.detail == project.connector_builder_project_url
     if expected_result == "failed":
-        assert f"{testing_values_check.description}: {project.url}" in report.next_steps
+        assert (
+            f"{testing_values_check.description}: {project.connector_builder_project_url}"
+            in report.next_steps
+        )
 
 
 def test_spec_missing_required_checks_nested_fields() -> None:

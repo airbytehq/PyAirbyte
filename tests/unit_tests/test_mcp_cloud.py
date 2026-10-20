@@ -3585,9 +3585,9 @@ def test_create_connector_builder_project_returns_credential_next_steps(
     test_source_url = "https://cloud.airbyte.com/workspaces/ws/sources/src"
     test_project = SimpleNamespace(
         builder_project_id="bp",
-        url=project_url,
+        connector_builder_project_url=project_url,
         publish=MagicMock(return_value=SimpleNamespace(definition_id="definition")),
-        create_test_source=MagicMock(
+        _get_or_create_default_test_source=MagicMock(
             return_value=SimpleNamespace(
                 connector_id="src",
                 connector_url=test_source_url,
@@ -3596,7 +3596,7 @@ def test_create_connector_builder_project_returns_credential_next_steps(
     )
     draft_project = SimpleNamespace(
         builder_project_id="bp-draft",
-        url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp-draft",
+        connector_builder_project_url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp-draft",
     )
     workspace = SimpleNamespace(
         create_connector_builder_project=MagicMock(
@@ -3628,13 +3628,13 @@ def test_create_connector_builder_project_returns_credential_next_steps(
         manifest_yaml_text="manifest",
     )
 
-    assert with_test_source["next_steps"] == [
+    assert with_test_source.next_steps == [
         "Ask the user to enter their credentials in the Connector Builder testing "
         f"values: {project_url}",
         "Ask the user to enter the same credentials in the test source, then test and "
         f"save it: {test_source_url}",
     ]
-    assert without_test_source["next_steps"] == []
+    assert without_test_source.next_steps == []
 
 
 def test_connector_builder_tools_return_read_warnings(
