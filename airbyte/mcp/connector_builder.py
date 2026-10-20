@@ -14,11 +14,11 @@ from fastmcp import Context, FastMCP
 from fastmcp_extensions import TraceArg, register_mcp_tools
 from pydantic import Field
 
-from airbyte.cloud.connector_builder import (
+from airbyte.cloud.connector_builder import ManifestTextEditMode
+from airbyte.cloud.connector_builder._util import (
     TEST_READ_MAX_PAGES,
     TEST_READ_MAX_RECORDS,
     TEST_READ_MAX_SLICES,
-    ManifestTextEditMode,
 )
 from airbyte.exceptions import (
     AirbyteLibInputError,

@@ -758,9 +758,9 @@ def test_test_read_limits_reject_out_of_range_without_api_calls(
         {"record_limit": 100, "page_limit": 5, "slice_limit": 5}
         if method == "test_read_stream"
         else {
-            "record_limit": connector_builder.TEST_READ_MAX_RECORDS,
-            "page_limit": connector_builder.TEST_READ_MAX_PAGES,
-            "slice_limit": connector_builder.TEST_READ_MAX_SLICES,
+            "record_limit": connector_builder._util.TEST_READ_MAX_RECORDS,
+            "page_limit": connector_builder._util.TEST_READ_MAX_PAGES,
+            "slice_limit": connector_builder._util.TEST_READ_MAX_SLICES,
         }
     )
 
@@ -793,9 +793,9 @@ def test_readiness_report_defaults_forward_cloud_test_read_limits(
     project.run_readiness_checks(["users"])
 
     assert len(received) == 1
-    assert received[0]["record_limit"] == connector_builder.TEST_READ_MAX_RECORDS
-    assert received[0]["page_limit"] == connector_builder.TEST_READ_MAX_PAGES
-    assert received[0]["slice_limit"] == connector_builder.TEST_READ_MAX_SLICES
+    assert received[0]["record_limit"] == connector_builder._util.TEST_READ_MAX_RECORDS
+    assert received[0]["page_limit"] == connector_builder._util.TEST_READ_MAX_PAGES
+    assert received[0]["slice_limit"] == connector_builder._util.TEST_READ_MAX_SLICES
 
 
 def test_readiness_checklist_does_not_call_failed_reads_capped(
@@ -1234,7 +1234,7 @@ def test_run_full_sync_creates_noop_destination_and_connection(
         name="My API (Connector Builder test)"
     )
     assert workspace.deploy_destination.call_args.kwargs["name"] == (
-        connector_builder.CONNECTOR_BUILDER_TEST_DESTINATION_NAME
+        connector_builder._util.CONNECTOR_BUILDER_TEST_DESTINATION_NAME
     )
     workspace.deploy_connection.assert_called_once_with(
         "My API (Connector Builder full sync)",

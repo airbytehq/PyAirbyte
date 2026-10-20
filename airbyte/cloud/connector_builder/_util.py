@@ -21,6 +21,12 @@ _MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
 _YAML_LINE_WIDTH = 2**31 - 1
 _SECRETS_MASK = "**********"
 """Placeholder Cloud returns instead of a stored secret value."""
+CONNECTOR_BUILDER_TEST_DESTINATION_NAME = "Connector Builder Test (No-op)"
+"""Name of the no-op destination that full syncs find or create by default."""
+TEST_READ_MAX_RECORDS = 5_000
+"""Most records read per stream by `run_readiness_checks()`."""
+TEST_READ_MAX_PAGES = 20
+TEST_READ_MAX_SLICES = 20
 
 
 def unwrap_builder_manifest(value: object) -> dict[str, Any] | None:

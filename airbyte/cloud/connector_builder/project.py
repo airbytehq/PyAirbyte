@@ -14,6 +14,10 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connector_builder._util import (
+    CONNECTOR_BUILDER_TEST_DESTINATION_NAME,
+    TEST_READ_MAX_PAGES,
+    TEST_READ_MAX_RECORDS,
+    TEST_READ_MAX_SLICES,
     apply_manifest_text_edit,
     builder_testing_values_spec,
     draft_from_project_data,
@@ -49,12 +53,6 @@ _READINESS_MAX_WORKERS = 5
 """Most streams `run_readiness_checks()` reads at once."""
 _MIN_READ_TIMEOUT = 1.0
 """Shortest HTTP timeout for a test read started just before the readiness deadline."""
-CONNECTOR_BUILDER_TEST_DESTINATION_NAME = "Connector Builder Test (No-op)"
-"""Name of the no-op destination that full syncs find or create by default."""
-TEST_READ_MAX_RECORDS = 5_000
-"""Most records read per stream by `run_readiness_checks()`."""
-TEST_READ_MAX_PAGES = 20
-TEST_READ_MAX_SLICES = 20
 
 
 def _check_test_read_limits(
