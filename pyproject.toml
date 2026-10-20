@@ -46,7 +46,7 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=4.0.9,<5.0",
-    # TK-TODO: Restore fastmcp-extensions>=<next release>,<1.0.0 after the rules release.
+    # TK-TODO: Restore fastmcp-extensions>=<next release>,<1.0.0 after the rules release. IGNORE:TK
     "fastmcp-extensions @ git+https://github.com/airbytehq/fastmcp-extensions.git@devin/1792462457-arg-trace-rules",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "httpx",  # Transitive dependency of fastmcp, imported directly
