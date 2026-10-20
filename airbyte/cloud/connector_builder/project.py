@@ -132,7 +132,10 @@ class CloudConnectorBuilderProject:
         """The ID of the custom source definition, or `None` if never published."""
         return self._get_project_data()["builderProject"].get("sourceDefinitionId")
 
-    def _published_manifest(self, source_definition_id: str | None) -> dict[str, Any] | None:
+    def _published_manifest(
+        self,
+        source_definition_id: str | None,
+    ) -> dict[str, Any] | None:
         if source_definition_id is None:
             return None
         return self.workspace.get_custom_source_definition(
@@ -181,7 +184,10 @@ class CloudConnectorBuilderProject:
             key=lambda item: item.version,
         )
 
-    def get_published_manifest_dict(self, version: int | None = None) -> dict[str, Any] | None:
+    def get_published_manifest_dict(
+        self,
+        version: int | None = None,
+    ) -> dict[str, Any] | None:
         """Return a published manifest version, or `None` if never published.
 
         Args:
@@ -203,7 +209,10 @@ class CloudConnectorBuilderProject:
         declarative_manifest = project_data.get("declarativeManifest") or {}
         return unwrap_builder_manifest(declarative_manifest.get("manifest"))
 
-    def get_published_manifest_yaml(self, version: int | None = None) -> str | None:
+    def get_published_manifest_yaml(
+        self,
+        version: int | None = None,
+    ) -> str | None:
         """Return a published manifest version as YAML text, or `None` if never published.
 
         Args:
@@ -278,7 +287,10 @@ class CloudConnectorBuilderProject:
         """The unpublished draft manifest, or `None` if the project has no draft."""
         return draft_from_project_data(self._get_project_data())
 
-    def _require_draft_manifest(self, project_data: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _require_draft_manifest(
+        self,
+        project_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         manifest = draft_from_project_data(project_data or self._get_project_data())
         if manifest is None:
             raise exc.AirbyteLibInputError(

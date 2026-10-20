@@ -272,7 +272,10 @@ def drop_masked_secrets(value: Any) -> Any:  # noqa: ANN401
     return value
 
 
-def spec_missing_required(schema: Any, config: dict[str, Any]) -> bool:  # noqa: ANN401
+def spec_missing_required(
+    schema: Any,  # noqa: ANN401
+    config: dict[str, Any],
+) -> bool:
     """Return whether `config` lacks a required top-level field that has no default."""
     if not isinstance(schema, dict):
         return False
