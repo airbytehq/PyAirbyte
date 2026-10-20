@@ -819,6 +819,18 @@ def revert_connector_builder_published_version(
         ),
         TraceArg.VALUE,
     ] = True,
+    description: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional release note for the new version when `as_draft` is false. "
+                "Defaults to a generic note with the reverted version and the UTC time."
+            ),
+            default=None,
+            max_length=256,
+        ),
+        TraceArg.FINGERPRINT,
+    ] = None,
 ) -> ConnectorBuilderRevertResult:
     """Revert a Connector Builder project to a published manifest version.
 
@@ -831,7 +843,11 @@ def revert_connector_builder_published_version(
     )
     _check_builder_project_created_in_session(project)
     source_definition_id = project._require_source_definition_id()  # noqa: SLF001
-    project.revert_to_published_version(version, as_draft=as_draft)
+    project.revert_to_published_version(
+        version,
+        as_draft=as_draft,
+        description=description,
+    )
     active_versions = [item.version for item in project.list_published_versions() if item.is_active]
     return ConnectorBuilderRevertResult(
         builder_project_id=project.builder_project_id,

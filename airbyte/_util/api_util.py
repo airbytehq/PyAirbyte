@@ -3365,6 +3365,7 @@ def publish_connector_builder_project(  # noqa: PLR0913
     name: str,
     manifest: dict[str, Any],
     spec: dict[str, Any],
+    description: str,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
@@ -3386,7 +3387,7 @@ def publish_connector_builder_project(  # noqa: PLR0913
                 "manifest": manifest,
                 "spec": spec,
                 "version": 1,
-                "description": "",
+                "description": description,
             },
         },
         api_root=api_root,
@@ -3402,6 +3403,46 @@ def publish_connector_builder_project(  # noqa: PLR0913
             context={"workspace_id": workspace_id, "builder_project_id": builder_project_id},
         )
     return source_definition_id
+
+
+def create_declarative_manifest_version(  # noqa: PLR0913
+    *,
+    workspace_id: str,
+    source_definition_id: str,
+    manifest: dict[str, Any],
+    spec: dict[str, Any],
+    version: int,
+    description: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> None:
+    """Publish a manifest as a new active version of a declarative custom source definition.
+
+    Calls `POST /v1/declarative_source_definitions/create_manifest`, which also deletes the
+    definition's Connector Builder draft.
+    """
+    _make_config_api_request(
+        path="/declarative_source_definitions/create_manifest",
+        json={
+            "workspaceId": workspace_id,
+            "sourceDefinitionId": source_definition_id,
+            "setAsActiveManifest": True,
+            "declarativeManifest": {
+                "manifest": manifest,
+                "spec": spec,
+                "version": version,
+                "description": description,
+            },
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
 
 
 # Organization and workspace listing

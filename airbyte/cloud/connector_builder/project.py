@@ -6,6 +6,7 @@ from __future__ import annotations
 import difflib
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 import requests
@@ -55,6 +56,11 @@ _READINESS_MAX_WORKERS = 5
 """Most streams `_run_readiness_checks()` reads at once."""
 _MIN_READ_TIMEOUT = 1.0
 """Shortest HTTP timeout for a test read started just before the readiness deadline."""
+
+
+def _default_version_description(action: str) -> str:
+    """Return a generic release note with the current UTC time."""
+    return f"{action} by PyAirbyte at {datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ}"
 
 
 def _check_test_read_limits(
@@ -226,6 +232,7 @@ class CloudConnectorBuilderProject:
         version: int,
         *,
         as_draft: bool = True,
+        description: str | None = None,
     ) -> None:
         """Revert the project to a published manifest version.
 
@@ -237,8 +244,10 @@ class CloudConnectorBuilderProject:
         Args:
             version: The published version to revert to.
             as_draft: Whether to save the version as the draft instead of publishing it.
+            description: Release note for the new version when `as_draft=False`. Defaults
+                to a generic note with the reverted version and the UTC publish time.
         """
-        source_definition_id = self._require_source_definition_id()
+        self._require_source_definition_id()
         manifest = self.get_published_manifest_dict(version)
         if manifest is None:
             raise exc.AirbyteLibInputError(
@@ -259,10 +268,13 @@ class CloudConnectorBuilderProject:
                 ),
                 context={"builder_project_id": self.builder_project_id, "version": version},
             )
-        self.workspace.get_custom_source_definition(
-            source_definition_id,
-            definition_type="yaml",
-        ).update_definition(manifest_yaml=manifest, pre_validate=False)
+        self._publish_manifest(
+            manifest,
+            name=self.name,
+            description=description
+            or _default_version_description(f"Reverted to version {version}"),
+            pre_validate=False,
+        )
 
     def _get_info(self) -> ConnectorBuilderProjectInfo:
         """Read the project once and return its IDs, URL, draft, and published manifest."""
@@ -629,36 +641,74 @@ class CloudConnectorBuilderProject:
         name: str,
         *,
         pre_validate: bool = True,
+        description: str | None = None,
     ) -> CustomCloudSourceDefinition:
         """Publish the draft manifest as a custom source definition.
 
         The first publish creates the definition with `name`. If the project is already
         published, the draft becomes a new active version of the existing definition.
-        """
-        manifest = self._require_draft_manifest()
-        source_definition_id = self.source_definition_id
-        if source_definition_id is not None:
-            definition = self.workspace.get_custom_source_definition(
-                source_definition_id,
-                definition_type="yaml",
-            )
-            return definition.update_definition(manifest_yaml=manifest, pre_validate=pre_validate)
 
+        Args:
+            name: The definition name, used only by the first publish.
+            pre_validate: Whether to validate the manifest client-side before publishing.
+            description: Release note for the new version. Defaults to a generic note with
+                the UTC publish time.
+        """
+        return self._publish_manifest(
+            self._require_draft_manifest(),
+            name=name,
+            description=description or _default_version_description("Published"),
+            pre_validate=pre_validate,
+        )
+
+    def _publish_manifest(
+        self,
+        manifest: dict[str, Any],
+        *,
+        name: str,
+        description: str,
+        pre_validate: bool,
+    ) -> CustomCloudSourceDefinition:
+        """Publish `manifest` as version 1 or as the next active version of the definition."""
         if pre_validate:
             api_util.validate_yaml_manifest(manifest, raise_on_error=True)
 
-        source_definition_id = api_util.publish_connector_builder_project(
-            workspace_id=self.owner_workspace_id,
-            builder_project_id=self.builder_project_id,
-            name=name,
-            manifest=manifest,
-            spec=publish_spec(manifest),
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
+        source_definition_id = self.source_definition_id
+        if source_definition_id is None:
+            source_definition_id = api_util.publish_connector_builder_project(
+                workspace_id=self.owner_workspace_id,
+                builder_project_id=self.builder_project_id,
+                name=name,
+                manifest=manifest,
+                spec=publish_spec(manifest),
+                description=description,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                config_api_root=self.workspace.config_api_root,
+            )
+        else:
+            next_version = (
+                max(
+                    (item.version for item in self.list_published_versions()),
+                    default=0,
+                )
+                + 1
+            )
+            api_util.create_declarative_manifest_version(
+                workspace_id=self.owner_workspace_id,
+                source_definition_id=source_definition_id,
+                manifest=manifest,
+                spec=publish_spec(manifest),
+                version=next_version,
+                description=description,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                config_api_root=self.workspace.config_api_root,
+            )
         return self.workspace.get_custom_source_definition(
             source_definition_id,
             definition_type="yaml",

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import re
+
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -318,6 +320,7 @@ def test_resolved_manifest_lists_stream_names() -> None:
                 "name": "My API",
                 "manifest": MANIFEST,
                 "spec": {"connectionSpecification": {}},
+                "description": "First release",
             },
             "/connector_builder_projects/publish",
             {
@@ -328,12 +331,38 @@ def test_resolved_manifest_lists_stream_names() -> None:
                     "manifest": MANIFEST,
                     "spec": {"connectionSpecification": {}},
                     "version": 1,
-                    "description": "",
+                    "description": "First release",
                 },
             },
             {"sourceDefinitionId": "def"},
             "def",
             id="publish",
+        ),
+        pytest.param(
+            api_util.create_declarative_manifest_version,
+            {
+                "workspace_id": "ws",
+                "source_definition_id": "def",
+                "manifest": MANIFEST,
+                "spec": {"connectionSpecification": {}},
+                "version": 3,
+                "description": "Fix paging",
+            },
+            "/declarative_source_definitions/create_manifest",
+            {
+                "workspaceId": "ws",
+                "sourceDefinitionId": "def",
+                "setAsActiveManifest": True,
+                "declarativeManifest": {
+                    "manifest": MANIFEST,
+                    "spec": {"connectionSpecification": {}},
+                    "version": 3,
+                    "description": "Fix paging",
+                },
+            },
+            {},
+            None,
+            id="create-manifest-version",
         ),
     ],
 )
@@ -530,17 +559,45 @@ def test_publish_already_published_project_adds_version(
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST, source_definition_id="def")
     publish = MagicMock()
+    create_version = MagicMock()
     monkeypatch.setattr(api_util, "publish_connector_builder_project", publish)
+    monkeypatch.setattr(api_util, "create_declarative_manifest_version", create_version)
+    monkeypatch.setattr(
+        api_util,
+        "list_declarative_manifest_versions",
+        lambda **_: [
+            {"version": 1, "isActive": False},
+            {"version": 2, "isActive": True},
+        ],
+    )
     workspace = _fake_workspace()
 
     CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp").publish(
-        "My API"
+        "My API",
+        description="Fix paging",
     )
 
     publish.assert_not_called()
-    definition = workspace.get_custom_source_definition.return_value
-    definition.update_definition.assert_called_once_with(
-        manifest_yaml=MANIFEST, pre_validate=True
+    kwargs = create_version.call_args.kwargs
+    assert kwargs["manifest"] == MANIFEST
+    assert kwargs["version"] == 3
+    assert kwargs["description"] == "Fix paging"
+
+
+def test_publish_defaults_description_to_utc_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft=MANIFEST)
+    publish = MagicMock(return_value="def")
+    monkeypatch.setattr(api_util, "publish_connector_builder_project", publish)
+
+    CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    ).publish("My API")
+
+    assert re.fullmatch(
+        r"Published by PyAirbyte at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
+        publish.call_args.kwargs["description"],
     )
 
 
@@ -1614,11 +1671,13 @@ def test_revert_as_draft_replaces_draft(monkeypatch: pytest.MonkeyPatch) -> None
     store = _patch_published_versions(monkeypatch, draft={"version": "7.0.0"})
     workspace = _fake_workspace()
     project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
+    create_version = MagicMock()
+    monkeypatch.setattr(api_util, "create_declarative_manifest_version", create_version)
 
     project.revert_to_published_version(1)
 
     assert store["draft"] == store["versions"][1]
-    workspace.get_custom_source_definition.return_value.update_definition.assert_not_called()
+    create_version.assert_not_called()
 
 
 def test_revert_publish_refuses_unpublished_draft_edits(
@@ -1628,11 +1687,13 @@ def test_revert_publish_refuses_unpublished_draft_edits(
     workspace = _fake_workspace()
     workspace.get_custom_source_definition.return_value.manifest = {"version": "6.1.0"}
     project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
+    create_version = MagicMock()
+    monkeypatch.setattr(api_util, "create_declarative_manifest_version", create_version)
 
     with pytest.raises(AirbyteLibInputError, match="unpublished draft edits"):
         project.revert_to_published_version(1, as_draft=False)
 
-    workspace.get_custom_source_definition.return_value.update_definition.assert_not_called()
+    create_version.assert_not_called()
 
 
 def test_revert_publish_publishes_version(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1640,9 +1701,12 @@ def test_revert_publish_publishes_version(monkeypatch: pytest.MonkeyPatch) -> No
     workspace = _fake_workspace()
     project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
 
+    create_version = MagicMock()
+    monkeypatch.setattr(api_util, "create_declarative_manifest_version", create_version)
+
     project.revert_to_published_version(1, as_draft=False)
 
-    workspace.get_custom_source_definition.return_value.update_definition.assert_called_once_with(
-        manifest_yaml=store["versions"][1],
-        pre_validate=False,
-    )
+    kwargs = create_version.call_args.kwargs
+    assert kwargs["manifest"] == store["versions"][1]
+    assert kwargs["version"] == 3
+    assert kwargs["description"].startswith("Reverted to version 1 by PyAirbyte at ")

@@ -319,6 +319,7 @@
     "as_draft": "value allowed=[false,true]",
     "builder_project_id": "hash",
     "definition_id": "hash",
+    "description": "fingerprint",
     "version": "value int",
     "workspace_id": "omit"
   },
