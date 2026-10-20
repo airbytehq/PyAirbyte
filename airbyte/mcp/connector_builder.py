@@ -293,7 +293,7 @@ def create_connector_builder_project(
     (`api_key`), `access_token` (`access_token`), or `oauth2.0` (`client_id`,
     `client_secret`, `refresh_token`). With more than one option, use a
     `SelectiveAuthenticator` with `authenticator_selection_path: ["credentials", "auth_type"]`.
-    The test source is saved as a draft, so credentials nobody has tested yet don't block it.
+    The test source is saved as a draft, so auth processes not tested yet don't block it.
     Then ask the user to enter their credentials in both places listed in `next_steps`. Never
     ask for secrets in the chat.
     """
