@@ -51,7 +51,6 @@ from airbyte.mcp.cloud import (
     _check_builder_project_created_in_session,
     _get_cloud_workspace,
     _manifest_yaml_source_hint,
-    _testing_values_secret_hint,
 )
 
 
@@ -413,7 +412,6 @@ def update_connector_builder_manifest_text(
 @mcp_tool(
     destructive=True,
     idempotent=True,
-    extra_help_text=_testing_values_secret_hint,
     insiders_only=True,
 )
 def set_connector_builder_testing_values(
@@ -442,28 +440,15 @@ def set_connector_builder_testing_values(
         TraceArg.OMIT,
     ],
     testing_values: Annotated[
-        dict | str | None,
+        dict | str,
         Field(
             description=(
                 "Non-secret configuration values for test reads, as a JSON object or JSON "
                 "string. Merged onto the saved testing values, so secrets the user entered in "
                 "the Connector Builder are kept. Values for `airbyte_secret` fields are rejected."
             ),
-            default=None,
         ),
-    ] = None,
-    testing_values_secret_name: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Optional name of a secret containing testing values in JSON or YAML format. "
-                "The secret is resolved by the MCP server and merged into testing_values, with "
-                "secret values taking precedence."
-            ),
-            default=None,
-        ),
-        TraceArg.FINGERPRINT,
-    ] = None,
+    ],
 ) -> str:
     """Update the testing values (connector config) of a Connector Builder project.
 
@@ -472,14 +457,6 @@ def set_connector_builder_testing_values(
     Don't ask users to paste secrets into the chat: send them the returned project URL to
     enter secrets in the Connector Builder's testing values form instead.
     """
-    if testing_values is None and testing_values_secret_name is None:
-        raise AirbyteLibInputError(
-            message=(
-                "Provide `testing_values` or `testing_values_secret_name`."
-                if is_trusted_execution_enabled()
-                else "Provide `testing_values`."
-            ),
-        )
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(
         builder_project_id,
@@ -488,7 +465,6 @@ def set_connector_builder_testing_values(
     _check_builder_project_created_in_session(project)
     testing_values_dict = resolve_connector_config(
         config=testing_values,
-        config_secret_name=testing_values_secret_name,
         config_spec_jsonschema=project._testing_values_connection_spec(),  # noqa: SLF001
     )
     project._merge_testing_values(testing_values_dict)  # noqa: SLF001

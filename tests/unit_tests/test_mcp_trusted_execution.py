@@ -291,7 +291,6 @@ def test_manifest_file_schema_depends_on_trusted_execution(
 
         for tool_name in (
             "publish_custom_source_definition",
-            "set_connector_builder_testing_values",
             "update_custom_source_definition",
         ):
             tool = tools[tool_name]

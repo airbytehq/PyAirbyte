@@ -368,7 +368,6 @@
     "builder_project_id": "hash",
     "definition_id": "hash",
     "testing_values": "presence",
-    "testing_values_secret_name": "fingerprint",
     "workspace_id": "omit"
   },
   "set_default_cloud_workspace": {
