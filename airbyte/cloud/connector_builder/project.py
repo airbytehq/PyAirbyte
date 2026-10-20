@@ -108,7 +108,7 @@ class CloudConnectorBuilderProject:
             f"{self.owner_workspace_id}/connector-builder/edit/{self.builder_project_id}"
         )
 
-    def get_project_data(self) -> dict[str, Any]:
+    def _get_project_data(self) -> dict[str, Any]:
         """Fetch the project metadata and draft manifest from the API."""
         return api_util.get_connector_builder_project(
             workspace_id=self.owner_workspace_id,
@@ -123,12 +123,12 @@ class CloudConnectorBuilderProject:
     @property
     def name(self) -> str:
         """The project name."""
-        return self.get_project_data()["builderProject"]["name"]
+        return self._get_project_data()["builderProject"]["name"]
 
     @property
     def source_definition_id(self) -> str | None:
         """The ID of the custom source definition, or `None` if never published."""
-        return self.get_project_data()["builderProject"].get("sourceDefinitionId")
+        return self._get_project_data()["builderProject"].get("sourceDefinitionId")
 
     def _published_manifest(self, source_definition_id: str | None) -> dict[str, Any] | None:
         if source_definition_id is None:
@@ -145,7 +145,7 @@ class CloudConnectorBuilderProject:
 
     def get_info(self) -> ConnectorBuilderProjectInfo:
         """Read the project once and return its IDs, URL, draft, and published manifest."""
-        project_data = self.get_project_data()
+        project_data = self._get_project_data()
         draft_manifest = draft_from_project_data(project_data)
         source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
         return ConnectorBuilderProjectInfo(
@@ -164,10 +164,10 @@ class CloudConnectorBuilderProject:
     @property
     def draft_manifest(self) -> dict[str, Any] | None:
         """The unpublished draft manifest, or `None` if the project has no draft."""
-        return draft_from_project_data(self.get_project_data())
+        return draft_from_project_data(self._get_project_data())
 
     def _require_draft_manifest(self, project_data: dict[str, Any] | None = None) -> dict[str, Any]:
-        manifest = draft_from_project_data(project_data or self.get_project_data())
+        manifest = draft_from_project_data(project_data or self._get_project_data())
         if manifest is None:
             raise exc.AirbyteLibInputError(
                 message="This Connector Builder project has no draft manifest.",
@@ -264,7 +264,7 @@ class CloudConnectorBuilderProject:
         The spec comes from the draft manifest, or the published one when there's no draft.
         Fields marked `airbyte_secret` in the spec are stored as secrets.
         """
-        project_data = self.get_project_data()
+        project_data = self._get_project_data()
         manifest = draft_from_project_data(project_data) or self._published_manifest(
             project_data["builderProject"].get("sourceDefinitionId")
         )
@@ -401,7 +401,7 @@ class CloudConnectorBuilderProject:
             raise exc.AirbyteLibInputError(
                 message="Pass at least 1 stream name, or set `run_full_sync`.",
             )
-        project_data = self.get_project_data()
+        project_data = self._get_project_data()
         if not stream_names:
             # A full sync alone can run on the published manifest; the first publish clears
             # the draft.
@@ -581,7 +581,7 @@ class CloudConnectorBuilderProject:
         source_name = (
             default_source_name(self) if callable(default_source_name) else default_source_name
         ) or self._get_default_test_source_name()
-        project_data = self.get_project_data()
+        project_data = self._get_project_data()
         source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
         if source_definition_id is None:
             if not allow_create:
@@ -630,7 +630,7 @@ class CloudConnectorBuilderProject:
             on_resource_created: Called with the ID of each destination or connection this
                 call creates, as soon as it exists.
         """
-        project_data = self.get_project_data()
+        project_data = self._get_project_data()
         has_draft = draft_from_project_data(project_data) is not None
         source_definition_id = project_data["builderProject"].get("sourceDefinitionId")
         if not has_draft and source_definition_id is None:
