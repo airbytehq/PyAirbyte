@@ -1459,8 +1459,8 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
 
         return CloudConnectorBuilderProject(
-            self.workspace,
-            project_id,
+            workspace=self.workspace,
+            builder_project_id=project_id,
             owner_workspace_id=self._builder_project_workspace_id,
         )
 

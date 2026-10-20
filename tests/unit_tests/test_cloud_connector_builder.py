@@ -410,7 +410,9 @@ def _patch_project_store(
 
 
 def test_project_url() -> None:
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     assert (
         project.connector_builder_project_url
         == "https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp"
@@ -421,7 +423,9 @@ def test_update_draft_manifest_text_saves_and_returns_diff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = _patch_project_store(monkeypatch, draft={"version": "6.0.0", "streams": []})
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     diff = project.update_draft_manifest_text(
         edit_mode="replace_text",
@@ -439,7 +443,9 @@ def test_update_draft_manifest_text_without_draft_requires_replace_full(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store = _patch_project_store(monkeypatch, draft=None)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     with pytest.raises(AirbyteLibInputError, match="no draft manifest"):
         project.update_draft_manifest_text(
@@ -461,9 +467,9 @@ def test_set_testing_values_uses_draft_spec(monkeypatch: pytest.MonkeyPatch) -> 
         update_testing_values,
     )
 
-    CloudConnectorBuilderProject(_fake_workspace(), "bp").set_testing_values({
-        "api_key": "k"
-    })
+    CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    ).set_testing_values({"api_key": "k"})
 
     kwargs = update_testing_values.call_args.kwargs
     assert kwargs["testing_values"] == {"api_key": "k"}
@@ -484,7 +490,9 @@ def test_set_testing_values_without_draft_uses_published_spec(
         "update_connector_builder_project_testing_values",
         update_testing_values,
     )
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
 
     project.set_testing_values({"api_key": "k"})
@@ -499,7 +507,9 @@ def test_publish_unpublished_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(api_util, "publish_connector_builder_project", publish)
     workspace = _fake_workspace()
 
-    CloudConnectorBuilderProject(workspace, "bp").publish("My API")
+    CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp").publish(
+        "My API"
+    )
 
     spec = publish.call_args.kwargs["spec"]
     assert (
@@ -518,7 +528,9 @@ def test_publish_already_published_project_adds_version(
     monkeypatch.setattr(api_util, "publish_connector_builder_project", publish)
     workspace = _fake_workspace()
 
-    CloudConnectorBuilderProject(workspace, "bp").publish("My API")
+    CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp").publish(
+        "My API"
+    )
 
     publish.assert_not_called()
     definition = workspace.get_custom_source_definition.return_value
@@ -548,7 +560,7 @@ def test_get_connector_builder_project_requires_exactly_one_id(
 
 def test_project_uses_owner_workspace() -> None:
     project = CloudConnectorBuilderProject(
-        _fake_workspace(), "bp", owner_workspace_id="owner"
+        workspace=_fake_workspace(), builder_project_id="bp", owner_workspace_id="owner"
     )
     assert project.connector_builder_project_url.endswith(
         "/workspaces/owner/connector-builder/edit/bp"
@@ -566,7 +578,9 @@ def test_get_info_reads_project_once(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(api_util, "get_connector_builder_project", counting_get)
 
-    info = CloudConnectorBuilderProject(_fake_workspace(), "bp").get_info()
+    info = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    ).get_info()
 
     assert len(calls) == 1
     assert info.has_draft is True
@@ -584,7 +598,9 @@ def test_publish_validates_unpublished_draft_unless_disabled(
     monkeypatch.setattr(
         api_util, "publish_connector_builder_project", MagicMock(return_value="d")
     )
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     project.publish("My API", pre_validate=False)
     validate.assert_not_called()
@@ -639,7 +655,9 @@ def test_run_readiness_checks_summarizes_each_stream(
     _patch_project_store(
         monkeypatch, draft={**MANIFEST, "streams": [{"name": name} for name in names]}
     )
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     _patch_reads(
         monkeypatch,
         project,
@@ -704,7 +722,9 @@ def test_run_readiness_checks_summarizes_each_stream(
 
 
 def test_run_readiness_checks_requires_stream_names() -> None:
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     with pytest.raises(AirbyteLibInputError):
         project.run_readiness_checks([])
 
@@ -731,7 +751,9 @@ def test_test_read_limits_reject_out_of_range_without_api_calls(
     monkeypatch.setattr(
         api_util, "read_connector_builder_project_stream", unexpected_api_call
     )
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     expected: dict[str, int] = (
         {"record_limit": 100, "page_limit": 5, "slice_limit": 5}
         if method == "test_read_stream"
@@ -764,7 +786,9 @@ def test_readiness_report_defaults_forward_cloud_test_read_limits(
         return {"slices": [{"pages": [{"records": [{"id": 1}]}]}]}
 
     monkeypatch.setattr(api_util, "read_connector_builder_project_stream", fake_read)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     project.run_readiness_checks(["users"])
 
@@ -778,7 +802,9 @@ def test_readiness_checklist_does_not_call_failed_reads_capped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft={"streams": [{"name": "users"}]})
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     def fail_read(*_: Any, **__: Any) -> ConnectorBuilderStreamReadResult:
         raise AirbyteCloudError(message="Cloud read failed.")
@@ -797,7 +823,9 @@ def test_readiness_checklist_marks_failed_capped_stream_incomplete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft={"streams": [{"name": "users"}]})
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     _patch_reads(
         monkeypatch,
         project,
@@ -835,16 +863,18 @@ def test_run_readiness_checks_without_draft_fails(
 ) -> None:
     _patch_project_store(monkeypatch, draft=None)
     with pytest.raises(AirbyteLibInputError):
-        CloudConnectorBuilderProject(_fake_workspace(), "bp").run_readiness_checks([
-            "users"
-        ])
+        CloudConnectorBuilderProject(
+            workspace=_fake_workspace(), builder_project_id="bp"
+        ).run_readiness_checks(["users"])
 
 
 def test_readiness_report_lists_caps_without_a_success_verdict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     reads = {
         "users": _stream_read("users", record_count=1),
         "orders": _stream_read("orders", record_count=1, limit_reached=True),
@@ -883,7 +913,9 @@ def test_readiness_checks_require_testing_values_when_spec_has_inputs(
         "streams": [{"name": "users"}],
     }
     _patch_project_store(monkeypatch, draft=draft, source_definition_id="def")
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     _patch_reads(monkeypatch, project, {"users": _stream_read("users", record_count=1)})
 
     report = project.run_readiness_checks(["users"])
@@ -947,7 +979,9 @@ def test_readiness_timeout_splits_pending_and_not_attempted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     release = threading.Event()
     slow = {f"slow{i}" for i in range(5)}
 
@@ -978,7 +1012,9 @@ def test_readiness_checklist_is_incomplete_when_a_stream_is_pending(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     release = threading.Event()
 
     def fake_read(
@@ -1007,7 +1043,9 @@ def test_readiness_bounds_read_requests_by_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     timeouts: list[float | None] = []
 
     def fake_read(
@@ -1114,7 +1152,7 @@ def test_create_test_source_uses_non_secret_testing_values(
     )
     workspace = _fake_workspace()
     workspace.deploy_source = MagicMock()
-    project = CloudConnectorBuilderProject(workspace, "bp")
+    project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
     # The source runs the published version, so its spec wins over the draft's.
     monkeypatch.setattr(project, "_published_manifest", lambda _id: manifest)
 
@@ -1130,7 +1168,9 @@ def test_create_test_source_uses_non_secret_testing_values(
 
 def test_create_test_source_requires_publish(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     with pytest.raises(AirbyteLibInputError, match="Publish"):
         project.get_or_create_default_test_source()
@@ -1159,7 +1199,7 @@ def _full_sync_project(
         job_id=7, job_url="https://job"
     )
     workspace.deploy_connection = MagicMock(return_value=new_connection)
-    project = CloudConnectorBuilderProject(workspace, "bp")
+    project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
     monkeypatch.setattr(project, "publish", MagicMock())
     monkeypatch.setattr(
         api_util,
@@ -1289,7 +1329,9 @@ def test_readiness_full_sync_gating(
     expect_sync: bool,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
     full_sync = connector_builder.ConnectorBuilderFullSync(
         source_id="src",
         destination_id="dest",
@@ -1331,7 +1373,9 @@ def test_readiness_requires_streams_without_full_sync(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_project_store(monkeypatch, draft=MANIFEST)
-    project = CloudConnectorBuilderProject(_fake_workspace(), "bp")
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
 
     with pytest.raises(AirbyteLibInputError, match="run_full_sync"):
         project.run_readiness_checks([])
@@ -1428,7 +1472,7 @@ def test_create_test_source_after_publish_cleared_draft(
     )
     workspace = _fake_workspace()
     workspace.deploy_source = MagicMock()
-    project = CloudConnectorBuilderProject(workspace, "bp")
+    project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
     monkeypatch.setattr(project, "_published_manifest", lambda _id: _secret_manifest())
 
     project.get_or_create_default_test_source()

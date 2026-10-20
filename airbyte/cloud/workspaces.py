@@ -1427,7 +1427,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
             config_api_root=self.config_api_root,
         )
-        return CloudConnectorBuilderProject(self, builder_project_id)
+        return CloudConnectorBuilderProject(workspace=self, builder_project_id=builder_project_id)
 
     def get_connector_builder_project(
         self,
@@ -1450,7 +1450,9 @@ class CloudWorkspace:
                 message="Provide exactly one of `builder_project_id` or `definition_id`.",
             )
         if builder_project_id is not None:
-            return CloudConnectorBuilderProject(self, builder_project_id)
+            return CloudConnectorBuilderProject(
+                workspace=self, builder_project_id=builder_project_id
+            )
 
         assert definition_id is not None
         project = self.get_custom_source_definition(

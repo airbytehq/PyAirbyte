@@ -85,9 +85,9 @@ class CloudConnectorBuilderProject:
 
     def __init__(
         self,
+        *,
         workspace: CloudWorkspace,
         builder_project_id: str,
-        *,
         owner_workspace_id: str | None = None,
     ) -> None:
         """Initialize a Connector Builder project object. Does not call the API.
