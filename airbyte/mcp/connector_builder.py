@@ -15,6 +15,7 @@ from fastmcp_extensions import TraceArg, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte.cloud.connector_builder._models import (
+    ConnectorBuilderPublishedVersion,
     ConnectorBuilderReadinessReport,
     ConnectorBuilderStreamReadResult,
     ManifestTextEditMode,
@@ -119,6 +120,45 @@ class ConnectorBuilderResolvedManifestResult(BaseModel):
     """Stream names in the resolved manifest, including generated dynamic streams."""
     resolved_manifest: dict[str, Any]
     """The resolved manifest."""
+
+
+class ConnectorBuilderPublishedVersionsResult(BaseModel):
+    """Published manifest versions of a Connector Builder project."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+    definition_id: str | None
+    """The published custom source definition ID, or `None` if never published."""
+    versions: list[ConnectorBuilderPublishedVersion]
+    """Published versions, oldest first. Empty if never published."""
+
+
+class ConnectorBuilderPublishedManifestResult(BaseModel):
+    """One published manifest version of a Connector Builder project."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+    definition_id: str
+    """The published custom source definition ID."""
+    version: int | None
+    """The returned version; `None` when the active version was requested."""
+    manifest_yaml: str
+    """The published manifest as YAML text."""
+
+
+class ConnectorBuilderRevertResult(BaseModel):
+    """Result of reverting a Connector Builder project to a published version."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+    definition_id: str
+    """The published custom source definition ID."""
+    reverted_to_version: int
+    """The published version whose manifest was restored."""
+    as_draft: bool
+    """Whether the version was saved as the draft instead of published."""
+    active_version: int | None
+    """The active published version after the revert."""
 
 
 class ConnectorBuilderReadinessReportResult(ConnectorBuilderReadinessReport):
@@ -624,6 +664,181 @@ def get_connector_builder_resolved_manifest(
         builder_project_id=project.builder_project_id,
         stream_names=resolved.stream_names,
         resolved_manifest=resolved.manifest_dict,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    insiders_only=True,
+)
+def list_connector_builder_published_versions(
+    ctx: Context,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+) -> ConnectorBuilderPublishedVersionsResult:
+    """List the published manifest versions of a Connector Builder project, oldest first.
+
+    Each version has `version`, `is_active` and `description`. Get a version's manifest with
+    `get_connector_builder_published_manifest`.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    return ConnectorBuilderPublishedVersionsResult(
+        builder_project_id=project.builder_project_id,
+        definition_id=project.source_definition_id,
+        versions=project.list_published_versions(),
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    insiders_only=True,
+)
+def get_connector_builder_published_manifest(
+    ctx: Context,
+    *,
+    builder_project_id: Annotated[
+        str | None,
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+    version: Annotated[
+        int | None,
+        Field(
+            description="Optional published version. Defaults to the active version.",
+            default=None,
+            ge=1,
+        ),
+        TraceArg.VALUE,
+    ] = None,
+) -> ConnectorBuilderPublishedManifestResult:
+    """Get a published manifest version of a Connector Builder project as YAML text."""
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    source_definition_id = project._require_source_definition_id()  # noqa: SLF001
+    return ConnectorBuilderPublishedManifestResult(
+        builder_project_id=project.builder_project_id,
+        definition_id=source_definition_id,
+        version=version,
+        manifest_yaml=project.get_published_manifest_yaml(version) or "",
+    )
+
+
+@mcp_tool(
+    destructive=True,
+    insiders_only=True,
+)
+def revert_connector_builder_published_version(
+    ctx: Context,
+    *,
+    version: Annotated[
+        int,
+        Field(
+            description="The published version to revert to.",
+            ge=1,
+        ),
+        TraceArg.VALUE,
+    ],
+    builder_project_id: Annotated[
+        str | None,
+        Field(
+            description=_BUILDER_PROJECT_ID_DESCRIPTION,
+            default=None,
+        ),
+    ] = None,
+    definition_id: Annotated[
+        str | None,
+        Field(
+            description=_BUILDER_DEFINITION_ID_DESCRIPTION,
+            default=None,
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+        TraceArg.OMIT,
+    ],
+    as_draft: Annotated[
+        bool,
+        Field(
+            description=(
+                "True saves the version as the pending draft (overwriting unpublished edits) "
+                "and leaves the active version alone. False publishes it as a new active "
+                "version, which fails if the draft has unpublished edits."
+            ),
+            default=True,
+        ),
+        TraceArg.VALUE,
+    ] = True,
+) -> ConnectorBuilderRevertResult:
+    """Revert a Connector Builder project to a published manifest version.
+
+    List versions with `list_connector_builder_published_versions`.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    project = workspace.get_connector_builder_project(
+        builder_project_id,
+        definition_id=definition_id,
+    )
+    _check_builder_project_created_in_session(project)
+    source_definition_id = project._require_source_definition_id()  # noqa: SLF001
+    project.revert_to_published_version(version, as_draft=as_draft)
+    active_versions = [item.version for item in project.list_published_versions() if item.is_active]
+    return ConnectorBuilderRevertResult(
+        builder_project_id=project.builder_project_id,
+        definition_id=source_definition_id,
+        reverted_to_version=version,
+        as_draft=as_draft,
+        active_version=active_versions[0] if active_versions else None,
     )
 
 

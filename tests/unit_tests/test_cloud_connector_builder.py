@@ -1532,3 +1532,117 @@ def test_run_full_sync_rejects_non_noop_destination_with_default_name(
 
     workspace.deploy_destination.assert_not_called()
     workspace.deploy_connection.assert_not_called()
+
+
+def _patch_published_versions(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    draft: dict[str, Any] | None,
+) -> dict[str, Any]:
+    store = _patch_project_store(monkeypatch, draft=draft, source_definition_id="def")
+    versions = {
+        1: {"version": "6.0.0", "streams": []},
+        2: {"version": "6.1.0", "streams": []},
+    }
+    unversioned_get = api_util.get_connector_builder_project
+
+    def fake_get(**kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("version") is None:
+            return unversioned_get(**kwargs)
+        return {
+            "builderProject": {"name": "My API", "sourceDefinitionId": "def"},
+            "declarativeManifest": {
+                "manifest": versions[kwargs["version"]],
+                "isDraft": False,
+                "version": kwargs["version"],
+            },
+        }
+
+    monkeypatch.setattr(api_util, "get_connector_builder_project", fake_get)
+    monkeypatch.setattr(
+        api_util,
+        "list_declarative_manifest_versions",
+        lambda **_: [
+            {"version": 2, "isActive": True, "description": ""},
+            {"version": 1, "isActive": False, "description": "first"},
+        ],
+    )
+    store["versions"] = versions
+    return store
+
+
+def test_list_published_versions_sorts_oldest_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_published_versions(monkeypatch, draft=None)
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
+
+    versions = project.list_published_versions()
+
+    assert [(v.version, v.is_active, v.description) for v in versions] == [
+        (1, False, "first"),
+        (2, True, ""),
+    ]
+
+
+def test_list_published_versions_unpublished_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(monkeypatch, draft={"version": "6.0.0"})
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
+
+    assert project.list_published_versions() == []
+    with pytest.raises(AirbyteLibInputError, match="never been published"):
+        project.get_published_manifest_dict(1)
+
+
+def test_get_published_manifest_by_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_published_versions(monkeypatch, draft=None)
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
+
+    assert project.get_published_manifest_dict(1) == {"version": "6.0.0", "streams": []}
+    assert "version: 6.0.0" in (project.get_published_manifest_yaml(1) or "")
+
+
+def test_revert_as_draft_replaces_draft(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _patch_published_versions(monkeypatch, draft={"version": "7.0.0"})
+    workspace = _fake_workspace()
+    project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
+
+    project.revert_to_published_version(1)
+
+    assert store["draft"] == store["versions"][1]
+    workspace.get_custom_source_definition.return_value.update_definition.assert_not_called()
+
+
+def test_revert_publish_refuses_unpublished_draft_edits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_published_versions(monkeypatch, draft={"version": "7.0.0"})
+    workspace = _fake_workspace()
+    workspace.get_custom_source_definition.return_value.manifest = {"version": "6.1.0"}
+    project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
+
+    with pytest.raises(AirbyteLibInputError, match="unpublished draft edits"):
+        project.revert_to_published_version(1, as_draft=False)
+
+    workspace.get_custom_source_definition.return_value.update_definition.assert_not_called()
+
+
+def test_revert_publish_publishes_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _patch_published_versions(monkeypatch, draft=None)
+    workspace = _fake_workspace()
+    project = CloudConnectorBuilderProject(workspace=workspace, builder_project_id="bp")
+
+    project.revert_to_published_version(1, as_draft=False)
+
+    workspace.get_custom_source_definition.return_value.update_definition.assert_called_once_with(
+        manifest_yaml=store["versions"][1],
+        pre_validate=False,
+    )

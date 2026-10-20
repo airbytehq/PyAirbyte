@@ -155,6 +155,18 @@
     "definition_id": "hash",
     "workspace_id": "omit"
   },
+  "get_connector_builder_published_manifest": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "version": "value int",
+    "workspace_id": "omit"
+  },
+  "get_connector_builder_resolved_manifest": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "stream_limit": "value int",
+    "workspace_id": "omit"
+  },
   "get_connector_info": {
     "connector_name": "fingerprint"
   },
@@ -221,6 +233,11 @@
     "organization_id": "hash",
     "organization_name": "fingerprint",
     "privilege_scope": "value allowed=[\"any\",\"instance_admin\",\"member_of\",\"organization_admin\"]"
+  },
+  "list_connector_builder_published_versions": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "workspace_id": "omit"
   },
   "list_connector_config_secrets": {
     "connector_name": "fingerprint"
@@ -298,10 +315,11 @@
     "streams": "hash list",
     "workspace_id": "omit"
   },
-  "get_connector_builder_resolved_manifest": {
+  "revert_connector_builder_published_version": {
+    "as_draft": "value allowed=[false,true]",
     "builder_project_id": "hash",
     "definition_id": "hash",
-    "stream_limit": "value int",
+    "version": "value int",
     "workspace_id": "omit"
   },
   "run_cloud_sync": {
@@ -317,6 +335,15 @@
     "stream_names": "fingerprint list",
     "test_source_id": "hash",
     "timeout_seconds": "hash",
+    "workspace_id": "omit"
+  },
+  "run_connector_builder_stream_test_read": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "page_limit": "value int",
+    "record_limit": "value int",
+    "slice_limit": "value int",
+    "stream_name": "fingerprint",
     "workspace_id": "omit"
   },
   "run_sql_query": {
@@ -378,15 +405,6 @@
     "override_execution_mode": "value allowed=[\"auto\",\"docker\",\"python\",\"yaml\"]",
     "source_connector_name": "fingerprint",
     "streams": "fingerprint list"
-  },
-  "run_connector_builder_stream_test_read": {
-    "builder_project_id": "hash",
-    "definition_id": "hash",
-    "page_limit": "value int",
-    "record_limit": "value int",
-    "slice_limit": "value int",
-    "stream_name": "fingerprint",
-    "workspace_id": "omit"
   },
   "update_cloud_connection": {
     "connection_id": "hash",

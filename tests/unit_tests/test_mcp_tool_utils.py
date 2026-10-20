@@ -302,6 +302,9 @@ def test_server_tools_register_expected_policies() -> None:
         "run_connector_builder_stream_test_read",
         "get_connector_builder_resolved_manifest",
         "run_connector_builder_readiness_checks",
+        "list_connector_builder_published_versions",
+        "get_connector_builder_published_manifest",
+        "revert_connector_builder_published_version",
     }
 
 

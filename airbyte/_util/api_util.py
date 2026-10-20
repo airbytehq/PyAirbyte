@@ -3077,6 +3077,7 @@ def get_connector_builder_project(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
+    version: int | None = None,
 ) -> dict[str, Any]:
     """Get a connector builder project, including the draft manifest if one exists.
 
@@ -3093,6 +3094,8 @@ def get_connector_builder_project(
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
+        version: Optional published manifest version. When set, `declarativeManifest`
+            holds that published version instead of the draft.
 
     Returns:
         A dictionary containing the builder project details. Key fields include:
@@ -3100,11 +3103,43 @@ def get_connector_builder_project(
         - declarativeManifest: The draft manifest data (if hasDraft is True),
           which contains a 'manifest' field with the actual YAML manifest dict.
     """
+    request_body: dict[str, Any] = {
+        "workspaceId": workspace_id,
+        "builderProjectId": builder_project_id,
+    }
+    if version is not None:
+        request_body["version"] = version
     return _make_config_api_request(
         path="/connector_builder_projects/get_with_manifest",
+        json=request_body,
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def list_declarative_manifest_versions(
+    *,
+    workspace_id: str,
+    source_definition_id: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> list[dict[str, Any]]:
+    """List the published manifest versions of a declarative custom source definition.
+
+    Calls `POST /v1/declarative_source_definitions/list_manifests`. Each item has `version`,
+    `isActive` and `description`, but not the manifest.
+    """
+    response = _make_config_api_request(
+        path="/declarative_source_definitions/list_manifests",
         json={
             "workspaceId": workspace_id,
-            "builderProjectId": builder_project_id,
+            "sourceDefinitionId": source_definition_id,
         },
         api_root=api_root,
         config_api_root=config_api_root,
@@ -3112,6 +3147,7 @@ def get_connector_builder_project(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+    return response.get("manifestVersions") or []
 
 
 def update_connector_builder_project(  # noqa: PLR0913

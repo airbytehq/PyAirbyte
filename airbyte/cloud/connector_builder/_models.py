@@ -159,6 +159,14 @@ class ConnectorBuilderResolvedManifest(BaseModel):
         )
 
 
+class ConnectorBuilderPublishedVersion(BaseModel):
+    """One published manifest version of a Connector Builder project's definition."""
+
+    version: int
+    is_active: bool
+    description: str
+
+
 class ConnectorBuilderProjectInfo(BaseModel):
     """A snapshot of a Connector Builder project, read with a single project request."""
 

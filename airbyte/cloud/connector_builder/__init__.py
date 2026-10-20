@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from airbyte.cloud.connector_builder._models import (
     ConnectorBuilderPageSummary,
+    ConnectorBuilderPublishedVersion,
     ConnectorBuilderResolvedManifest,
     ConnectorBuilderStreamReadResult,
 )
@@ -21,6 +22,7 @@ from airbyte.cloud.connector_builder.project import (
 __all__ = [
     "CloudConnectorBuilderProject",
     "ConnectorBuilderPageSummary",
+    "ConnectorBuilderPublishedVersion",
     "ConnectorBuilderResolvedManifest",
     "ConnectorBuilderStreamReadResult",
 ]

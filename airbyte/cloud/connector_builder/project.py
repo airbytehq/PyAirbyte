@@ -16,6 +16,7 @@ from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connector_builder._models import (
     ConnectorBuilderFullSync,
     ConnectorBuilderProjectInfo,
+    ConnectorBuilderPublishedVersion,
     ConnectorBuilderReadinessReport,
     ConnectorBuilderResolvedManifest,
     ConnectorBuilderStreamReadiness,
@@ -38,6 +39,7 @@ from airbyte.cloud.connector_builder._util import (
     render_manifest_text,
     spec_has_secrets,
     spec_missing_required,
+    unwrap_builder_manifest,
 )
 
 
@@ -142,6 +144,116 @@ class CloudConnectorBuilderProject:
     def published_manifest_dict(self) -> dict[str, Any] | None:
         """The active manifest of the published definition, or `None` if never published."""
         return self._published_manifest(self.source_definition_id)
+
+    def _require_source_definition_id(self) -> str:
+        source_definition_id = self.source_definition_id
+        if source_definition_id is None:
+            raise exc.AirbyteLibInputError(
+                message="This Connector Builder project has never been published.",
+                guidance="Publish the project first.",
+                context={"builder_project_id": self.builder_project_id},
+            )
+        return source_definition_id
+
+    def list_published_versions(self) -> list[ConnectorBuilderPublishedVersion]:
+        """List the published manifest versions, oldest first. Empty if never published."""
+        source_definition_id = self.source_definition_id
+        if source_definition_id is None:
+            return []
+        versions = api_util.list_declarative_manifest_versions(
+            workspace_id=self.owner_workspace_id,
+            source_definition_id=source_definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
+        )
+        return sorted(
+            (
+                ConnectorBuilderPublishedVersion(
+                    version=item["version"],
+                    is_active=item["isActive"],
+                    description=item.get("description") or "",
+                )
+                for item in versions
+            ),
+            key=lambda item: item.version,
+        )
+
+    def get_published_manifest_dict(self, version: int | None = None) -> dict[str, Any] | None:
+        """Return a published manifest version, or `None` if never published.
+
+        Args:
+            version: The published version to return. Defaults to the active version.
+        """
+        if version is None:
+            return self.published_manifest_dict
+        self._require_source_definition_id()
+        project_data = api_util.get_connector_builder_project(
+            workspace_id=self.owner_workspace_id,
+            builder_project_id=self.builder_project_id,
+            version=version,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
+        )
+        declarative_manifest = project_data.get("declarativeManifest") or {}
+        return unwrap_builder_manifest(declarative_manifest.get("manifest"))
+
+    def get_published_manifest_yaml(self, version: int | None = None) -> str | None:
+        """Return a published manifest version as YAML text, or `None` if never published.
+
+        Args:
+            version: The published version to return. Defaults to the active version.
+        """
+        manifest = self.get_published_manifest_dict(version)
+        return render_manifest_text(manifest) if manifest is not None else None
+
+    def revert_to_published_version(
+        self,
+        version: int,
+        *,
+        as_draft: bool = True,
+    ) -> None:
+        """Revert the project to a published manifest version.
+
+        With `as_draft=True`, the version's manifest replaces the draft (overwriting any
+        unpublished edits) and the active published version doesn't change. With
+        `as_draft=False`, the version's manifest is published as a new active version. That
+        fails if the draft has unpublished edits, because publishing deletes the draft.
+
+        Args:
+            version: The published version to revert to.
+            as_draft: Whether to save the version as the draft instead of publishing it.
+        """
+        source_definition_id = self._require_source_definition_id()
+        manifest = self.get_published_manifest_dict(version)
+        if manifest is None:
+            raise exc.AirbyteLibInputError(
+                message="The published version has no manifest.",
+                context={"builder_project_id": self.builder_project_id, "version": version},
+            )
+        if as_draft:
+            self.replace_draft_manifest(manifest, pre_validate=False)
+            return
+
+        draft_manifest = self.draft_manifest_dict
+        if draft_manifest is not None and draft_manifest != self.published_manifest_dict:
+            raise exc.AirbyteLibInputError(
+                message="This Connector Builder project has unpublished draft edits.",
+                guidance=(
+                    "Revert with `as_draft=True` to review the version as the draft, "
+                    "or publish the draft first."
+                ),
+                context={"builder_project_id": self.builder_project_id, "version": version},
+            )
+        self.workspace.get_custom_source_definition(
+            source_definition_id,
+            definition_type="yaml",
+        ).update_definition(manifest_yaml=manifest, pre_validate=False)
 
     def _get_info(self) -> ConnectorBuilderProjectInfo:
         """Read the project once and return its IDs, URL, draft, and published manifest."""
