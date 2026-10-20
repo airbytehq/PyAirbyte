@@ -32,6 +32,7 @@ from airbyte.cloud.connector_builder._util import (
     publish_spec,
     render_manifest_text,
     spec_has_secrets,
+    spec_missing_required,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
@@ -47,6 +48,37 @@ MANIFEST: dict[str, Any] = {
     "spec": {
         "connection_specification": {"type": "object", "properties": {}},
         "documentation_url": "https://example.com/docs",
+    },
+}
+
+CREDENTIALS_ONE_OF_SPEC: dict[str, Any] = {
+    "type": "object",
+    "required": ["credentials"],
+    "properties": {
+        "credentials": {
+            "type": "object",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "auth_type": {"type": "string", "const": "api_key"},
+                        "api_key": {"type": "string", "airbyte_secret": True},
+                    },
+                    "required": ["auth_type", "api_key"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "auth_type": {"type": "string", "const": "access_token"},
+                        "access_token": {
+                            "type": "string",
+                            "airbyte_secret": True,
+                        },
+                    },
+                    "required": ["auth_type", "access_token"],
+                },
+            ],
+        }
     },
 }
 
@@ -1017,6 +1049,42 @@ def test_readiness_report_lists_caps_without_a_success_verdict(
             "passed",
             id="required-field-has-default",
         ),
+        pytest.param(
+            CREDENTIALS_ONE_OF_SPEC,
+            {"credentials": {"auth_type": "api_key"}},
+            "failed",
+            id="one-of-required-secret-missing",
+        ),
+        pytest.param(
+            CREDENTIALS_ONE_OF_SPEC,
+            {"credentials": {"auth_type": "api_key", "api_key": "**********"}},
+            "passed",
+            id="one-of-masked-secret-is-present",
+        ),
+        pytest.param(
+            CREDENTIALS_ONE_OF_SPEC,
+            {"credentials": {"auth_type": "access_token", "api_key": "**********"}},
+            "failed",
+            id="one-of-matching-option-required-secret-missing",
+        ),
+        pytest.param(
+            {
+                "type": "object",
+                "required": ["credentials"],
+                "properties": {
+                    "credentials": {
+                        "type": "object",
+                        "required": ["region"],
+                        "properties": {
+                            "region": {"type": "string", "default": "us-east-1"}
+                        },
+                    }
+                },
+            },
+            {"credentials": {}},
+            "passed",
+            id="nested-required-field-has-default",
+        ),
     ],
 )
 def test_readiness_checks_require_testing_values_when_spec_has_inputs(
@@ -1051,6 +1119,21 @@ def test_readiness_checks_require_testing_values_when_spec_has_inputs(
     assert testing_values_check.detail == project.url
     if expected_result == "failed":
         assert f"{testing_values_check.description}: {project.url}" in report.next_steps
+
+
+def test_spec_missing_required_checks_nested_fields() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "credentials": {
+                "type": "object",
+                "properties": {"api_key": {"type": "string"}},
+                "required": ["api_key"],
+            }
+        },
+    }
+
+    assert spec_missing_required(schema, {"credentials": {}})
 
 
 def test_publish_spec_uses_api_field_names() -> None:
