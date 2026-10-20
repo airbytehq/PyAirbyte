@@ -80,7 +80,7 @@ def _check_test_read_limits(
         )
 
 
-class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API facade.
+class CloudConnectorBuilderProject:
     """A Connector Builder project in an Airbyte Cloud workspace."""
 
     def __init__(
@@ -542,8 +542,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
             definition_type="yaml",
         )
 
-    @property
-    def test_source_name(self) -> str:
+    def _get_default_test_source_name(self) -> str:
         """Name of the source that `create_test_source()` creates for full syncs."""
         return f"{self.name} (Connector Builder test)"
 
@@ -555,7 +554,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         return next(
             (
                 source
-                for source in self.workspace.list_sources(name=self.test_source_name)
+                for source in self.workspace.list_sources(name=self._get_default_test_source_name())
                 if source.definition_id == source_definition_id
             ),
             None,
@@ -579,7 +578,7 @@ class CloudConnectorBuilderProject:  # noqa: PLR0904  # Builder project API faca
         spec = ((manifest or {}).get("spec") or {}).get("connection_specification")
         config = drop_masked_secrets(project_data.get("testingValues") or {})
         return self.workspace.deploy_source(
-            name=self.test_source_name,
+            name=self._get_default_test_source_name(),
             source=config,
             definition_id=source_definition_id,
             defer_credentials=spec_has_secrets(spec) or spec_missing_required(spec, config),
