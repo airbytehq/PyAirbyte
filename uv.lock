@@ -1352,8 +1352,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.35.0.post1.dev0+002b59f"
-source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=devin%2F1792462457-arg-trace-rules#002b59f5f5dd6c47b7836f4446bd34e830d54c59" }
+version = "0.35.0.post2.dev0+c69b2ed"
+source = { git = "https://github.com/airbytehq/fastmcp-extensions.git?rev=devin%2F1792462457-arg-trace-rules#c69b2eddfd59afbf78d1f6961ac33335777557b5" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
