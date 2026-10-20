@@ -13,6 +13,7 @@ docs/*.zip
 
 # Generated MCP server docs (regenerate via `poe mcp-docs-md`)
 docs/mcp-generated/
+/arg_trace_plan.json
 
 # Misc
 .DS_Store

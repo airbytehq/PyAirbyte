@@ -46,7 +46,8 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=4.0.9,<5.0",
-    "fastmcp-extensions>=0.35.0,<1.0.0",
+    # TK-TODO: Restore fastmcp-extensions>=<next release>,<1.0.0 after the rules release.
+    "fastmcp-extensions @ git+https://github.com/airbytehq/fastmcp-extensions.git@devin/1792462457-arg-trace-rules",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "httpx",  # Transitive dependency of fastmcp, imported directly
     "mcp",  # Transitive dependency of fastmcp, imported directly
@@ -116,6 +117,7 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["airbyte"]
+force-include = { "airbyte/mcp/arg_trace_rules.yaml" = "airbyte/mcp/arg_trace_rules.yaml" }
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
@@ -188,6 +190,7 @@ mcp-serve-sse = { cmd = "python -c \"from airbyte.mcp.server import app; app.run
 mcp-inspect = { cmd = "fastmcp inspect airbyte/mcp/server.py:app", help = "Inspect MCP tools and resources (supports --tools, --health, etc.)" }
 mcp-tool-test = { cmd = "python -m fastmcp_extensions.utils.test_tool --app airbyte.mcp.server:app", help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'" }
 mcp-docs-md = { cmd = "python scripts/generate_mcp_markdown.py", help = "Generate Markdown docs for the MCP server into docs/mcp-generated/ (Docusaurus- and pdoc-compatible)" }
+mcp-arg-trace-plan = { shell = "AIRBYTE_MCP_TRUSTED_EXECUTION=1 python -m airbyte.mcp._trace_plan" }
 
 # Claude Code MCP Testing Tasks
 [tool.poe.tasks.test-my-tools]
