@@ -445,8 +445,9 @@ def set_connector_builder_testing_values(
         dict | str | None,
         Field(
             description=(
-                "Configuration values for test reads, as a JSON object or JSON string. "
-                "Replaces all existing testing values."
+                "Non-secret configuration values for test reads, as a JSON object or JSON "
+                "string. Merged onto the saved testing values, so secrets the user entered in "
+                "the Connector Builder are kept. Values for `airbyte_secret` fields are rejected."
             ),
             default=None,
         ),
@@ -464,7 +465,7 @@ def set_connector_builder_testing_values(
         TraceArg.FINGERPRINT,
     ] = None,
 ) -> str:
-    """Replace the testing values (connector config) of a Connector Builder project.
+    """Update the testing values (connector config) of a Connector Builder project.
 
     Test reads use these values. Airbyte Cloud stores fields marked `airbyte_secret` in the
     draft manifest's spec in its secret storage. Requires a saved draft manifest.
@@ -479,17 +480,18 @@ def set_connector_builder_testing_values(
                 else "Provide `testing_values`."
             ),
         )
-    testing_values_dict = resolve_connector_config(
-        config=testing_values,
-        config_secret_name=testing_values_secret_name,
-    )
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     project = workspace.get_connector_builder_project(
         builder_project_id,
         definition_id=definition_id,
     )
     _check_builder_project_created_in_session(project)
-    project.replace_testing_values(testing_values_dict)
+    testing_values_dict = resolve_connector_config(
+        config=testing_values,
+        config_secret_name=testing_values_secret_name,
+        config_spec_jsonschema=project._testing_values_connection_spec(),  # noqa: SLF001
+    )
+    project._merge_testing_values(testing_values_dict)  # noqa: SLF001
     return (
         f"Saved testing values for Connector Builder project {project.builder_project_id}. "
         f"Users can review them or enter secrets at: {project.connector_builder_project_url}"

@@ -1710,3 +1710,22 @@ def test_revert_publish_publishes_version(monkeypatch: pytest.MonkeyPatch) -> No
     assert kwargs["manifest"] == store["versions"][1]
     assert kwargs["version"] == 3
     assert kwargs["description"].startswith("Reverted to version 1 by PyAirbyte at ")
+
+
+def test_merge_testing_values_keeps_saved_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_project_store(
+        monkeypatch,
+        draft=MANIFEST,
+        testing_values={"api_key": "**********", "region": "us"},
+    )
+    project = CloudConnectorBuilderProject(
+        workspace=_fake_workspace(), builder_project_id="bp"
+    )
+    replace = MagicMock()
+    monkeypatch.setattr(project, "replace_testing_values", replace)
+
+    project._merge_testing_values({"region": "eu"})
+
+    replace.assert_called_once_with({"api_key": "**********", "region": "eu"})

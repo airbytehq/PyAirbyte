@@ -418,6 +418,27 @@ class CloudConnectorBuilderProject:
             config_api_root=self.workspace.config_api_root,
         )
 
+    def _testing_values_connection_spec(self) -> dict[str, Any]:
+        """Return the JSON schema of the testing values, from the draft or published spec."""
+        project_data = self._get_project_data()
+        manifest = draft_from_project_data(project_data) or self._published_manifest(
+            project_data["builderProject"].get("sourceDefinitionId")
+        )
+        if manifest is None:
+            manifest = self._require_draft_manifest(project_data)
+        return builder_testing_values_spec(manifest).get("connectionSpecification") or {}
+
+    def _merge_testing_values(
+        self,
+        testing_values: dict[str, Any],
+    ) -> None:
+        """Merge `testing_values` onto the saved ones, keeping secrets stored on Cloud.
+
+        Cloud returns saved secrets masked; sending the mask back keeps the stored secret.
+        """
+        saved = self._get_project_data().get("testingValues") or {}
+        self.replace_testing_values({**saved, **testing_values})
+
     def run_stream_test_read(
         self,
         stream_name: str,
