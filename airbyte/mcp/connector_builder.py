@@ -12,9 +12,13 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import TraceArg, register_mcp_tools
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-from airbyte.cloud.connector_builder._models import ManifestTextEditMode
+from airbyte.cloud.connector_builder._models import (
+    ConnectorBuilderReadinessReport,
+    ConnectorBuilderStreamReadResult,
+    ManifestTextEditMode,
+)
 from airbyte.cloud.connector_builder._util import (
     TEST_READ_MAX_PAGES,
     TEST_READ_MAX_RECORDS,
@@ -61,6 +65,71 @@ _BUILDER_DEFINITION_ID_DESCRIPTION = (
 _TEST_READ_RECORDS_PREVIEW_LIMIT = 10
 
 
+class ConnectorBuilderDraftManifestResult(BaseModel):
+    """Draft and published manifests of a Connector Builder project."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+    definition_id: str | None
+    """The published custom source definition ID, or `None` if never published."""
+    connector_builder_project_url: str
+    """The project's Connector Builder URL."""
+    name: str
+    """The project name."""
+    has_draft: bool
+    """Whether the project has a saved draft manifest."""
+    draft_manifest: dict[str, Any] | None
+    """The draft manifest, or `None` without a draft."""
+    draft_manifest_yaml: str | None
+    """The draft manifest as YAML text, or `None` without a draft."""
+    published_manifest: dict[str, Any] | None
+    """The published manifest, or `None` if never published."""
+
+
+class ConnectorBuilderProjectCreateResult(BaseModel):
+    """Result of creating a Connector Builder project."""
+
+    builder_project_id: str
+    """The new Connector Builder project ID."""
+    definition_id: str | None
+    """The published custom source definition ID, set only with `create_test_source`."""
+    connector_builder_project_url: str
+    """The project's Connector Builder URL."""
+    name: str
+    """The project name."""
+    test_source_id: str | None = None
+    """The test source ID, set only with `create_test_source`."""
+    test_source_settings_url: str | None = None
+    """Cloud settings page of the test source, set only with `create_test_source`."""
+
+
+class ConnectorBuilderStreamTestReadToolResult(ConnectorBuilderStreamReadResult):
+    """Test read of one stream, with credentials redacted and a capped record preview."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+
+
+class ConnectorBuilderResolvedManifestResult(BaseModel):
+    """Resolved draft manifest of a Connector Builder project."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+    stream_names: list[str]
+    """Stream names in the resolved manifest, including generated dynamic streams."""
+    resolved_manifest: dict[str, Any]
+    """The resolved manifest."""
+
+
+class ConnectorBuilderReadinessReportResult(ConnectorBuilderReadinessReport):
+    """Readiness report of a Connector Builder project, with credentials redacted."""
+
+    builder_project_id: str
+    """The Connector Builder project ID."""
+    connector_builder_project_url: str
+    """The project's Connector Builder URL."""
+
+
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -90,7 +159,7 @@ def get_connector_builder_draft_manifest(
         ),
         TraceArg.OMIT,
     ],
-) -> dict[str, Any]:
+) -> ConnectorBuilderDraftManifestResult:
     """Get the Connector Builder draft manifest of a project or custom source definition.
 
     Returns the working draft manifest that has been saved but not yet published, both as
@@ -106,7 +175,9 @@ def get_connector_builder_draft_manifest(
         builder_project_id,
         definition_id=definition_id,
     )
-    return project._get_info().model_dump(by_alias=True)  # noqa: SLF001
+    return ConnectorBuilderDraftManifestResult.model_validate(
+        project._get_info().model_dump(by_alias=True),  # noqa: SLF001
+    )
 
 
 @mcp_tool(
@@ -168,7 +239,7 @@ def create_connector_builder_project(
             default=False,
         ),
     ] = False,
-) -> dict[str, Any]:
+) -> ConnectorBuilderProjectCreateResult:
     """Create a Connector Builder project to develop a custom YAML source.
 
     The project holds the draft manifest and the testing values used for test reads.
@@ -191,22 +262,20 @@ def create_connector_builder_project(
         pre_validate=pre_validate,
     )
     register_guid_created_in_session(project.builder_project_id)
-    result: dict[str, Any] = {
-        "builder_project_id": project.builder_project_id,
-        "definition_id": None,
-        "connector_builder_project_url": project.connector_builder_project_url,
-        "name": name,
-    }
+    result = ConnectorBuilderProjectCreateResult(
+        builder_project_id=project.builder_project_id,
+        definition_id=None,
+        connector_builder_project_url=project.connector_builder_project_url,
+        name=name,
+    )
     if create_test_source:
         definition = project.publish(name, pre_validate=pre_validate)
         register_guid_created_in_session(definition.definition_id)
         test_source = project._get_or_create_default_test_source()  # noqa: SLF001
         register_guid_created_in_session(test_source.connector_id)
-        result |= {
-            "definition_id": definition.definition_id,
-            "test_source_id": test_source.connector_id,
-            "test_source_settings_url": test_source.connector_url,
-        }
+        result.definition_id = definition.definition_id
+        result.test_source_id = test_source.connector_id
+        result.test_source_settings_url = test_source.connector_url
     return result
 
 
@@ -466,7 +535,7 @@ def run_connector_builder_stream_test_read(
         ),
         TraceArg.VALUE,
     ] = 5,
-) -> dict[str, Any]:
+) -> ConnectorBuilderStreamTestReadToolResult:
     """Test-read one stream of a Connector Builder project's draft manifest on Airbyte Cloud.
 
     Uses the project's saved testing values as the connector config. Returns counts, a
@@ -489,11 +558,13 @@ def run_connector_builder_stream_test_read(
         page_limit=page_limit,
         slice_limit=slice_limit,
     )
-    return {
-        **_redact_stream_diagnostics(result.model_dump()),
-        "records": result.records[:_TEST_READ_RECORDS_PREVIEW_LIMIT],
-        "builder_project_id": project.builder_project_id,
-    }
+    return ConnectorBuilderStreamTestReadToolResult.model_validate(
+        {
+            **_redact_stream_diagnostics(result.model_dump()),
+            "records": result.records[:_TEST_READ_RECORDS_PREVIEW_LIMIT],
+            "builder_project_id": project.builder_project_id,
+        }
+    )
 
 
 @mcp_tool(
@@ -537,7 +608,7 @@ def get_connector_builder_resolved_manifest(
         ),
         TraceArg.VALUE,
     ] = 5,
-) -> dict[str, Any]:
+) -> ConnectorBuilderResolvedManifestResult:
     """Resolve a Connector Builder project's draft manifest on Airbyte Cloud.
 
     Expands `$ref`s, `$parameters`, and dynamic streams (using the project's testing values),
@@ -549,11 +620,11 @@ def get_connector_builder_resolved_manifest(
         definition_id=definition_id,
     )
     resolved = project.get_resolved_manifest(stream_limit=stream_limit)
-    return {
-        "builder_project_id": project.builder_project_id,
-        "stream_names": resolved.stream_names,
-        "resolved_manifest": resolved.manifest_dict,
-    }
+    return ConnectorBuilderResolvedManifestResult(
+        builder_project_id=project.builder_project_id,
+        stream_names=resolved.stream_names,
+        resolved_manifest=resolved.manifest_dict,
+    )
 
 
 @mcp_tool(
@@ -629,7 +700,7 @@ def run_connector_builder_readiness_checks(
             default=None,
         ),
     ] = None,
-) -> dict[str, Any]:
+) -> ConnectorBuilderReadinessReportResult:
     """Check a Connector Builder draft's progress and test-read its streams on Airbyte Cloud.
 
     Returns readiness checks for the steps to a finished custom source, with next steps, plus
@@ -662,11 +733,13 @@ def run_connector_builder_readiness_checks(
     report_data["streams"] = [
         _redact_stream_diagnostics(stream) for stream in report_data["streams"]
     ]
-    return {
-        "builder_project_id": project.builder_project_id,
-        "connector_builder_project_url": project.connector_builder_project_url,
-        **report_data,
-    }
+    return ConnectorBuilderReadinessReportResult.model_validate(
+        {
+            "builder_project_id": project.builder_project_id,
+            "connector_builder_project_url": project.connector_builder_project_url,
+            **report_data,
+        }
+    )
 
 
 def register_connector_builder_tools(app: FastMCP) -> None:
