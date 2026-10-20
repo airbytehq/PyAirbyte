@@ -548,7 +548,7 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module
 
 
-_CLOUD_MCP_MODULES = frozenset({"cloud", "interactive"})
+_CLOUD_MCP_MODULES = frozenset({"cloud", "connector_builder", "interactive"})
 """MCP tool modules backed by Airbyte Cloud APIs.
 
 Cloud-scoped policies (pipeline changes, read-only mode, destructive tools)

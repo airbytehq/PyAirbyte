@@ -17,6 +17,14 @@
     "table_prefix": "fingerprint",
     "workspace_id": "omit"
   },
+  "create_connector_builder_project": {
+    "create_test_source": "value allowed=[false,true]",
+    "manifest_yaml_file": "hash",
+    "manifest_yaml_text": "hash",
+    "name": "fingerprint",
+    "pre_validate": "value allowed=[false,true]",
+    "workspace_id": "omit"
+  },
   "deploy_connector_to_cloud": {
     "config": "presence",
     "config_secret_name": "fingerprint",
@@ -143,7 +151,20 @@
     "workspace_id": "omit"
   },
   "get_connector_builder_draft_manifest": {
+    "builder_project_id": "hash",
     "definition_id": "hash",
+    "workspace_id": "omit"
+  },
+  "get_connector_builder_published_manifest": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "version": "value int",
+    "workspace_id": "omit"
+  },
+  "get_connector_builder_resolved_manifest": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "stream_limit": "value int",
     "workspace_id": "omit"
   },
   "get_connector_info": {
@@ -213,6 +234,11 @@
     "organization_name": "fingerprint",
     "privilege_scope": "value allowed=[\"any\",\"instance_admin\",\"member_of\",\"organization_admin\"]"
   },
+  "list_connector_builder_published_versions": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "workspace_id": "omit"
+  },
   "list_connector_config_secrets": {
     "connector_name": "fingerprint"
   },
@@ -252,6 +278,7 @@
     "workspace_id": "omit"
   },
   "publish_custom_source_definition": {
+    "builder_project_id": "hash",
     "manifest_yaml_file": "hash",
     "manifest_yaml_text": "hash",
     "name": "fingerprint",
@@ -288,10 +315,36 @@
     "streams": "hash list",
     "workspace_id": "omit"
   },
+  "revert_connector_builder_published_version": {
+    "as_draft": "value allowed=[false,true]",
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "description": "fingerprint",
+    "version": "value int",
+    "workspace_id": "omit"
+  },
   "run_cloud_sync": {
     "connection_id": "hash",
     "wait": "value allowed=[false,true]",
     "wait_timeout": "hash",
+    "workspace_id": "omit"
+  },
+  "run_connector_builder_readiness_checks": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "run_full_sync": "value allowed=[false,true]",
+    "stream_names": "fingerprint list",
+    "test_source_id": "hash",
+    "timeout_seconds": "hash",
+    "workspace_id": "omit"
+  },
+  "run_connector_builder_stream_test_read": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "page_limit": "value int",
+    "record_limit": "value int",
+    "slice_limit": "value int",
+    "stream_name": "fingerprint",
     "workspace_id": "omit"
   },
   "run_sql_query": {
@@ -309,6 +362,12 @@
   "set_cloud_connection_table_prefix": {
     "connection_id": "hash",
     "prefix": "fingerprint",
+    "workspace_id": "omit"
+  },
+  "set_connector_builder_testing_values": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "nonsecret_testing_values": "presence",
     "workspace_id": "omit"
   },
   "set_default_cloud_workspace": {
@@ -370,6 +429,15 @@
     "config_secret_name": "fingerprint",
     "connector_id": "hash",
     "connector_type": "value allowed=[\"destination\",\"source\"]",
+    "workspace_id": "omit"
+  },
+  "update_connector_builder_manifest_text": {
+    "builder_project_id": "hash",
+    "definition_id": "hash",
+    "edit_mode": "value allowed=[\"replace_all\",\"replace_full\",\"replace_text\"]",
+    "new_text": "hash",
+    "old_text": "hash",
+    "pre_validate": "value allowed=[false,true]",
     "workspace_id": "omit"
   },
   "update_custom_source_definition": {

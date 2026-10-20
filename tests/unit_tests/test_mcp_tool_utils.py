@@ -295,7 +295,17 @@ def test_server_tools_register_expected_policies() -> None:
     insiders_tools = {
         name for name, policy in _TOOL_POLICIES.items() if policy.insiders_only
     }
-    assert insiders_tools == set()
+    assert insiders_tools == {
+        "create_connector_builder_project",
+        "update_connector_builder_manifest_text",
+        "set_connector_builder_testing_values",
+        "run_connector_builder_stream_test_read",
+        "get_connector_builder_resolved_manifest",
+        "run_connector_builder_readiness_checks",
+        "list_connector_builder_published_versions",
+        "get_connector_builder_published_manifest",
+        "revert_connector_builder_published_version",
+    }
 
 
 @pytest.mark.parametrize(
