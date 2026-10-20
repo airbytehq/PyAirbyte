@@ -3574,6 +3574,69 @@ def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
     assert policy.pipeline_change is False
 
 
+def test_create_connector_builder_project_returns_credential_next_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = {
+        "version": "6.0.0",
+        "spec": {"connection_specification": {"type": "object", "properties": {}}},
+    }
+    project_url = "https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp"
+    test_source_url = "https://cloud.airbyte.com/workspaces/ws/sources/src"
+    test_project = SimpleNamespace(
+        builder_project_id="bp",
+        connector_builder_project_url=project_url,
+        publish=MagicMock(return_value=SimpleNamespace(definition_id="definition")),
+        _get_or_create_default_test_source=MagicMock(
+            return_value=SimpleNamespace(
+                connector_id="src",
+                connector_url=test_source_url,
+            )
+        ),
+    )
+    draft_project = SimpleNamespace(
+        builder_project_id="bp-draft",
+        connector_builder_project_url="https://cloud.airbyte.com/workspaces/ws/connector-builder/edit/bp-draft",
+    )
+    workspace = SimpleNamespace(
+        create_connector_builder_project=MagicMock(
+            side_effect=[test_project, draft_project]
+        )
+    )
+    monkeypatch.setattr(
+        connector_builder_mcp, "_get_cloud_workspace", lambda *_args: workspace
+    )
+    monkeypatch.setattr(
+        connector_builder_mcp, "resolve_manifest_yaml", lambda **_kwargs: manifest
+    )
+    monkeypatch.setattr(
+        connector_builder_mcp, "register_guid_created_in_session", MagicMock()
+    )
+    ctx = cast(Context, object())
+
+    with_test_source = connector_builder_mcp.create_connector_builder_project(
+        ctx,
+        "My API",
+        workspace_id="ws",
+        manifest_yaml_text="manifest",
+        create_test_source=True,
+    )
+    without_test_source = connector_builder_mcp.create_connector_builder_project(
+        ctx,
+        "My API draft",
+        workspace_id="ws",
+        manifest_yaml_text="manifest",
+    )
+
+    assert with_test_source.next_steps == [
+        "Ask the user to enter their credentials in the Connector Builder testing "
+        f"values: {project_url}",
+        "Ask the user to enter the same credentials in the test source, then test and "
+        f"save it: {test_source_url}",
+    ]
+    assert without_test_source.next_steps == []
+
+
 def test_connector_builder_tools_return_read_warnings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

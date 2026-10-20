@@ -32,6 +32,7 @@ from airbyte.cloud.connector_builder._util import (
     publish_spec,
     render_manifest_text,
     spec_has_secrets,
+    spec_missing_required,
 )
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
@@ -47,6 +48,37 @@ MANIFEST: dict[str, Any] = {
     "spec": {
         "connection_specification": {"type": "object", "properties": {}},
         "documentation_url": "https://example.com/docs",
+    },
+}
+
+CREDENTIALS_ONE_OF_SPEC: dict[str, Any] = {
+    "type": "object",
+    "required": ["credentials"],
+    "properties": {
+        "credentials": {
+            "type": "object",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "auth_type": {"type": "string", "const": "api_key"},
+                        "api_key": {"type": "string", "airbyte_secret": True},
+                    },
+                    "required": ["auth_type", "api_key"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "auth_type": {"type": "string", "const": "access_token"},
+                        "access_token": {
+                            "type": "string",
+                            "airbyte_secret": True,
+                        },
+                    },
+                    "required": ["auth_type", "access_token"],
+                },
+            ],
+        }
     },
 }
 
@@ -969,15 +1001,109 @@ def test_readiness_report_lists_caps_without_a_success_verdict(
     assert not any("ready" in step.lower() for step in full.next_steps)
 
 
+@pytest.mark.parametrize(
+    ("connection_specification", "testing_values", "expected_result"),
+    [
+        pytest.param(
+            {
+                "type": "object",
+                "required": ["api_key"],
+                "properties": {
+                    "api_key": {"type": "string", "airbyte_secret": True},
+                    "region": {"type": "string"},
+                },
+            },
+            {"region": "us-east-1"},
+            "failed",
+            id="required-value-missing",
+        ),
+        pytest.param(
+            {
+                "type": "object",
+                "required": ["api_key"],
+                "properties": {
+                    "api_key": {"type": "string", "airbyte_secret": True},
+                    "region": {"type": "string"},
+                },
+            },
+            {"api_key": "**********", "region": "us-east-1"},
+            "passed",
+            id="masked-secret-is-present",
+        ),
+        pytest.param(
+            {"type": "object", "properties": {}},
+            None,
+            "passed",
+            id="no-inputs",
+        ),
+        pytest.param(
+            {
+                "type": "object",
+                "required": ["region"],
+                "properties": {
+                    "region": {"type": "string", "default": "us-east-1"},
+                    "account": {"type": "string"},
+                },
+            },
+            {"account": "demo"},
+            "passed",
+            id="required-field-has-default",
+        ),
+        pytest.param(
+            CREDENTIALS_ONE_OF_SPEC,
+            {"credentials": {"auth_type": "api_key"}},
+            "failed",
+            id="one-of-required-secret-missing",
+        ),
+        pytest.param(
+            CREDENTIALS_ONE_OF_SPEC,
+            {"credentials": {"auth_type": "api_key", "api_key": "**********"}},
+            "passed",
+            id="one-of-masked-secret-is-present",
+        ),
+        pytest.param(
+            CREDENTIALS_ONE_OF_SPEC,
+            {"credentials": {"auth_type": "access_token", "api_key": "**********"}},
+            "failed",
+            id="one-of-matching-option-required-secret-missing",
+        ),
+        pytest.param(
+            {
+                "type": "object",
+                "required": ["credentials"],
+                "properties": {
+                    "credentials": {
+                        "type": "object",
+                        "required": ["region"],
+                        "properties": {
+                            "region": {"type": "string", "default": "us-east-1"}
+                        },
+                    }
+                },
+            },
+            {"credentials": {}},
+            "passed",
+            id="nested-required-field-has-default",
+        ),
+    ],
+)
 def test_readiness_checks_require_testing_values_when_spec_has_inputs(
     monkeypatch: pytest.MonkeyPatch,
+    connection_specification: dict[str, Any],
+    testing_values: dict[str, Any] | None,
+    expected_result: str,
 ) -> None:
     draft = {
         "version": "6.0.0",
-        "spec": {"connection_specification": {"properties": {"api_key": {}}}},
+        "spec": {"connection_specification": connection_specification},
         "streams": [{"name": "users"}],
     }
-    _patch_project_store(monkeypatch, draft=draft, source_definition_id="def")
+    _patch_project_store(
+        monkeypatch,
+        draft=draft,
+        source_definition_id="def",
+        testing_values=testing_values,
+    )
     project = CloudConnectorBuilderProject(
         workspace=_fake_workspace(), builder_project_id="bp"
     )
@@ -985,17 +1111,32 @@ def test_readiness_checks_require_testing_values_when_spec_has_inputs(
 
     report = project._run_readiness_checks(["users"])
 
-    assert [check.result for check in report.checks] == [
-        "passed",
-        "passed",
-        "passed",
-        "failed",
-        "passed",
-        "passed",
-        "passed",
-        "unknown",
-    ]
-    assert report.failed_streams == []
+    testing_values_check = report.checks[3]
+    assert testing_values_check.description == (
+        "Ask the user to enter testing values, including secrets, in the Connector Builder UI"
+    )
+    assert testing_values_check.result == expected_result
+    assert testing_values_check.detail == project.connector_builder_project_url
+    if expected_result == "failed":
+        assert (
+            f"{testing_values_check.description}: {project.connector_builder_project_url}"
+            in report.next_steps
+        )
+
+
+def test_spec_missing_required_checks_nested_fields() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "credentials": {
+                "type": "object",
+                "properties": {"api_key": {"type": "string"}},
+                "required": ["api_key"],
+            }
+        },
+    }
+
+    assert spec_missing_required(schema, {"credentials": {}})
 
 
 def test_publish_spec_uses_api_field_names() -> None:

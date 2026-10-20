@@ -146,7 +146,11 @@ def readiness_next_steps(
     pending_streams: list[str],
     not_attempted_streams: list[str],
 ) -> list[str]:
-    steps = [check.description for check in checks[:4] if check.result != "passed"]
+    steps = [
+        f"{check.description}: {check.detail}" if check.detail else check.description
+        for check in checks[:4]
+        if check.result != "passed"
+    ]
     failed = [stream.stream_name for stream in streams if stream.failed]
     capped = [
         stream.stream_name
@@ -211,8 +215,14 @@ def readiness_checks(
             result=_result(bool(draft.get("streams")) or bool(draft.get("dynamic_streams"))),
         ),
         ConnectorBuilderReadinessCheck(
-            description="Set testing values (enter secrets in the Connector Builder UI)",
-            result=_result(bool(testing_values) or takes_no_inputs),
+            description=(
+                "Ask the user to enter testing values, including secrets, in the Connector "
+                "Builder UI"
+            ),
+            result=_result(
+                takes_no_inputs
+                or (bool(testing_values) and not spec_missing_required(spec, testing_values))
+            ),
             detail=url,
         ),
         ConnectorBuilderReadinessCheck(
@@ -276,14 +286,51 @@ def spec_missing_required(
     schema: Any,  # noqa: ANN401
     config: dict[str, Any],
 ) -> bool:
-    """Return whether `config` lacks a required top-level field that has no default."""
-    if not isinstance(schema, dict):
+    """Return whether `config` lacks a required field that has no default.
+
+    Checks nested objects and `oneOf` options too.
+    """
+    if not isinstance(schema, dict) or not isinstance(config, dict):
         return False
-    properties = schema.get("properties") or {}
-    return any(
-        name not in config and "default" not in (properties.get(name) or {})
-        for name in schema.get("required") or []
-    )
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+    for name in schema.get("required") or []:
+        property_schema = properties.get(name)
+        if name not in config and (
+            not isinstance(property_schema, dict) or "default" not in property_schema
+        ):
+            return True
+    for name, value in config.items():
+        property_schema = properties.get(name)
+        if (
+            isinstance(value, dict)
+            and isinstance(property_schema, dict)
+            and spec_missing_required(property_schema, value)
+        ):
+            return True
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, list):
+        option_satisfied = False
+        for option in one_of:
+            if not isinstance(option, dict):
+                option_satisfied = True
+                break
+            option_properties = option.get("properties")
+            if isinstance(option_properties, dict) and any(
+                isinstance(property_schema, dict)
+                and "const" in property_schema
+                and name in config
+                and config[name] != property_schema["const"]
+                for name, property_schema in option_properties.items()
+            ):
+                continue
+            if not spec_missing_required(option, config):
+                option_satisfied = True
+                break
+        if not option_satisfied:
+            return True
+    return False
 
 
 def spec_has_secrets(schema: Any) -> bool:  # noqa: ANN401
