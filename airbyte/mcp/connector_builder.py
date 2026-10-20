@@ -439,7 +439,7 @@ def set_connector_builder_testing_values(
         ),
         TraceArg.OMIT,
     ],
-    testing_values: Annotated[
+    nonsecret_testing_values: Annotated[
         dict | str,
         Field(
             description=(
@@ -464,7 +464,7 @@ def set_connector_builder_testing_values(
     )
     _check_builder_project_created_in_session(project)
     testing_values_dict = resolve_connector_config(
-        config=testing_values,
+        config=nonsecret_testing_values,
         config_spec_jsonschema=project._testing_values_connection_spec(),  # noqa: SLF001
     )
     project._merge_testing_values(testing_values_dict)  # noqa: SLF001

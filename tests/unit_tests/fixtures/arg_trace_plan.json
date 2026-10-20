@@ -367,7 +367,7 @@
   "set_connector_builder_testing_values": {
     "builder_project_id": "hash",
     "definition_id": "hash",
-    "testing_values": "presence",
+    "nonsecret_testing_values": "presence",
     "workspace_id": "omit"
   },
   "set_default_cloud_workspace": {
