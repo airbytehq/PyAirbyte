@@ -103,10 +103,13 @@ from airbyte.mcp._guards import is_trusted_execution_enabled
 from airbyte.mcp._scope import record_default_workspace, record_resolved_organization
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
+    _insiders_mode,
+    airbyte_readonly_mode_enabled,
     check_guid_created_in_session,
     delete_guard_disabled,
     destructive_tools_allowed,
     mcp_tool,
+    pipeline_changes_allowed,
     register_guid_created_in_session,
 )
 from airbyte.mcp._trace_attributes import agent_action_attributes
@@ -4097,6 +4100,21 @@ def set_cloud_connection_selected_streams(
     )
 
 
+def _is_unsafe_connection_update_tool_enabled(ctx: Context) -> bool:
+    """Return whether `update_cloud_connection_unsafe` is advertised to this caller.
+
+    Mirrors the tool filters that can hide it: insiders mode, destructive tools, pipeline
+    changes, and read-only mode. Update this helper when those filters change. It does not
+    see a per-tool exclusion list that names only this tool.
+    """
+    return (
+        _insiders_mode(ctx) is True
+        and destructive_tools_allowed(ctx) is not False
+        and pipeline_changes_allowed(ctx) is not False
+        and not airbyte_readonly_mode_enabled()
+    )
+
+
 def _apply_stream_config_overrides(
     ctx: Context,
     connection: CloudConnection,
@@ -4115,10 +4133,10 @@ def _apply_stream_config_overrides(
         )
     except AirbyteUnsafeStreamConfigChangeError as error:
         guidance = (
-            "Ask the user to make this change in the Airbyte UI. "
+            "Retry with `update_cloud_connection_unsafe`."
+            if _is_unsafe_connection_update_tool_enabled(ctx)
+            else "Ask the user to make this change in the Airbyte UI. "
             f"Connection URL: {connection.connection_url}"
-            if destructive_tools_allowed(ctx) is False
-            else "Retry with `update_cloud_connection_unsafe`."
         )
         raise AirbyteUnsafeStreamConfigChangeError(
             message=error.get_message(),
@@ -4259,9 +4277,8 @@ def update_cloud_connection(
         Field(
             description=(
                 "Update one or more streams' sync mode, destination sync mode, or top-level "
-                "cursor field. "
-                "Unsafe changes to streams with saved state must be run with "
-                "`update_cloud_connection_unsafe`."
+                "cursor field. Changes that would invalidate a stream's saved state are "
+                "rejected, and the error says how to proceed."
             ),
             default=None,
         ),
@@ -4299,6 +4316,7 @@ def update_cloud_connection(
 
 @mcp_tool(
     destructive=True,
+    insiders_only=True,
 )
 def update_cloud_connection_unsafe(
     ctx: Context,
