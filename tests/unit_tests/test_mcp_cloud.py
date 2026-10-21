@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -820,3 +821,57 @@ def test_permanently_delete_cloud_tools_pass_workspace_id(
 
     assert seen_workspace_ids == ["explicit-workspace-id"]
     assert "resource-id" in result
+
+
+def test_deploy_noop_destination_to_cloud_uses_destination_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the No-op deploy tool accepts `destination_name` and documents its params."""
+    deployed: dict[str, object] = {}
+
+    def fake_deploy_destination(**kwargs: object) -> SimpleNamespace:
+        deployed.update(kwargs)
+        return SimpleNamespace(
+            connector_id="noop-id",
+            connector_url="https://cloud.airbyte.com/noop-id",
+        )
+
+    workspace = SimpleNamespace(deploy_destination=fake_deploy_destination)
+    monkeypatch.setattr(
+        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
+    )
+    monkeypatch.setattr(cloud_mcp, "get_noop_destination", lambda: object())
+    monkeypatch.setattr(cloud_mcp, "register_guid_created_in_session", lambda _: None)
+
+    result = cloud_mcp.deploy_noop_destination_to_cloud(
+        cast(Context, object()),
+        destination_name="my-noop",
+        workspace_id=None,
+        unique=False,
+    )
+
+    assert deployed["name"] == "my-noop"
+    assert deployed["unique"] is False
+    assert "noop-id" in result
+
+    default_result = cloud_mcp.deploy_noop_destination_to_cloud(
+        cast(Context, object()), workspace_id=None
+    )
+    assert deployed["name"] == "No-op Destination"
+    assert deployed["unique"] is True
+    assert "noop-id" in default_result
+
+
+def test_deploy_noop_destination_to_cloud_params_have_descriptions() -> None:
+    """Verify every No-op deploy tool parameter exposes a schema description."""
+    signature = inspect.signature(cloud_mcp.deploy_noop_destination_to_cloud)
+    for param_name in ("destination_name", "workspace_id", "unique"):
+        annotation = signature.parameters[param_name].annotation
+        field_infos = [
+            meta
+            for meta in getattr(annotation, "__metadata__", ())
+            if hasattr(meta, "description")
+        ]
+        assert field_infos, param_name
+        assert field_infos[0].description, param_name
+    assert "name" not in signature.parameters
