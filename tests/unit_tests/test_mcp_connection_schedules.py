@@ -432,17 +432,16 @@ def test_unsafe_update_always_requests_catalog_reset(
 
 
 @pytest.mark.parametrize(
-    ("allowed", "expected_guidance"),
+    ("enabled", "expected_guidance"),
     [
         (False, "Airbyte UI"),
         (True, "update_cloud_connection_unsafe"),
-        (None, "update_cloud_connection_unsafe"),
     ],
 )
-def test_unsafe_change_guidance_uses_destructive_policy(
+def test_unsafe_change_guidance_uses_unsafe_tool_enabled(
     schedule_backend: tuple[FastMCP, responses.RequestsMock, MagicMock, MagicMock],
     monkeypatch: pytest.MonkeyPatch,
-    allowed: bool | None,
+    enabled: bool,
     expected_guidance: str,
 ) -> None:
     set_enabled = MagicMock()
@@ -461,7 +460,11 @@ def test_unsafe_change_guidance_uses_destructive_policy(
     monkeypatch.setattr(CloudConnection, "set_enabled", set_enabled)
     monkeypatch.setattr(CloudConnection, "set_schedule", set_schedule)
     monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
-    monkeypatch.setattr(cloud_mcp, "destructive_tools_allowed", lambda _ctx: allowed)
+    monkeypatch.setattr(
+        cloud_mcp,
+        "_is_unsafe_connection_update_tool_enabled",
+        lambda _ctx: enabled,
+    )
 
     with pytest.raises(AirbyteUnsafeStreamConfigChangeError) as exc_info:
         cloud_mcp.update_cloud_connection(
@@ -482,7 +485,8 @@ def test_unsafe_change_guidance_uses_destructive_policy(
         )
 
     assert expected_guidance in (exc_info.value.guidance or "")
-    if allowed is False:
+    if not enabled:
+        assert "update_cloud_connection_unsafe" not in (exc_info.value.guidance or "")
         assert "Connection URL:" in (exc_info.value.guidance or "")
     set_enabled.assert_not_called()
     set_schedule.assert_not_called()
