@@ -234,7 +234,20 @@ def test_config_derives_issuer_and_discovery_urls() -> None:
     )
 
 
-@pytest.mark.parametrize("identifier", ["acme", "Acme-1_x", "airbyte", "a", "x" * 63])
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "acme",
+        "Acme-1_x",
+        "airbyte",
+        "a",
+        "x" * 63,
+        "example.com",
+        "acme.example",
+        "a.b-c_d.e",
+        "x" * 30 + "." + "y" * 32,
+    ],
+)
 def test_validate_realm_identifier_accepts(identifier: str) -> None:
     result = sso.validate_realm_identifier(
         f"  {identifier} ", config=_config(), default_issuer=DEFAULT_ISSUER
@@ -250,10 +263,16 @@ def test_validate_realm_identifier_accepts(identifier: str) -> None:
         pytest.param("_internal", id="leading-underscore"),
         pytest.param("-acme", id="leading-dash"),
         pytest.param("acme/../master", id="traversal"),
-        pytest.param("acme.example", id="dot"),
+        pytest.param(".acme", id="leading-dot"),
+        pytest.param("acme.", id="trailing-dot"),
+        pytest.param("acme..example", id="consecutive-dots"),
+        pytest.param(".", id="dot-segment"),
+        pytest.param("..", id="dot-dot-segment"),
+        pytest.param("../master", id="dot-dot-traversal"),
         pytest.param("acme%2f", id="percent"),
         pytest.param("user@acme", id="at"),
         pytest.param("x" * 64, id="too-long"),
+        pytest.param("x" * 30 + "." + "y" * 33, id="dotted-too-long"),
         pytest.param("MASTER", id="reserved-case-insensitive"),
         pytest.param("_Airbyte-Cloud-Users", id="default-realm"),
     ],
@@ -293,9 +312,13 @@ def test_airbyte_is_an_ordinary_realm() -> None:
     "issuer, expected",
     [
         pytest.param(_issuer("acme"), "acme", id="round-trip"),
+        pytest.param(_issuer("example.com"), "example.com", id="dotted-round-trip"),
         pytest.param(_issuer("Acme-1_x"), "Acme-1_x", id="mixed-case"),
         pytest.param("https://evil.example/auth/realms/acme", None, id="foreign-host"),
         pytest.param(f"{KEYCLOAK}/acme/../master", None, id="traversal"),
+        pytest.param(f"{KEYCLOAK}/..", None, id="dot-dot-segment"),
+        pytest.param(_issuer("acme..example"), None, id="consecutive-dots"),
+        pytest.param(_issuer("acme."), None, id="trailing-dot"),
         pytest.param(f"{KEYCLOAK}/acme/extra", None, id="extra-segment"),
         pytest.param(_issuer("master"), None, id="reserved"),
         pytest.param(_issuer("_airbyte-internal"), None, id="internal"),
@@ -330,6 +353,17 @@ def test_registry_caches_successful_discovery() -> None:
         first.revocation_endpoint == f"{_issuer('acme')}/protocol/openid-connect/revoke"
     )
     assert fetch.calls == [f"{_issuer('acme')}/.well-known/openid-configuration"]
+
+
+def test_registry_discovers_dotted_realm() -> None:
+    fetch = _FakeFetch({"example.com": _realm_ok("example.com")})
+    registry = sso.SsoRealmRegistry(_config(), fetch=fetch)
+
+    endpoints = asyncio.run(registry.get_endpoints("example.com"))
+
+    assert endpoints is not None
+    assert endpoints.issuer == _issuer("example.com")
+    assert fetch.calls == [f"{_issuer('example.com')}/.well-known/openid-configuration"]
 
 
 def test_registry_negative_caches_unknown_realm_until_ttl() -> None:
