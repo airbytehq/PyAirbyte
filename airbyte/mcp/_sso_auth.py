@@ -106,12 +106,16 @@ logger = logging.getLogger(__name__)
 SSO_LOGIN_PATH = "/auth/login"
 """Route (relative to the proxy's base URL) that serves the identifier-entry page."""
 
-REALM_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
+REALM_IDENTIFIER_PATTERN = re.compile(
+    r"^(?=.{1,63}\Z)[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*\Z"
+)
 """Company identifiers that can name a realm.
 
-The leading character excludes `_`-prefixed internal realms, and the character class
-excludes `/`, `.`, `%`, and `@`, so an identifier can only ever land inside the one
-path segment the template reserves for it.
+The leading character excludes `_`-prefixed internal realms and `.`. A period is
+allowed only between other characters, never leading, trailing, or doubled, so `.` and
+`..` can never form the segment. The class still excludes `/`, `%`, and `@`, keeping
+the identifier inside the one path segment the template reserves. Dotted realm names
+like `example.com` are real Keycloak realms.
 """
 
 DISCOVERY_SUFFIX = "/.well-known/openid-configuration"
@@ -316,8 +320,9 @@ def validate_realm_identifier(raw: str, *, config: SsoRealmConfig, default_issue
         raise InvalidRealmIdentifierError("Enter your company identifier to sign in with SSO.")
     if not REALM_IDENTIFIER_PATTERN.fullmatch(realm):
         raise InvalidRealmIdentifierError(
-            "Company identifiers contain only letters, numbers, '-' and '_', start with a "
-            "letter or number, and are at most 63 characters long."
+            "Company identifiers contain only letters, numbers, '-', '_' and '.', start with a "
+            "letter or number, cannot end with '.' or contain '..', and are at most 63 "
+            "characters long."
         )
     if config.is_reserved(realm) or _same_issuer(config.issuer_for(realm), default_issuer):
         raise InvalidRealmIdentifierError("That identifier is not an SSO company identifier.")
