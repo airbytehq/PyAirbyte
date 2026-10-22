@@ -840,7 +840,7 @@ def test_deploy_noop_destination_to_cloud_uses_destination_name(
     monkeypatch.setattr(
         cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: workspace
     )
-    monkeypatch.setattr(cloud_mcp, "get_noop_destination", lambda: object())
+    monkeypatch.setattr(cloud_mcp, "get_noop_destination", object)
     monkeypatch.setattr(cloud_mcp, "register_guid_created_in_session", lambda _: None)
 
     result = cloud_mcp.deploy_noop_destination_to_cloud(
