@@ -98,6 +98,9 @@ from airbyte.cloud.models import (
     ConnectionStatus,
     JobStatusEnum,
     JobTypeEnum,
+    StreamConfigChange,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.organizations import CloudOrganization
@@ -138,6 +141,9 @@ __all__ = [
     "CloudClientConfig",
     "CloudDefaultContextInfo",
     "CloudWorkspaceInfo",
+    "StreamConfigOverride",
+    "StreamConfigChange",
+    "StreamConfigUpdateResult",
     "SyncResult",
     # Enums
     "ExternalApiReadOnlyAction",

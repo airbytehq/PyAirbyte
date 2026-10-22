@@ -412,6 +412,16 @@
     "enabled": "value allowed=[false,true]",
     "interval_hours": "hash",
     "manual_schedule": "value allowed=[false,true]",
+    "override_stream_configs": "fingerprint list",
+    "workspace_id": "omit"
+  },
+  "update_cloud_connection_unsafe": {
+    "connection_id": "hash",
+    "cron_expression": "fingerprint",
+    "enabled": "value allowed=[false,true]",
+    "interval_hours": "hash",
+    "manual_schedule": "value allowed=[false,true]",
+    "override_stream_configs": "fingerprint list",
     "workspace_id": "omit"
   },
   "update_cloud_connector_config": {
