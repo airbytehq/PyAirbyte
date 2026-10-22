@@ -74,6 +74,15 @@
     "scenarios": "fingerprint list",
     "skip_preflight": "value allowed=[false,true]"
   },
+  "discover_cloud_source_catalog": {
+    "compare_to_connection_id": "fingerprint",
+    "compare_to_source_catalog_id": "fingerprint",
+    "discover_request_id": "fingerprint",
+    "no_refresh": "value allowed=[false,true]",
+    "source_catalog_id": "fingerprint",
+    "source_id": "fingerprint",
+    "workspace_id": "omit"
+  },
   "execute_external_api_query": {
     "action": "value allowed=[\"get\",\"list\",\"search\"]",
     "api_args": "hash",
