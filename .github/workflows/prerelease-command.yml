@@ -82,17 +82,16 @@ jobs:
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Trigger pypi_publish workflow
       id: dispatch
-      uses: the-actions-org/workflow-dispatch@v4
+      uses: benc-uk/workflow-dispatch@a54f9d194fed472732282ed1597dc4909e4b4080 # v1.3.0
       with:
         workflow: pypi_publish.yml
         token: ${{ steps.get-app-token.outputs.token }}
         ref: main  # Run from main so OIDC attestation matches trusted publisher
         inputs: '{"git_ref": "refs/pull/${{ github.event.inputs.pr }}/head", "version_override": "${{ needs.resolve-pr.outputs.prerelease-version }}", "publish": "true"}'
         wait-for-completion: true
-        wait-for-completion-timeout: 30m
+        wait-timeout-seconds: 1800
     outputs:
-      workflow-conclusion: ${{ steps.dispatch.outputs.workflow-conclusion }}
-      workflow-url: ${{ steps.dispatch.outputs.workflow-url }}
+      workflow-url: ${{ steps.dispatch.outputs.runUrlHtml }}
 
   post-result-comment:
     name: Write Status to PR
