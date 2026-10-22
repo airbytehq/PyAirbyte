@@ -51,7 +51,7 @@ select = [
     "SLF",   # flake8-self
     "SLOT",  # flake8-slots
     "T10",   # debugger calls
-    # "T20", # flake8-print # TODO: Re-enable once we have logging
+    "T20",   # flake8-print (no print() in library code)
     "TCH",    # flake8-type-checking
     "TD",     # flake8-todos
     "TID",    # flake8-tidy-imports
