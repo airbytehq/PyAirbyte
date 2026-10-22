@@ -142,6 +142,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
 def get_benchmark_source(
     num_records: int | str = "5e5",
     *,
+    connector_name: str | None = None,
     install_if_missing: bool = True,
 ) -> Source:
     """Get a source for benchmarking.
@@ -157,6 +158,10 @@ def get_benchmark_source(
             500,000 records.
             Can be an integer (`1000`) or a string in scientific notation.
             For example, `"5e6"` will generate 5 million records.
+        connector_name: The connector to use for benchmarking. Defaults to "source-faker".
+            Valid options are "source-faker" and "source-e2e-test".
+            Note: source-e2e-test is slightly faster but has compatibility issues with
+            some destinations due to not generating final STATE or SUCCESS trace messages.
         install_if_missing: Whether to install the source if it is not available locally.
 
     Returns:
@@ -172,17 +177,36 @@ def get_benchmark_source(
                 input_value=str(num_records),
             ) from None
 
+    if connector_name is None:
+        connector_name = "source-faker"
+
+    if connector_name not in {"source-faker", "source-e2e-test"}:
+        raise PyAirbyteInputError(
+            message="Invalid connector name for benchmarking.",
+            input_value=connector_name,
+            guidance="Valid options are 'source-faker' and 'source-e2e-test'.",
+        )
+
+    if connector_name == "source-faker":
+        return get_source(
+            name="source-faker",
+            config={
+                "count": num_records,
+                "seed": 0,
+            },
+            streams="*",
+            install_if_missing=install_if_missing,
+        )
+
+    # source-e2e-test
     return get_source(
         name="source-e2e-test",
         docker_image=True,
-        # docker_image="airbyte/source-e2e-test:latest",
         config={
-            "type": "BENCHMARK",
-            "schema": "FIVE_STRING_COLUMNS",
-            "terminationCondition": {
-                "type": "MAX_RECORDS",
-                "max": num_records,
-            },
+            "type": "INFINITE_FEED",
+            "max_records": num_records,
+            "seed": 0,
+            "message_interval": 1000,
         },
         streams="*",
         install_if_missing=install_if_missing,
