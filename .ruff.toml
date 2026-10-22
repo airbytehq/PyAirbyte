@@ -18,6 +18,7 @@ select = [
     "COM",   # flake8-commas
     "CPY",   # missing copyright notice
     "D",     # pydocstyle (Docstring conventions)
+    "DOC501", # pydoclint: raised exceptions missing from docstring
     "DTZ",   # flake8-datetimez
     "E",     # pycodestyle (errors)
     "ERA",   # flake8-eradicate (commented out code)
