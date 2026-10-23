@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -467,3 +468,117 @@ def test_run_connection_wraps_sdk_error(
         )
 
     assert exc_info.value.context["status_code"] == 409
+
+
+def _raw_catalog() -> dict[str, object]:
+    """Create a raw Config API catalog with selected and unselected streams."""
+    return {
+        "streams": [
+            {
+                "stream": {"name": "users", "namespace": "public"},
+                "config": {"selected": True},
+            },
+            {
+                "stream": {"name": "orders"},
+                "config": {"selected": True},
+            },
+            {
+                "stream": {"name": "events", "namespace": "public"},
+                "config": {"selected": False},
+            },
+        ]
+    }
+
+
+def _patch_clear_connection(
+    monkeypatch: pytest.MonkeyPatch,
+    captured_calls: list[dict[str, object]],
+) -> None:
+    """Patch the API utility clear call and capture its arguments."""
+
+    def clear_connection(**kwargs: object) -> dict[str, object]:
+        """Capture clear arguments and return a minimal JobInfoRead response."""
+        captured_calls.append(kwargs)
+        return {"job": {"id": 77, "configType": "clear"}, "attempts": []}
+
+    monkeypatch.setattr(api_util, "clear_connection", clear_connection)
+
+
+def test_clear_all_streams_starts_a_clear_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `clear()` with no stream names clears the whole connection."""
+    captured_calls: list[dict[str, object]] = []
+    _patch_clear_connection(monkeypatch, captured_calls)
+    connection = _connection()
+
+    result = connection.clear()
+
+    assert result.job_id == 77
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["connection_id"] == "connection-id"
+    assert captured_calls[0]["streams"] is None
+
+
+def test_clear_named_streams_sends_their_namespaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `clear()` sends one descriptor per named stream, with its namespace."""
+    captured_calls: list[dict[str, object]] = []
+    _patch_clear_connection(monkeypatch, captured_calls)
+    connection = _connection()
+    monkeypatch.setattr(connection, "dump_raw_catalog", lambda **_: _raw_catalog())
+
+    result = connection.clear(stream_names=["users", "orders", "users"])
+
+    assert result.job_id == 77
+    assert captured_calls[0]["streams"] == [
+        {"streamName": "users", "streamNamespace": "public"},
+        {"streamName": "orders"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("stream_names", "expected_message"),
+    [
+        pytest.param([], "No stream names", id="empty-list"),
+        pytest.param(["missing"], "not selected", id="unknown-stream"),
+        pytest.param(["events"], "not selected", id="unselected-stream"),
+    ],
+)
+def test_clear_rejects_streams_it_cannot_clear(
+    monkeypatch: pytest.MonkeyPatch,
+    stream_names: list[str],
+    expected_message: str,
+) -> None:
+    """Verify `clear()` raises before any API call for streams it cannot clear."""
+    captured_calls: list[dict[str, object]] = []
+    _patch_clear_connection(monkeypatch, captured_calls)
+    connection = _connection()
+    monkeypatch.setattr(connection, "dump_raw_catalog", lambda **_: _raw_catalog())
+
+    with pytest.raises(PyAirbyteInputError, match=expected_message):
+        connection.clear(stream_names=stream_names)
+
+    assert captured_calls == []
+
+
+def test_clear_rejects_a_stream_name_in_two_namespaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `clear()` refuses to guess which namespace a stream name means."""
+    captured_calls: list[dict[str, object]] = []
+    _patch_clear_connection(monkeypatch, captured_calls)
+    connection = _connection()
+    catalog = _raw_catalog()
+    streams = cast(list[dict[str, object]], catalog["streams"])
+    streams.append({
+        "stream": {"name": "users", "namespace": "archive"},
+        "config": {"selected": True},
+    })
+    monkeypatch.setattr(connection, "dump_raw_catalog", lambda **_: catalog)
+
+    with pytest.raises(PyAirbyteInputError, match="more than one namespace"):
+        connection.clear(stream_names=["users"])
+
+    assert captured_calls == []
