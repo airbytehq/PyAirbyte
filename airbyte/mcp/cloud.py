@@ -943,7 +943,10 @@ def run_cloud_sync(
 )
 def deploy_noop_destination_to_cloud(
     ctx: Context,
-    name: str = "No-op Destination",
+    destination_name: Annotated[
+        str,
+        Field(description="The name to use when deploying the No-op destination."),
+    ] = "No-op Destination",
     *,
     workspace_id: Annotated[
         str | None,
@@ -952,13 +955,13 @@ def deploy_noop_destination_to_cloud(
             default=None,
         ),
     ],
-    unique: bool = True,
+    unique: Annotated[bool, Field(description="Whether to require a unique name.")] = True,
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes."""
     destination = get_noop_destination()
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_destination = workspace.deploy_destination(
-        name=name,
+        name=destination_name,
         destination=destination,
         unique=unique,
     )
