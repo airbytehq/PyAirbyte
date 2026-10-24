@@ -65,6 +65,10 @@ source = ab.get_source(
 
 For any connector (`get_source()`/`get_destination()`), you can specify the `docker_image` argument to `True` to prefer Docker over other default installation methods or `docker_image=MY_IMAGE` to leverage a specific docker image tag for the execution.
 
+### Custom Connectors
+
+To run a connector that isn't in the public Airbyte registry - for example, one you're developing locally, one exported from the Connector Builder, or a private fork - see our [Custom Connectors guide](./docs/custom-connectors.md).
+
 ## Contributing
 
 To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./docs/CONTRIBUTING.md).
@@ -77,7 +81,7 @@ or scheduling capabilities, nor does is provide logging, alerting, or other feat
 production. Airbyte is a full-fledged data integration platform that provides connectors, orchestration, and scheduling capabilities.
 
 **2. What is the PyAirbyte cache? Is it a destination?**
-Yes and no. You can think of it as a built-in destination implementation, but we avoid the word "destination" in our docs to prevent confusion with our certified destinations list [here](https://docs.airbyte.com/integrations/destinations/).
+Yes and no. You can think of it as a built-in destination implementation, but we avoid the word "destination" in our docs to prevent confusion with our [certified destinations list](https://docs.airbyte.com/integrations/destinations/).
 
 **3. Does PyAirbyte work with data orchestration frameworks like Airflow, Dagster, and Snowpark,**
 Yes, it should. Please give it a try and report any problems you see. Also, drop us a note if works for you!
