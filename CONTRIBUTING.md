@@ -41,6 +41,12 @@ Non-Cloud MCP trace messages are the first line of the exception class's docstri
 (trace-only, exported to Datadog as `error.message`), so keep those first lines fixed text
 with no IDs, values or URLs.
 
+## Testing and CI
+
+- `.github/workflows/python_pytest.yml` defines the test jobs and their OS and Python matrix. Check the matrix and the individual job logs before attributing a failure to a Python version or operating system.
+- The no-credentials job skips tests marked `requires_creds`, `linting`, `super_slow` and `flaky`, runs with GCP credentials blanked, and also runs on forks. Skipped credential tests there are not credential coverage.
+- Mark tests that need credentials with `@pytest.mark.requires_creds`. When debugging Snowflake or other integrations, never print credentials or connection secrets; inspect non-sensitive configuration first.
+
 ## 🚀 Releasing
 
 This project uses [`semantic-pr-release-drafter`](https://github.com/airbytehq/semantic-pr-release-drafter) for automated release management. To release, simply click "`Edit`" on the latest release draft from the [releases page](https://github.com/airbytehq/PyAirbyte/releases), and then click "`Publish release`". This publish operation will trigger all necessary downstream publish operations.
