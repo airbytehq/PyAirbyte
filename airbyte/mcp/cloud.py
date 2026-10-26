@@ -1041,7 +1041,11 @@ def run_cloud_sync(
 @mcp_tool()
 def deploy_noop_destination_to_cloud(
     ctx: Context,
-    name: Annotated[str, TraceArg.FINGERPRINT] = "No-op Destination",
+    destination_name: Annotated[
+        str,
+        Field(description="The name to use when deploying the No-op destination."),
+        TraceArg.FINGERPRINT,
+    ] = "No-op Destination",
     *,
     workspace_id: Annotated[
         str | None,
@@ -1051,13 +1055,13 @@ def deploy_noop_destination_to_cloud(
         ),
         TraceArg.OMIT,
     ],
-    unique: bool = True,
+    unique: Annotated[bool, Field(description="Whether to require a unique name.")] = True,
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes."""
     destination = get_noop_destination()
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_destination = workspace.deploy_destination(
-        name=name,
+        name=destination_name,
         destination=destination,
         unique=unique,
     )

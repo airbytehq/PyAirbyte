@@ -37,7 +37,7 @@
     "workspace_id": "omit"
   },
   "deploy_noop_destination_to_cloud": {
-    "name": "fingerprint",
+    "destination_name": "fingerprint",
     "unique": "value allowed=[false,true]",
     "workspace_id": "omit"
   },
