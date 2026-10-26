@@ -535,6 +535,11 @@ class SyncJobResult(BaseModel):
     """Number of records synced in this job."""
     start_time: str
     """ISO 8601 timestamp of when the job started."""
+    duration: str | None = None
+    """ISO 8601 duration of the job (e.g. `PT1M9S` is 1 minute 9 seconds), or null if Cloud has
+    not reported one (e.g. the job is still running)."""
+    last_updated_at: str | None = None
+    """ISO 8601 timestamp of the job's last update. For a finished job, this is when it ended."""
     job_url: str
     """URL to view the job in Airbyte Cloud."""
 
@@ -1130,6 +1135,8 @@ def get_cloud_sync_status(
         "bytes_synced": sync_result.bytes_synced,
         "records_synced": sync_result.records_synced,
         "start_time": sync_result.start_time.isoformat(),
+        "duration": sync_result.duration,
+        "last_updated_at": sync_result.last_updated_at,
         "job_url": sync_result.job_url,
         "attempts": [],
     }
@@ -1232,6 +1239,8 @@ def list_cloud_sync_jobs(
             bytes_synced=sync_result.bytes_synced,
             records_synced=sync_result.records_synced,
             start_time=sync_result.start_time.isoformat(),
+            duration=sync_result.duration,
+            last_updated_at=sync_result.last_updated_at,
             job_url=sync_result.job_url,
         )
         for sync_result in sync_results

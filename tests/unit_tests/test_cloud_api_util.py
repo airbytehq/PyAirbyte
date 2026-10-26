@@ -1573,6 +1573,30 @@ def test_sdk_decodes_queued_job_status() -> None:
     assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
 
 
+def test_cloud_job_info_preserves_duration_and_last_updated_at() -> None:
+    payload = {"data": [_raw_job_response(42, "succeeded")]}
+    payload["data"][0].update(
+        duration="PT1M9S",
+        lastUpdatedAt="2026-10-19T01:18:28Z",
+    )
+    job = utils.unmarshal_json(json.dumps(payload), models.JobsResponse).data[0]
+
+    job_info = CloudJobInfo.from_api_response(job)
+
+    assert job_info.duration == "PT1M9S"
+    assert job_info.last_updated_at == "2026-10-19T01:18:28Z"
+
+
+def test_cloud_job_info_defaults_missing_duration_and_last_updated_at_to_none() -> None:
+    payload = {"data": [_raw_job_response(42, "running")]}
+    job = utils.unmarshal_json(json.dumps(payload), models.JobsResponse).data[0]
+
+    job_info = CloudJobInfo.from_api_response(job)
+
+    assert job_info.duration is None
+    assert job_info.last_updated_at is None
+
+
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify job log pagination stops after collecting the requested limit."""
     captured_requests: list[api.ListJobsRequest] = []
