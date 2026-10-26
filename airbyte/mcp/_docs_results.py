@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Docs-result models and renderers for the Cloud MCP tools.
 
-This module provides the `CloudConnectorDocsResult` and `AgentSkillDocsResult`
+This module provides the `CloudConnectorDocsResult` and `ExternalAccessSkillDocsResult`
 result models plus the helpers that render `DirectAccessGuidance` into them.
 """
 
@@ -48,8 +48,8 @@ class CloudConnectorDocsResult(BaseModel):
     """Non-fatal issues reported while reading or rendering the docs."""
 
 
-class AgentSkillDocsResult(BaseModel):
-    """Docs for a single agent skill (skills for agents), returned by `get_agent_skill_docs`."""
+class ExternalAccessSkillDocsResult(BaseModel):
+    """Docs for a single external-access skill, returned by `get_external_access_skill_docs`."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -71,6 +71,9 @@ class AgentSkillDocsResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     """Non-fatal issues reported while reading or rendering the docs."""
 
+    errors: list[str] = Field(default_factory=list)
+    """Errors to relay to the user, for example when direct access is disabled for the connector."""
+
 
 def render_connector_docs_result(docs: DirectAccessGuidance) -> CloudConnectorDocsResult:
     """Render `DirectAccessGuidance` into a `CloudConnectorDocsResult`."""
@@ -84,9 +87,11 @@ def render_connector_docs_result(docs: DirectAccessGuidance) -> CloudConnectorDo
     )
 
 
-def render_agent_skill_docs_result(docs: DirectAccessGuidance) -> AgentSkillDocsResult:
-    """Render `DirectAccessGuidance` into an `AgentSkillDocsResult`."""
-    return AgentSkillDocsResult(
+def render_external_access_skill_docs_result(
+    docs: DirectAccessGuidance,
+) -> ExternalAccessSkillDocsResult:
+    """Render `DirectAccessGuidance` into an `ExternalAccessSkillDocsResult`."""
+    return ExternalAccessSkillDocsResult(
         skill_id=docs.metadata.id,
         title=docs.metadata.title,
         content=render_docs_content_markdown(docs.content),

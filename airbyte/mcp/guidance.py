@@ -28,11 +28,16 @@ from pydantic import BaseModel, Field
 from airbyte import exceptions as exc
 from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.constants import is_hosted_mcp_mode
-from airbyte.mcp._docs_results import AgentSkillDocsResult, render_agent_skill_docs_result
+from airbyte.exceptions import AirbyteExternalAccessNotEnabledError
+from airbyte.mcp._docs_results import (
+    ExternalAccessSkillDocsResult,
+    render_external_access_skill_docs_result,
+)
 from airbyte.mcp._tool_utils import mcp_tool
 from airbyte.mcp.cloud import (
     SKILL_DOCS_SECTION_HINT,
     WORKSPACE_ID_TIP_TEXT,
+    _direct_access_disabled_message,
     _get_cloud_workspace,
 )
 from airbyte.registry import (
@@ -176,7 +181,7 @@ def test_my_tools_prompt(
     extra_help_text=SKILL_DOCS_SECTION_HINT,
     external_access=True,
 )
-def get_agent_skill_docs(
+def get_external_access_skill_docs(
     ctx: Context,
     *,
     docs_skill_id: Annotated[
@@ -219,7 +224,7 @@ def get_agent_skill_docs(
         ),
         TraceArg.OMIT,
     ],
-) -> AgentSkillDocsResult:
+) -> ExternalAccessSkillDocsResult:
     """Read a deployed connector's direct-access docs (agent skill docs).
 
     These docs describe the entity types, actions, and arguments that
@@ -231,11 +236,25 @@ def get_agent_skill_docs(
     Exactly one of `connector_id` or `docs_skill_id` is required. `connector_id` must be
     the ID of a source or destination deployed in the workspace (for example from
     `list_cloud_connectors`), not a connector definition ID from the registry.
+
+    When direct access is disabled for the connector, `errors` holds a message with an
+    enablement link to show the user.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    return render_agent_skill_docs_result(
-        workspace.get_agent_skill_docs(docs_skill_id, connector_id=connector_id, section=section)
-    )
+    try:
+        docs = workspace.get_agent_skill_docs(
+            docs_skill_id, connector_id=connector_id, section=section
+        )
+    except AirbyteExternalAccessNotEnabledError as error:
+        if error.enablement_url is None:
+            raise
+        label = error.connector_name or f"connector {error.connector_id}"
+        return ExternalAccessSkillDocsResult(
+            skill_id=docs_skill_id,
+            content="",
+            errors=[_direct_access_disabled_message(error, label=label)],
+        )
+    return render_external_access_skill_docs_result(docs)
 
 
 class ConnectorInfo(BaseModel):

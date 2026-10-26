@@ -921,19 +921,16 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def read_agent_skill_docs(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's skill docs from the Agents API without enrichment.
 
-        Sources are addressed by the `docs_skill_id` reported by Context Layer
-        `inspect`; SQL passthrough destinations by their conventional
-        `connector-destination:` skill ID. `section` is passed through unchanged
-        and Agents API errors (including not-enabled 403/404s) propagate. Other
-        destinations do not support direct access docs.
+        Sources are addressed by their `connector-source:` skill ID; SQL passthrough
+        destinations by their conventional `connector-destination:` skill ID.
+        `section` is passed through unchanged. Not-enabled 403/404s raise
+        `AirbyteExternalAccessNotEnabledError` with an `enablement_url`; when the
+        Context Layer API is unavailable, that error has no URL. Other errors
+        propagate. Other destinations do not support direct access docs.
         """
         if self.connector_type == ConnectorType.SOURCE:
-            skill_id: str | None = self._direct_access_guidance_id()
-            if skill_id is None:
-                raise exc.AirbyteExternalAccessNotEnabledError(
-                    connector_name=self.name,
-                    connector_id=self.connector_id,
-                )
+            self._require_context_layer_api()
+            skill_id = connector_docs.source_skill_id(self.connector_id)
         elif self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             skill_id = connector_docs.destination_skill_id(self.connector_id)
         else:
@@ -948,14 +945,22 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     "definition_id": self.definition_id,
                 },
             )
-        return DirectAccessGuidance.model_validate(
-            agents_api_util.read_cloud_skill_docs(
-                workspace_id=self.workspace.workspace_id,
-                skill_id=skill_id,
-                credentials=self.workspace._credentials,  # noqa: SLF001
-                section=section,
+        try:
+            return DirectAccessGuidance.model_validate(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
+                    skill_id=skill_id,
+                    credentials=self.workspace._credentials,  # noqa: SLF001
+                    section=section,
+                )
             )
-        )
+        except exc.AirbyteCloudError as error:
+            self._raise_if_feature_not_enabled(
+                error,
+                ConnectorFeature.DIRECT_ACCESS,
+                enablement_url=self._direct_access_enablement_url,
+            )
+            raise
 
     def get_direct_access_guidance(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's direct-access docs, optionally scoped to a section.

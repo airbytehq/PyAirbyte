@@ -110,12 +110,6 @@
     "sql_dialect": "value str",
     "workspace_id": "omit"
   },
-  "get_agent_skill_docs": {
-    "connector_id": "hash",
-    "docs_skill_id": "hash",
-    "section": "fingerprint",
-    "workspace_id": "omit"
-  },
   "get_api_docs_urls": {
     "connector_name": "fingerprint"
   },
@@ -181,6 +175,12 @@
     "workspace_id": "omit"
   },
   "get_default_cloud_context": {},
+  "get_external_access_skill_docs": {
+    "connector_id": "hash",
+    "docs_skill_id": "hash",
+    "section": "fingerprint",
+    "workspace_id": "omit"
+  },
   "get_source_stream_json_schema": {
     "config": "presence",
     "config_file": "fingerprint",

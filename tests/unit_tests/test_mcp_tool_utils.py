@@ -284,7 +284,7 @@ def test_server_tools_register_expected_policies() -> None:
         "execute_external_sql_query",
         "execute_external_search_query",
         "get_cloud_search_status",
-        "get_agent_skill_docs",
+        "get_external_access_skill_docs",
     )
     for tool_name in external_tools:
         assert _TOOL_POLICIES[tool_name].external_access

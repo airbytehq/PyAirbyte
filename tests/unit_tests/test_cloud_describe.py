@@ -15,7 +15,7 @@ from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.mcp._docs_results import (
-    render_agent_skill_docs_result,
+    render_external_access_skill_docs_result,
     render_connector_docs_result,
 )
 from airbyte.cloud.connections import CloudConnection
@@ -298,9 +298,10 @@ def test_direct_access_guidance_id_source_probe_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
     probe_error: AirbyteCloudError,
 ) -> None:
-    """A 403/404 docs probe leaves no guidance ID; reads raise not-enabled."""
+    """A 403/404 probe leaves no guidance ID and reads return an enablement URL."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(CloudConnector, "is_feature_enabled", lambda *_: False)
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
@@ -309,8 +310,12 @@ def test_direct_access_guidance_id_source_probe_not_enabled(
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source._direct_access_guidance_id() is None  # noqa: SLF001
-    with pytest.raises(AirbyteExternalAccessNotEnabledError):
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
         source.get_direct_access_guidance()
+    assert (
+        exc_info.value.enablement_url
+        == f"{source.connector_url}/enable-direct-access?skip-consent-screen=false"
+    )
 
 
 @pytest.mark.parametrize(
@@ -417,7 +422,7 @@ def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
     assert guidance.metadata.warnings == [notice]
     assert render_connector_docs_result(guidance).warnings == [notice]
-    assert render_agent_skill_docs_result(guidance).warnings == [notice]
+    assert render_external_access_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert any(block.get("type") == "table" for block in guidance.content)
     assert "execute_external_sql_query" not in _content_text(guidance)
@@ -558,7 +563,7 @@ def test_get_direct_access_guidance_destination_no_context_layer_notices(
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
     assert guidance.metadata.warnings == [notice]
     assert render_connector_docs_result(guidance).warnings == [notice]
-    assert render_agent_skill_docs_result(guidance).warnings == [notice]
+    assert render_external_access_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)

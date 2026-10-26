@@ -146,6 +146,13 @@ def test_get_agent_skill_docs_passes_section(
     ("docs_skill_id", "connector_id", "lookup_method", "expected_lookup_id"),
     [
         pytest.param(
+            "connector-source:source-1",
+            None,
+            "get_source",
+            "source-1",
+            id="source_skill_id",
+        ),
+        pytest.param(
             "connector-destination:destination-1",
             None,
             "get_destination",
