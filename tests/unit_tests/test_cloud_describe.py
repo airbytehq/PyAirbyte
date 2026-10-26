@@ -15,7 +15,7 @@ from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._direct_connectors import connector_docs
 from airbyte.cloud import workspaces as cloud_workspaces
 from airbyte.mcp._docs_results import (
-    render_agent_skill_docs_result,
+    render_external_access_skill_docs_result,
     render_connector_docs_result,
 )
 from airbyte.cloud.connections import CloudConnection
@@ -422,7 +422,7 @@ def test_get_direct_access_guidance_destination_not_enabled_adds_notice(
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
     assert guidance.metadata.warnings == [notice]
     assert render_connector_docs_result(guidance).warnings == [notice]
-    assert render_agent_skill_docs_result(guidance).warnings == [notice]
+    assert render_external_access_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert any(block.get("type") == "table" for block in guidance.content)
     assert "execute_external_sql_query" not in _content_text(guidance)
@@ -563,7 +563,7 @@ def test_get_direct_access_guidance_destination_no_context_layer_notices(
     assert guidance.content[0] == {"type": "paragraph", "text": notice}
     assert guidance.metadata.warnings == [notice]
     assert render_connector_docs_result(guidance).warnings == [notice]
-    assert render_agent_skill_docs_result(guidance).warnings == [notice]
+    assert render_external_access_skill_docs_result(guidance).warnings == [notice]
     assert guidance.outline == []
     assert "execute_external_sql_query" not in _content_text(guidance)
     assert "SHOW TABLES" not in _content_text(guidance)

@@ -149,11 +149,11 @@ def _manifest_and_testing_values_hint() -> str | None:
 SKILL_DOCS_SECTION_HINT = """\
 Skill doc sections for direct API queries and actions are named with the pattern
 `actions.<entity_type>.<action>`, matching the `entity_type` and `action` arguments of the
-`execute_external_api_query` tool. Call `get_agent_skill_docs` with the deployed `connector_id`
-(or a `docs_skill_id`) and no `section` to get the overview and list of available sections, then
-retrieve the relevant section(s) before calling an action. E.g. for GitHub `entity_type='issues'`,
-`action='list'`, the `'actions.issues.list'` section will teach that its expected
-`api_args` keys are `owner`, `repo`, `states`, etc.\
+`execute_external_api_query` tool. Call `get_external_access_skill_docs` with the deployed
+`connector_id` (or a `docs_skill_id`) and no `section` to get the overview and list of
+available sections, then retrieve the relevant section(s) before calling an action. E.g. for
+GitHub `entity_type='issues'`, `action='list'`, the `'actions.issues.list'` section will teach
+that its expected `api_args` keys are `owner`, `repo`, `states`, etc.\
 """
 CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 DEFER_CREDENTIALS_TIP_TEXT = (
@@ -1693,7 +1693,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
         Field(
             description=(
                 "The type of entity to query, for example 'issues'. Call "
-                "`get_agent_skill_docs` for supported entity types."
+                "`get_external_access_skill_docs` for supported entity types."
             ),
         ),
         TraceArg.VALUE,
@@ -1818,7 +1818,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
         Field(
             description=(
                 "The type of entity to act on, for example 'issues'. Call "
-                "`get_agent_skill_docs` for supported entity types."
+                "`get_external_access_skill_docs` for supported entity types."
             ),
         ),
     ],
@@ -1883,7 +1883,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
 
     Creates, updates, or deletes data in the external system.
 
-    Before calling, read the connector's action docs with `get_agent_skill_docs`
+    Before calling, read the connector's action docs with `get_external_access_skill_docs`
     (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
     differ per connector and are not guessable.

@@ -4,7 +4,7 @@
 Three paths serve destination docs:
 
 - `CloudWorkspace.get_agent_skill_docs` / `CloudConnector.read_agent_skill_docs`
-  (MCP tool `get_agent_skill_docs`) read destination skill docs straight from
+  (MCP tool `get_external_access_skill_docs`) read destination skill docs straight from
   the Agents API, with no local enrichment.
 - `CloudConnector.get_direct_access_guidance` (MCP tool `describe_cloud_connector`
   with `with_direct_access_guidance=True`) prepends a short local intro --

@@ -1789,7 +1789,7 @@ def test_list_custom_source_definitions_does_not_forward_organization_shared_opt
     )
 
 
-def test_get_agent_skill_docs_tool(
+def test_get_external_access_skill_docs_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool forwards `docs_skill_id`/`section` and renders the docs result."""
@@ -1818,14 +1818,14 @@ def test_get_agent_skill_docs_tool(
         guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
     )
 
-    result = guidance_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_external_access_skill_docs(
         None,
         docs_skill_id="connector-source:source-1",
         section="setup",
         workspace_id=None,
     )
 
-    assert isinstance(result, guidance_mcp.AgentSkillDocsResult)
+    assert isinstance(result, guidance_mcp.ExternalAccessSkillDocsResult)
     assert calls == [
         {
             "skill_id": "connector-source:source-1",
@@ -1840,7 +1840,7 @@ def test_get_agent_skill_docs_tool(
     assert "Hello" in result.content
 
 
-def test_get_agent_skill_docs_tool_returns_direct_access_enablement_link(
+def test_get_external_access_skill_docs_tool_returns_direct_access_enablement_link(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     enablement_url = (
@@ -1856,7 +1856,7 @@ def test_get_agent_skill_docs_tool_returns_direct_access_enablement_link(
         guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
     )
 
-    result = guidance_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_external_access_skill_docs(
         None,
         docs_skill_id="connector-source:source-1",
         workspace_id=None,
@@ -1870,7 +1870,7 @@ def test_get_agent_skill_docs_tool_returns_direct_access_enablement_link(
     assert result.content == ""
 
 
-def test_get_agent_skill_docs_tool_redacts_connector_name_and_preserves_enablement_url(
+def test_get_external_access_skill_docs_tool_redacts_connector_name_and_preserves_enablement_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     enablement_url = (
@@ -1886,7 +1886,7 @@ def test_get_agent_skill_docs_tool_redacts_connector_name_and_preserves_enableme
         guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
     )
 
-    result = guidance_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_external_access_skill_docs(
         None,
         docs_skill_id="connector-source:source-1",
         workspace_id=None,
@@ -1897,7 +1897,7 @@ def test_get_agent_skill_docs_tool_redacts_connector_name_and_preserves_enableme
     assert enablement_url in result.errors[0]
 
 
-def test_get_agent_skill_docs_tool_reraises_without_enablement_url(
+def test_get_external_access_skill_docs_tool_reraises_without_enablement_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     error = AirbyteExternalAccessNotEnabledError(
@@ -1910,14 +1910,14 @@ def test_get_agent_skill_docs_tool_reraises_without_enablement_url(
     )
 
     with pytest.raises(AirbyteExternalAccessNotEnabledError):
-        guidance_mcp.get_agent_skill_docs(
+        guidance_mcp.get_external_access_skill_docs(
             None,
             docs_skill_id="connector-source:source-1",
             workspace_id=None,
         )
 
 
-def test_get_agent_skill_docs_tool_connector_id(
+def test_get_external_access_skill_docs_tool_connector_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool forwards `connector_id` to the workspace method."""
@@ -1940,13 +1940,13 @@ def test_get_agent_skill_docs_tool_connector_id(
         guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
     )
 
-    result = guidance_mcp.get_agent_skill_docs(
+    result = guidance_mcp.get_external_access_skill_docs(
         None,
         connector_id="source-1",
         workspace_id=None,
     )
 
-    assert isinstance(result, guidance_mcp.AgentSkillDocsResult)
+    assert isinstance(result, guidance_mcp.ExternalAccessSkillDocsResult)
     assert calls == [{"skill_id": None, "connector_id": "source-1", "section": None}]
     assert result.skill_id == "connector-source:source-1"
 
