@@ -10,13 +10,17 @@ following methods to generate documents from records:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import datetime  # noqa: TC003  # Pydantic resolves this annotation at runtime.
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-if TYPE_CHECKING:
-    import datetime
+MAX_SINGLE_LINE_LENGTH = 60
+AIRBYTE_DOCUMENT_RENDERING = "airbyte_document_rendering"
+TITLE_PROPERTY = "title_property"
+CONTENT_PROPS = "content_properties"
+METADATA_PROPERTIES = "metadata_properties"
 
 
 class Document(BaseModel):
