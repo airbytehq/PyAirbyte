@@ -72,6 +72,8 @@ class _SyncResultLike:
     start_time: datetime
     bytes_synced: int = 0
     records_synced: int = 0
+    duration: str | None = None
+    last_updated_at: str | None = None
     job_url: str = "https://cloud.airbyte.com/jobs"
 
     def get_job_status(self) -> JobStatusEnum:
@@ -1061,6 +1063,71 @@ def _patch_sync_status_workspace(
     return workspace
 
 
+def test_list_cloud_sync_jobs_includes_duration_and_last_updated_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finished jobs include Cloud timing metadata; running jobs may omit it."""
+    finished_job = _SyncResultLike(
+        job_id=42,
+        status=JobStatusEnum.SUCCEEDED,
+        start_time=datetime(2026, 10, 19, 1, 17, 19, tzinfo=timezone.utc),
+        duration="PT1M9S",
+        last_updated_at="2026-10-19T01:18:28Z",
+    )
+    running_job = _SyncResultLike(
+        job_id=43,
+        status=JobStatusEnum.RUNNING,
+        start_time=datetime(2026, 10, 19, 1, 17, 19, tzinfo=timezone.utc),
+    )
+    connection = SimpleNamespace(
+        get_previous_sync_logs=MagicMock(return_value=[finished_job, running_job])
+    )
+    _patch_sync_status_workspace(monkeypatch, connection)
+
+    result = cloud_mcp.list_cloud_sync_jobs(
+        ctx=cast(Context, object()),
+        connection_id="connection-1",
+        workspace_id=None,
+        max_jobs=20,
+        from_tail=None,
+        job_type=None,
+    )
+
+    assert result.jobs[0].duration == "PT1M9S"
+    assert result.jobs[0].last_updated_at == "2026-10-19T01:18:28Z"
+    assert result.jobs[1].duration is None
+    assert result.jobs[1].last_updated_at is None
+
+
+def test_get_cloud_sync_status_includes_duration_and_last_updated_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The status response includes the Cloud job duration and update timestamp."""
+    sync_result = SimpleNamespace(
+        job_id=42,
+        get_job_status=MagicMock(return_value=JobStatusEnum.SUCCEEDED),
+        bytes_synced=123,
+        records_synced=456,
+        start_time=datetime(2026, 10, 19, 1, 17, 19, tzinfo=timezone.utc),
+        duration="PT1M9S",
+        last_updated_at="2026-10-19T01:18:28Z",
+        job_url="https://cloud.airbyte.com/jobs/42",
+    )
+    connection = SimpleNamespace(get_sync_result=MagicMock(return_value=sync_result))
+    _patch_sync_status_workspace(monkeypatch, connection)
+
+    result = cloud_mcp.get_cloud_sync_status(
+        ctx=cast(Context, object()),
+        connection_id="connection-1",
+        job_id=42,
+        workspace_id=None,
+        include_attempts=False,
+    )
+
+    assert result["duration"] == "PT1M9S"
+    assert result["last_updated_at"] == "2026-10-19T01:18:28Z"
+
+
 @pytest.mark.parametrize(
     "failure_stage",
     [
@@ -1086,6 +1153,8 @@ def test_get_cloud_sync_status_surfaces_library_errors(
             bytes_synced=0,
             records_synced=0,
             start_time=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+            duration=None,
+            last_updated_at=None,
             job_url="https://cloud.airbyte.com/jobs",
             get_attempts=get_attempts,
         )

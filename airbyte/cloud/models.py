@@ -57,6 +57,8 @@ class _JobResponseLike(Protocol):
     bytes_synced: int | None
     rows_synced: int | None
     start_time: str
+    duration: str | None
+    last_updated_at: str | None
 
 
 class ConnectionStatus(StrEnum):
@@ -470,6 +472,12 @@ class CloudJobInfo(BaseModel):
     start_time: str
     """The job start time."""
 
+    duration: str | None = None
+    """The job's ISO 8601 duration (e.g. `PT1M9S`), if available."""
+
+    last_updated_at: str | None = None
+    """When the job was last updated, if available. For a finished job, this is when it ended."""
+
     @classmethod
     def from_api_response(cls, job: _JobResponseLike) -> CloudJobInfo:
         """Create a public model from an internal API job response."""
@@ -479,6 +487,8 @@ class CloudJobInfo(BaseModel):
             bytes_synced=job.bytes_synced,
             rows_synced=job.rows_synced,
             start_time=job.start_time,
+            duration=job.duration,
+            last_updated_at=job.last_updated_at,
         )
 
 
