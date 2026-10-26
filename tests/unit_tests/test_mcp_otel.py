@@ -33,6 +33,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 from airbyte._direct_connectors import api_util as agents_api
 from airbyte.agents.connectors import AgentConnector
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.exceptions import AirbyteError
 from airbyte.mcp import _otel as observability
 from airbyte.mcp import agents as agents_mcp
 from airbyte.version import get_version
@@ -701,6 +702,92 @@ def test_exporter_drops_span_it_cannot_rebuild(monkeypatch, otel_provider):
     with trace.get_tracer(__name__).start_as_current_span("GET"):
         pass
     assert not _spans(otel_provider)
+
+
+@pytest.mark.parametrize(
+    "status_code,detail,code",
+    [
+        (
+            400,
+            "Snowflake rejected SQL API access (code 390144). detail-SENTINEL",
+            "390144",
+        ),
+        (400, "detail-SENTINEL", None),
+        (422, "Snowflake reported an error (000904): detail-SENTINEL", "000904"),
+        (400, "Snowflake reported an error (002003): detail-SENTINEL", "002003"),
+        (403, "detail-SENTINEL", None),
+        (401, "detail-SENTINEL", None),
+        (400, "detail-SENTINEL (code 390144secret)", None),
+        (400, "detail-SENTINEL (code ３９０１４４)", None),
+        (400, "detail-SENTINEL (code -390144)", None),
+        (200, None, None),
+        (None, None, None),
+    ],
+)
+def test_agents_error_results_reach_exported_server_span(
+    agents_app, monkeypatch, otel_provider, status_code, detail, code
+):
+    monkeypatch.setenv("AIRBYTE_MCP_OTEL_VENDOR", "datadog")
+    connector = Mock()
+    if status_code in {None, 200}:
+        connector.execute.return_value = Mock(
+            status="error" if status_code == 200 else "success",
+            result=[],
+            has_next_page=False,
+            end_cursor=None,
+            warning=None,
+            message=None,
+        )
+        connector.execute.return_value.execution_metadata.execution_time_ms = 1
+    else:
+        connector.execute.side_effect = AirbyteError(
+            message="exception-SENTINEL",
+            context={
+                "status_code": status_code,
+                "response_text": json.dumps({"detail": detail}),
+            },
+        )
+    monkeypatch.setattr(agents_mcp, "_get_agent_connector", lambda **kwargs: connector)
+    asyncio.run(
+        _call(
+            agents_app,
+            {
+                "connector_id": "connector-SENTINEL",
+                "entity_type": "table",
+                "action": "sql_select",
+            },
+            name="execute_agent_connector_ro",
+        )
+    )
+    span = _tool_span(otel_provider)
+    assert span.kind == SpanKind.SERVER
+    attrs = span.attributes
+    metadata = json.loads(attrs["_dd.ml_obs.metadata"])
+    if status_code == 200:
+        assert attrs["airbyte.mcp.result_status"] == "error"
+        assert "airbyte.mcp.upstream_status_code" not in attrs
+        assert "airbyte.mcp.upstream_error_code" not in attrs
+    elif status_code is not None:
+        assert attrs["airbyte.mcp.result_status"] == "error"
+        assert attrs["airbyte.mcp.upstream_status_code"] == status_code
+        assert type(attrs["airbyte.mcp.upstream_status_code"]) is int
+        assert attrs.get("airbyte.mcp.upstream_error_code") == code
+        assert metadata["result_status"] == "error"
+        assert metadata["upstream_status_code"] == status_code
+        assert metadata.get("upstream_error_code") == code
+    else:
+        assert not any(key in attrs for key in observability._RESULT_KEYS)
+    assert "SENTINEL" not in _export_text(otel_provider)
+
+
+def test_exporter_drops_untrusted_failure_attributes(otel_provider):
+    with trace.get_tracer(__name__).start_as_current_span(
+        "GET", attributes={key: "detail-SENTINEL" for key in observability._RESULT_KEYS}
+    ):
+        pass
+    (span,) = _spans(otel_provider)
+    assert not any(key in span.attributes for key in observability._RESULT_KEYS)
+    assert "SENTINEL" not in _export_text(otel_provider)
 
 
 def test_exporter_drops_unregistered_tool_name(app, otel_provider):

@@ -96,10 +96,32 @@ _ENVIRON: Mapping[str, str] | None = None
 _TOOL_MODULES: dict[str, str] = {}
 _TOOL_ANNOTATIONS: dict[str, dict[str, Any]] = {}
 # Middleware runs outside FastMCP's span; a ContextVar survives trace-context extraction.
-_INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool] | None] = ContextVar(
+_INTENT_ATTRIBUTES: ContextVar[dict[str, str | bool | int] | None] = ContextVar(
     "mcp_intent", default=None
 )
-_LATE_ATTRIBUTES: dict[int, dict[str, str]] = {}
+_LATE_ATTRIBUTES: dict[int, dict[str, str | int | bool]] = {}
+_RESULT_KEYS = (
+    "airbyte.mcp.result_status",
+    "airbyte.mcp.upstream_status_code",
+    "airbyte.mcp.upstream_error_code",
+)
+
+
+def record_error_result(status_code: object = None, detail: str | None = None) -> None:
+    """Retain only safe error-result metadata in the request's shared context."""
+    attrs = _INTENT_ATTRIBUTES.get()
+    if attrs is None:
+        return
+    attrs["airbyte.mcp.result_status"] = "error"
+    if isinstance(status_code, int) and not isinstance(status_code, bool):
+        attrs["airbyte.mcp.upstream_status_code"] = int(status_code)
+    match = re.search(
+        r"\bcode ([0-9]{1,10})(?=[\s),:]|\.(?:\s|$)|$)|"
+        r"\bSnowflake reported an error \(([0-9]{6})\)",
+        detail or "",
+    )
+    if match:
+        attrs["airbyte.mcp.upstream_error_code"] = match.group(1) or match.group(2)
 
 
 def _env(environ: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -229,7 +251,7 @@ class IntentCaptureMiddleware(Middleware):
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         """Strip synthetic arguments and untrusted tracing context before dispatch."""
-        attrs: dict[str, str | bool] = {}
+        attrs: dict[str, str | bool | int] = {}
         intent = None
         try:
             if context.fastmcp_context and context.fastmcp_context.request_context:
@@ -264,7 +286,7 @@ class IntentCaptureMiddleware(Middleware):
     def _attributes(
         context: MiddlewareContext[CallToolRequestParams],
         intent: object,
-    ) -> dict[str, str | bool]:
+    ) -> dict[str, str | bool | int]:
         from fastmcp.server.dependencies import get_http_headers
 
         from airbyte._util.meta import get_cloud_api_analytic_source
@@ -274,7 +296,7 @@ class IntentCaptureMiddleware(Middleware):
         if len(intent) > _MAX_INTENT_LENGTH:
             marker = "...[truncated]"
             intent = intent[: _MAX_INTENT_LENGTH - len(marker)] + marker
-        attrs: dict[str, str | bool] = {
+        attrs: dict[str, str | bool | int] = {
             "gen_ai.operation.name": "execute_tool",
             "gen_ai.tool.name": name,
             "airbyte.mcp.intent_present": bool(intent),
@@ -330,8 +352,13 @@ class IntentStampProcessor(SpanProcessor):
         # The middleware sees exceptions only after this span has already ended.
         try:
             exc = sys.exc_info()[1]
+            result_attrs = {
+                key: value
+                for key, value in (_INTENT_ATTRIBUTES.get() or {}).items()
+                if key in _RESULT_KEYS
+            }
             if (
-                exc is not None
+                (exc is not None or result_attrs)
                 and span.context is not None
                 and span.kind == SpanKind.SERVER
                 and span.name.startswith("tools/call ")
@@ -339,9 +366,9 @@ class IntentStampProcessor(SpanProcessor):
                 # Bound state when the batch processor discards spans from a full queue.
                 if len(_LATE_ATTRIBUTES) >= _MAX_LATE_ATTRIBUTES:
                     _LATE_ATTRIBUTES.pop(next(iter(_LATE_ATTRIBUTES)))
-                _LATE_ATTRIBUTES[span.context.span_id] = {
-                    "airbyte.mcp.error_type": type(exc.__cause__ or exc).__name__
-                }
+                if exc is not None:
+                    result_attrs["airbyte.mcp.error_type"] = type(exc.__cause__ or exc).__name__
+                _LATE_ATTRIBUTES[span.context.span_id] = result_attrs
         except Exception:
             logger.debug("Exception class capture skipped")
 
@@ -377,6 +404,7 @@ class RedactingExporter(SpanExporter):
             for key, value in (span.attributes or {}).items()
             # Header capture opt-ins would export raw Authorization and cookie values.
             if not key.startswith(("enduser.", "http.request.header.", "http.response.header."))
+            and key not in _RESULT_KEYS
             and key
             not in {
                 "user_agent.original",
@@ -409,6 +437,9 @@ class RedactingExporter(SpanExporter):
                     "workspace_id",
                     "organization_id",
                     "error_type",
+                    "result_status",
+                    "upstream_status_code",
+                    "upstream_error_code",
                 )
                 if f"airbyte.mcp.{key}" in attrs
             }

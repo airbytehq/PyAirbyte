@@ -67,6 +67,7 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
+from airbyte.mcp._otel import record_error_result
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp.cloud import (
     _add_defaults_for_exclude_args,
@@ -914,18 +915,28 @@ def _execute(  # noqa: PLR0913  # Mirrors the tool signatures it serves.
     except AirbyteError as error:
         message = _agents_access_message(error)
         if message is not None:
+            context = error.context or {}
+            record_error_result(
+                context.get("status_code"), _agents_error_detail(context.get("response_text"))
+            )
             return AgentExecuteToolResult(
                 status=AGENTS_ACCESS_DENIED_STATUS,
                 message=message,
             )
         message = _agents_execution_failure_message(error, action)
         if message is not None:
+            context = error.context or {}
+            record_error_result(
+                context.get("status_code"), _agents_error_detail(context.get("response_text"))
+            )
             return AgentExecuteToolResult(
                 status=AGENTS_EXECUTION_FAILED_STATUS,
                 message=message,
             )
         raise
 
+    if result.status in {AGENTS_EXECUTION_FAILED_STATUS, AGENTS_ACCESS_DENIED_STATUS}:
+        record_error_result()
     return AgentExecuteToolResult(
         status=result.status,
         result=result.result,

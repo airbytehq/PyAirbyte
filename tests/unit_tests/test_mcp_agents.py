@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from typing import Any, cast
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -908,6 +909,26 @@ def test_execute_non_json_execution_error_is_reraised(
 
     with pytest.raises(AirbyteError):
         _execute_ro(action="sql_select")
+
+
+@pytest.mark.parametrize("status_code", [400, 422, 401, 403])
+@pytest.mark.parametrize("call_tool", [_execute_ro, _execute])
+def test_error_status_results_record_upstream_failure(
+    monkeypatch: pytest.MonkeyPatch, status_code: int, call_tool: Callable[..., Any]
+) -> None:
+    """Both execute tools retain failure metadata even when they return normally."""
+    record = Mock()
+    monkeypatch.setattr(agents_mcp, "record_error_result", record)
+    monkeypatch.setattr(
+        agents_mcp,
+        "_get_agent_connector",
+        lambda **kwargs: _RaisingConnector(
+            _agents_error(status_code, '{"detail":"private detail"}')
+        ),
+    )
+    result = call_tool(action="sql_select")
+    assert result.status == ("access_denied" if status_code in {401, 403} else "error")
+    record.assert_called_once_with(status_code, "private detail")
 
 
 def test_execute_server_error_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
