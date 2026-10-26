@@ -4,14 +4,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+from urllib.parse import urlsplit
 
 import pytest
+import responses
 from airbyte._util import api_util
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.models import JobStatusEnum, JobTypeEnum
+from airbyte.cloud.models import (
+    CloudConnectionInfo,
+    ConnectionStatus,
+    JobStatusEnum,
+    JobTypeEnum,
+)
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteConnectionSyncError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteCloudApiError,
+    AirbyteConnectionSyncError,
+    AirbyteCloudError,
+    AirbyteMissingResourceError,
+    AirbyteLibInputError,
+)
 from airbyte_api import models
 from airbyte_api.errors import SDKError
 
@@ -59,6 +73,273 @@ def _connection() -> CloudConnection:
     return CloudConnection(workspace=workspace, connection_id="connection-id")
 
 
+def test_get_connection_validates_connection_id_uuid() -> None:
+    """`get_connection` rejects malformed IDs before any API call."""
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+        api_root="https://api.airbyte.com/v1",
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        workspace.get_connection("not-a-uuid")
+
+    assert "`connection_id` must be a UUID." in str(exc_info.value)
+
+    connection_id = "12345678-1234-1234-1234-1234567890ab"
+    connection = workspace.get_connection(connection_id)
+    assert connection.connection_id == connection_id
+
+
+def _scheduled_connection_response(*, basic: bool = False) -> models.ConnectionResponse:
+    """Create a response with a real public API schedule model."""
+    return models.ConnectionResponse(
+        connection_id="connection-id",
+        created_at=0,
+        destination_id="destination-id",
+        name="name",
+        source_id="source-id",
+        status=models.ConnectionStatusEnum.ACTIVE,
+        workspace_id="workspace-id",
+        configurations=models.StreamConfigurations(streams=[]),
+        schedule=models.ConnectionScheduleResponse(
+            schedule_type=(
+                models.ScheduleTypeWithBasicEnum.BASIC
+                if basic
+                else models.ScheduleTypeWithBasicEnum.MANUAL
+            ),
+            basic_timing="Every 24 HOURS" if basic else None,
+        ),
+        tags=[],
+    )
+
+
+def test_set_schedule_interval_invalidates_cached_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Forward workspace settings and lazily reload the schedule after success."""
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        client_id="client-id",
+        client_secret="client-secret",
+        api_root="https://public.example/custom",
+        config_api_root="https://config.example/custom",
+    )
+    connection = CloudConnection(workspace=workspace, connection_id="connection-id")
+    update = MagicMock(return_value={"scheduleType": "basic"})
+    monkeypatch.setattr(api_util, "set_connection_interval_schedule", update)
+    read = MagicMock(
+        side_effect=[
+            _scheduled_connection_response(),
+            _scheduled_connection_response(basic=True),
+        ]
+    )
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.reset_mock()
+
+    connection.set_schedule(interval_hours=24)
+
+    update.assert_called_once_with(
+        connection_id="connection-id",
+        interval_hours=24,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    read.assert_not_called()
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "basic"
+    assert connection.schedule.schedule_expression == "Every 24 HOURS"
+    assert connection.name == "name"
+    read.assert_called_once()
+
+
+@pytest.mark.parametrize("interval_hours", [0, -1, True, False, 1.0, 1.5, "24"])
+def test_set_schedule_interval_rejects_invalid_hours(
+    monkeypatch: pytest.MonkeyPatch,
+    interval_hours: object,
+) -> None:
+    """Invalid intervals cause no writes and leave the cached schedule intact."""
+    connection = _connection()
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+
+    with responses.RequestsMock() as http:
+        with pytest.raises(AirbyteLibInputError, match="positive whole number"):
+            connection.set_schedule(interval_hours=interval_hours)
+        assert [
+            call
+            for call in http.calls
+            if urlsplit(call.request.url or "").hostname != "api.segment.io"
+        ] == []
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "schedule_arguments",
+    [
+        {},
+        {"cron_expression": None, "interval_hours": None},
+        {"cron_expression": "0 0 0 * * ?", "interval_hours": 24},
+        {"cron_expression": "", "interval_hours": 24},
+        {"cron_expression": "0 0 0 * * ?", "interval_hours": 0},
+    ],
+)
+def test_set_schedule_requires_exactly_one_option(
+    monkeypatch: pytest.MonkeyPatch,
+    schedule_arguments: dict[str, object],
+) -> None:
+    """Reject absent or conflicting schedule options before writes or cache changes."""
+    connection = _connection()
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+
+    with responses.RequestsMock() as http:
+        with pytest.raises(AirbyteLibInputError, match="exactly one"):
+            connection.set_schedule(**schedule_arguments)
+        assert [
+            call
+            for call in http.calls
+            if urlsplit(call.request.url or "").hostname != "api.segment.io"
+        ] == []
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
+
+
+def test_set_schedule_interval_preserves_cache_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed update raises and leaves the last known schedule intact."""
+    connection = _connection()
+    update = MagicMock(side_effect=AirbyteCloudError(message="schedule rejected"))
+    monkeypatch.setattr(api_util, "set_connection_interval_schedule", update)
+    read = MagicMock(return_value=_scheduled_connection_response())
+    monkeypatch.setattr(api_util, "get_connection", read)
+    assert connection.schedule is not None
+    read.reset_mock()
+    read.side_effect = AssertionError("No refresh needed after failure")
+
+    with pytest.raises(AirbyteCloudError, match="schedule rejected"):
+        connection.set_schedule(interval_hours=24)
+
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "manual"
+    read.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("api_status", "expected_status"),
+    [
+        pytest.param("active", ConnectionStatus.ACTIVE, id="active"),
+        pytest.param("inactive", ConnectionStatus.INACTIVE, id="inactive"),
+        pytest.param("deprecated", ConnectionStatus.DEPRECATED, id="deprecated"),
+    ],
+)
+def test_connection_status_returns_connection_status_enum(
+    monkeypatch: pytest.MonkeyPatch,
+    api_status: str,
+    expected_status: ConnectionStatus,
+) -> None:
+    """Reading a cached API status returns its public enum value."""
+    connection = _connection()
+    connection._connection_info = (  # noqa: SLF001  # Seed cache.
+        CloudConnectionInfo.from_api_response(
+            SimpleNamespace(
+                connection_id="connection-id",
+                workspace_id="workspace-id",
+                source_id="source-id",
+                destination_id="destination-id",
+                name="sync",
+                configurations=None,
+                prefix=None,
+                namespace_definition=None,
+                namespace_format=None,
+                schedule=None,
+                status=api_status,
+            )
+        )
+    )
+    monkeypatch.setattr(
+        CloudConnection,
+        "_fetch_connection_info",
+        MagicMock(side_effect=AssertionError),
+    )
+
+    assert connection.status is expected_status
+
+
+@pytest.mark.parametrize(
+    ("enabled", "current_status", "expected_status"),
+    [
+        pytest.param(
+            True,
+            ConnectionStatus.INACTIVE,
+            ConnectionStatus.ACTIVE,
+            id="enable",
+        ),
+        pytest.param(
+            False,
+            ConnectionStatus.ACTIVE,
+            ConnectionStatus.INACTIVE,
+            id="disable",
+        ),
+    ],
+)
+def test_set_enabled_passes_connection_status_enum(
+    monkeypatch: pytest.MonkeyPatch,
+    enabled: bool,
+    current_status: ConnectionStatus,
+    expected_status: ConnectionStatus,
+) -> None:
+    """Setting enabled state passes its StrEnum directly to the API utility."""
+    connection = _connection()
+    fetch_connection_info = MagicMock(
+        return_value=SimpleNamespace(status=current_status)
+    )
+    monkeypatch.setattr(connection, "_fetch_connection_info", fetch_connection_info)
+    updated_response = SimpleNamespace(
+        connection_id="connection-id",
+        workspace_id="workspace-id",
+        source_id="source-id",
+        destination_id="destination-id",
+        name="sync",
+        configurations=None,
+        prefix=None,
+        namespace_definition=None,
+        namespace_format=None,
+        schedule=None,
+        status=expected_status,
+    )
+    patch_connection = MagicMock(return_value=updated_response)
+    monkeypatch.setattr(api_util, "patch_connection", patch_connection)
+
+    connection.enabled = enabled
+
+    fetch_connection_info.assert_called_once_with(force_refresh=True)
+    patch_connection.assert_called_once_with(
+        connection_id="connection-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+        status=expected_status,
+    )
+    assert connection.status is expected_status
+
+
 def _patch_cancel_job(
     monkeypatch: pytest.MonkeyPatch,
     captured_job_ids: list[int],
@@ -103,6 +384,170 @@ def _patch_get_job_info(
         return response
 
     monkeypatch.setattr(api_util, "get_job_info", get_job_info)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "job_connection_id"),
+    [
+        pytest.param(403, None, id="forbidden"),
+        pytest.param(404, None, id="not-found"),
+        pytest.param(500, None, id="other-lookup-error"),
+        pytest.param(None, "other-connection", id="different-connection"),
+        pytest.param(None, "connection-id", id="matching-connection"),
+    ],
+)
+def test_get_sync_result_validates_job_id(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int | None,
+    job_connection_id: str | None,
+) -> None:
+    """Job lookup status and ownership determine the sync result outcome."""
+    if status_code == 404:
+        original_error: AirbyteCloudError | None = AirbyteCloudApiError(
+            message="Job lookup failed",
+            status_code=status_code,
+        )
+    elif status_code is not None:
+        original_error = AirbyteCloudError(
+            message="Job lookup failed",
+            context={"status_code": status_code},
+        )
+    else:
+        original_error = None
+
+    if original_error is not None:
+        get_job_info = MagicMock(side_effect=original_error)
+    else:
+        get_job_info = MagicMock(
+            return_value=_job_response(
+                42,
+                models.JobStatusEnum.SUCCEEDED,
+                connection_id=job_connection_id,
+            )
+        )
+    monkeypatch.setattr(api_util, "get_job_info", get_job_info)
+    connection = _connection()
+
+    if status_code in (403, 404):
+        with pytest.raises(AirbyteMissingResourceError) as exc_info:
+            connection.get_sync_result(job_id=42)
+
+        assert exc_info.value.get_message() == (
+            "Job 42 was not found on connection connection-id, or you don't have access to it."
+        )
+        assert exc_info.value.__cause__ is original_error
+        assert exc_info.value.resource_type == "sync job"
+        assert exc_info.value.resource_name_or_id == "42"
+        assert exc_info.value.guidance == (
+            "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+        )
+        assert exc_info.value.context == {
+            "connection_id": "connection-id",
+            "job_id": 42,
+        }
+    elif status_code is not None:
+        with pytest.raises(AirbyteCloudError) as exc_info:
+            connection.get_sync_result(job_id=42)
+
+        assert exc_info.value is original_error
+    elif job_connection_id != "connection-id":
+        with pytest.raises(AirbyteMissingResourceError) as exc_info:
+            connection.get_sync_result(job_id=42)
+
+        assert exc_info.value.get_message() == (
+            "Job 42 belongs to a different connection, not connection-id."
+        )
+        assert exc_info.value.resource_type == "sync job"
+        assert exc_info.value.resource_name_or_id == "42"
+        assert exc_info.value.guidance == (
+            "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+        )
+        assert exc_info.value.context == {
+            "connection_id": "connection-id",
+            "job_id": 42,
+        }
+        assert "other-connection" not in str(exc_info.value.context)
+    else:
+        result = connection.get_sync_result(job_id=42)
+
+        assert result is not None
+        assert result.get_job_status() == JobStatusEnum.SUCCEEDED
+
+    get_job_info.assert_called_once_with(
+        job_id=42,
+        api_root=connection.workspace.api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token="token",
+    )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "catalog_behavior"),
+    [
+        pytest.param(400, "available", id="bad-request-with-catalog"),
+        pytest.param(400, "failure", id="bad-request-catalog-failure"),
+        pytest.param(400, "unexpected-shape", id="bad-request-unexpected-shape"),
+        pytest.param(400, "malformed-streams", id="bad-request-malformed-streams"),
+        pytest.param(500, "available", id="server-error"),
+    ],
+)
+def test_set_selected_streams_enriches_only_bad_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    catalog_behavior: str,
+) -> None:
+    """Only valid HTTP 400 catalog responses provide stream-name guidance."""
+    original_error = AirbyteCloudError(
+        message="Invalid stream name" if status_code == 400 else "API request failed",
+        context={"status_code": status_code},
+    )
+    monkeypatch.setattr(
+        api_util, "patch_connection", MagicMock(side_effect=original_error)
+    )
+    connection = _connection()
+    if catalog_behavior == "available":
+        catalog_response: object = {
+            "streams": [
+                {"stream": {"name": "orders"}, "selected": True},
+                {"stream": {"name": "customers"}, "selected": False},
+            ]
+        }
+        dump_raw_catalog = MagicMock(return_value=catalog_response)
+    elif catalog_behavior == "failure":
+        dump_raw_catalog = MagicMock(
+            side_effect=AirbyteCloudError(message="Catalog unavailable")
+        )
+    elif catalog_behavior == "unexpected-shape":
+        dump_raw_catalog = MagicMock(return_value={"streams": "unexpected"})
+    else:
+        dump_raw_catalog = MagicMock(return_value={"streams": [{"name": "orders"}]})
+    monkeypatch.setattr(connection, "dump_raw_catalog", dump_raw_catalog)
+
+    if status_code == 400 and catalog_behavior == "available":
+        with pytest.raises(AirbyteLibInputError) as exc_info:
+            connection.set_selected_streams(["missing", "orders"])
+
+        assert exc_info.value.get_message().startswith(
+            "Could not set selected streams for connection 'connection-id': Invalid stream name"
+        )
+        assert exc_info.value.guidance == "Use stream names from `available_streams`."
+        assert exc_info.value.context == {
+            "connection_id": "connection-id",
+            "requested_streams": ["missing", "orders"],
+            "available_streams": ["orders", "customers"],
+        }
+        assert exc_info.value.__cause__ is original_error
+        dump_raw_catalog.assert_called_once_with()
+    else:
+        with pytest.raises(AirbyteCloudError) as exc_info:
+            connection.set_selected_streams(["missing"])
+
+        assert exc_info.value is original_error
+        if status_code == 500:
+            dump_raw_catalog.assert_not_called()
+        else:
+            dump_raw_catalog.assert_called_once_with()
 
 
 def test_cancel_sync_resolves_latest_incomplete_job(
@@ -163,7 +608,7 @@ def test_cancel_sync_rejects_latest_completed_job(
 
     monkeypatch.setattr(connection, "get_previous_sync_logs", get_previous_sync_logs)
 
-    with pytest.raises(PyAirbyteInputError, match="succeeded"):
+    with pytest.raises(AirbyteLibInputError, match="succeeded"):
         connection.cancel_sync()
 
 
@@ -185,7 +630,7 @@ def test_cancel_sync_rejects_connection_without_jobs(
 
     monkeypatch.setattr(connection, "get_previous_sync_logs", get_previous_sync_logs)
 
-    with pytest.raises(PyAirbyteInputError, match="No sync jobs found"):
+    with pytest.raises(AirbyteLibInputError, match="No sync jobs found"):
         connection.cancel_sync()
 
 
@@ -244,7 +689,7 @@ def test_cancel_sync_rejects_explicit_job_from_different_connection(
     )
 
     with pytest.raises(
-        PyAirbyteInputError,
+        AirbyteLibInputError,
         match="different-connection-id.*connection-id",
     ):
         connection.cancel_sync(job_id=123)
@@ -271,7 +716,7 @@ def test_cancel_sync_rejects_explicit_completed_job(
         _job_response(123, models.JobStatusEnum.CANCELLED),
     )
 
-    with pytest.raises(PyAirbyteInputError, match="succeeded"):
+    with pytest.raises(AirbyteLibInputError, match="succeeded"):
         connection.cancel_sync(job_id=123)
 
     assert captured_lookup_job_ids == [123]
@@ -288,9 +733,12 @@ def test_cancel_sync_rejects_explicit_completed_job(
         pytest.param("0 0 9 ? * MON-FRI US/Pacific", id="with_timezone"),
     ],
 )
+@pytest.mark.parametrize("positional", [False, True], ids=["keyword", "positional"])
 def test_set_schedule_accepts_quartz_cron(
     monkeypatch: pytest.MonkeyPatch,
     cron_expression: str,
+    *,
+    positional: bool,
 ) -> None:
     """Verify Quartz cron expressions are passed through to the API."""
     connection = _connection()
@@ -322,11 +770,18 @@ def test_set_schedule_accepts_quartz_cron(
 
     monkeypatch.setattr(api_util, "patch_connection", patch_connection)
 
-    connection.set_schedule(cron_expression=cron_expression)
+    if positional:
+        connection.set_schedule(cron_expression)
+    else:
+        connection.set_schedule(cron_expression=cron_expression)
 
     assert len(captured) == 1
     assert captured[0].cron_expression == cron_expression
     assert captured[0].schedule_type == models.ScheduleTypeEnum.CRON
+    assert connection.schedule is not None
+    assert connection.schedule.schedule_type == "cron"
+    assert connection.schedule.schedule_expression == cron_expression
+    assert connection.name == "name"
 
 
 @pytest.mark.parametrize(
@@ -351,7 +806,7 @@ def test_set_schedule_rejects_non_quartz_cron(
 
     monkeypatch.setattr(api_util, "patch_connection", patch_connection)
 
-    with pytest.raises(PyAirbyteInputError, match="Quartz"):
+    with pytest.raises(AirbyteLibInputError, match="Quartz"):
         connection.set_schedule(cron_expression=cron_expression)
 
 
@@ -386,7 +841,7 @@ def test_run_sync_conflict_on_disabled_connection_raises_input_error(
     fetch_mock = MagicMock(return_value=_connection_info_with_status("inactive"))
     monkeypatch.setattr(connection, "_fetch_connection_info", fetch_mock)
 
-    with pytest.raises(PyAirbyteInputError) as exc_info:
+    with pytest.raises(AirbyteLibInputError) as exc_info:
         connection.run_sync()
 
     assert "disabled" in exc_info.value.message

@@ -5,24 +5,27 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, cast
+from types import SimpleNamespace
+from typing import Any, Literal, cast
+from unittest.mock import MagicMock
 
 import pytest
 import requests
 import responses
 from airbyte import exceptions as exc
 from airbyte._util import api_util
-from airbyte.cloud.connectors import CheckResult
+from airbyte.cloud import workspaces as cloud_workspaces
+from airbyte.cloud.models import ConnectorType
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp import cloud as cloud_mcp
-from airbyte.mcp.cloud import ConnectorSetupCheckResult, DeferredDeployResult
+from airbyte.mcp.cloud import DeferredDeployResult
+from airbyte.registry import ConnectorMetadata, get_connector_metadata_by_definition_id
 from airbyte.secrets.base import SecretString
 from fastmcp import Context
 from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
-OTHER_WORKSPACE_ID = "22222222-2222-4222-8222-222222222222"
 DEFINITION_ID = "33333333-3333-4333-8333-333333333333"
 ACTOR_ID = "44444444-4444-4444-8444-444444444444"
 TOKEN = SecretString("test-bearer-token")
@@ -32,6 +35,23 @@ CONNECTOR_TYPES: list[Literal["source", "destination"]] = ["source", "destinatio
 
 CONFIG_API_ROOT = "https://api.airbyte.test/api/v1"
 PUBLIC_API_ROOT = "https://api.airbyte.test/api/public/v1"
+
+
+@pytest.fixture(autouse=True)
+def _stub_secret_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stub the remote secrets mask and spec fetch so deferred validation stays offline."""
+    monkeypatch.setattr(
+        "airbyte.secrets.hydration._get_global_secrets_mask",
+        lambda: ["password", "api_key", "token", "secret", "email"],
+    )
+    monkeypatch.setattr(cloud_workspaces, "_get_deferred_spec", lambda _id: None)
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "get_custom_source_definition",
+        lambda *_args, **_kwargs: SimpleNamespace(config_spec_jsonschema=None),
+    )
 
 
 def _actor_body(connector_type: str, *, draft: bool | None) -> dict[str, Any]:
@@ -111,7 +131,7 @@ def test_deferred_create_uses_bounded_timeouts_and_never_follows_redirects(
 
     monkeypatch.setattr(api_util.requests, "post", _recording_post)
 
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred("source")
 
     assert raised.value.context is not None
@@ -200,7 +220,7 @@ def test_deferred_create_errors_do_not_expose_response_body(
         json={"message": "Invalid credential abc123", "config": {"token": "abc123"}},
     )
 
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred(connector_type)
 
     assert not isinstance(raised.value, exc.AirbyteDeferredSetupError)
@@ -224,7 +244,7 @@ def test_deferred_create_errors_do_not_expose_response_body(
 def test_deferred_create_rejects_invalid_response_without_replaying(body: str) -> None:
     """A malformed successful response must not cause duplicate creates or leak its body."""
     responses.post(f"{CONFIG_API_ROOT}/sources/create", body=body)
-    with pytest.raises(exc.AirbyteError) as raised:
+    with pytest.raises(exc.AirbyteCloudError) as raised:
         _create_deferred("source")
     assert "abc123" not in str(raised.value)
     assert len(responses.calls) == 1
@@ -236,11 +256,6 @@ def test_deferred_create_rejects_invalid_response_without_replaying(body: str) -
 @dataclass
 class _CreateCall:
     kwargs: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class _ActorOwner:
-    workspace_id: str = WORKSPACE_ID
 
 
 def _workspace() -> CloudWorkspace:
@@ -342,7 +357,7 @@ def test_deploy_deferred_rejects_invalid_input_before_any_request(
     """Missing definition, non-dict config, secret values and references never reach Cloud."""
     call = _stub_create(monkeypatch, connector_type)
 
-    with pytest.raises(exc.PyAirbyteInputError, match=match):
+    with pytest.raises(exc.AirbyteLibInputError, match=match):
         _deploy(_workspace(), connector_type, config, defer_credentials=True, **kwargs)
 
     assert call.kwargs == {}
@@ -351,49 +366,321 @@ def test_deploy_deferred_rejects_invalid_input_before_any_request(
 def test_deploy_source_rejects_dict_config_without_defer_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Raw source dictionaries are only accepted in deferred mode."""
+    """Raw source dictionaries require a definition ID or deferred credentials."""
     call = _stub_create(monkeypatch, "source")
 
-    with pytest.raises(exc.PyAirbyteInputError):
-        _deploy(_workspace(), "source", {"count": 10}, definition_id=DEFINITION_ID)
+    with pytest.raises(
+        exc.AirbyteLibInputError,
+        match=r"`source` must be a `Source` object unless `definition_id` or "
+        r"`defer_credentials=True` is given\.",
+    ):
+        _deploy(_workspace(), "source", {"count": 10})
 
     assert call.kwargs == {}
 
 
-@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-@pytest.mark.parametrize("owner_workspace_id", [WORKSPACE_ID, OTHER_WORKSPACE_ID])
-def test_check_connector_setup_verifies_workspace_before_checking(
+def test_deploy_source_passes_custom_definition_config_without_source_type(
     monkeypatch: pytest.MonkeyPatch,
-    connector_type: str,
-    owner_workspace_id: str,
 ) -> None:
-    """The check runs once, and only for connectors owned by the workspace."""
-    checks: list[dict[str, Any]] = []
+    """A custom source config is passed to the public API without a sourceType field."""
+    create_kwargs: dict[str, Any] = {}
     monkeypatch.setattr(
         api_util,
-        f"get_{connector_type}",
-        lambda **kwargs: type("Actor", (), {"workspace_id": owner_workspace_id})(),
+        "create_source",
+        lambda **kwargs: (
+            create_kwargs.update(kwargs) or SimpleNamespace(source_id=ACTOR_ID)
+        ),
     )
-
-    def _check(**kwargs: Any) -> tuple[bool, str | None]:  # noqa: ANN401
-        checks.append(kwargs)
-        return (False, "Provider said: token abc123 is invalid")
-
-    monkeypatch.setattr(api_util, "check_connector", _check)
+    monkeypatch.setattr(api_util, "list_sources", lambda **_: [])
     workspace = _workspace()
 
-    if owner_workspace_id != WORKSPACE_ID:
-        with pytest.raises(exc.AirbyteMissingResourceError):
-            workspace.check_connector_setup(cast(Any, connector_type), ACTOR_ID)
-        assert checks == []
+    deployed = workspace.deploy_source(
+        name="My custom source",
+        source={"greeting": "hi"},
+        definition_id=DEFINITION_ID,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert create_kwargs["config"] == {"greeting": "hi"}
+    assert "sourceType" not in create_kwargs["config"]
+    assert create_kwargs["definition_id"] == DEFINITION_ID
+
+
+def test_deploy_source_hydrates_custom_definition_secret_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Custom source secret references are hydrated without mutating the input config."""
+    monkeypatch.setenv("SOME_ENV", "resolved-value")
+    source_config = {"api_key": "secret_reference::SOME_ENV"}
+    create_kwargs: dict[str, Any] = {}
+    monkeypatch.setattr(
+        api_util,
+        "create_source",
+        lambda **kwargs: (
+            create_kwargs.update(kwargs) or SimpleNamespace(source_id=ACTOR_ID)
+        ),
+    )
+    monkeypatch.setattr(api_util, "list_sources", lambda **_: [])
+    workspace = _workspace()
+
+    deployed = workspace.deploy_source(
+        name="My custom source",
+        source=source_config,
+        definition_id=DEFINITION_ID,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert create_kwargs["config"] == {"api_key": "resolved-value"}
+    assert source_config == {"api_key": "secret_reference::SOME_ENV"}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_rejects_plaintext_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """Plain-text credential fields (per the global secrets mask) never reach Cloud."""
+    call = _stub_create(monkeypatch, connector_type)
+
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        _deploy(
+            _workspace(),
+            connector_type,
+            {"count": 10, "password": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["password"]}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_rejects_nested_plaintext_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """Credentials nested inside list-of-dict config values are also rejected."""
+    call = _stub_create(monkeypatch, connector_type)
+
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        _deploy(
+            _workspace(),
+            connector_type,
+            {"count": 10, "credentials": [{"password": "hunter2"}]},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["credentials.0.password"]}
+
+
+_SPEC_WITH_SECRET_PASSWORD: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "email": {"type": "string"},
+        "password": {"type": "string", "airbyte_secret": True},
+    },
+}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_prefers_connector_spec_over_global_mask(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """With a spec available, non-secret spec fields deploy despite the global mask."""
+    call = _stub_create(monkeypatch, connector_type)
+    monkeypatch.setattr(
+        cloud_workspaces, "_get_deferred_spec", lambda _id: _SPEC_WITH_SECRET_PASSWORD
+    )
+
+    deployed = _deploy(
+        _workspace(),
+        connector_type,
+        {"count": 10, "email": "owner@example.com"},
+        definition_id=DEFINITION_ID,
+        defer_credentials=True,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert call.kwargs["config"] == {"count": 10, "email": "owner@example.com"}
+
+
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
+def test_deploy_deferred_spec_still_rejects_secret_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    connector_type: str,
+) -> None:
+    """Fields marked `airbyte_secret` in the connector spec are still rejected."""
+    call = _stub_create(monkeypatch, connector_type)
+    monkeypatch.setattr(
+        cloud_workspaces, "_get_deferred_spec", lambda _id: _SPEC_WITH_SECRET_PASSWORD
+    )
+
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        _deploy(
+            _workspace(),
+            connector_type,
+            {"email": "x", "password": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["password"]}
+
+
+def test_deploy_deferred_uses_custom_source_spec_for_secret_detection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom source's secret schema supplements the registry and global secret masks."""
+    call = _stub_create(monkeypatch, "source")
+    workspace = _workspace()
+    get_definition = MagicMock(
+        return_value=SimpleNamespace(
+            config_spec_jsonschema={
+                "type": "object",
+                "properties": {
+                    "my_token_field": {"type": "string", "airbyte_secret": True},
+                },
+            },
+        )
+    )
+    monkeypatch.setattr(workspace, "get_custom_source_definition", get_definition)
+
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        workspace.deploy_source(
+            name="My custom source",
+            source={"my_token_field": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    get_definition.assert_called_once_with(DEFINITION_ID, definition_type="yaml")
+    assert call.kwargs == {}
+    assert raised.value.context == {"fields": ["my_token_field"]}
+
+
+def test_deploy_deferred_uses_global_mask_when_custom_spec_fetch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed custom-spec lookup does not block deferred deploy or bypass the global mask."""
+    call = _stub_create(monkeypatch, "source")
+    monkeypatch.setattr(cloud_workspaces, "_get_deferred_spec", lambda _id: None)
+    workspace = _workspace()
+    get_definition = MagicMock(side_effect=RuntimeError("custom spec lookup failed"))
+    monkeypatch.setattr(workspace, "get_custom_source_definition", get_definition)
+
+    deployed = workspace.deploy_source(
+        name="My custom source",
+        source={"my_token_field": "plain-text-value"},
+        definition_id=DEFINITION_ID,
+        defer_credentials=True,
+    )
+
+    assert deployed.connector_id == ACTOR_ID
+    assert call.kwargs["config"] == {"my_token_field": "plain-text-value"}
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values") as raised:
+        workspace.deploy_source(
+            name="My custom source with a masked credential",
+            source={"password": "hunter2"},
+            definition_id=DEFINITION_ID,
+            defer_credentials=True,
+        )
+
+    assert raised.value.context == {"fields": ["password"]}
+    assert get_definition.call_count == 2
+
+
+def test_get_connector_name_by_definition_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The definition-ID lookup returns the connector name on a hit and None on a miss."""
+    metadata = ConnectorMetadata(
+        name="source-faker",
+        latest_available_version=None,
+        definition_id=DEFINITION_ID,
+        pypi_package_name=None,
+        language=None,
+        install_types=set(),
+    )
+    monkeypatch.setattr("airbyte.registry._is_registry_disabled", lambda _url: False)
+    monkeypatch.setattr(
+        "airbyte.registry._get_registry_cache",
+        lambda **kwargs: {"source-faker": metadata},
+    )
+
+    assert (
+        cloud_workspaces._get_connector_name_by_definition_id(DEFINITION_ID)  # noqa: SLF001
+        == "source-faker"
+    )
+    assert (
+        cloud_workspaces._get_connector_name_by_definition_id(  # noqa: SLF001
+            "55555555-5555-4555-8555-555555555555"
+        )
+        is None
+    )
+
+
+def test_get_connector_metadata_by_definition_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The definition-ID metadata lookup returns metadata on a hit and None on a miss."""
+    metadata = ConnectorMetadata(
+        name="source-faker",
+        latest_available_version=None,
+        definition_id=DEFINITION_ID,
+        pypi_package_name=None,
+        language=None,
+        install_types=set(),
+        suggested_streams=["users"],
+    )
+    monkeypatch.setattr("airbyte.registry._is_registry_disabled", lambda _url: False)
+    monkeypatch.setattr(
+        "airbyte.registry._get_registry_cache",
+        lambda **kwargs: {"source-faker": metadata},
+    )
+
+    assert get_connector_metadata_by_definition_id(DEFINITION_ID) is metadata
+    assert (
+        get_connector_metadata_by_definition_id("55555555-5555-4555-8555-555555555555")
+        is None
+    )
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("status_code", "body", "expected"),
+    [
+        (200, {"status": "succeeded"}, True),
+        (200, {"status": "failed", "message": "Invalid credential abc123"}, False),
+        (422, {"message": "Missing required settings abc123"}, False),
+        (500, {"message": "Unexpected failure abc123"}, None),
+    ],
+)
+def test_connector_check_reports_draft_failures_and_raises_on_errors(
+    status_code: int,
+    body: dict[str, str],
+    expected: bool | None,
+) -> None:
+    """A failed or incomplete-config check reports failure; server errors raise."""
+    responses.post(
+        f"{CONFIG_API_ROOT}/sources/check_connection",
+        status=status_code,
+        json=body,
+    )
+    connector = _workspace().get_source(ACTOR_ID)
+
+    if expected is None:
+        with pytest.raises(exc.AirbyteCloudError):
+            connector.check(raise_on_error=False)
         return
 
-    result = workspace.check_connector_setup(cast(Any, connector_type), ACTOR_ID)
+    result = connector.check(raise_on_error=False)
 
-    assert result.success is False
-    assert len(checks) == 1
-    assert checks[0]["actor_id"] == ACTOR_ID
-    assert checks[0]["connector_type"] == connector_type
+    assert result.success is expected
 
 
 @responses.activate
@@ -429,70 +716,6 @@ def test_get_destination_tolerates_partial_draft_configuration() -> None:
 # --- MCP tools -------------------------------------------------------------------------------
 
 
-@responses.activate
-@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-@pytest.mark.parametrize(
-    ("status_code", "body", "complete"),
-    [
-        (200, {"status": "succeeded"}, True),
-        (200, {"status": "failed", "message": "Invalid credential abc123"}, False),
-        (422, {"message": "Missing required settings abc123"}, False),
-    ],
-)
-def test_mcp_setup_check_uses_saved_actor_and_sanitizes_validation(
-    monkeypatch: pytest.MonkeyPatch,
-    connector_type: Literal["source", "destination"],
-    status_code: int,
-    body: dict[str, str],
-    complete: bool,
-) -> None:
-    """A saved draft is checked by ID, with incomplete configuration reported as not ready."""
-    monkeypatch.setattr(
-        api_util, f"get_{connector_type}", lambda **kwargs: _ActorOwner()
-    )
-    monkeypatch.setattr(
-        cloud_mcp, "_get_cloud_workspace", lambda ctx, workspace_id=None: _workspace()
-    )
-    responses.post(
-        f"{CONFIG_API_ROOT}/{connector_type}s/check_connection",
-        status=status_code,
-        json=body,
-    )
-
-    result = cloud_mcp.check_cloud_connector_setup(
-        ctx=cast(Context, object()),
-        connector_type=connector_type,
-        connector_id=ACTOR_ID,
-        workspace_id=WORKSPACE_ID,
-    )
-
-    assert result.setup_complete is complete
-    assert "abc123" not in result.model_dump_json()
-    (call,) = responses.calls
-    assert json.loads(cast(bytes, call.request.body)) == {
-        f"{connector_type}Id": ACTOR_ID,
-    }
-
-
-@responses.activate
-@pytest.mark.parametrize("status_code", [401, 403, 404, 500])
-def test_setup_check_propagates_sanitized_operational_errors(
-    monkeypatch: pytest.MonkeyPatch,
-    status_code: int,
-) -> None:
-    """Authentication and server failures must not be misreported as incomplete setup."""
-    monkeypatch.setattr(api_util, "get_source", lambda **kwargs: _ActorOwner())
-    responses.post(
-        f"{CONFIG_API_ROOT}/sources/check_connection",
-        status=status_code,
-        json={"message": "Unexpected failure abc123"},
-    )
-    with pytest.raises(exc.AirbyteError) as raised:
-        _workspace().check_connector_setup("source", ACTOR_ID)
-    assert raised.value.context == {"status_code": status_code}
-    assert "abc123" not in str(raised.value)
-
-
 @dataclass
 class _DeployedLike:
     connector_id: str
@@ -505,7 +728,6 @@ class _DeployedLike:
 class _WorkspaceLike:
     workspace_id: str = WORKSPACE_ID
     deploy_calls: list[dict[str, Any]] = field(default_factory=list)
-    check_result: CheckResult = field(default_factory=lambda: CheckResult(success=True))
 
     def deploy_source(self, **kwargs: Any) -> _DeployedLike:  # noqa: ANN401
         self.deploy_calls.append(kwargs)
@@ -520,11 +742,6 @@ class _WorkspaceLike:
 
     def get_destination(self, destination_id: str) -> _DeployedLike:
         return _DeployedLike(connector_id=destination_id)
-
-    def check_connector_setup(
-        self, connector_type: str, connector_id: str
-    ) -> CheckResult:
-        return self.check_result
 
 
 @pytest.fixture
@@ -548,42 +765,21 @@ def workspace_like(monkeypatch: pytest.MonkeyPatch) -> _WorkspaceLike:
     return workspace
 
 
-@pytest.mark.parametrize(
-    ("tool", "name_parameter", "connector_parameter", "connector_type"),
-    [
-        (
-            cloud_mcp.deploy_source_to_cloud,
-            "source_name",
-            "source_connector_name",
-            "source",
-        ),
-        (
-            cloud_mcp.deploy_destination_to_cloud,
-            "destination_name",
-            "destination_connector_name",
-            "destination",
-        ),
-    ],
-)
+@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
 def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     workspace_like: _WorkspaceLike,
-    tool: Callable[..., str],
-    name_parameter: str,
-    connector_parameter: str,
     connector_type: str,
 ) -> None:
     """Deferred MCP deploys return the settings link and next-step guidance."""
-    raw = tool(
+    raw = cloud_mcp.deploy_connector_to_cloud(
         ctx=cast(Context, object()),
+        name="My connector",
+        connector_name=f"{connector_type}-faker",
         workspace_id=WORKSPACE_ID,
         config='{"count": 10}',
         config_secret_name=None,
         unique=True,
         defer_credentials=True,
-        **{
-            name_parameter: "My connector",
-            connector_parameter: f"{connector_type}-faker",
-        },
     )
 
     result = DeferredDeployResult.model_validate_json(raw)
@@ -591,8 +787,10 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     assert result.connector_type == connector_type
     assert result.workspace_id == WORKSPACE_ID
     assert result.settings_url.endswith("/settings")
-    assert "check_cloud_connector_setup" in result.guidance
+    assert "check_cloud_connector" in result.guidance
     assert "`workspace_id`" in result.guidance
+    assert "409 actor-not-ready" in result.guidance
+    assert "creating a connection" in result.guidance
     (call,) = workspace_like.deploy_calls
     assert call["defer_credentials"] is True
     assert call["definition_id"] == DEFINITION_ID
@@ -603,7 +801,7 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
     workspace_like: _WorkspaceLike,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An actor created without deferral acknowledgement is still tracked for safe-mode cleanup."""
+    """An actor created without deferral acknowledgement is still tracked for session cleanup."""
     registered: list[str] = []
     monkeypatch.setattr(
         cloud_mcp, "register_guid_created_in_session", registered.append
@@ -618,10 +816,10 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
     monkeypatch.setattr(workspace_like, "deploy_source", _unacknowledged)
 
     with pytest.raises(exc.AirbyteDeferredSetupError):
-        cloud_mcp.deploy_source_to_cloud(
+        cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
-            source_name="My connector",
-            source_connector_name="source-faker",
+            name="My connector",
+            connector_name="source-faker",
             workspace_id=WORKSPACE_ID,
             config={"count": 10},
             config_secret_name=None,
@@ -635,12 +833,13 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
 def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
     workspace_like: _WorkspaceLike,
 ) -> None:
-    """A destination connector name cannot be deployed through the source tool."""
-    with pytest.raises(exc.PyAirbyteInputError, match="not a source connector"):
-        cloud_mcp.deploy_source_to_cloud(
+    """An explicit `connector_type` must agree with the registry's type for the connector."""
+    with pytest.raises(exc.AirbyteLibInputError, match="not a source connector"):
+        cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
-            source_name="My connector",
-            source_connector_name="destination-faker",
+            name="My connector",
+            connector_name="destination-faker",
+            connector_type=ConnectorType.SOURCE,
             workspace_id=WORKSPACE_ID,
             config={"count": 10},
             config_secret_name=None,
@@ -651,15 +850,53 @@ def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
     assert workspace_like.deploy_calls == []
 
 
+def test_mcp_deploy_deferred_rejects_plaintext_credentials(
+    workspace_like: _WorkspaceLike,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plain-text credentials in `config` are rejected before any deferred deploy."""
+
+    def _validated_deploy(**kwargs: Any) -> _DeployedLike:  # noqa: ANN401
+        config_dict = kwargs.get("source") or kwargs.get("destination")
+        cloud_workspaces._deferred_credentials_config(  # noqa: SLF001
+            config_dict,
+            definition_id=kwargs["definition_id"],
+        )
+        return _DeployedLike(connector_id=ACTOR_ID)
+
+    monkeypatch.setattr(workspace_like, "deploy_source", _validated_deploy)
+
+    with pytest.raises(exc.AirbyteLibInputError, match="credential values"):
+        cloud_mcp.deploy_connector_to_cloud(
+            ctx=cast(Context, object()),
+            name="My connector",
+            connector_name="source-faker",
+            workspace_id=WORKSPACE_ID,
+            config='{"api_key": "abc"}',
+            config_secret_name=None,
+            unique=True,
+            defer_credentials=True,
+        )
+
+
+def test_mcp_check_cloud_connector_is_read_only_and_idempotent() -> None:
+    """The check only reads the connector's check result; it mutates nothing."""
+    (annotations,) = [
+        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector
+    ]
+    assert annotations["readOnlyHint"] is True
+    assert annotations["idempotentHint"] is True
+
+
 def test_mcp_deploy_deferred_rejects_config_secret_name(
     workspace_like: _WorkspaceLike,
 ) -> None:
     """Server-side secrets cannot be combined with deferred credentials."""
-    with pytest.raises(exc.PyAirbyteInputError, match="config_secret_name"):
-        cloud_mcp.deploy_source_to_cloud(
+    with pytest.raises(exc.AirbyteLibInputError, match="config_secret_name"):
+        cloud_mcp.deploy_connector_to_cloud(
             ctx=cast(Context, object()),
-            source_name="My connector",
-            source_connector_name="source-faker",
+            name="My connector",
+            connector_name="source-faker",
             workspace_id=WORKSPACE_ID,
             config={"count": 10},
             config_secret_name="MY_SECRET",
@@ -668,41 +905,3 @@ def test_mcp_deploy_deferred_rejects_config_secret_name(
         )
 
     assert workspace_like.deploy_calls == []
-
-
-@pytest.mark.parametrize("connector_type", CONNECTOR_TYPES)
-@pytest.mark.parametrize("success", [True, False])
-def test_mcp_check_connector_setup_reports_fixed_outcome(
-    workspace_like: _WorkspaceLike,
-    connector_type: str,
-    success: bool,
-) -> None:
-    """The completion check exposes pass/fail and guidance, never provider error text."""
-    workspace_like.check_result = CheckResult(
-        success=success,
-        error_message=None if success else "Provider said: token abc123 is invalid",
-    )
-
-    result = cast(
-        ConnectorSetupCheckResult,
-        cloud_mcp.check_cloud_connector_setup(
-            ctx=cast(Context, object()),
-            connector_type=cast(Any, connector_type),
-            connector_id=ACTOR_ID,
-            workspace_id=WORKSPACE_ID,
-        ),
-    )
-
-    assert result.setup_complete is success
-    assert result.connector_type == connector_type
-    assert result.settings_url.endswith("/settings")
-    assert "abc123" not in result.model_dump_json()
-
-
-def test_mcp_check_connector_setup_is_not_read_only_or_idempotent() -> None:
-    """The check triggers a connection test, so it must not be advertised as read-only."""
-    (annotations,) = [
-        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector_setup
-    ]
-    assert annotations["readOnlyHint"] is False
-    assert annotations["idempotentHint"] is False

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, PrimaryKeyConstraint, String, and_
@@ -18,7 +18,7 @@ from airbyte_protocol.models import (
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )
-from airbyte.exceptions import PyAirbyteInputError, PyAirbyteInternalError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLibInternalError
 from airbyte.shared.state_providers import StaticInputState
 from airbyte.shared.state_writers import StateWriterBase
 
@@ -59,8 +59,8 @@ class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
 
     last_updated = Column(
         DateTime(timezone=True),
-        onupdate=datetime.now(timezone.utc),
-        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(UTC),
+        default=datetime.now(UTC),
     )
     """The last time the state was updated."""
 
@@ -91,8 +91,8 @@ class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
 
     last_updated = Column(
         DateTime(timezone=True),
-        onupdate=datetime.now(timezone.utc),
-        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(UTC),
+        default=datetime.now(UTC),
     )
     """The last time the state was updated."""
 
@@ -131,7 +131,7 @@ class SqlStateWriter(StateWriterBase):
         elif state_message.type == AirbyteStateType.STREAM and state_message.stream:
             stream_name = state_message.stream.stream_descriptor.name
         else:
-            raise PyAirbyteInternalError(
+            raise AirbyteLibInternalError(
                 message="Invalid state message type.",
                 context={"state_message": state_message},
             )
@@ -213,7 +213,7 @@ class SqlStateBackend(StateBackendBase):
     ) -> StateProviderBase:
         """Return the state provider."""
         if destination_name and table_prefix:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Both 'destination_name' and 'table_prefix' cannot be set at the same time."
             )
 

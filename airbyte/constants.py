@@ -227,6 +227,7 @@ secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment va
 For more information, see the `airbyte.secrets` module documentation.
 """
 
+
 # Cloud Constants
 
 CLOUD_CLIENT_ID_ENV_VAR: str = "AIRBYTE_CLOUD_CLIENT_ID"
@@ -248,11 +249,6 @@ the public API URL has been overridden and the Config API cannot be derived
 from it automatically.
 """
 
-AGENTS_API_ROOT_ENV_VAR: str = "AIRBYTE_AGENTS_API_URL"
-"""Environment variable to override the Airbyte Agents API root.
-
-Normally unset: the Agents API is a hosted Airbyte Cloud service with a single root.
-"""
 
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
@@ -302,10 +298,29 @@ def is_hosted_mcp_mode() -> bool:
 
 
 MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
-"""Environment variable to enable read-only mode for the MCP server.
+"""Environment variable that disables pipeline-changing MCP tools when truthy."""
 
-When set to "1" or "true", only tools with readOnlyHint=True will be available.
-"""
+MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES"
+"""Environment variable controlling access to Cloud pipeline-changing tools."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS"
+"""Environment variable controlling access to external-access Cloud tools."""
+
+MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS"
+"""Environment variable controlling access to destructive Cloud tools."""
+
+MCP_DISABLE_DELETE_GUARD_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD"
+"""Environment variable opt-out for the MCP delete guard."""
+
+MCP_LOCAL_DEMO_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE"
+"""Environment variable enabling opt-in local demo mode for STDIO MCP sessions."""
+
+CLOUD_MCP_SAFE_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_SAFE_MODE"
+"""Removed legacy env var; setting it fails MCP server startup."""
+
+MCP_LEGACY_SAFE_MODE_HEADER: str = "X-MCP-Safe-Mode"
+"""Removed legacy header; sending it fails the request."""
+
 
 MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
 """Environment variable to disable specific MCP tool domains.
@@ -345,35 +360,49 @@ This allows per-request organization ID configuration when using HTTP transport,
 tools that scope a listing to an organization rather than a workspace.
 """
 
-MCP_INSIDERS_MODULES: frozenset[str] = frozenset({"agents"})
+MCP_INSIDERS_MODULES: frozenset[str] = frozenset()
 """MCP tool modules that are hidden unless insiders mode is enabled.
 
 Enable them with `AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`, or by naming the module in
-the include list.
+the include list. Individual tools can also opt in with `mcp_tool(insiders_only=True)`; those
+are shown only when insiders mode is on, not by an include list.
 """
 
 MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
 """Environment variable that advertises insiders MCP tools. Off by default.
 
-Set to `1`/`true`/`yes` to advertise the tools in `MCP_INSIDERS_MODULES` to every
-caller, or to `0`/`false`/`no` to hide them from every caller. Either value overrides
-`MCP_INSIDERS_HEADER`; any other value, including an empty string, leaves the decision
-to that header.
+Set to `0`/`false`/`no` to hide insiders tools (see `MCP_INSIDERS_MODULES`) from every
+caller, regardless of `MCP_INSIDERS_HEADER`. Set to `1`/`true`/`yes` to advertise them by
+default; a caller can still opt out with `MCP_INSIDERS_HEADER: 0`. Any other value,
+including an empty string, leaves the decision to that header.
 """
 
 MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
 """HTTP header key that advertises insiders MCP tools, per request.
 
-Set to `1`/`true`/`yes` to add the tools in `MCP_INSIDERS_MODULES` to the advertised
+Set to `1`/`true`/`yes` to add insiders tools (see `MCP_INSIDERS_MODULES`) to the advertised
 tool surface. This selects which tools are advertised and is not an access-control
 boundary: every insiders tool authorizes each call against the Airbyte API.
-`MCP_INSIDERS_ENV_VAR` overrides this header when explicitly set.
+A falsy `MCP_INSIDERS_ENV_VAR` overrides this header; a truthy one makes insiders tools
+the default, which this header can only narrow by setting it to `0`.
 """
 
 # MCP Config Arg Names (used with get_mcp_config)
 
 MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
-"""Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+"""Config arg name for the AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+
+MCP_CONFIG_ALLOW_PIPELINE_CHANGES: str = "allow_pipeline_changes"
+"""Config arg name for the Cloud pipeline-change permission."""
+
+MCP_CONFIG_ALLOW_EXTERNAL_ACCESS: str = "allow_external_access"
+"""Config arg name for external-access permission."""
+
+MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS: str = "allow_destructive_tools"
+"""Config arg name for the Cloud destructive-tools permission."""
+
+MCP_CONFIG_DISABLE_DELETE_GUARD: str = "disable_delete_guard"
+"""Config arg name for disabling the MCP delete guard."""
 
 MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
 """Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
@@ -412,6 +441,18 @@ MCP_BEARER_TOKEN_HEADER: str = "Authorization"
 
 MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
 """HTTP header key for client-declared MCP extension IDs."""
+
+MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
+"""HTTP header key for narrowing Cloud pipeline-change permission."""
+
+MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
+"""HTTP header key for narrowing external-access permission."""
+
+MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER: str = "X-MCP-Allow-Destructive-Tools"
+"""HTTP header key for narrowing destructive-tools permission."""
+
+MCP_DISABLE_DELETE_GUARD_HEADER: str = "X-MCP-Disable-Delete-Guard"
+"""HTTP header key for disabling the MCP delete guard."""
 
 # Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing

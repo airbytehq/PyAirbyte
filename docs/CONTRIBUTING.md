@@ -106,8 +106,7 @@ In your MCP config, you can test your development updates using `uv` as the entr
       ],
       "env": {
         "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env",
-        "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0",
-        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "0"
+        "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0"
       }
     }
   }
@@ -131,7 +130,7 @@ poe mcp-tool-test run_sync \
     '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
 poe mcp-tool-test get_default_cloud_context '{}'
-poe mcp-tool-test list_deployed_cloud_connections '{}'
+poe mcp-tool-test list_cloud_connections '{}'
 ```
 
 You can also invoke the server using one of these helper tasks:
@@ -150,7 +149,7 @@ The repo ships a small script (`scripts/generate_mcp_markdown.py`) that
 introspects the MCP server via `fastmcp inspect` and emits a Markdown
 documentation site under `docs/mcp-generated/` (git-ignored). The output is
 plain CommonMark with no MDX-only components, so it is both Docusaurus-hostable
-and consumable by `pdoc` — the four `airbyte.mcp.{cloud,local,registry,prompts}`
+and consumable by `pdoc` — the four `airbyte.mcp.{cloud,local,registry,guidance}`
 modules pull their respective generated file in via pdoc's `.. include::`
 directive, so `poe docs-generate` surfaces the generated tool docs on each
 module's pdoc page alongside the regular `docs/generated/` output.
@@ -165,14 +164,27 @@ PyAirbyte server that is:
 
 - `index.md` — server overview (name, version, instructions, totals, module table)
 - `cloud.md` — tools registered by `airbyte.mcp.cloud`
+- `connector_builder.md` — tools registered by `airbyte.mcp.connector_builder`
 - `local.md` — tools registered by `airbyte.mcp.local`
 - `registry.md` — tools registered by `airbyte.mcp.registry`
-- `prompts.md` — prompts registered by `airbyte.mcp.prompts`
+- `guidance.md` — tools and prompts registered by `airbyte.mcp.guidance`
 - `misc.md` — anything without an `mcp_module` annotation (currently just the
   `server_info` resource)
 
 Inside each module page, primitives are grouped by kind (`## Tools`,
 `## Prompts`, `## Resources`), and each primitive has an HTML anchor
 (`<a id="name"></a>`) above its H3 so links like
-`cloud.md#deploy_source_to_cloud` resolve in both pdoc and Docusaurus.
+`cloud.md#deploy_connector_to_cloud` resolve in both pdoc and Docusaurus.
 Regenerate after any change to MCP tool signatures, descriptions, or schemas.
+
+## Removing Environment Variables and MCP Headers
+
+Never silently ignore a removed env var or MCP request header. Add it to
+`UNSUPPORTED_ENV_VARS` in `airbyte/_util/unsupported_inputs.py` (checked at
+startup of the `pyab` CLI and both MCP servers) or `UNSUPPORTED_MCP_HEADERS` in
+`airbyte/mcp/_tool_utils.py`, mapped to guidance that names the replacement settings.
+
+- Env vars fail at startup. Headers fail on tool listing and tool calls.
+- Any value counts as set, including empty or `0`.
+- Remove all other docs references to the removed setting. The map entry is the only
+  place it stays.

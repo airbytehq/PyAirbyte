@@ -17,7 +17,8 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls, get_connector_info
+from airbyte.mcp.guidance import get_api_docs_urls, get_connector_info
+from airbyte.mcp.registry import get_available_connectors
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -212,7 +213,7 @@ class TestGetApiDocsUrls:
 
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
                 connector_name="nonexistent-connector",
                 context={},
@@ -223,7 +224,7 @@ class TestGetApiDocsUrls:
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
+        with patch("airbyte.mcp.guidance.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.return_value = [
                 ApiDocsUrl(
                     title="Airbyte Documentation",
@@ -401,7 +402,7 @@ def test_list_public_registry_connectors_applies_filters(
 def test_show_connectors_list_rejects_negative_limit() -> None:
     """Test that negative connector limits fail clearly."""
     with pytest.raises(
-        exc.PyAirbyteInputError, match="Limit parameter must be non-negative."
+        exc.AirbyteLibInputError, match="Limit parameter must be non-negative."
     ):
         show_connectors_list(limit=-1)
 
@@ -455,7 +456,7 @@ def test_interactive_tools_are_filtered_by_ui_support(
     from fastmcp_extensions import mcp_server
 
     app = mcp_server(
-        name="test",
+        display_name="test",
         include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
@@ -478,7 +479,7 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
     from airbyte.mcp import interactive
 
     app = mcp_server(
-        name="test",
+        display_name="test",
         include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
@@ -493,7 +494,7 @@ def test_interactive_tools_include_prefab_metadata() -> None:
 
     from airbyte.mcp import interactive
 
-    app = mcp_server(name="test")
+    app = mcp_server(display_name="test")
     interactive.register_interactive_tools(app)
 
     provider = getattr(app, "_local_provider")
@@ -507,7 +508,7 @@ def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
     assert _mcp_module_for_tool(show_connectors_list) == "interactive"
     assert _mcp_module_for_tool(show_workspace_sync_status) == "interactive"
-    assert _mcp_module_for_tool(get_api_docs_urls) == "registry"
+    assert _mcp_module_for_tool(get_api_docs_urls) == "guidance"
 
 
 def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None:
@@ -525,13 +526,13 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             return_value=cloud_spec,
         ) as mock_get_spec,
     ):
@@ -546,6 +547,50 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
     )
 
 
+def test_get_connector_info_finds_java_connector_without_docker() -> None:
+    """A Java registry connector is discoverable when Docker is unavailable."""
+    connector_metadata = ConnectorMetadata(
+        name="source-postgres",
+        display_name="Postgres",
+        connector_type="source",
+        definition_id="source-postgres-definition",
+        docker_repository="airbyte/source-postgres",
+        latest_available_version="3.0.0",
+        pypi_package_name=None,
+        language="java",
+        install_types=set(),
+        support_level="certified",
+        release_stage="generally_available",
+        source_type="database",
+        documentation_url="https://docs.airbyte.com/integrations/sources/postgres",
+    )
+    connector = MagicMock()
+    connector.name = "source-postgres"
+    connector.docs_url = connector_metadata.documentation_url
+
+    with (
+        patch("airbyte.registry.is_docker_installed", return_value=False),
+        patch(
+            "airbyte.registry._get_registry_cache",
+            return_value={"source-postgres": connector_metadata},
+        ),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch(
+            "airbyte.mcp.guidance.get_connector_metadata",
+            return_value=connector_metadata,
+        ),
+        patch(
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
+            return_value=None,
+        ),
+    ):
+        assert get_available_connectors() == []
+        result = get_connector_info("source-postgres")
+
+    assert not isinstance(result, str)
+    assert result.connector_name == "source-postgres"
+
+
 def test_get_connector_info_falls_back_to_oss_spec() -> None:
     """When the `cloud` spec is unavailable, `get_connector_info` uses the `oss` spec."""
     connector = MagicMock()
@@ -556,13 +601,13 @@ def test_get_connector_info_falls_back_to_oss_spec() -> None:
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             side_effect=[None, oss_spec],
         ) as mock_get_spec,
     ):
@@ -585,13 +630,13 @@ def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
 
     with (
         patch(
-            "airbyte.mcp.registry.get_available_connectors",
+            "airbyte.mcp.guidance.get_available_connectors",
             return_value=["source-faker"],
         ),
-        patch("airbyte.mcp.registry.get_source", return_value=connector),
-        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch("airbyte.mcp.guidance.get_source", return_value=connector),
+        patch("airbyte.mcp.guidance.get_connector_metadata", return_value=None),
         patch(
-            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            "airbyte.mcp.guidance.get_connector_spec_from_registry",
             return_value=None,
         ),
     ):
@@ -601,3 +646,127 @@ def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
     assert result.config_spec_jsonschema is None
     assert result.manifest_url is not None
     connector.install.assert_not_called()
+
+
+def _registry_entry(**overrides: object) -> dict:
+    """Build a minimal registry entry for `source-faker`."""
+    entry: dict = {
+        "dockerRepository": "airbyte/source-faker",
+        "dockerImageTag": "7.2.1",
+        "sourceDefinitionId": "source-faker-definition",
+        "name": "Faker",
+        "tags": [],
+        "suggestedStreams": {"streams": []},
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_registry_entry_release_date_falls_back_to_commit_timestamp() -> None:
+    """Entries without `releaseDate` use the version's git commit timestamp date."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    entry = _registry_entry(
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59-07:00"}},
+    )
+    metadata = _registry_entry_to_connector_metadata(entry)
+
+    assert metadata.release_date == "2026-07-10"
+
+
+def test_registry_entry_release_date_prefers_release_date_field() -> None:
+    """An explicit `releaseDate` wins over the commit timestamp."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    entry = _registry_entry(
+        releaseDate="2026-01-01",
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59-07:00"}},
+    )
+    metadata = _registry_entry_to_connector_metadata(entry)
+
+    assert metadata.release_date == "2026-01-01"
+
+
+def test_registry_entry_release_date_none_without_any_date() -> None:
+    """Entries with neither `releaseDate` nor a commit timestamp report None."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    metadata = _registry_entry_to_connector_metadata(_registry_entry())
+
+    assert metadata.release_date is None
+
+
+def _mock_registry_response(entry: dict) -> MagicMock:
+    response = MagicMock()
+    response.json.return_value = {"sources": [entry], "destinations": []}
+    response.raise_for_status = MagicMock()
+    return response
+
+
+def test_fetch_registry_version_date_uses_current_version_commit_timestamp() -> None:
+    """The connector's own entry supplies the date for its current version."""
+    from airbyte._registry_utils import fetch_registry_version_date
+
+    entry = _registry_entry(
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59-07:00"}},
+    )
+    with patch("airbyte._registry_utils.requests.get") as mock_get:
+        mock_get.return_value = _mock_registry_response(entry)
+        assert fetch_registry_version_date("source-faker", "7.2.1") == "2026-07-10"
+
+
+@pytest.mark.parametrize(
+    "generated",
+    [
+        pytest.param(None, id="null_generated"),
+        pytest.param({"git": None}, id="null_git"),
+    ],
+)
+def test_registry_entry_commit_date_tolerates_null_generated_metadata(
+    generated: object,
+) -> None:
+    """JSON null `generated`/`generated.git` values are treated as missing."""
+    from airbyte._registry_utils import registry_entry_commit_date
+
+    assert registry_entry_commit_date({"generated": generated}) is None
+
+
+def test_registry_entry_release_date_none_with_null_generated() -> None:
+    """An entry with `generated=None` and no `releaseDate` converts without raising."""
+    from airbyte.registry import _registry_entry_to_connector_metadata
+
+    metadata = _registry_entry_to_connector_metadata(_registry_entry(generated=None))
+
+    assert metadata.release_date is None
+
+
+def test_fetch_registry_version_date_prefers_release_date_for_current_version() -> None:
+    """An explicit `releaseDate` wins over the current version's commit timestamp."""
+    from airbyte._registry_utils import fetch_registry_version_date
+
+    entry = _registry_entry(
+        releaseDate="2026-07-12",
+        generated={"git": {"commit_timestamp": "2026-07-10T14:26:59Z"}},
+    )
+    with patch("airbyte._registry_utils.requests.get") as mock_get:
+        mock_get.return_value = _mock_registry_response(entry)
+        assert fetch_registry_version_date("source-faker", "7.2.1") == "2026-07-12"
+
+
+def test_fetch_registry_version_date_reads_release_candidates() -> None:
+    """Non-current versions still resolve through `releases.releaseCandidates`."""
+    from airbyte._registry_utils import fetch_registry_version_date
+
+    entry = _registry_entry(
+        releases={
+            "releaseCandidates": {
+                "8.0.0-rc.1": {
+                    "generated": {"git": {"commit_timestamp": "2026-08-01T00:00:00Z"}},
+                },
+            },
+        },
+    )
+    with patch("airbyte._registry_utils.requests.get") as mock_get:
+        mock_get.return_value = _mock_registry_response(entry)
+        assert fetch_registry_version_date("source-faker", "8.0.0-rc.1") == "2026-08-01"
+        assert fetch_registry_version_date("source-faker", "0.0.0") is None

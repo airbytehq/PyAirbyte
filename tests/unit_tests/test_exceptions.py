@@ -17,7 +17,7 @@ def test_exceptions():
         for name, obj in inspect.getmembers(exceptions_module)
         if inspect.isclass(obj) and name.endswith("Error")
     ]
-    assert "AirbyteError" in [name for name, _ in exception_classes]
+    assert "AirbyteCloudError" in [name for name, _ in exception_classes]
     assert "NotAnError" not in [name for name, _ in exception_classes]
     for name, obj in exception_classes:
         instance = obj()
@@ -105,7 +105,7 @@ def test_cloud_credentials_error_guidance(
 
 
 @pytest.mark.parametrize(
-    ("hosted", "expected_guidance"),
+    ("mcp_mode", "expected_guidance"),
     [
         pytest.param(
             True,
@@ -116,7 +116,7 @@ def test_cloud_credentials_error_guidance(
             "`list_cloud_organizations` to search organizations by name. If exactly "
             "one workspace is found, use it; otherwise ask the user to choose. Call "
             "`get_default_cloud_context` to inspect your memberships.",
-            id="hosted",
+            id="mcp",
         ),
         pytest.param(
             False,
@@ -127,17 +127,17 @@ def test_cloud_credentials_error_guidance(
             "`list_organizations` to search organizations by name. If exactly "
             "one workspace is found, use it; otherwise ask the user to choose. Call "
             "`get_default_context_for_user` to inspect your memberships.",
-            id="local",
+            id="python",
         ),
     ],
 )
 def test_missing_workspace_context_error_guidance(
-    hosted: bool,
+    mcp_mode: bool,
     expected_guidance: str,
 ) -> None:
     """Render workspace guidance for each supported mode."""
     with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(exceptions_module, "is_hosted_mcp_mode", lambda: hosted)
+        monkeypatch.setattr(exceptions_module, "is_mcp_mode", lambda: mcp_mode)
         error = AirbyteMissingWorkspaceContextError()
 
     assert error.get_message() == "Workspace ID is required but not provided."

@@ -4,23 +4,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 from unittest.mock import patch
 
 import pytest
+from fastmcp import FastMCP
 from fastmcp_extensions import MCPServerConfigArg
 
+from airbyte.constants import (
+    MCP_CONFIG_DISABLE_DELETE_GUARD,
+    MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
+)
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
+    ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
+    ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
+    DISABLE_DELETE_GUARD_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
-    SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
+    _TOOL_POLICIES,
+    ToolPolicy,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
+    check_unsupported_mcp_headers,
+    delete_guard_disabled,
+    mcp_tool,
     register_guid_created_in_session,
 )
+from airbyte.mcp import server as server_module
 
 
 @dataclass
@@ -106,27 +122,83 @@ def test_register_guid_created_in_session() -> None:
     assert "test-guid-123" in _GUIDS_CREATED_IN_SESSION
 
 
-def test_check_guid_created_in_session_passes_for_registered_guid() -> None:
-    """Test that check passes for GUIDs registered in session."""
-    register_guid_created_in_session("test-guid-456")
-    # Should not raise
-    check_guid_created_in_session("test-guid-456")
+def test_check_guid_created_in_session_passes_when_demo_mode_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that check passes for any GUID when local demo mode is unset."""
+    monkeypatch.delenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, raising=False)
+    # Should not raise even for unregistered GUID
+    check_guid_created_in_session("any-guid-at-all")
 
 
-def test_check_guid_created_in_session_raises_for_unregistered_guid() -> None:
-    """Test that check raises SafeModeError for unregistered GUIDs when safe mode is enabled."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", True):
-        with pytest.raises(SafeModeError) as exc_info:
-            check_guid_created_in_session("unregistered-guid")
-        assert "unregistered-guid" in str(exc_info.value)
-        assert "not created in this session" in str(exc_info.value)
+def test_check_guid_created_in_session_local_demo_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that local demo mode blocks unregistered GUIDs and allows registered ones."""
+    monkeypatch.setenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, "1")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: False)
+    register_guid_created_in_session("registered-guid")
+    # Should not raise for a GUID registered in this session
+    check_guid_created_in_session("registered-guid")
+
+    with pytest.raises(AirbyteLocalDemoModeError) as exc_info:
+        check_guid_created_in_session("unregistered-guid")
+    assert "unregistered-guid" in str(exc_info.value)
 
 
-def test_check_guid_created_in_session_passes_when_safe_mode_disabled() -> None:
-    """Test that check passes for any GUID when safe mode is disabled."""
-    with patch("airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_SAFE_MODE", False):
-        # Should not raise even for unregistered GUID
-        check_guid_created_in_session("any-guid-at-all")
+def test_check_guid_created_in_session_passes_when_hosted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that local demo mode is ignored over the hosted HTTP transport."""
+    monkeypatch.setenv(MCP_LOCAL_DEMO_MODE_ENV_VAR, "1")
+    monkeypatch.setattr("airbyte.mcp._tool_utils.is_hosted_mcp_mode", lambda: True)
+    # Should not raise even for unregistered GUID
+    check_guid_created_in_session("any-guid-at-all")
+
+
+def test_check_unsupported_mcp_headers_passes_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the header check passes when no listed header is sent."""
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_http_headers", lambda **_: {})
+    check_unsupported_mcp_headers()
+
+
+def test_check_unsupported_mcp_headers_raises_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a listed header fails the request with mapped guidance."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.get_http_headers",
+        lambda **_: {"x-mcp-safe-mode": "1"},
+    )
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_unsupported_mcp_headers()
+    assert "X-MCP-Safe-Mode" in str(exc_info.value)
+    guidance = exc_info.value.guidance
+    assert isinstance(guidance, str)
+    assert guidance.startswith(
+        "Remove the `X-MCP-Safe-Mode` header and consider using one of these alternatives:\n"
+    )
+    assert "X-MCP-Allow-Pipeline-Changes" in guidance
+
+
+def test_check_unsupported_mcp_headers_is_generic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the header guard works for any name added to the map."""
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.UNSUPPORTED_MCP_HEADERS",
+        {"X-Custom-Removed": "use Y"},
+    )
+    monkeypatch.setattr(
+        "airbyte.mcp._tool_utils.get_http_headers",
+        lambda **_: {"x-custom-removed": "1"},
+    )
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        check_unsupported_mcp_headers()
+    assert "X-Custom-Removed" in str(exc_info.value)
+    assert exc_info.value.guidance == "use Y"
 
 
 def test_multiple_guids_can_be_registered() -> None:
@@ -166,3 +238,195 @@ def test_config_args_are_not_caller_controllable(
     tool surface.
     """
     assert config_arg.http_header_key is None
+
+
+def test_mcp_tool_registers_policy_defaults_and_overrides() -> None:
+    @mcp_tool(read_only=True)
+    def policy_read_only_default() -> None:
+        pass
+
+    @mcp_tool()
+    def policy_write_default() -> None:
+        pass
+
+    @mcp_tool(read_only=True, pipeline_change=True, external_access=True)
+    def policy_explicit_override() -> None:
+        pass
+
+    assert _TOOL_POLICIES[policy_read_only_default.__name__] == ToolPolicy(
+        pipeline_change=False,
+        external_access=False,
+    )
+    assert _TOOL_POLICIES[policy_write_default.__name__] == ToolPolicy(
+        pipeline_change=True,
+        external_access=False,
+    )
+    assert _TOOL_POLICIES[policy_explicit_override.__name__] == ToolPolicy(
+        pipeline_change=True,
+        external_access=True,
+    )
+
+
+def test_mcp_tool_force_disabled_skips_registration() -> None:
+    def force_disabled_tool() -> None:
+        pass
+
+    assert mcp_tool(read_only=True, force_disabled=True)(force_disabled_tool) is (
+        force_disabled_tool
+    )
+    assert force_disabled_tool.__name__ not in _TOOL_POLICIES
+
+
+def test_server_tools_register_expected_policies() -> None:
+    assert server_module.app
+    external_tools = (
+        "execute_external_api_query",
+        "execute_external_sql_query",
+        "execute_external_search_query",
+        "get_cloud_search_status",
+        "get_external_access_skill_docs",
+    )
+    for tool_name in external_tools:
+        assert _TOOL_POLICIES[tool_name].external_access
+
+    for tool_name in ("run_cloud_sync", "cancel_cloud_sync"):
+        assert _TOOL_POLICIES[tool_name].pipeline_change is False
+
+    insiders_tools = {
+        name for name, policy in _TOOL_POLICIES.items() if policy.insiders_only
+    }
+    assert insiders_tools == {
+        "create_connector_builder_project",
+        "update_connector_builder_manifest_text",
+        "set_connector_builder_testing_values",
+        "run_connector_builder_stream_test_read",
+        "get_connector_builder_resolved_manifest",
+        "run_connector_builder_readiness_checks",
+        "list_connector_builder_published_versions",
+        "get_connector_builder_published_manifest",
+        "revert_connector_builder_published_version",
+    }
+
+
+@pytest.mark.parametrize(
+    ("config_arg", "expected_env", "expected_header", "expected_name"),
+    [
+        pytest.param(
+            ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
+            "AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES",
+            "X-MCP-Allow-Pipeline-Changes",
+            "allow_pipeline_changes",
+            id="pipeline-changes",
+        ),
+        pytest.param(
+            ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
+            "AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS",
+            "X-MCP-Allow-External-Access",
+            "allow_external_access",
+            id="external-access",
+        ),
+        pytest.param(
+            DISABLE_DELETE_GUARD_CONFIG_ARG,
+            "AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD",
+            "X-MCP-Disable-Delete-Guard",
+            "disable_delete_guard",
+            id="disable-delete-guard",
+        ),
+    ],
+)
+def test_policy_config_args(
+    config_arg: MCPServerConfigArg,
+    expected_env: str,
+    expected_header: str,
+    expected_name: str,
+) -> None:
+    assert config_arg.name == expected_name
+    assert config_arg.env_var == expected_env
+    assert config_arg.http_header_key == expected_header
+    assert config_arg.default == ""
+    assert not config_arg.required
+
+
+@pytest.mark.parametrize(
+    ("environment_value", "header_value", "expected"),
+    [
+        pytest.param(None, None, False, id="unset"),
+        pytest.param("1", None, True, id="environment-enable"),
+        pytest.param("1", "0", False, id="header-narrows-environment"),
+        pytest.param("0", "1", False, id="environment-deny-wins"),
+        pytest.param(None, "1", True, id="header-enable"),
+    ],
+)
+def test_delete_guard_disabled_respects_environment_and_header(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_value: str | None,
+    header_value: str | None,
+    expected: bool,
+) -> None:
+    if environment_value is None:
+        monkeypatch.delenv(MCP_DISABLE_DELETE_GUARD_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(MCP_DISABLE_DELETE_GUARD_ENV_VAR, environment_value)
+
+    def get_config(_app_or_ctx: FastMCP, config_name: str) -> str | None:
+        assert config_name == MCP_CONFIG_DISABLE_DELETE_GUARD
+        return header_value
+
+    monkeypatch.setattr("airbyte.mcp._tool_utils.get_mcp_config", get_config)
+
+    assert delete_guard_disabled(cast(FastMCP, object())) is expected
+
+
+_DOCSTRING_SECTION_HEADERS = ("Args:", "Returns:", "Raises:")
+
+
+def _assert_docstring_is_dedented(doc: str) -> None:
+    in_section = False
+    for line in doc.splitlines():
+        if line in _DOCSTRING_SECTION_HEADERS:
+            in_section = True
+            continue
+        if not line:
+            in_section = False
+            continue
+        assert line.strip(), f"Whitespace-only line in docstring: {doc!r}"
+        if not in_section:
+            assert not line.startswith(" "), f"Indented body line {line!r} in: {doc!r}"
+
+
+def test_mcp_tool_dedents_docstring_before_extra_help_text() -> None:
+    @mcp_tool(read_only=True, extra_help_text="Extra help\nline two")
+    def dedent_docstring_tool(value: str) -> None:
+        """Summary line.
+
+        Indented body line one.
+        Indented body line two.
+
+        Args:
+            value: Some value.
+        """
+
+    doc = dedent_docstring_tool.__doc__
+    assert doc is not None
+    _assert_docstring_is_dedented(doc)
+    assert "\nIndented body line one.\nIndented body line two.\n" in doc
+    assert "\nArgs:\n    value: Some value.\n" in doc
+    assert doc.endswith("\n\nExtra help\nline two")
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "validate_connector_config",
+        "list_dotenv_secrets",
+        "list_source_streams",
+        "get_stream_previews",
+        "run_sql_query",
+    ],
+)
+def test_local_tool_descriptions_are_dedented(tool_name: str) -> None:
+    from airbyte.mcp import local as local_module
+
+    doc = getattr(local_module, tool_name).__doc__
+    assert doc is not None
+    _assert_docstring_is_dedented(doc)

@@ -1,9 +1,9 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""MCP tool utility functions for safe mode and config args.
+"""MCP tool utility functions for config args and tool filters.
 
 This module provides:
-- Safe mode functionality for MCP tools, allowing tracking of resources created
-  during a session to prevent accidental deletion of pre-existing resources.
+- Local demo mode: opt-in STDIO-only tracking that restricts changes to resources
+  created in the current session.
 - Config args and filters for backward compatibility with legacy Airbyte env vars.
 """
 
@@ -11,31 +11,35 @@ from __future__ import annotations
 
 import inspect
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp_extensions import (
-    ANNOTATION_INTERACTIVE_UI,
+    Capability,
     MCPServerConfigArg,
     get_mcp_config,
+    get_tool_traits,
 )
 from fastmcp_extensions import mcp_tool as _mcp_tool
+from fastmcp_extensions import register_mcp_tools as _register_mcp_tools
+from fastmcp_extensions.annotations import ANNOTATION_MCP_MODULE
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROVIDERS,  # noqa: PLC2701
     _REGISTERED_TOOLS,  # noqa: PLC2701
 )
-from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PLC2701
 from fastmcp_extensions.tool_filters import (
-    ANNOTATION_MCP_MODULE,
+    ANNOTATION_DESTRUCTIVE_HINT,
     ANNOTATION_READ_ONLY_HINT,
     CONFIG_INCLUDE_MODULES,
     CONFIG_TRUSTED_EXECUTION,
     get_annotation,
 )
+from mcp.types import Tool
 
-from airbyte._util.deployment import is_agents_api_available as _is_agents_api_available
+from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -44,64 +48,57 @@ from airbyte.constants import (
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_ALLOW_PIPELINE_CHANGES_HEADER,
     MCP_BEARER_TOKEN_HEADER,
+    MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+    MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
+    MCP_CONFIG_DISABLE_DELETE_GUARD,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_INSIDERS,
     MCP_CONFIG_ORGANIZATION_ID,
     MCP_CONFIG_READONLY_MODE,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+    MCP_DISABLE_DELETE_GUARD_HEADER,
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_LEGACY_SAFE_MODE_HEADER,
+    MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_ORGANIZATION_ID_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
     _str_to_bool,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteLocalDemoModeError
 
 
 if TYPE_CHECKING:
-    from fastmcp import Context, FastMCP
-    from mcp.types import Tool
+    from fastmcp import FastMCP
+    from fastmcp.apps import AppConfig
+    from fastmcp.server.context import Context
+    from fastmcp.tools import Tool as FastMCPTool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
-_TOOL_APP_KEY = "_airbyte_tool_app"
-_TOOL_META_KEY = "_airbyte_tool_meta"
-_AGENTS_MCP_MODULE = "agents"
-"""Module whose tools are only advertised when an Agents API is available."""
-
-
-def is_agents_api_available(config_source: FastMCP | Context) -> bool:
-    """Return whether the MCP server's deployment has an Agents API."""
-    return _is_agents_api_available(
-        public_api_root=get_mcp_config(config_source, MCP_CONFIG_API_URL),
-        config_api_root=get_mcp_config(config_source, MCP_CONFIG_CONFIG_API_URL),
-    )
-
-
-INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
-"""Annotation indicating the tool requires MCP Apps UI support."""
 
 # =============================================================================
-# Safe Mode Configuration
+# Environment-Derived Flags
 # =============================================================================
-
-AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
-"""Whether safe mode is enabled for cloud operations.
-
-When enabled (default), destructive operations are only allowed on resources
-created during the current session.
-"""
 
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 """Whether the AIRBYTE_CLOUD_WORKSPACE_ID environment variable is set.
@@ -112,10 +109,16 @@ When set, the workspace_id parameter is hidden from cloud tools.
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
 
 
-class SafeModeError(Exception):
-    """Raised when a tool is blocked by safe mode restrictions."""
+def local_demo_mode_enabled() -> bool:
+    """Return whether local demo mode is active for this session.
 
-    pass
+    Local demo mode is opt-in via `AIRBYTE_CLOUD_MCP_LOCAL_DEMO_MODE` and only
+    applies to local (STDIO) sessions; it is ignored over the hosted HTTP transport.
+    """
+    return (
+        _str_to_bool(os.environ.get(MCP_LOCAL_DEMO_MODE_ENV_VAR)) is True
+        and not is_hosted_mcp_mode()
+    )
 
 
 def register_guid_created_in_session(guid: str) -> None:
@@ -130,20 +133,54 @@ def register_guid_created_in_session(guid: str) -> None:
 def check_guid_created_in_session(guid: str) -> None:
     """Check if a GUID was created in this session.
 
-    This is a no-op if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "0".
+    This is a no-op unless local demo mode is enabled.
 
-    Raises SafeModeError if the GUID was not created in this session and
-    AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
+    Raises `AirbyteLocalDemoModeError` if local demo mode is enabled and the GUID
+    was not created in this session.
 
     Args:
         guid: The GUID to check
     """
-    if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
-        raise SafeModeError(
-            f"Cannot perform destructive operation on '{guid}': "
-            f"Object was not created in this session. "
-            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+    if local_demo_mode_enabled() and guid not in _GUIDS_CREATED_IN_SESSION:
+        raise AirbyteLocalDemoModeError(
+            message=(
+                f"Cannot modify '{guid}': local demo mode only allows changes "
+                "to resources created in this session."
+            ),
         )
+
+
+UNSUPPORTED_MCP_HEADERS: dict[str, str] = {
+    MCP_LEGACY_SAFE_MODE_HEADER: (
+        "Remove the `X-MCP-Safe-Mode` header and consider using one of these "
+        "alternatives:\n"
+        "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
+        "destinations, and connections.\n"
+        "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
+        "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
+        "- `X-MCP-Allow-Destructive-Tools: 0`: hide destructive tools.\n"
+    ),
+}
+"""Removed MCP request headers, mapped to replacement guidance.
+
+Tool listing and calls fail if any is sent.
+"""
+
+
+def check_unsupported_mcp_headers() -> None:
+    """Fail fast if a removed MCP request header is present.
+
+    Raises `AirbyteLibInputError` on the first name in `UNSUPPORTED_MCP_HEADERS`
+    sent with any value. Outside an HTTP request there are no headers, so this
+    is a no-op.
+    """
+    headers = get_http_headers()
+    for name, guidance in UNSUPPORTED_MCP_HEADERS.items():
+        if name.lower() in headers:
+            raise AirbyteLibInputError(
+                message=f"The `{name}` header is no longer supported.",
+                guidance=guidance,
+            )
 
 
 # =============================================================================
@@ -160,7 +197,7 @@ AIRBYTE_READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
     default="0",
     required=False,
 )
-"""Config arg for legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
+"""Config arg for the AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
 
 AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_EXCLUDE_MODULES,
@@ -190,6 +227,42 @@ INSIDERS_CONFIG_ARG = MCPServerConfigArg(
 The default is empty rather than `0`, because `0` is an explicit denial that also refuses
 the include-list opt-in.
 """
+
+ALLOW_PIPELINE_CHANGES_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
+    http_header_key=MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+    env_var=MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run pipeline-changing Cloud tools."""
+
+ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+    http_header_key=MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    env_var=MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run external-access Cloud tools."""
+
+ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+    http_header_key=MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    env_var=MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for permission to run destructive Cloud tools."""
+
+DISABLE_DELETE_GUARD_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_DISABLE_DELETE_GUARD,
+    http_header_key=MCP_DISABLE_DELETE_GUARD_HEADER,
+    env_var=MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for disabling the MCP delete guard."""
 
 TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
     name=CONFIG_TRUSTED_EXECUTION,
@@ -362,37 +435,81 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def mcp_tool(
+@dataclass(frozen=True)
+class ToolPolicy:
+    pipeline_change: bool
+    external_access: bool = False
+    insiders_only: bool = False
+
+
+_TOOL_POLICIES: dict[str, ToolPolicy] = {}
+
+
+def get_tool_policy(tool: Tool | FastMCPTool) -> ToolPolicy:
+    """Return registered policy metadata, falling back to the tool's read-only hint."""
+    policy = _TOOL_POLICIES.get(tool.name)
+    if policy is not None:
+        return policy
+    read_only = get_annotation(cast(Tool, tool), ANNOTATION_READ_ONLY_HINT, default=False)
+    return ToolPolicy(pipeline_change=not bool(read_only))
+
+
+def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     *,
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
     open_world: bool = False,
+    requires_client_filesystem: bool = False,
+    interactive_ui: bool = False,
     annotations: Mapping[str, object] | None = None,
     meta: Mapping[str, object] | None = None,
-    app: object | None = None,
-    extra_help_text: str | None = None,
+    app: AppConfig | None = None,
+    required_capabilities: Iterable[Capability | str] | None = None,
+    extra_help_text: str | Callable[[], str | None] | None = None,
+    pipeline_change: bool | None = None,
+    external_access: bool = False,
+    tracing: bool | Callable[[Mapping[str, object]], Mapping[str, object]] = True,
+    insiders_only: bool = False,
+    force_disabled: bool = False,
 ) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
-    """Decorate an MCP tool with deferred Airbyte registration metadata."""
+    """Decorate an MCP tool with deferred Airbyte registration metadata.
+
+    When `insiders_only` is true, the tool is hidden unless insiders mode is on
+    (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`). When `force_disabled` is true, the function
+    is returned unchanged and never registered.
+    """
     base_decorator = _mcp_tool(
         read_only=read_only,
         destructive=destructive,
         idempotent=idempotent,
         open_world=open_world,
+        requires_client_filesystem=requires_client_filesystem,
+        interactive_ui=interactive_ui,
+        annotations=annotations,
+        meta=meta,
+        app=app,
+        required_capabilities=required_capabilities,
         extra_help_text=extra_help_text,
+        tracing=tracing,
     )
 
     def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+        if force_disabled:
+            return func
+        # Dedent first so the appended help text doesn't defeat FastMCP's dedent.
+        if func.__doc__:
+            func.__doc__ = inspect.cleandoc(func.__doc__)
         decorated = base_decorator(func)
         registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
         if registered_func is not decorated:
             raise RuntimeError("Unexpected MCP tool registration state.")
         registered_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(decorated)
-        registered_annotations.update(annotations or {})
-        if meta:
-            registered_annotations[_TOOL_META_KEY] = dict(meta)
-        if app is not None:
-            registered_annotations[_TOOL_APP_KEY] = app
+        _TOOL_POLICIES[decorated.__name__] = ToolPolicy(
+            pipeline_change=not read_only if pipeline_change is None else pipeline_change,
+            external_access=external_access,
+            insiders_only=insiders_only,
+        )
         return decorated
 
     return decorator
@@ -418,44 +535,10 @@ def register_mcp_tools(
     *,
     exclude_args: list[str] | None = None,
 ) -> None:
-    """Register deferred MCP tools with Airbyte-specific metadata support."""
+    """Register deferred MCP tools with the FastMCP app, filtered by mcp_module."""
     if mcp_module is None:
         mcp_module = _get_caller_file_stem()
-    mcp_module = _normalize_mcp_module(mcp_module)
-    matching_tools = [
-        (func, tool_annotations)
-        for func, tool_annotations in _REGISTERED_TOOLS
-        if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
-    ]
-
-    for func, tool_annotations in matching_tools:
-        tool_exclude_args: list[str] | None = None
-        if exclude_args:
-            params = set(inspect.signature(func).parameters.keys())
-            excluded = [name for name in exclude_args if name in params]
-            tool_exclude_args = excluded or None
-
-        app.tool(
-            func,
-            annotations={
-                key: value
-                for key, value in tool_annotations.items()
-                if key not in {_TOOL_APP_KEY, _TOOL_META_KEY}
-            },
-            exclude_args=tool_exclude_args,
-            meta=tool_annotations.get(_TOOL_META_KEY),
-            app=tool_annotations.get(_TOOL_APP_KEY),
-        )
-
-    matching_providers = [
-        (provider_factory, tool_annotations)
-        for provider_factory, tool_annotations in _REGISTERED_PROVIDERS
-        if _normalize_mcp_module(str(tool_annotations.get(ANNOTATION_MCP_MODULE))) == mcp_module
-    ]
-    for provider_factory, tool_annotations in matching_providers:
-        provider = provider_factory()
-        provider.add_transform(_ProviderToolAnnotations(tool_annotations))
-        app.add_provider(provider)
+    _register_mcp_tools(app, mcp_module=mcp_module, exclude_args=exclude_args)
 
 
 def _normalize_mcp_module(mcp_module: str) -> str:
@@ -465,15 +548,114 @@ def _normalize_mcp_module(mcp_module: str) -> str:
     return mcp_module
 
 
-def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
-    """Filter tools based on legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var.
+_CLOUD_MCP_MODULES = frozenset({"cloud", "connector_builder", "interactive"})
+"""MCP tool modules backed by Airbyte Cloud APIs.
 
-    When set to "1", only show tools with readOnlyHint=True.
+Cloud-scoped policies (pipeline changes, read-only mode, destructive tools)
+apply to these modules only; local-operation tools are unaffected.
+"""
+
+
+def _is_cloud_tool(app: FastMCP, tool: Tool) -> bool:
+    """Return whether the tool belongs to a Cloud-backed MCP module."""
+    mcp_module = get_tool_traits(app, tool.name).mcp_module
+    return _normalize_mcp_module(str(mcp_module or "")) in _CLOUD_MCP_MODULES
+
+
+def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide non-read-only Cloud tools and pipeline-changing tools when disabled."""
+    if (
+        airbyte_readonly_mode_enabled()
+        and _is_cloud_tool(app, tool)
+        and not get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False)
+    ):
+        return False
+    return not (
+        _is_cloud_tool(app, tool)
+        and pipeline_changes_allowed(app) is False
+        and get_tool_policy(tool).pipeline_change
+    )
+
+
+def airbyte_external_access_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide external-access tools when external access is disabled."""
+    return not (get_tool_policy(tool).external_access and external_access_allowed(app) is False)
+
+
+def airbyte_destructive_tools_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide destructive-annotated Cloud tools when destructive tools are disabled."""
+    return not (
+        _is_cloud_tool(app, tool)
+        and get_annotation(tool, ANNOTATION_DESTRUCTIVE_HINT, default=False)
+        and destructive_tools_allowed(app) is False
+    )
+
+
+def airbyte_insiders_tools_filter(tool: Tool, app: FastMCP) -> bool:
+    """Hide insiders-flagged tools unless insiders mode is on."""
+    return not get_tool_policy(tool).insiders_only or _insiders_mode(app) is True
+
+
+def _resolve_policy(
+    app_or_ctx: FastMCP | Context,
+    config_name: str,
+    env_var: str,
+) -> bool | None:
+    environment_value = _str_to_bool(os.environ.get(env_var))
+    if environment_value is False:
+        return False
+    request_value = _str_to_bool(get_mcp_config(app_or_ctx, config_name))
+    if environment_value is True:
+        return request_value is not False
+    return request_value
+
+
+def airbyte_readonly_mode_enabled() -> bool:
+    """Return whether `AIRBYTE_CLOUD_MCP_READONLY_MODE` is set (env-only today)."""
+    return _str_to_bool(os.environ.get(MCP_READONLY_MODE_ENV_VAR)) is True
+
+
+def pipeline_changes_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    if airbyte_readonly_mode_enabled():
+        return False
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    )
+
+
+def external_access_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Resolve the external-access setting."""
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    )
+
+
+def destructive_tools_allowed(app_or_ctx: FastMCP | Context) -> bool | None:
+    """Resolve the destructive-tools setting."""
+    return _resolve_policy(
+        app_or_ctx,
+        MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    )
+
+
+def delete_guard_disabled(app_or_ctx: FastMCP | Context) -> bool:
+    """Return whether the delete guard is disabled.
+
+    This is controlled by the opt-in `AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD` setting.
     """
-    config_value = (get_mcp_config(app, MCP_CONFIG_READONLY_MODE) or "").lower()
-    if config_value in {"1", "true"}:
-        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
-    return True
+    return (
+        _resolve_policy(
+            app_or_ctx,
+            MCP_CONFIG_DISABLE_DELETE_GUARD,
+            MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+        )
+        is True
+    )
 
 
 def _insiders_mode(app: FastMCP) -> bool | None:
@@ -503,8 +685,6 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     Modules in `MCP_INSIDERS_MODULES` are hidden unless insiders mode is on or the include
     list names them. `AIRBYTE_MCP_INSIDERS=0` hides them outright, including from an
     include list.
-    Agents tools are hidden whenever the Cloud API roots are overridden, unless
-    `AIRBYTE_AGENTS_API_URL` is set, regardless of insiders/include settings.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = [
@@ -512,14 +692,11 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
         *_parse_csv_config(get_mcp_config(app, CONFIG_INCLUDE_MODULES) or ""),
     ]
 
-    # Get the tool's mcp_module from annotations
-    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
+    # Get the tool's mcp_module from the internal traits registry (never on the wire)
+    tool_module = get_tool_traits(app, tool.name).mcp_module
 
     # Hide tools from excluded modules
     if exclude_modules and tool_module and tool_module in exclude_modules:
-        return False
-
-    if tool_module == _AGENTS_MCP_MODULE and not is_agents_api_available(app):
         return False
 
     if tool_module in MCP_INSIDERS_MODULES:
@@ -568,13 +745,13 @@ def validate_airbyte_domains(app: FastMCP) -> None:
         app: The FastMCP app instance.
 
     Raises:
-        PyAirbyteInputError: If the domain configuration is incompatible.
+        AirbyteLibInputError: If the domain configuration is incompatible.
     """
     exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
     include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
 
     if include_modules and exclude_modules:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message=(
                 "AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED are mutually exclusive."
             ),
@@ -593,7 +770,7 @@ def validate_airbyte_domains(app: FastMCP) -> None:
         {module for module in (*include_modules, *exclude_modules) if module not in known_modules}
     )
     if unknown_modules:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="One or more requested MCP domains are not recognized.",
             guidance=(
                 "Correct the unknown domain name(s) in `AIRBYTE_MCP_DOMAINS` / "

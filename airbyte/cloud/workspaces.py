@@ -35,56 +35,83 @@ workspace.permanently_delete_source(deployed_source)
 
 from __future__ import annotations
 
+import contextlib
+import uuid
 from dataclasses import dataclass, field
 from functools import cached_property
-from http import HTTPStatus
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-import yaml
-
 from airbyte import exceptions as exc
-from airbyte._util import api_util, text_util
+from airbyte._direct_connectors import api_util as agents_api_util
+from airbyte._direct_connectors import connector_docs
+from airbyte._direct_connectors.models import (
+    _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS,
+    DirectAccessGuidance,
+    DirectAccessGuidanceIndexEntry,
+)
+from airbyte._util import api_util, deployment, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte._util.registry_spec import get_connector_spec_from_registry
+from airbyte.cloud import connectors as cloud_connectors
+from airbyte.cloud import organizations as cloud_organizations
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import (
-    CloudDestination,
-    CloudSource,
-    CustomCloudSourceDefinition,
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
+from airbyte.cloud.connector_builder._util import parse_manifest_yaml
+from airbyte.cloud.models import (
+    ConnectorFeature,
+    ConnectorType,
+    OrganizationFeature,
 )
-from airbyte.cloud.models import CheckResult, CloudWorkspaceInfo
-from airbyte.cloud.organizations import CloudOrganization
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.destinations.base import Destination
-from airbyte.exceptions import AirbyteError
+from airbyte.exceptions import AirbyteCloudError
+from airbyte.registry import _get_connector_name_by_definition_id
 from airbyte.secrets.base import SecretString
+from airbyte.secrets.hydration import detect_hardcoded_secrets, hydrate_secrets
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
+    from airbyte.cloud.organizations import CloudOrganization
     from airbyte.sources.base import Source
+
+
+def _get_deferred_spec(definition_id: str) -> dict[str, Any] | None:
+    """Best-effort fetch of the connector spec for a definition ID (cloud, then oss)."""
+    name = _get_connector_name_by_definition_id(definition_id)
+    if name is None:
+        return None
+    for platform in ("cloud", "oss"):
+        with contextlib.suppress(Exception):
+            spec = get_connector_spec_from_registry(name, platform=platform)
+            if spec is not None:
+                return spec
+    return None
 
 
 def _deferred_credentials_config(
     config: object,
     *,
     definition_id: str | None,
+    spec_json_schema: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Validate the inputs for a deferred-credential deploy.
 
     Returns the configuration and definition ID. `SecretString` values and
-    `secret_reference::` strings are rejected; callers must omit plain-text credentials too.
+    `secret_reference::` strings are rejected; credential fields are detected via the
+    connector spec when available, otherwise via the global secrets mask.
     """
     if not isinstance(config, dict):
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="Deferred deployment requires a configuration dictionary.",
             guidance="Pass the non-secret configuration values, not a connector object.",
         )
     if not definition_id:
-        raise exc.PyAirbyteInputError(
+        raise exc.AirbyteLibInputError(
             message="`definition_id` is required when `defer_credentials=True`.",
         )
 
@@ -92,7 +119,7 @@ def _deferred_credentials_config(
         if isinstance(value, SecretString) or (
             isinstance(value, str) and value.startswith(SECRETS_HYDRATION_PREFIX)
         ):
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Deferred deployment does not accept secret values or references.",
                 guidance="Omit credentials; the user supplies them in Airbyte Cloud.",
             )
@@ -104,6 +131,13 @@ def _deferred_credentials_config(
                 _reject_secrets(nested)
 
     _reject_secrets(config)
+    found = detect_hardcoded_secrets(config=config, spec_json_schema=spec_json_schema)
+    if found:
+        raise exc.AirbyteLibInputError(
+            message="Deferred deployment does not accept credential values.",
+            guidance="Omit credentials; the user supplies them in Airbyte Cloud.",
+            context={"fields": [".".join(p) for p in found]},
+        )
     return dict(config), definition_id
 
 
@@ -157,11 +191,18 @@ class CloudWorkspace:
         api_root: str | None = None,
         config_api_root: str | None = None,
         bearer_token: str | SecretString | None = None,
+        organization_id: str | None = None,
     ) -> None:
-        """Validate and initialize credentials."""
+        """Validate and initialize credentials.
+
+        `organization_id` is optional. The workspace's parent organization is always looked up
+        from the Config API; when given, this value is checked against that lookup (a mismatch
+        raises) and used only as a fallback when the lookup itself is unavailable.
+        """
         env_vars = not (client_id or client_secret or bearer_token)
         credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
+            organization_id=organization_id,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
@@ -170,7 +211,7 @@ class CloudWorkspace:
             env_vars=env_vars,
         )
         if not credentials.workspace_id:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="Workspace ID is required.",
                 guidance=(
                     "Provide a workspace ID, or call `get_default_cloud_context` to discover "
@@ -234,7 +275,7 @@ class CloudWorkspace:
             A CloudWorkspace instance configured with credentials from the environment.
 
         Raises:
-            PyAirbyteInputError: If required credentials are not found in
+            AirbyteLibInputError: If required credentials are not found in
                 the environment or are incomplete.
 
         Example:
@@ -301,7 +342,7 @@ class CloudWorkspace:
         which may not be available with workspace-scoped credentials.
 
         Args:
-            raise_on_error: If True (default), raises AirbyteError on permission or API errors.
+            raise_on_error: If True (default), raises AirbyteCloudError on permission or API errors.
                 If False, returns None instead of raising.
 
         Returns:
@@ -309,12 +350,12 @@ class CloudWorkspace:
             or None if raise_on_error=False and an error occurred.
 
         Raises:
-            AirbyteError: If raise_on_error=True and the organization info cannot be fetched
+            AirbyteCloudError: If raise_on_error=True and the organization info cannot be fetched
                 (e.g., due to insufficient permissions or missing data).
         """
         try:
             info = self._organization_info
-        except (AirbyteError, NotImplementedError):
+        except (AirbyteCloudError, NotImplementedError):
             if raise_on_error:
                 raise
             return None
@@ -325,7 +366,7 @@ class CloudWorkspace:
         # Validate that both organization_id and organization_name are non-null and non-empty
         if not organization_id or not organization_name:
             if raise_on_error:
-                raise AirbyteError(
+                raise AirbyteCloudError(
                     message="Organization info is incomplete.",
                     context={
                         "organization_id": organization_id,
@@ -335,7 +376,7 @@ class CloudWorkspace:
             return None
 
         organization_credentials = self._credentials.with_organization_id(organization_id)
-        return CloudOrganization(
+        return cloud_organizations.CloudOrganization(
             organization_id=organization_id,
             organization_name=organization_name,
             client_id=organization_credentials.client_id,
@@ -344,6 +385,77 @@ class CloudWorkspace:
             public_api_root=organization_credentials.public_api_root,
             config_api_root=organization_credentials.config_api_root,
         )
+
+    # Airbyte Agents (Context layer) status
+
+    def _has_context_layer_api(self) -> bool:
+        """Return whether a Context layer (Agents) API exists for this workspace's API roots.
+
+        Answered from configuration alone, without any network call. When `False`, every
+        feature flag on this workspace and its connectors is `False`.
+        """
+        return deployment.is_agents_api_available(
+            public_api_root=self.api_root,
+            config_api_root=self.config_api_root,
+        )
+
+    @cached_property
+    def enabled_features(self) -> frozenset[OrganizationFeature]:
+        """The features enabled for this workspace. Resolved on first access and cached.
+
+        `DIRECT_ACCESS` is reported when AI agents can use this workspace's connectors
+        through the Airbyte Context layer. Cloud enforces organization and workspace
+        enrollment on every Context layer request, so the flag reflects Context layer API
+        availability for the workspace's deployment roots without any API call;
+        per-connector enablement is reported by connector features.
+        """
+        if not self._has_context_layer_api():
+            return frozenset()
+
+        return frozenset({OrganizationFeature.DIRECT_ACCESS})
+
+    def is_feature_enabled(self, feature: OrganizationFeature) -> bool:
+        """Whether `feature` is enabled for this workspace.
+
+        Uses the cached feature set when available. There is no workspace-level search
+        indexing signal yet, so `SEARCH_INDEXING` always returns `False` without an API
+        call; check it per connector instead.
+        """
+        if feature == OrganizationFeature.SEARCH_INDEXING:
+            return False
+        return feature in self.enabled_features
+
+    def _get_connector_features(
+        self,
+        connector: cloud_connectors.CloudConnector,
+    ) -> frozenset[ConnectorFeature]:
+        """Resolve the enabled features for one connector in this workspace.
+
+        A single Fusion enablement lookup reports whether agent access and search
+        indexing are enabled for the connector. Agent access maps to `DIRECT_ACCESS`,
+        plus `DIRECT_API_QUERY` for sources or `DIRECT_SQL_QUERY` for SQL passthrough
+        destinations; search indexing maps to `SEARCH_INDEXING`. A 404 (no active
+        connector of this kind) means no feature is enabled; any other lookup failure,
+        including a 403 (no access to the workspace or connector), is raised.
+        """
+        if not self._has_context_layer_api():
+            return frozenset()
+
+        enablement = connector._fetch_enablement()  # noqa: SLF001
+        if enablement is None:
+            return frozenset()
+
+        features: set[ConnectorFeature] = set()
+        if enablement.enable_agent_access:
+            features.add(ConnectorFeature.DIRECT_ACCESS)
+            if connector.connector_type == ConnectorType.SOURCE:
+                features.add(ConnectorFeature.DIRECT_API_QUERY)
+            elif connector.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS:
+                features.add(ConnectorFeature.DIRECT_SQL_QUERY)
+        if enablement.enable_indexing:
+            features.add(ConnectorFeature.SEARCH_INDEXING)
+
+        return frozenset(features)
 
     # Test connection and creds
 
@@ -373,7 +485,17 @@ class CloudWorkspace:
 
         This method does not fetch data from the API. It returns a `CloudConnection` object,
         which will be loaded lazily as needed.
+
+        Raises:
+            AirbyteLibInputError: If `connection_id` is not a valid UUID.
         """
+        try:
+            uuid.UUID(connection_id)
+        except ValueError:
+            raise exc.AirbyteLibInputError(
+                message="`connection_id` must be a UUID.",
+                context={"connection_id": connection_id},
+            ) from None
         return CloudConnection(
             workspace=self,
             connection_id=connection_id,
@@ -382,13 +504,13 @@ class CloudWorkspace:
     def get_source(
         self,
         source_id: str,
-    ) -> CloudSource:
+    ) -> cloud_connectors.CloudSource:
         """Get a source by ID.
 
         This method does not fetch data from the API. It returns a `CloudSource` object,
         which will be loaded lazily as needed.
         """
-        return CloudSource(
+        return cloud_connectors.CloudSource(
             workspace=self,
             connector_id=source_id,
         )
@@ -396,63 +518,140 @@ class CloudWorkspace:
     def get_destination(
         self,
         destination_id: str,
-    ) -> CloudDestination:
+    ) -> cloud_connectors.CloudDestination:
         """Get a destination by ID.
 
         This method does not fetch data from the API. It returns a `CloudDestination` object,
         which will be loaded lazily as needed.
         """
-        return CloudDestination(
+        return cloud_connectors.CloudDestination(
             workspace=self,
             connector_id=destination_id,
         )
 
-    def check_connector_setup(
+    def get_connector(
         self,
-        connector_type: Literal["source", "destination"],
-        connector_id: str,
-    ) -> CheckResult:
-        """Run one connection check on a connector that belongs to this workspace.
+        id_or_name: str | None = None,
+        /,
+        *,
+        connector_id: str | None = None,
+        name: str | None = None,
+    ) -> cloud_connectors.CloudConnector:
+        """Get a connector by ID or by name.
 
-        Confirms a person has finished a deferred-credential setup in Airbyte Cloud. The
-        connector's workspace is verified first so a check can never be run against a connector
-        outside this workspace.
+        An explicit ID (positional or `connector_id="..."`) returns an untyped
+        `CloudConnector` without any API call; its kind is resolved lazily on first use.
+        A `name=...` lookup lists the workspace's connectors and matches on an exact
+        name (case-insensitive), then on a unique substring, returning the matched
+        `CloudSource` or `CloudDestination`.
         """
-        connector: CloudSource | CloudDestination
-        if connector_type == "source":
-            owner_id = api_util.get_source(
-                source_id=connector_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-            ).workspace_id
-            connector = self.get_source(connector_id)
-        else:
-            owner_id = api_util.get_destination(
-                destination_id=connector_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-            ).workspace_id
-            connector = self.get_destination(connector_id)
-        if owner_id != self.workspace_id:
-            raise exc.AirbyteMissingResourceError(
-                resource_type=connector_type,
-                resource_name_or_id=connector_id,
-                context={"workspace_id": self.workspace_id},
+        lookup = agents_api_util._resolve_connector_lookup(  # noqa: SLF001
+            id_or_name,
+            id=None,
+            connector_id=connector_id,
+            name=name,
+        )
+
+        if lookup.connector_id:
+            return cloud_connectors.CloudConnector(workspace=self, connector_id=lookup.connector_id)
+
+        connectors = self.list_connectors()
+        name_lower = (lookup.name or "").lower()
+        matches = [
+            connector
+            for connector in connectors
+            if connector.name and connector.name.lower() == name_lower
+        ] or [
+            connector
+            for connector in connectors
+            if connector.name and name_lower in connector.name.lower()
+        ]
+        if not matches:
+            raise exc.AirbyteCloudError(
+                message="No connector found with the given ID or name.",
+                guidance="Use `list_connectors()` to see the available connectors.",
+                context={"lookup": lookup.name, "workspace_id": self.workspace_id},
             )
-        try:
-            return connector.check(raise_on_error=False)
-        except AirbyteError as ex:
-            status_code = (ex.context or {}).get("status_code")
-            if status_code == HTTPStatus.UNPROCESSABLE_ENTITY:
-                return CheckResult(success=False)
-            raise AirbyteError(
-                message="Cloud could not check the connector setup.",
-                context={"status_code": status_code},
-            ) from None
+        if len(matches) > 1:
+            raise exc.AirbyteCloudError(
+                message="Multiple connectors matched the given name.",
+                guidance="Pass `connector_id`, or a name that matches only one connector.",
+                context={
+                    "name": lookup.name,
+                    "matched_names": [connector.name for connector in matches],
+                },
+            )
+        return matches[0]
+
+    def _list_guidance(self) -> list[DirectAccessGuidanceIndexEntry]:
+        """List the direct-access guidance available to this workspace.
+
+        The index is derived locally from the workspace's connectors: one entry per
+        source, plus one per SQL passthrough destination. Use `get_agent_skill_docs()`
+        to check whether a given entry's docs exist on the server.
+        """
+        entries = [
+            DirectAccessGuidanceIndexEntry(
+                id=connector_docs.source_skill_id(source.connector_id),
+                kind="connector_source",
+                title=source.name,
+            )
+            for source in self.list_sources()
+        ]
+        entries.extend(
+            DirectAccessGuidanceIndexEntry(
+                id=connector_docs.destination_skill_id(destination.connector_id),
+                kind="connector_destination",
+                title=destination.name,
+            )
+            for destination in self.list_destinations()
+            if destination.definition_id in _SQL_PASSTHROUGH_DESTINATION_DEFINITION_IDS
+        )
+        return entries
+
+    def get_agent_skill_docs(
+        self,
+        docs_skill_id: str | None = None,
+        /,
+        *,
+        connector_id: str | None = None,
+        section: str | None = None,
+    ) -> DirectAccessGuidance:
+        """Returns the requested skill document by ID for an AI agent.
+
+        Pass either a fully-qualified `docs_skill_id` (positional) or a
+        `connector_id` (source or destination); exactly one is required.
+
+        `section` is optional; if omitted, the summary overview is returned along with
+        the list of available sections.
+        """
+        if connector_id is not None and docs_skill_id is not None:
+            raise exc.AirbyteLibInputError(
+                message="Provide exactly one of `docs_skill_id` or `connector_id`.",
+            )
+        if connector_id is not None:
+            return self.get_connector(connector_id).read_agent_skill_docs(section=section)
+        if docs_skill_id is None:
+            raise exc.AirbyteLibInputError(
+                message="Provide exactly one of `docs_skill_id` or `connector_id`.",
+            )
+        if docs_skill_id.startswith(connector_docs.SOURCE_SKILL_PREFIX):
+            return self.get_source(
+                connector_docs.connector_id_from_skill_id(docs_skill_id)
+            ).read_agent_skill_docs(section=section)
+        if docs_skill_id.startswith(connector_docs.DESTINATION_SKILL_PREFIX):
+            destination = self.get_destination(
+                connector_docs.connector_id_from_skill_id(docs_skill_id)
+            )
+            return destination.read_agent_skill_docs(section=section)
+        return DirectAccessGuidance.model_validate(
+            agents_api_util.read_cloud_skill_docs(
+                workspace_id=self.workspace_id,
+                skill_id=docs_skill_id,
+                credentials=self._credentials,
+                section=section,
+            )
+        )
 
     # Deploy sources and destinations
 
@@ -465,26 +664,28 @@ class CloudWorkspace:
         random_name_suffix: bool = False,
         definition_id: str | None = None,
         defer_credentials: bool = False,
-    ) -> CloudSource:
+    ) -> cloud_connectors.CloudSource:
         """Deploy a source to the workspace.
 
         Returns the newly deployed source.
 
         Args:
             name: The name to use when deploying.
-            source: The source object to deploy, or (with `defer_credentials=True`) a
+            source: The source object to deploy, or a dictionary of configuration values
+                when `definition_id` is provided. With `defer_credentials=True`, pass a
                 dictionary of non-secret configuration values.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
-            definition_id: The source definition ID. Required with `defer_credentials=True`.
+            definition_id: The source definition ID. Required for a dictionary config (for
+                example, a custom definition ID) and with `defer_credentials=True`.
             defer_credentials: Save a draft with partial configuration. A person completes
                 credentials and other missing settings at the returned source's `connector_url`.
                 A successful connection check promotes the draft. Raises
                 `AirbyteDeferredSetupError` if Cloud does not acknowledge draft mode.
         """
         if defer_credentials:
-            return CloudSource(
+            return cloud_connectors.CloudSource(
                 workspace=self,
                 connector_id=self._deploy_deferred(
                     connector_type="source",
@@ -496,12 +697,17 @@ class CloudWorkspace:
                 ),
             )
         if isinstance(source, dict):
-            raise exc.PyAirbyteInputError(
-                message="`source` must be a `Source` object unless `defer_credentials=True`.",
-            )
-
-        source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
-        source_config_dict["sourceType"] = source.name.replace("source-", "")
+            if definition_id is None:
+                raise exc.AirbyteLibInputError(
+                    message=(
+                        "`source` must be a `Source` object unless `definition_id` or "
+                        "`defer_credentials=True` is given."
+                    ),
+                )
+            source_config_dict = hydrate_secrets(source)
+        else:
+            source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
+            source_config_dict["sourceType"] = source.name.replace("source-", "")
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -524,7 +730,7 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
-        return CloudSource(
+        return cloud_connectors.CloudSource(
             workspace=self,
             connector_id=deployed_source.source_id,
         )
@@ -538,7 +744,7 @@ class CloudWorkspace:
         random_name_suffix: bool = False,
         definition_id: str | None = None,
         defer_credentials: bool = False,
-    ) -> CloudDestination:
+    ) -> cloud_connectors.CloudDestination:
         """Deploy a destination to the workspace.
 
         Returns the newly deployed destination ID.
@@ -556,7 +762,7 @@ class CloudWorkspace:
                 `deploy_source`.
         """
         if defer_credentials:
-            return CloudDestination(
+            return cloud_connectors.CloudDestination(
                 workspace=self,
                 connector_id=self._deploy_deferred(
                     connector_type="destination",
@@ -575,7 +781,7 @@ class CloudWorkspace:
         else:
             destination_conf_dict = destination.copy()
             if "destinationType" not in destination_conf_dict:
-                raise exc.PyAirbyteInputError(
+                raise exc.AirbyteLibInputError(
                     message="Missing `destinationType` in configuration dictionary.",
                 )
 
@@ -599,7 +805,7 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
-        return CloudDestination(
+        return cloud_connectors.CloudDestination(
             workspace=self,
             connector_id=deployed_destination.destination_id,
         )
@@ -615,8 +821,18 @@ class CloudWorkspace:
         random_name_suffix: bool,
     ) -> str:
         """Create a connector with deferred credentials on the Config API and return its ID."""
+        spec_json_schema = _get_deferred_spec(definition_id) if definition_id else None
+        if spec_json_schema is None and connector_type == "source" and definition_id:
+            with contextlib.suppress(Exception):
+                spec_json_schema = self.get_custom_source_definition(
+                    definition_id,
+                    definition_type="yaml",
+                ).config_spec_jsonschema
+
         config_dict, definition_id = _deferred_credentials_config(
-            config, definition_id=definition_id
+            config,
+            definition_id=definition_id,
+            spec_json_schema=spec_json_schema,
         )
 
         if random_name_suffix:
@@ -647,11 +863,46 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
 
+    def _raise_if_connector_in_use(
+        self,
+        connector_id: str,
+        connector_type: Literal["source", "destination"],
+    ) -> None:
+        connections = [
+            connection
+            for connection in self.list_connections()
+            if (
+                connection.source_id == connector_id
+                if connector_type == "source"
+                else connection.destination_id == connector_id
+            )
+        ]
+        if connections:
+            raise exc.AirbyteConnectorInUseError(
+                message=(
+                    f"The {connector_type} '{connector_id}' is used by {len(connections)} "
+                    "connection(s) and cannot be deleted."
+                ),
+                guidance="Delete those connections first.",
+                context={
+                    "connections": [
+                        {
+                            "connection_id": connection.connection_id,
+                            "name": connection.name,
+                        }
+                        for connection in connections
+                    ],
+                },
+                connector_id=connector_id,
+                connector_type=connector_type,
+                connection_ids=[connection.connection_id for connection in connections],
+            )
+
     def permanently_delete_source(
         self,
-        source: str | CloudSource,
+        source: str | cloud_connectors.CloudSource,
         *,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Delete a source from the workspace.
 
@@ -659,32 +910,38 @@ class CloudWorkspace:
 
         Args:
             source: The source ID or CloudSource object to delete
-            safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the source name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
-        if not isinstance(source, (str, CloudSource)):
-            raise exc.PyAirbyteInputError(
+        if not isinstance(source, (str, cloud_connectors.CloudSource)):
+            raise exc.AirbyteLibInputError(
                 message="Invalid source type.",
                 input_value=type(source).__name__,
             )
 
+        source_id = (
+            source.connector_id if isinstance(source, cloud_connectors.CloudSource) else source
+        )
+        self._raise_if_connector_in_use(source_id, "source")
+
         api_util.delete_source(
-            source_id=source.connector_id if isinstance(source, CloudSource) else source,
-            source_name=source.name if isinstance(source, CloudSource) else None,
+            source_id=source_id,
+            source_name=(source.name if isinstance(source, cloud_connectors.CloudSource) else None),
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            workspace_id=self.workspace_id,
+            delete_guard=delete_guard,
         )
 
     # Deploy and delete destinations
 
     def permanently_delete_destination(
         self,
-        destination: str | CloudDestination,
+        destination: str | cloud_connectors.CloudDestination,
         *,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Delete a deployed destination from the workspace.
 
@@ -692,27 +949,36 @@ class CloudWorkspace:
 
         Args:
             destination: The destination ID or CloudDestination object to delete
-            safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the destination name to contain "delete-me" or
+                "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True.
         """
-        if not isinstance(destination, (str, CloudDestination)):
-            raise exc.PyAirbyteInputError(
+        if not isinstance(destination, (str, cloud_connectors.CloudDestination)):
+            raise exc.AirbyteLibInputError(
                 message="Invalid destination type.",
                 input_value=type(destination).__name__,
             )
 
+        destination_id = (
+            destination.destination_id
+            if isinstance(destination, cloud_connectors.CloudDestination)
+            else destination
+        )
+        self._raise_if_connector_in_use(destination_id, "destination")
+
         api_util.delete_destination(
-            destination_id=(
-                destination if isinstance(destination, str) else destination.destination_id
-            ),
+            destination_id=destination_id,
             destination_name=(
-                destination.name if isinstance(destination, CloudDestination) else None
+                destination.name
+                if isinstance(destination, cloud_connectors.CloudDestination)
+                else None
             ),
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            workspace_id=self.workspace_id,
+            delete_guard=delete_guard,
         )
 
     # Deploy and delete connections
@@ -721,9 +987,9 @@ class CloudWorkspace:
         self,
         connection_name: str,
         *,
-        source: CloudSource | str,
+        source: cloud_connectors.CloudSource | str,
         selected_streams: list[str],
-        destination: CloudDestination | str,
+        destination: cloud_connectors.CloudDestination | str,
         table_prefix: str | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
@@ -739,7 +1005,7 @@ class CloudWorkspace:
             selected_streams: The selected stream names to sync within the connection.
         """
         if not selected_streams:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 guidance="You must provide `selected_streams` when creating a connection."
             )
 
@@ -774,7 +1040,7 @@ class CloudWorkspace:
         *,
         cascade_delete_source: bool = False,
         cascade_delete_destination: bool = False,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Delete a deployed connection from the workspace.
 
@@ -783,12 +1049,12 @@ class CloudWorkspace:
             cascade_delete_source: If True, also delete the source after deleting the connection
             cascade_delete_destination: If True, also delete the destination after deleting
                 the connection
-            safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+            delete_guard: If True, requires the connection name to contain "delete-me" or "deleteme"
                 (case insensitive) to prevent accidental deletion. Defaults to True. Also applies
                 to cascade deletes.
         """
         if connection is None:
-            raise ValueError("No connection ID provided.")
+            raise exc.AirbyteLibInputError(message="No connection ID provided.")
 
         if isinstance(connection, str):
             connection = CloudConnection(
@@ -804,43 +1070,21 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            delete_guard=delete_guard,
         )
 
         if cascade_delete_source:
             self.permanently_delete_source(
                 source=connection.source_id,
-                safe_mode=safe_mode,
+                delete_guard=delete_guard,
             )
         if cascade_delete_destination:
             self.permanently_delete_destination(
                 destination=connection.destination_id,
-                safe_mode=safe_mode,
+                delete_guard=delete_guard,
             )
 
     # List workspaces, sources, destinations, and connections
-
-    def list_workspaces(
-        self,
-        name: str | None = None,
-        *,
-        name_filter: Callable | None = None,
-        limit: int | None = None,
-    ) -> list[CloudWorkspaceInfo]:
-        """List workspaces available to the current credentials, with an optional limit."""
-        return [
-            CloudWorkspaceInfo.from_api_response(workspace)
-            for workspace in api_util.list_workspaces(
-                workspace_id="",
-                api_root=self.api_root,
-                name=name,
-                name_filter=name_filter,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-                limit=limit,
-            )
-        ]
 
     def rename(
         self,
@@ -861,11 +1105,11 @@ class CloudWorkspace:
         self,
         *,
         workspace_name: str | None = None,
-        safe_mode: bool = True,
+        delete_guard: bool = True,
     ) -> None:
         """Permanently delete this workspace if it has no connections.
 
-        When `safe_mode` is enabled, the workspace name must contain `delete-me`
+        When `delete_guard` is enabled, the workspace name must contain `delete-me`
         or `deleteme`. This also checks for existing connections before deleting
         and raises `AirbyteWorkspaceNotEmptyError` if the workspace is not empty.
         """
@@ -876,7 +1120,7 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-            safe_mode=safe_mode,
+            delete_guard=delete_guard,
         )
 
     def list_connections(
@@ -911,7 +1155,7 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> list[CloudSource]:
+    ) -> list[cloud_connectors.CloudSource]:
         """List all sources in the workspace, with an optional limit."""
         sources = api_util.list_sources(
             api_root=self.api_root,
@@ -924,7 +1168,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
+            cloud_connectors.CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 source_response=source,
             )
@@ -937,7 +1181,7 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> list[CloudDestination]:
+    ) -> list[cloud_connectors.CloudDestination]:
         """List all destinations in the workspace, with an optional limit."""
         destinations = api_util.list_destinations(
             api_root=self.api_root,
@@ -950,12 +1194,62 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
+            cloud_connectors.CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 destination_response=destination,
             )
             for destination in destinations
         ]
+
+    def list_connectors(
+        self,
+        *,
+        connector_type: ConnectorType | None = None,
+        feature_filter: ConnectorFeature | None = None,
+        name_contains: str | None = None,
+        limit: int | None = None,
+    ) -> list[cloud_connectors.CloudConnector]:
+        """List sources and destinations in the workspace, with optional filters.
+
+        Items are `CloudSource` and `CloudDestination` objects. Enabled features are
+        resolved (and cached) only when `feature_filter` is set; otherwise
+        `enabled_features` resolves lazily on first access.
+
+        Args:
+            connector_type: Return only sources or only destinations.
+            feature_filter: Return only connectors with this feature enabled.
+            name_contains: Case-insensitive substring to match against connector names.
+            limit: Maximum number of connectors to return.
+        """
+        if limit is not None and limit <= 0:
+            raise exc.AirbyteLibInputError(message="`limit` must be greater than 0.")
+
+        connectors: list[cloud_connectors.CloudConnector] = []
+        if connector_type in {None, ConnectorType.SOURCE}:
+            connectors.extend(self.list_sources())
+        if connector_type in {None, ConnectorType.DESTINATION}:
+            connectors.extend(self.list_destinations())
+
+        if name_contains:
+            needle = name_contains.casefold()
+            connectors = [
+                connector
+                for connector in connectors
+                if connector.name is not None and needle in connector.name.casefold()
+            ]
+
+        matches: list[cloud_connectors.CloudConnector] = []
+        for connector in connectors:
+            if feature_filter is not None:
+                connector._enabled_features = self._get_connector_features(  # noqa: SLF001
+                    connector
+                )
+                if feature_filter not in connector._get_enabled_features():  # noqa: SLF001
+                    continue
+            matches.append(connector)
+            if limit is not None and len(matches) >= limit:
+                break
+        return matches
 
     def publish_custom_source_definition(
         self,
@@ -967,11 +1261,14 @@ class CloudWorkspace:
         unique: bool = True,
         pre_validate: bool = True,
         testing_values: dict[str, Any] | None = None,
-    ) -> CustomCloudSourceDefinition:
+        builder_project_id: str | None = None,
+    ) -> cloud_connectors.CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
         You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
-        and docker_tag (for Docker connectors), but not both.
+        and docker_tag (for Docker connectors), but not both. To publish an existing
+        Connector Builder project, pass `builder_project_id`; `manifest_yaml` is then optional
+        and replaces the project's draft before publishing.
 
         Args:
             name: Display name for the connector definition
@@ -984,19 +1281,36 @@ class CloudWorkspace:
                 Connector Builder UI. If provided, these values are stored as the complete
                 testing values object for the connector builder project (replaces any existing
                 values), allowing immediate test read operations.
+            builder_project_id: Optional Connector Builder project to publish. If the project
+                is already published, its draft becomes a new active version of the existing
+                definition.
 
         Returns:
             CustomCloudSourceDefinition object representing the created definition
 
         Raises:
-            PyAirbyteInputError: If both or neither of manifest_yaml and docker_image provided
+            AirbyteLibInputError: If both or neither of manifest_yaml and docker_image provided
             AirbyteDuplicateResourcesError: If unique=True and name already exists
         """
+        if builder_project_id is not None:
+            if docker_image is not None:
+                raise exc.AirbyteLibInputError(
+                    message="docker_image cannot be combined with builder_project_id.",
+                )
+            return self._publish_connector_builder_project(
+                builder_project_id,
+                name=name,
+                manifest_yaml=manifest_yaml,
+                unique=unique,
+                pre_validate=pre_validate,
+                testing_values=testing_values,
+            )
+
         is_yaml = manifest_yaml is not None
         is_docker = docker_image is not None
 
         if is_yaml == is_docker:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message=(
                     "Must specify EITHER manifest_yaml (for YAML connectors) OR "
                     "docker_image + docker_tag (for Docker connectors), but not both"
@@ -1008,7 +1322,7 @@ class CloudWorkspace:
             )
 
         if is_docker and docker_tag is None:
-            raise exc.PyAirbyteInputError(
+            raise exc.AirbyteLibInputError(
                 message="docker_tag is required when docker_image is specified",
                 context={"docker_image": docker_image},
             )
@@ -1024,18 +1338,12 @@ class CloudWorkspace:
                 )
 
         if is_yaml:
-            manifest_dict: dict[str, Any]
-            if isinstance(manifest_yaml, Path):
-                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
-            elif isinstance(manifest_yaml, str):
-                manifest_dict = yaml.safe_load(manifest_yaml)
-            elif manifest_yaml is not None:
-                manifest_dict = manifest_yaml
-            else:
-                raise exc.PyAirbyteInputError(
+            if manifest_yaml is None:
+                raise exc.AirbyteLibInputError(
                     message="manifest_yaml is required for YAML connectors",
                     context={"name": name},
                 )
+            manifest_dict = parse_manifest_yaml(manifest_yaml)
 
             if pre_validate:
                 api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
@@ -1049,7 +1357,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            custom_definition = CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
+            custom_definition = cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
                 self, result
             )
 
@@ -1064,18 +1372,116 @@ class CloudWorkspace:
             "Only YAML manifest-based custom sources are currently available."
         )
 
+    def _publish_connector_builder_project(
+        self,
+        builder_project_id: str,
+        *,
+        name: str,
+        manifest_yaml: dict[str, Any] | Path | str | None,
+        unique: bool,
+        pre_validate: bool,
+        testing_values: dict[str, Any] | None,
+    ) -> cloud_connectors.CustomCloudSourceDefinition:
+        project = self.get_connector_builder_project(builder_project_id)
+        if unique and project.source_definition_id is None:
+            existing = self.list_custom_source_definitions(definition_type="yaml")
+            if any(d.name == name for d in existing):
+                raise exc.AirbyteDuplicateResourcesError(
+                    resource_type="custom_source_definition",
+                    resource_name=name,
+                )
+
+        if manifest_yaml is not None:
+            project.replace_draft_manifest(manifest_yaml, pre_validate=pre_validate)
+
+        definition = project.publish(name, pre_validate=pre_validate)
+        if testing_values is not None:
+            definition.set_testing_values(testing_values)
+        return definition
+
+    def create_connector_builder_project(
+        self,
+        name: str,
+        *,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        pre_validate: bool = True,
+    ) -> CloudConnectorBuilderProject:
+        """Create an unpublished Connector Builder project.
+
+        Nothing appears in the workspace's source list until the project is published.
+
+        Args:
+            name: Display name for the project.
+            manifest_yaml: Optional initial draft manifest (dict, YAML file path, or YAML text).
+            pre_validate: Whether to validate the manifest client-side before saving.
+        """
+        manifest_dict: dict[str, Any] | None = None
+        if manifest_yaml is not None:
+            manifest_dict = parse_manifest_yaml(manifest_yaml)
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+        builder_project_id = api_util.create_connector_builder_project(
+            workspace_id=self.workspace_id,
+            name=name,
+            draft_manifest=manifest_dict,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            config_api_root=self.config_api_root,
+        )
+        return CloudConnectorBuilderProject(workspace=self, builder_project_id=builder_project_id)
+
+    def get_connector_builder_project(
+        self,
+        builder_project_id: str | None = None,
+        *,
+        definition_id: str | None = None,
+    ) -> CloudConnectorBuilderProject:
+        """Get a Connector Builder project by its ID or by its published definition's ID.
+
+        Args:
+            builder_project_id: The Connector Builder project ID.
+            definition_id: The ID of the custom source definition published from the project.
+
+        Raises:
+            AirbyteLibInputError: If not exactly one ID is given, or the definition has no
+                Connector Builder project.
+        """
+        if (builder_project_id is None) == (definition_id is None):
+            raise exc.AirbyteLibInputError(
+                message="Provide exactly one of `builder_project_id` or `definition_id`.",
+            )
+        if builder_project_id is not None:
+            return CloudConnectorBuilderProject(
+                workspace=self, builder_project_id=builder_project_id
+            )
+
+        assert definition_id is not None
+        project = self.get_custom_source_definition(  # noqa: SLF001
+            definition_id,
+            definition_type="yaml",
+        )._connector_builder_project
+        if project is None:
+            raise exc.AirbyteLibInputError(
+                message="No Connector Builder project was found for this definition.",
+                context={"definition_id": definition_id},
+            )
+        return project
+
     def list_custom_source_definitions(
         self,
         *,
         definition_type: Literal["yaml", "docker"],
-    ) -> list[CustomCloudSourceDefinition]:
-        """List custom source connector definitions.
+    ) -> list[cloud_connectors.CustomCloudSourceDefinition]:
+        """List custom source definitions whose Builder project is owned by this workspace.
 
         Args:
             definition_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
-            List of CustomCloudSourceDefinition objects matching the specified type
+            List of matching definitions. Organization-shared definitions are excluded.
         """
         if definition_type == "yaml":
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
@@ -1085,10 +1491,36 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            return [
-                CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
+            builder_projects = api_util.list_connector_builder_projects(
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                config_api_root=self.config_api_root,
+            )
+            project_id_by_definition_id = {
+                project["sourceDefinitionId"]: project["builderProjectId"]
+                for project in builder_projects
+                if project.get("sourceDefinitionId") is not None
+                and project.get("builderProjectId") is not None
+            }
+            yaml_definitions = [
+                definition
+                for definition in yaml_definitions
+                if definition.id in project_id_by_definition_id
+            ]
+
+            custom_definitions = [
+                cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
             ]
+            for definition in custom_definitions:
+                project_id = project_id_by_definition_id[definition.definition_id]
+                definition._connector_builder_project_id = project_id  # noqa: SLF001
+                definition._connector_builder_project_id_fetched = True  # noqa: SLF001
+                definition._builder_project_workspace_id = self.workspace_id  # noqa: SLF001
+            return custom_definitions
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -1100,7 +1532,7 @@ class CloudWorkspace:
         definition_id: str,
         *,
         definition_type: Literal["yaml", "docker"],
-    ) -> CustomCloudSourceDefinition:
+    ) -> cloud_connectors.CustomCloudSourceDefinition:
         """Get a specific custom source definition by ID.
 
         Args:
@@ -1119,7 +1551,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+            return cloud_connectors.CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

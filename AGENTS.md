@@ -19,3 +19,18 @@ Key conventions:
 - Make any capped agent preview explicit, because the agent cannot see the user-facing UI.
 - Verify the server-side payload contract.
 - Capture human-reviewable evidence with MCPJam or Goose Desktop when retesting is requested, including the rendered widget and any important UI interaction.
+
+## Agent-facing Cloud Error Messages
+
+Cloud API error text comes from the response's nonempty `detail`, falling back to `title`.
+PyAirbyte preserves the selected string; fix poor Cloud wording in the platform.
+Only actor-not-ready setup instructions and 403 resource/access guidance are added.
+Bodies must be JSON objects of at most 65,536 UTF-8 bytes; invalid or non-problem responses
+use a status-only fallback. `message`, `data.message`, and `errorId` are not displayed.
+Agent errors, caught-error billing messages, and connector warnings pass through credential
+redaction. Native Datadog uses the selected,
+unredacted Cloud message without guidance; this does not add it to LLM Obs metadata.
+
+Non-Cloud MCP trace messages are the first line of the exception class's docstring
+(trace-only, exported to Datadog as `error.message`), so keep those first lines fixed text
+with no IDs, values or URLs.

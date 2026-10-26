@@ -23,7 +23,10 @@ Supports two transport modes:
       `Authorization: Bearer <token>`. The server verifies it with a
       `JWTVerifier`, active once a signing-key source (`AIRBYTE_MCP_AUTH_JWKS_URI`
       or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is configured (no browser, no
-      stored/rotating refresh token).
+      stored/rotating refresh token). Setting `AIRBYTE_MCP_AUTH_USER_JWKS_URI`
+      adds a second headless verifier for user-realm tokens forwarded by a
+      trusted first-party app, pinned via the `azp` allowlist in
+      `AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS`.
   When both are active they are combined via `MultiAuth`; when neither is
   configured `_create_auth` returns `None` and HTTP transport runs
   unauthenticated (a startup warning is logged in `http_main`).
@@ -42,12 +45,6 @@ For the headless path, an agent mints an access token from its client id/secret
 single token both authenticates transport (verified here) and authorizes
 downstream Cloud API calls, because an Airbyte-Cloud-issued JWT is itself a valid
 Cloud API bearer.
-
-Environment variables:
-
-- `AIRBYTE_MCP_SEGMENT_WRITE_KEY`: Segment write key for MCP tool-call telemetry
-  across all transports. Defaults to the PyAirbyte application key and is
-  ignored when `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set.
 """
 
 from __future__ import annotations
@@ -64,6 +61,8 @@ from fastmcp_extensions import (
     JWTAuthConfig,
     OIDCAuthConfig,
     TelemetryConfig,
+    TelemetrySinks,
+    UserFacingErrorMiddleware,
     build_mcp_auth,
     mcp_server,
 )
@@ -79,36 +78,59 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
-from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
+from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_MCP_TRACKING_KEY
+from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, _str_to_bool, is_hosted_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._error_handling import (
     MCP_TOOL_USER_FACING_ERRORS,
+    AgentErrorTextMiddleware,
     format_user_facing_error,
 )
+from airbyte.mcp._policy_middleware import PolicyGuardMiddleware
+from airbyte.mcp._scope import CallScopeMiddleware, call_scope_properties
 from airbyte.mcp._sso_auth import SsoRealmConfig, make_sso_proxy_factory
+from airbyte.mcp._telemetry import ServerConnectedTelemetryMiddleware, request_properties
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_READONLY_MODE_CONFIG_ARG,
+    ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG,
+    ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
+    ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
     API_URL_CONFIG_ARG,
     BEARER_TOKEN_CONFIG_ARG,
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
+    DISABLE_DELETE_GUARD_CONFIG_ARG,
     INSIDERS_CONFIG_ARG,
     ORGANIZATION_ID_CONFIG_ARG,
     TRUSTED_EXECUTION_CONFIG_ARG,
     WORKSPACE_ID_CONFIG_ARG,
+    airbyte_destructive_tools_filter,
+    airbyte_external_access_filter,
+    airbyte_insiders_tools_filter,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
     validate_airbyte_domains,
 )
-from airbyte.mcp.agents import register_agents_tools
+from airbyte.mcp._user_identity import (
+    AirbyteUserMiddleware,
+    airbyte_user_properties,
+    current_airbyte_user_id,
+)
 from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.connector_builder import register_connector_builder_tools
+from airbyte.mcp.guidance import (
+    KAPA_API_KEY_CONFIG_ARG,
+    KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
+    KNOWLEDGE_SEARCH_CAPABILITY,
+    is_knowledge_search_available,
+    register_guidance_tools,
+)
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
-from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
 from airbyte.secrets import SecretSourceEnum
 from airbyte.secrets.config import disable_secret_source
@@ -124,7 +146,7 @@ from airbyte.secrets.config import disable_secret_source
 # - Claude tool search: https://www.anthropic.com/news/tool-use-improvements
 # =============================================================================
 
-MCP_SERVER_INSTRUCTIONS = """
+_INSTRUCTIONS_INTRO = """\
 PyAirbyte connector management and data integration server for discovering,
 deploying, and running Airbyte connectors.
 
@@ -132,29 +154,60 @@ Use this server for:
 - Discovering connectors from the Airbyte registry (sources and destinations)
 - Deploying sources, destinations, and connections to Airbyte Cloud
 - Running cloud syncs and monitoring sync status
-- Managing custom connector definitions in Airbyte Cloud
+- Managing custom connector definitions in Airbyte Cloud"""
+
+_INSTRUCTIONS_LOCAL_USES = """
 - Local connector execution for data extraction without cloud deployment
-- Listing and describing environment variables for connector configuration
+- Listing and describing environment variables for connector configuration"""
+
+_INSTRUCTIONS_CLOUD_MODE = """
 
 Operational modes:
-- Cloud operations: Deploy and manage connectors on Airbyte Cloud (use request
-  headers when connecting to a hosted MCP server, or AIRBYTE_CLOUD_CLIENT_ID +
-  AIRBYTE_CLOUD_CLIENT_SECRET (or AIRBYTE_CLOUD_BEARER_TOKEN), and optionally
-  AIRBYTE_CLOUD_WORKSPACE_ID, for local or stdio connections). When no workspace
-  ID is configured, the server uses the authenticated user's default workspace;
-  when no organization ID is configured, the organization is derived from the
-  resolved workspace, whether it came from configuration or the user's default.
-  Only call list_cloud_workspaces or list_cloud_organizations if that fails or
-  the user wants a different one. If multiple organizations or workspaces are
-  returned, ask the user to choose explicitly; never select automatically.
+- Cloud operations: Deploy and manage connectors on Airbyte Cloud."""
+
+_INSTRUCTIONS_STDIO_CLOUD_AUTH = """
+  Authenticate with AIRBYTE_CLOUD_CLIENT_ID + AIRBYTE_CLOUD_CLIENT_SECRET (or
+  AIRBYTE_CLOUD_BEARER_TOKEN), and optionally set AIRBYTE_CLOUD_WORKSPACE_ID."""
+
+_INSTRUCTIONS_WORKSPACE_GUIDANCE = """
+  When a tool's workspace_id is omitted, the session's workspace is used: the
+  workspace configured for the connection if one is set, otherwise the
+  authenticated user's default (or only) workspace. Use get_default_cloud_context or
+  list_cloud_workspaces to discover workspaces. Only call list_cloud_organizations
+  when you need to search organizations by name, passing name_contains. If multiple
+  organizations or workspaces are candidates, ask the user to choose; never select
+  automatically."""
+
+_INSTRUCTIONS_LOCAL_MODE = """
 - Local operations: Run connectors locally for data extraction (requires
-  AIRBYTE_PROJECT_DIR for artifact storage)
+  AIRBYTE_PROJECT_DIR for artifact storage)"""
+
+_INSTRUCTIONS_SAFETY = """
 
 Safety features:
-- Safe mode (default): Restricts destructive operations to objects created in
-  the current session
-- Read-only mode: Disables all write operations for cloud resources
-""".strip()
+- Deletion guard: deleting a resource requires "delete-me" or "deleteme" in its name.
+  With the user's explicit consent, you may rename the resource to add the marker and
+  then delete it; never rename it to bypass the guard without asking first. When asking,
+  show the resource's name and Airbyte URL so the user can confirm the right resource.
+- Read-only mode: Disables all write operations for cloud resources"""
+
+
+def build_mcp_server_instructions(*, hosted: bool) -> str:
+    """Return the server instructions; local and env-var guidance is stdio-only."""
+    parts = [_INSTRUCTIONS_INTRO]
+    if not hosted:
+        parts.append(_INSTRUCTIONS_LOCAL_USES)
+    parts.append(_INSTRUCTIONS_CLOUD_MODE)
+    if not hosted:
+        parts.append(_INSTRUCTIONS_STDIO_CLOUD_AUTH)
+    parts.append(_INSTRUCTIONS_WORKSPACE_GUIDANCE)
+    if not hosted:
+        parts.append(_INSTRUCTIONS_LOCAL_MODE)
+    parts.append(_INSTRUCTIONS_SAFETY)
+    return "".join(parts)
+
+
+MCP_SERVER_INSTRUCTIONS = build_mcp_server_instructions(hosted=is_hosted_mcp_mode())
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +248,16 @@ JWT_PUBLIC_KEY_ENV = "AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY"
 JWT_ISSUER_ENV = "AIRBYTE_MCP_AUTH_ISSUER"
 JWT_AUDIENCE_ENV = "AIRBYTE_MCP_AUTH_AUDIENCE"
 JWT_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_ALGORITHM"
+
+# Optional second headless verifier for user-realm tokens forwarded by a
+# trusted first-party app (e.g. the Ops Webapp session token). Activated by
+# `USER_JWKS_URI_ENV`, which also requires `USER_ISSUER_ENV` (pinned issuer)
+# and `USER_TOKEN_CLIENT_IDS_ENV`; `aud` is not checked (Keycloak user-token
+# audiences vary by client) — the `azp` allowlist is the trust boundary.
+USER_JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_USER_JWKS_URI"
+USER_ISSUER_ENV = "AIRBYTE_MCP_AUTH_USER_ISSUER"
+USER_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_USER_ALGORITHM"
+USER_TOKEN_CLIENT_IDS_ENV = "AIRBYTE_MCP_AUTH_USER_TOKEN_CLIENT_IDS"
 
 # Names a durable-storage factory (`"package.module:callable"`) for the
 # interactive `OIDCProxy`'s OAuth state. The concrete backend (and its infra
@@ -320,10 +383,12 @@ def _create_auth() -> AuthProvider | None:
     `JWTVerifier` and/or an interactive `OIDCProxy`, combined via `MultiAuth`.
     The headless verifier activates once a signing-key source
     (`AIRBYTE_MCP_AUTH_JWKS_URI` or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is
-    configured; the interactive path activates once the OIDC client credentials
-    are supplied, and gains the SSO identifier-entry page (an `OIDCProxy`
-    subclass supplied through `OIDCAuthConfig.proxy_factory`) once
-    `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set too. Returns `None` when
+    configured; setting `AIRBYTE_MCP_AUTH_USER_JWKS_URI` adds a second,
+    `azp`-allowlisted headless verifier for user-realm tokens forwarded by a
+    trusted first-party app; the interactive path activates once the OIDC
+    client credentials are supplied, and gains the SSO identifier-entry page
+    (an `OIDCProxy` subclass supplied through `OIDCAuthConfig.proxy_factory`)
+    once `AIRBYTE_MCP_SSO_OIDC_CONFIG_URL_TEMPLATE` is set too. Returns `None` when
     neither path is configured, so the server falls back to unauthenticated
     local behavior. The `stdio` transport ignores the provider entirely.
 
@@ -334,17 +399,50 @@ def _create_auth() -> AuthProvider | None:
     """
     base_url = _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
 
-    jwt: JWTAuthConfig | None = None
+    jwt_configs: list[JWTAuthConfig] = []
     jwks_uri = os.getenv(JWKS_URI_ENV, "").strip()
     public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "").strip()
     if jwks_uri or public_key:
-        jwt = JWTAuthConfig(
-            jwks_uri=jwks_uri or None,
-            public_key=public_key or None,
-            issuer=os.getenv(JWT_ISSUER_ENV, "").strip() or None,
-            audience=os.getenv(JWT_AUDIENCE_ENV, "").strip() or None,
-            algorithm=os.getenv(JWT_ALGORITHM_ENV, "").strip() or None,
-            base_url=base_url,
+        jwt_configs.append(
+            JWTAuthConfig(
+                jwks_uri=jwks_uri or None,
+                public_key=public_key or None,
+                issuer=os.getenv(JWT_ISSUER_ENV, "").strip() or None,
+                audience=os.getenv(JWT_AUDIENCE_ENV, "").strip() or None,
+                algorithm=os.getenv(JWT_ALGORITHM_ENV, "").strip() or None,
+                base_url=base_url,
+            )
+        )
+
+    user_jwks_uri = os.getenv(USER_JWKS_URI_ENV, "").strip()
+    if user_jwks_uri:
+        client_ids = frozenset(
+            entry.strip()
+            for entry in os.getenv(USER_TOKEN_CLIENT_IDS_ENV, "").split(",")
+            if entry.strip()
+        )
+        if not client_ids:
+            msg = (
+                f"{USER_JWKS_URI_ENV} is set but {USER_TOKEN_CLIENT_IDS_ENV} is "
+                "empty; the user-realm verifier needs a non-empty "
+                "comma-separated azp allowlist."
+            )
+            raise ValueError(msg)
+        user_issuer = os.getenv(USER_ISSUER_ENV, "").strip()
+        if not user_issuer:
+            msg = (
+                f"{USER_JWKS_URI_ENV} is set but {USER_ISSUER_ENV} is empty; "
+                "the user-realm verifier must pin the token issuer."
+            )
+            raise ValueError(msg)
+        jwt_configs.append(
+            JWTAuthConfig(
+                jwks_uri=user_jwks_uri,
+                issuer=user_issuer,
+                algorithm=os.getenv(USER_ALGORITHM_ENV, "").strip() or None,
+                base_url=base_url,
+                allowed_client_ids=client_ids,
+            )
         )
 
     oidc: OIDCAuthConfig | None = None
@@ -391,17 +489,11 @@ def _create_auth() -> AuthProvider | None:
             proxy_factory=make_sso_proxy_factory(sso_config) if sso_config else None,
         )
 
-    return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=base_url)
+    return build_mcp_auth(oidc=oidc, jwt=jwt_configs or None, base_url=base_url)
 
-
-SEGMENT_WRITE_KEY_ENV = "AIRBYTE_MCP_SEGMENT_WRITE_KEY"
 
 SEGMENT_USER_ID = "airbyte-mcp"
-"""Identifies the PyAirbyte MCP server as the event source.
-
-This applies to both hosted and local transports. The server has no per-caller
-identity to attribute a tool call to.
-"""
+"""Fallback Segment user ID for server telemetry when caller identity is unavailable."""
 
 
 def _segment_write_key() -> str | None:
@@ -412,7 +504,7 @@ def _segment_write_key() -> str | None:
     if os.environ.get(DO_NOT_TRACK) or offline_mode:
         return None
 
-    return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
+    return PYAIRBYTE_MCP_TRACKING_KEY
 
 
 load_secrets_to_env_vars()
@@ -420,6 +512,13 @@ load_secrets_to_env_vars()
 segment_write_key = _segment_write_key()
 if segment_write_key is None:
     logger.info("Segment telemetry is disabled; MCP tool-call telemetry remains log-only.")
+
+lifecycle_telemetry_sinks = TelemetrySinks(
+    package_name="airbyte",
+    segment_write_key=segment_write_key,
+    segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
+)
+"""Sinks for MCP session lifecycle events, configured like tool-call telemetry."""
 
 
 @asynccontextmanager
@@ -435,12 +534,16 @@ async def _mcp_mode_lifespan(  # noqa: RUF029
 
 
 app = mcp_server(
-    name="airbyte-mcp",
+    display_name="airbyte-mcp",
     package_name="airbyte",
     instructions=MCP_SERVER_INSTRUCTIONS,
     include_standard_tool_filters=True,
     server_config_args=[
         AIRBYTE_READONLY_MODE_CONFIG_ARG,
+        ALLOW_PIPELINE_CHANGES_CONFIG_ARG,
+        ALLOW_EXTERNAL_ACCESS_CONFIG_ARG,
+        ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG,
+        DISABLE_DELETE_GUARD_CONFIG_ARG,
         AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
         AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
         INSIDERS_CONFIG_ARG,
@@ -452,31 +555,59 @@ app = mcp_server(
         API_URL_CONFIG_ARG,
         CONFIG_API_URL_CONFIG_ARG,
         TRUSTED_EXECUTION_CONFIG_ARG,
+        KAPA_API_KEY_CONFIG_ARG,
+        KAPA_RETRIEVAL_API_URL_CONFIG_ARG,
     ],
+    capability_resolvers={
+        KNOWLEDGE_SEARCH_CAPABILITY: is_knowledge_search_available,
+    },
     tool_filters=[
         airbyte_readonly_mode_filter,
+        airbyte_external_access_filter,
+        airbyte_destructive_tools_filter,
         airbyte_module_filter,
+        airbyte_insiders_tools_filter,
     ],
     auth=_create_auth(),
     lifespan=_mcp_mode_lifespan,
     telemetry=TelemetryConfig(
         package_name="airbyte",
         segment_write_key=segment_write_key,
-        segment_user_id=SEGMENT_USER_ID,
-        extra_properties=lambda: {"is_hosted_mcp": is_hosted_mcp_mode()},
+        segment_user_id=lambda: current_airbyte_user_id() or SEGMENT_USER_ID,
+        extra_properties=lambda: {
+            **request_properties(),
+            **call_scope_properties(),
+            **airbyte_user_properties(),
+        },
     ),
     user_facing_errors=MCP_TOOL_USER_FACING_ERRORS,
     user_facing_error_formatter=format_user_facing_error,
 )
 """The Airbyte MCP Server application instance."""
 
+# Rewrites and masks agent-facing error text; must run outside (before) the
+# user-facing and telemetry middleware so they still see the original error.
+app.middleware.insert(
+    next(
+        index
+        for index, middleware in enumerate(app.middleware)
+        if isinstance(middleware, UserFacingErrorMiddleware)
+    ),
+    AgentErrorTextMiddleware(),
+)
+
+app.add_middleware(ServerConnectedTelemetryMiddleware(lifecycle_telemetry_sinks))
+app.add_middleware(PolicyGuardMiddleware())
+app.middleware.insert(0, CallScopeMiddleware())
+app.middleware.insert(0, AirbyteUserMiddleware())
+
 # Register tools from each module
 register_cloud_tools(app)
-register_agents_tools(app)
+register_connector_builder_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
-register_prompts(app)
+register_guidance_tools(app)
 
 validate_airbyte_domains(app)
 
@@ -495,6 +626,7 @@ def main() -> None:
     It should not be called directly; instead, consult the MCP client documentation
     for instructions on how to connect to the server.
     """
+    check_unsupported_env_vars()
     print("Starting Airbyte MCP server.", file=sys.stderr)
     try:
         asyncio.run(app.run_stdio_async())

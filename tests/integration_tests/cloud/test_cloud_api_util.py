@@ -8,7 +8,6 @@ These tests are designed to be run against a running instance of the Airbyte API
 from __future__ import annotations
 
 import re
-from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -16,10 +15,11 @@ import responses
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
-    AirbyteError,
+    AirbyteCloudError,
     check_connector,
     get_bearer_token,
 )
+from airbyte.cloud.connectors import ConnectorType
 from airbyte.secrets.base import SecretString
 from airbyte_api.models import (
     DestinationDuckdb,
@@ -277,22 +277,22 @@ def test_get_bearer_token(
             api_root=api_root,
         )
         assert token is not None
-    except AirbyteError as e:
+    except AirbyteCloudError as e:
         pytest.fail(f"API call failed: {e}")
 
 
 @pytest.mark.parametrize(
     "connector_id, connector_type, expect_success",
     [
-        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", "source", True),
-        # ("......-....-....-............", "destination", True),
+        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", ConnectorType.SOURCE, True),
+        # ("......-....-....-............", ConnectorType.DESTINATION, True),
     ],
 )
 def test_check_connector(
     airbyte_cloud_client_id: SecretString,
     airbyte_cloud_client_secret: SecretString,
     connector_id: str,
-    connector_type: Literal["source", "destination"],
+    connector_type: ConnectorType,
     expect_success: bool,
 ) -> None:
     try:
@@ -304,7 +304,7 @@ def test_check_connector(
             bearer_token=None,
         )
         assert result == expect_success
-    except AirbyteError as e:
+    except AirbyteCloudError as e:
         pytest.fail(f"API call failed: {e}")
 
 
@@ -330,7 +330,7 @@ def test_404_error_includes_request_url_context() -> None:
         status=404,
     )
 
-    with pytest.raises(AirbyteError) as exc_info:
+    with pytest.raises(AirbyteCloudError) as exc_info:
         api_util.list_sources(
             workspace_id=workspace_id,
             api_root=api_root,

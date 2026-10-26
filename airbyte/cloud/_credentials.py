@@ -15,7 +15,7 @@ from airbyte.constants import (
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
 )
-from airbyte.exceptions import AirbyteNoCloudCredentialsError, PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError, AirbyteNoCloudCredentialsError
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.util import try_get_secret
 
@@ -71,7 +71,7 @@ class _AirbyteCredentials:
         )
 
         if resolved_bearer_token and (resolved_client_id or resolved_client_secret):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot use both client credentials and bearer token authentication.",
                 guidance=(
                     "Provide either client_id and client_secret together, "
@@ -79,7 +79,7 @@ class _AirbyteCredentials:
                 ),
             )
         if bool(resolved_client_id) != bool(resolved_client_secret):
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Client ID and client secret are both required.",
                 guidance="Provide both client ID and client secret, or use a bearer token.",
             )

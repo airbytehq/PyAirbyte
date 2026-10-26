@@ -84,6 +84,41 @@ def test_get_config_api_root_unresolved(monkeypatch: pytest.MonkeyPatch) -> None
         api_util.get_config_api_root("https://example.airbyte.com/custom/public")
 
 
+@pytest.mark.parametrize(
+    "api_root,expected",
+    [
+        pytest.param(api_util.CLOUD_API_ROOT, "https://cloud.airbyte.com", id="cloud"),
+        pytest.param(
+            api_util.CLOUD_API_ROOT + "/",
+            "https://cloud.airbyte.com",
+            id="cloud_trailing_slash",
+        ),
+        pytest.param(
+            "https://example.airbyte.com/api/public/v1",
+            "https://example.airbyte.com",
+            id="self_managed",
+        ),
+        pytest.param(
+            "https://example.airbyte.com/airbyte/api/public/v1/",
+            "https://example.airbyte.com/airbyte",
+            id="self_managed_with_prefix",
+        ),
+        pytest.param(
+            "http://localhost:8000/api/public/v1",
+            "http://localhost:8000",
+            id="local_oss",
+        ),
+        pytest.param(
+            "https://example.airbyte.com/custom/public",
+            "https://example.airbyte.com/custom/public",
+            id="unrecognized_root_unchanged",
+        ),
+    ],
+)
+def test_get_web_url_root(api_root: str, expected: str) -> None:
+    assert api_util.get_web_url_root(api_root) == expected
+
+
 def test_cloud_workspace_constructor_requires_keyword_arguments() -> None:
     with pytest.raises(TypeError, match="positional"):
         CloudWorkspace("workspace-id", bearer_token=SecretString("token"))  # type: ignore[misc]

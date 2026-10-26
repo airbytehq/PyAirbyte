@@ -3,22 +3,127 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import Mock
 
 import pytest
 import requests
+import responses
 from airbyte import constants
-from airbyte._util import api_util, meta
+from airbyte._util import api_util, cloud_errors, meta
+from airbyte.cloud.models import (
+    CloudConnectionInfo,
+    CloudJobInfo,
+    ConnectionStatus,
+    JobStatusEnum,
+)
 from airbyte.exceptions import (
-    AirbyteError,
+    AirbyteCloudError,
+    AirbyteConnectorNotReadyError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
-    PyAirbyteInputError,
+    AirbyteLibInputError,
 )
+from airbyte.registry import ConnectorType
 from airbyte.secrets.base import SecretString
-from airbyte_api import api, models
+from airbyte_api import api, models, utils
 from airbyte_api.errors import SDKError
+
+
+@pytest.mark.parametrize("interval_hours", [1, 24, 168])
+@pytest.mark.parametrize("use_client_credentials", [False, True])
+def test_set_connection_interval_schedule_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    interval_hours: int,
+    *,
+    use_client_credentials: bool,
+) -> None:
+    """Send only a basic schedule with the configured root and authentication."""
+    token = Mock(return_value=SecretString("minted-token"))
+    monkeypatch.setattr(api_util, "get_bearer_token", token)
+    with responses.RequestsMock() as http:
+        http.post(
+            "https://config.example/custom/web_backend/connections/update",
+            json={"connectionId": "connection-id", "scheduleType": "basic"},
+        )
+        result = api_util.set_connection_interval_schedule(
+            connection_id="connection-id",
+            interval_hours=interval_hours,
+            api_root="https://public.example/custom",
+            config_api_root="https://config.example/custom",
+            client_id=SecretString("client-id") if use_client_credentials else None,
+            client_secret=SecretString("client-secret")
+            if use_client_credentials
+            else None,
+            bearer_token=None
+            if use_client_credentials
+            else SecretString("bearer-token"),
+        )
+        captured_calls = list(http.calls)
+
+    assert result["scheduleType"] == "basic"
+    assert len(captured_calls) == 1
+    request = captured_calls[0].request
+    assert json.loads(request.body) == {
+        "connectionId": "connection-id",
+        "scheduleType": "basic",
+        "scheduleData": {
+            "basicSchedule": {"timeUnit": "hours", "units": interval_hours}
+        },
+        "skipReset": True,
+    }
+    assert request.headers["Authorization"] == (
+        "Bearer minted-token" if use_client_credentials else "Bearer bearer-token"
+    )
+    if use_client_credentials:
+        token.assert_called_once_with(
+            client_id=SecretString("client-id"),
+            client_secret=SecretString("client-secret"),
+            api_root="https://public.example/custom",
+            timeout=None,
+        )
+    else:
+        token.assert_not_called()
+
+
+@pytest.mark.parametrize("interval_hours", [0, -1, True, False, 1.0, 1.5, "24", None])
+def test_set_connection_interval_schedule_rejects_invalid_hours(
+    interval_hours: object,
+) -> None:
+    """Reject invalid intervals before any network request or authentication."""
+    with responses.RequestsMock() as http:
+        with pytest.raises(AirbyteLibInputError, match="positive whole number"):
+            api_util.set_connection_interval_schedule(
+                connection_id="connection-id",
+                interval_hours=interval_hours,
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=SecretString("token"),
+            )
+        assert len(http.calls) == 0
+
+
+def test_set_connection_interval_schedule_reports_api_failure() -> None:
+    """Propagate configuration API failures instead of reporting success."""
+    with responses.RequestsMock() as http:
+        http.post(
+            "https://cloud.airbyte.com/api/v1/web_backend/connections/update",
+            json={"message": "schedule rejected"},
+            status=400,
+        )
+        with pytest.raises(AirbyteCloudError, match="HTTP 400"):
+            api_util.set_connection_interval_schedule(
+                connection_id="connection-id",
+                interval_hours=24,
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=SecretString("token"),
+            )
 
 
 def _job_response(job_id: int) -> models.JobResponse:
@@ -30,6 +135,16 @@ def _job_response(job_id: int) -> models.JobResponse:
         start_time="2026-01-01T00:00:00Z",
         status=models.JobStatusEnum.SUCCEEDED,
     )
+
+
+def _raw_job_response(job_id: int, status: str) -> dict[str, Any]:
+    return {
+        "connectionId": "connection-id",
+        "jobId": job_id,
+        "jobType": "sync",
+        "startTime": "2026-01-01T00:00:00Z",
+        "status": status,
+    }
 
 
 def _list_jobs_response(
@@ -65,6 +180,40 @@ def _connection_response(name: str, index: int) -> models.ConnectionResponse:
         tags=[],
         workspace_id="workspace-id",
     )
+
+
+def _connection_with_field_filtering_mapper(
+    connection_id: str,
+) -> dict[str, Any]:
+    return {
+        "connectionId": connection_id,
+        "name": "test connection",
+        "sourceId": "source-id",
+        "destinationId": "destination-id",
+        "workspaceId": "workspace-id",
+        "status": "active",
+        "schedule": {"scheduleType": "manual"},
+        "dataResidency": "auto",
+        "nonBreakingSchemaUpdatesBehavior": "ignore",
+        "namespaceDefinition": "destination",
+        "createdAt": 1,
+        "tags": [],
+        "configurations": {
+            "streams": [
+                {
+                    "name": "leads",
+                    "syncMode": "full_refresh_overwrite",
+                    "mappers": [
+                        {
+                            "id": "00000000-0000-0000-0000-000000000000",
+                            "type": "field-filtering",
+                            "mapperConfiguration": {"targetField": "foo"},
+                        }
+                    ],
+                }
+            ]
+        },
+    }
 
 
 def _workspace_response(name: str, index: int) -> models.WorkspaceResponse:
@@ -116,15 +265,36 @@ def _list_workspaces_response(
 
 
 @pytest.mark.parametrize(
-    ("status_code", "expected_error_type"),
+    ("status_code", "expected_error_type", "expected_message", "expected_guidance"),
     [
-        pytest.param(404, AirbyteMissingResourceError, id="not_found"),
-        pytest.param(500, AirbyteError, id="server_error"),
+        pytest.param(
+            403,
+            AirbyteMissingResourceError,
+            "Airbyte Cloud returned HTTP 403.",
+            api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+            id="forbidden",
+        ),
+        pytest.param(
+            404,
+            AirbyteMissingResourceError,
+            "Airbyte Cloud returned HTTP 404.",
+            None,
+            id="not_found",
+        ),
+        pytest.param(
+            500,
+            AirbyteCloudError,
+            "Airbyte Cloud returned HTTP 500.",
+            None,
+            id="server_error",
+        ),
     ],
 )
-def test_wrap_sdk_error_classifies_not_found(
+def test_wrap_sdk_error_classifies_missing_or_forbidden(
     status_code: int,
-    expected_error_type: type[AirbyteError],
+    expected_error_type: type[AirbyteCloudError],
+    expected_message: str,
+    expected_guidance: str | None,
 ) -> None:
     raw_response = requests.Response()
     raw_response.status_code = status_code
@@ -136,7 +306,8 @@ def test_wrap_sdk_error_classifies_not_found(
     wrapped = api_util._wrap_sdk_error(error, {"workspace_id": "workspace-id"})
 
     assert type(wrapped) is expected_error_type
-    assert wrapped.get_message() == "API error occurred: Workspace lookup failed."
+    assert wrapped.get_message() == expected_message
+    assert wrapped.guidance == expected_guidance
     assert wrapped.context["workspace_id"] == "workspace-id"
     assert wrapped.context["status_code"] == status_code
 
@@ -183,7 +354,7 @@ def test_get_user_id_from_bearer_token_rejects_invalid_tokens(
     token: str,
     expected_message: str,
 ) -> None:
-    with pytest.raises(PyAirbyteInputError, match=expected_message):
+    with pytest.raises(AirbyteLibInputError, match=expected_message):
         api_util.get_user_id_from_bearer_token(SecretString(token))
 
 
@@ -385,7 +556,7 @@ def test_config_api_helpers_reject_unexpected_response(
         lambda **_: response,
     )
 
-    with pytest.raises(AirbyteError, match=expected_message) as exc_info:
+    with pytest.raises(AirbyteCloudError, match=expected_message) as exc_info:
         helper(
             **kwargs,
             api_root="https://api.example",
@@ -470,6 +641,199 @@ def test_list_organizations_for_user_id_paginates_and_forwards_filters(
     }
     assert requests[1]["pagination"] == {"pageSize": 100, "rowOffset": 100}
     assert len(requests) == request_count
+
+
+@pytest.mark.parametrize(
+    (
+        "page_lengths",
+        "name_contains",
+        "limit",
+        "expected_count",
+        "expected_offsets",
+    ),
+    [
+        pytest.param(
+            [100, 3],
+            "sandbox",
+            None,
+            103,
+            [0, 100],
+            id="short-last-page",
+        ),
+        pytest.param(
+            [100, 100],
+            None,
+            50,
+            50,
+            [0],
+            id="returns-at-limit",
+        ),
+        pytest.param(
+            [0],
+            None,
+            None,
+            0,
+            [0],
+            id="empty-first-page",
+        ),
+    ],
+)
+def test_list_workspaces_by_user_paginates_and_respects_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    page_lengths: list[int],
+    name_contains: str | None,
+    limit: int | None,
+    expected_count: int,
+    expected_offsets: list[int],
+) -> None:
+    captured_requests: list[dict[str, object]] = []
+    pages: list[dict[str, object]] = []
+    next_workspace_id = 0
+    for page_length in page_lengths:
+        pages.append({
+            "workspaces": [
+                {"workspaceId": f"workspace-{workspace_id}"}
+                for workspace_id in range(
+                    next_workspace_id,
+                    next_workspace_id + page_length,
+                )
+            ]
+        })
+        next_workspace_id += page_length
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        json_request = kwargs["json"]
+        assert isinstance(json_request, dict)
+        captured_requests.append({"path": kwargs["path"], "json": json_request})
+        return pages.pop(0)
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_workspaces_by_user(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        config_api_root="https://config.airbyte.com",
+        name_contains=name_contains,
+        limit=limit,
+    )
+
+    assert [workspace["workspaceId"] for workspace in result] == [
+        f"workspace-{workspace_id}" for workspace_id in range(expected_count)
+    ]
+    assert [request["path"] for request in captured_requests] == [
+        "/workspaces/list_by_user_id"
+    ] * len(expected_offsets)
+    assert [request["json"] for request in captured_requests] == [
+        {
+            "userId": "user-id",
+            "pagination": {"pageSize": 100, "rowOffset": offset},
+            **({"nameContains": name_contains} if name_contains is not None else {}),
+        }
+        for offset in expected_offsets
+    ]
+
+
+@pytest.mark.parametrize(
+    ("page_names", "expected_names", "expected_offsets"),
+    [
+        pytest.param(
+            [["target", *(f"miss-{index}" for index in range(99))]],
+            ["target"],
+            [0],
+            id="match-on-first-full-page-stops-at-limit",
+        ),
+        pytest.param(
+            [
+                [f"miss-{index}" for index in range(100)],
+                ["target"],
+            ],
+            ["target"],
+            [0, 100],
+            id="match-after-first-full-page",
+        ),
+    ],
+)
+def test_list_workspaces_by_user_filters_each_page_before_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    page_names: list[list[str]],
+    expected_names: list[str],
+    expected_offsets: list[int],
+) -> None:
+    captured_requests: list[dict[str, object]] = []
+    pages = [
+        {
+            "workspaces": [
+                {"workspaceId": f"workspace-{index}", "name": name}
+                for index, name in enumerate(names)
+            ]
+        }
+        for names in page_names
+    ]
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        json_request = kwargs["json"]
+        assert isinstance(json_request, dict)
+        captured_requests.append({"path": kwargs["path"], "json": json_request})
+        return pages.pop(0)
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_workspaces_by_user(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        config_api_root="https://config.airbyte.com",
+        name_filter=lambda workspace_name: workspace_name == "target",
+        limit=1,
+    )
+
+    assert [workspace["name"] for workspace in result] == expected_names
+    assert [
+        request["json"]["pagination"]["rowOffset"] for request in captured_requests
+    ] == (expected_offsets)
+    assert [request["path"] for request in captured_requests] == [
+        "/workspaces/list_by_user_id"
+    ] * len(expected_offsets)
+
+
+def test_list_workspaces_by_user_honors_page_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_payloads: list[dict[str, object]] = []
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        json_request = kwargs["json"]
+        assert isinstance(json_request, dict)
+        captured_payloads.append(json_request)
+        return {
+            "workspaces": [
+                {"workspaceId": "workspace-0"},
+                {"workspaceId": "workspace-1"},
+            ]
+        }
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_workspaces_by_user(
+        "user-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        config_api_root="https://config.airbyte.com",
+        limit=2,
+        page_size=2,
+    )
+
+    assert len(result) == 2
+    assert captured_payloads == [
+        {"userId": "user-id", "pagination": {"pageSize": 2, "rowOffset": 0}}
+    ]
 
 
 def test_create_workspace_forwards_request(
@@ -617,7 +981,7 @@ def test_patch_connection_rejects_invalid_status(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(PyAirbyteInputError, match="`status` must be one of"):
+    with pytest.raises(AirbyteLibInputError, match="`status` must be one of"):
         api_util.patch_connection(
             connection_id="connection-1",
             api_root="https://api.airbyte.com/v1",
@@ -686,7 +1050,7 @@ def test_permanently_delete_workspace_requires_safe_name(
         )
         assert delete_calls == 1
     else:
-        with pytest.raises(PyAirbyteInputError):
+        with pytest.raises(AirbyteLibInputError):
             api_util.permanently_delete_workspace(
                 workspace_id="workspace-1",
                 api_root="https://api.airbyte.com/v1",
@@ -855,6 +1219,229 @@ def test_list_connections_paginates_resources(
     ] == expected_requests
 
 
+@responses.activate
+def test_get_connection_retries_without_undecodable_stream_mappers() -> None:
+    """A mapper the SDK cannot decode is omitted from the returned connection."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert isinstance(connection, models.ConnectionResponse)
+    assert connection.configurations.streams[0].name == "leads"
+    assert len(responses.calls) == 2
+    assert [call.request.url for call in responses.calls] == [url, url]
+    assert (
+        responses.calls[1].request.req_kwargs["timeout"]
+        == api_util.PUBLIC_API_FALLBACK_TIMEOUT_SECS
+    )
+
+
+@responses.activate
+def test_get_connection_fallback_404_raises_missing_resource_error() -> None:
+    """A missing resource during raw fallback raises the missing-resource error."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    responses.get(url, json=_connection_with_field_filtering_mapper(connection_id))
+    responses.get(url, status=404, json={"message": "Not found"})
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        api_util.get_connection(
+            workspace_id="workspace-id",
+            connection_id=connection_id,
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert len(responses.calls) == 2
+    assert exc_info.value.context["status_code"] == 404
+    assert exc_info.value.guidance is None
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("lookup", "definitions_path"),
+    [
+        pytest.param(api_util.get_source_definition, "sources", id="source"),
+        pytest.param(
+            api_util.get_destination_definition, "destinations", id="destination"
+        ),
+    ],
+)
+def test_get_definition_wraps_sdk_errors(
+    lookup: Callable[..., models.DefinitionResponse], definitions_path: str
+) -> None:
+    """A missing definition raises the missing-resource error, chained to the SDK error."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    url = f"{api_root}/workspaces/workspace-id/definitions/{definitions_path}/definition-id"
+    responses.get(url, status=404, json={"message": "Not found"})
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        lookup(
+            definition_id="definition-id",
+            workspace_id="workspace-id",
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 404
+    assert exc_info.value.context["definition_id"] == "definition-id"
+
+
+@responses.activate
+def test_list_connections_retries_page_without_undecodable_stream_mappers() -> None:
+    """Connection listing falls back to raw JSON when a page has unknown mappers."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.get(
+        f"{api_root}/connections",
+        json={
+            "data": [_connection_with_field_filtering_mapper("connection-id")],
+            "next": None,
+        },
+    )
+
+    connections = api_util.list_connections(
+        workspace_id="workspace-id",
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert [
+        connection.configurations.streams[0].name for connection in connections
+    ] == ["leads"]
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_connection_without_mappers_uses_sdk_response_once() -> None:
+    """Connections without mappers keep using the typed SDK response."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    body = _connection_with_field_filtering_mapper(connection_id)
+    body["configurations"]["streams"][0].pop("mappers")
+    responses.get(url, json=body)
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert connection.configurations.streams[0].name == "leads"
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_get_job_info_preserves_unknown_status() -> None:
+    """Job lookup retries when the SDK cannot decode a status value."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    job_id = 42
+    url = f"{api_root}/jobs/{job_id}"
+    responses.get(url, json=_raw_job_response(job_id, "future-status"))
+
+    job = api_util.get_job_info(
+        job_id=job_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert job.status == "future-status"
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_job_logs_preserves_unknown_statuses_and_stops_without_next_page() -> None:
+    """Job listing retries the page and stops when the raw response has no next page."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.get(
+        f"{api_root}/jobs",
+        json={
+            "data": [
+                _raw_job_response(42, "future-status"),
+                _raw_job_response(43, "succeeded"),
+            ]
+        },
+    )
+
+    jobs = api_util.get_job_logs(
+        workspace_id="workspace-id",
+        connection_id="connection-id",
+        limit=2,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert len(jobs) == 2
+    assert jobs[0].status == "future-status"
+    assert jobs[1].status is models.JobStatusEnum.SUCCEEDED
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_get_connection_preserves_unknown_status() -> None:
+    """Connection lookup retries when the SDK cannot decode a status value."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    connection_id = "connection-id"
+    url = f"{api_root}/connections/{connection_id}"
+    raw = _connection_with_field_filtering_mapper(connection_id)
+    raw["configurations"]["streams"][0].pop("mappers")
+    raw["status"] = "locked"
+    responses.get(url, json=raw)
+
+    connection = api_util.get_connection(
+        workspace_id="workspace-id",
+        connection_id=connection_id,
+        api_root=api_root,
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("bearer-token"),
+    )
+
+    assert connection.status == "locked"
+    assert (
+        CloudConnectionInfo.from_api_response(connection).status
+        is ConnectionStatus.LOCKED
+    )
+    assert len(responses.calls) == 2
+
+
+def test_decode_with_unknown_status_keeps_known_enum() -> None:
+    """Known SDK status values are decoded to their enum members."""
+    job = api_util._decode_with_unknown_status(
+        _raw_job_response(42, "succeeded"),
+        models.JobResponse,
+        status_enum=models.JobStatusEnum,
+        placeholder=models.JobStatusEnum.RUNNING,
+    )
+
+    assert job.status is models.JobStatusEnum.SUCCEEDED
+
+
 def test_list_workspaces_does_not_filter_by_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -955,7 +1542,7 @@ def test_list_workspaces_caps_unfiltered_api_page_size(
 @pytest.mark.parametrize("limit", [0, -1])
 def test_list_connections_rejects_invalid_limits(limit: int) -> None:
     """Verify connection list pagination rejects non-positive limits."""
-    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+    with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0."):
         api_util.list_connections(
             workspace_id="workspace-id",
             api_root="https://api.airbyte.com/v1/",
@@ -964,6 +1551,26 @@ def test_list_connections_rejects_invalid_limits(limit: int) -> None:
             bearer_token=None,
             limit=limit,
         )
+
+
+def test_sdk_decodes_queued_job_status() -> None:
+    payload = {
+        "data": [
+            {
+                "connectionId": "connection-id",
+                "jobId": 1,
+                "jobType": "sync",
+                "startTime": "2026-01-01T00:00:00Z",
+                "status": "queued",
+            }
+        ]
+    }
+
+    response = utils.unmarshal_json(json.dumps(payload), models.JobsResponse)
+    job = response.data[0]
+
+    assert job.status is models.JobStatusEnum("queued")
+    assert CloudJobInfo.from_api_response(job).status is JobStatusEnum.QUEUED
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1153,7 +1760,7 @@ def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
         lambda **_: airbyte_instance,
     )
 
-    with pytest.raises(AirbyteError) as error:
+    with pytest.raises(AirbyteCloudError) as error:
         api_util.cancel_job(
             job_id=42,
             api_root="https://api.airbyte.com/v1/",
@@ -1191,46 +1798,151 @@ def test_get_analytic_source_reflects_runtime_mode(
         pytest.param(
             True,
             True,
-            {"x-airbyte-analytic-source": "Coral-Support-Agent"},
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
             "coral-support-agent",
-            id="upstream_wins",
+            id="mapped-application-name",
         ),
         pytest.param(
             True,
             True,
-            {"x-airbyte-analytic-source": "evil"},
+            {"x-airbyte-application-name": "  IO.Airbyte.Coral-Support-Agent "},
+            "coral-support-agent",
+            id="normalized-mapped-application-name",
+        ),
+        pytest.param(
+            True,
+            True,
+            {"x-airbyte-application-name": "my-agent"},
             "pyairbyte-mcp-hosted",
-            id="unlisted_source_rejected",
+            id="unmapped-application-name",
         ),
         pytest.param(True, True, {}, "pyairbyte-mcp-hosted", id="no_header_falls_back"),
         pytest.param(
-            False,
-            False,
+            True,
+            True,
             {"x-airbyte-analytic-source": "coral-support-agent"},
+            "pyairbyte-mcp-hosted",
+            id="analytic-source-header-ignored",
+        ),
+        pytest.param(
+            False,
+            False,
+            {"x-airbyte-application-name": "io.airbyte.coral-support-agent"},
             "pyairbyte",
-            id="header_ignored_outside_mcp_mode",
+            id="application-name-ignored-outside-mcp-mode",
         ),
         pytest.param(
             True,
             False,
             {"x-airbyte-analytic-source": "coral-support-agent"},
-            "coral-support-agent",
-            id="upstream_wins_local_mcp_mode",
+            "pyairbyte-mcp-local",
+            id="analytic-source-header-ignored-in-local-mode",
         ),
     ],
 )
-def test_get_analytic_source_upstream_header(
+def test_get_analytic_source_uses_application_name_mapping(
     monkeypatch: pytest.MonkeyPatch,
     mcp_mode: bool,
     hosted_mcp_mode: bool,
-    headers: dict,
+    headers: dict[str, str],
     expected: str,
 ) -> None:
     monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
     monkeypatch.setattr(constants, "_HOSTED_MCP_MODE_ENABLED", hosted_mcp_mode)
-    monkeypatch.setattr(meta, "get_http_headers", lambda **_: headers)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
 
     assert meta.get_cloud_api_analytic_source() == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("My Agent!", "my-agent"),
+        ("IO.AIRBYTE.X", "io.airbyte.x"),
+        ("x" * 200, "x" * 128),
+        ("   ", None),
+        ("!!!", None),
+        (None, None),
+    ],
+)
+def test_normalize_application_name(
+    value: str | None,
+    expected: str | None,
+) -> None:
+    assert meta.normalize_application_name(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("mcp_mode", "headers", "expected_declared_name", "expected_application_name"),
+    [
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            "com.example.my-agent",
+            "com.example.my-agent",
+            id="mcp-header",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-analytic-source": "coral-support-agent"},
+            None,
+            "local-script",
+            id="analytic-source-header-ignored",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "My Agent!"},
+            "my-agent",
+            "my-agent",
+            id="normalized-application-name",
+        ),
+        pytest.param(
+            True,
+            {"x-airbyte-application-name": "!!!"},
+            None,
+            "local-script",
+            id="empty-normalized-name",
+        ),
+        pytest.param(True, {}, None, "local-script", id="mcp-no-header"),
+        pytest.param(
+            False,
+            {"x-airbyte-application-name": "com.example.my-agent"},
+            None,
+            "local-script",
+            id="non-mcp-header-ignored",
+        ),
+    ],
+)
+def test_get_declared_application_name_and_get_application_name(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_mode: bool,
+    headers: dict[str, str],
+    expected_declared_name: str | None,
+    expected_application_name: str,
+) -> None:
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", mcp_mode)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
+
+    assert meta.get_declared_application_name() == expected_declared_name
+    assert meta.get_application_name() == expected_application_name
+
+
+def test_get_application_name_resolves_current_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    headers: dict[str, str] = {}
+    monkeypatch.setattr(meta, "_MCP_MODE_ENABLED", True)
+    monkeypatch.setattr(meta, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(meta, "_get_local_application_name", lambda: "local-script")
+
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-analytic-source"] = "coral-support-agent"
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-application-name"] = "!!!"
+    assert meta.get_application_name() == "local-script"
+    headers["x-airbyte-application-name"] = "My Agent!"
+    assert meta.get_application_name() == "my-agent"
 
 
 def test_config_api_request_sends_analytic_source_header(
@@ -1257,7 +1969,183 @@ def test_config_api_request_sends_analytic_source_header(
 
     headers = captured["headers"]
     assert isinstance(headers, dict)
-    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
+    assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-hosted"
+
+
+def test_config_api_request_handles_no_content_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = requests.Response()
+    response.status_code = 204
+    response.url = "https://config.airbyte.com/v1/connector_builder_projects/update"
+    response.request = requests.Request("POST", response.url).prepare()
+    monkeypatch.setattr(api_util.requests, "request", Mock(return_value=response))
+
+    result = api_util._make_config_api_request(
+        path="/connector_builder_projects/update",
+        json={},
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result == {}
+
+
+def test_list_connector_builder_projects(monkeypatch: pytest.MonkeyPatch) -> None:
+    projects = [
+        {
+            "builderProjectId": "builder-project-id",
+            "sourceDefinitionId": "definition-id",
+        }
+    ]
+    config_api_request = Mock(return_value={"projects": projects})
+    monkeypatch.setattr(api_util, "_make_config_api_request", config_api_request)
+
+    result = api_util.list_connector_builder_projects(
+        "workspace-id",
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+    )
+
+    assert result == projects
+    config_api_request.assert_called_once_with(
+        path="/connector_builder_projects/list",
+        json={"workspaceId": "workspace-id"},
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("draft_manifest", "components_file_content", "expected_builder_project"),
+    [
+        pytest.param(
+            {"version": "0.1.0"},
+            "components: []",
+            {
+                "name": "Renamed source",
+                "draftManifest": {"version": "0.1.0"},
+                "componentsFileContent": "components: []",
+            },
+            id="preserve-draft-and-components",
+        ),
+        pytest.param(
+            None,
+            None,
+            {"name": "Renamed source"},
+            id="omit-empty-draft-and-components",
+        ),
+    ],
+)
+def test_update_connector_builder_project_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    draft_manifest: dict[str, object] | None,
+    components_file_content: str | None,
+    expected_builder_project: dict[str, object],
+) -> None:
+    config_api_request = Mock(return_value={})
+    monkeypatch.setattr(api_util, "_make_config_api_request", config_api_request)
+
+    result = api_util.update_connector_builder_project(
+        workspace_id="owner-workspace",
+        builder_project_id="builder-project-id",
+        name="Renamed source",
+        draft_manifest=draft_manifest,
+        components_file_content=components_file_content,
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result is None
+    config_api_request.assert_called_once_with(
+        path="/connector_builder_projects/update",
+        json={
+            "workspaceId": "owner-workspace",
+            "builderProjectId": "builder-project-id",
+            "builderProject": expected_builder_project,
+        },
+        api_root="https://api.airbyte.com/v1",
+        config_api_root="https://config.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_error_type", "expected_message", "expected_guidance"),
+    [
+        pytest.param(
+            403,
+            AirbyteMissingResourceError,
+            "Airbyte Cloud returned HTTP 403.",
+            api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+            id="forbidden",
+        ),
+        pytest.param(
+            500,
+            AirbyteCloudError,
+            "Airbyte Cloud returned HTTP 500.",
+            None,
+            id="server-error",
+        ),
+    ],
+)
+def test_config_api_request_maps_forbidden_as_missing_resource(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    expected_error_type: type[AirbyteCloudError],
+    expected_message: str,
+    expected_guidance: str | None,
+) -> None:
+    response = requests.Response()
+    response.status_code = status_code
+    response.url = "https://config.airbyte.com/v1/workspaces/get"
+    response.request = requests.Request("POST", response.url).prepare()
+    request = Mock(return_value=response)
+    monkeypatch.setattr(api_util.requests, "request", request)
+
+    with pytest.raises(expected_error_type) as exc_info:
+        api_util._make_config_api_request(
+            path="/workspaces/get",
+            json={"workspaceId": "workspace-id"},
+            api_root="https://api.airbyte.com/v1",
+            config_api_root="https://config.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    error = exc_info.value
+    assert type(error) is expected_error_type
+    assert error.get_message() == expected_message
+    assert error.guidance == expected_guidance
+    assert error.context["status_code"] == status_code
+    assert error.context["path"] == "/workspaces/get"
+    assert error.context["full_url"] == "https://config.airbyte.com/v1/workspaces/get"
+    assert error.context["config_api_root"] == "https://config.airbyte.com/v1"
+    assert error.context["url"] == response.request.url
+    assert "body" not in error.context
+    assert "response" not in error.context
+    assert error.context["problem_type"] is None
+    assert isinstance(error.__cause__, requests.HTTPError)
+    assert error.__cause__.response is response
+    assert (
+        request.call_args.kwargs["url"]
+        == "https://config.airbyte.com/v1/workspaces/get"
+    )
 
 
 def test_public_api_client_sends_analytic_source_header(
@@ -1274,7 +2162,10 @@ def test_public_api_client_sends_analytic_source_header(
     )
 
     session = airbyte_instance.sdk_configuration.client
-    assert session.headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte-mcp-local"
+    assert (
+        session.headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER]
+        == "pyairbyte-mcp-local"
+    )
 
 
 def test_get_bearer_token_sends_analytic_source_header(
@@ -1297,4 +2188,1035 @@ def test_get_bearer_token_sends_analytic_source_header(
 
     headers = captured["headers"]
     assert isinstance(headers, dict)
-    assert headers[meta.AIRBYTE_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
+    assert headers[meta.AIRBYTE_CLOUD_ANALYTIC_SOURCE_HEADER] == "pyairbyte"
+
+
+def _sdk_404_error(resource_type: str) -> SDKError:
+    """Create an SDKError like the Speakeasy SDK raises on a 404."""
+    raw_response = requests.Response()
+    raw_response.status_code = 404
+    raw_response.url = "https://api.airbyte.com/v1/connectors/connector-id"
+    return SDKError(
+        "API error occurred: Status 404",
+        404,
+        f'{{"resourceType":"{resource_type}"}}',
+        raw_response,
+    )
+
+
+def _sdk_status_error(status_code: int) -> SDKError:
+    """Create an SDKError like the Speakeasy SDK raises on a non-2xx status."""
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://api.airbyte.com/v1/connectors/connector-id"
+    return SDKError(
+        f"API error occurred: Status {status_code}",
+        status_code,
+        '{"message":"Caller does not have the required permissions"}',
+        raw_response,
+    )
+
+
+@pytest.mark.parametrize(
+    ("operation", "status_code"),
+    [
+        pytest.param("get-job", 403, id="get-job"),
+        pytest.param("patch-connection", 400, id="patch-connection"),
+    ],
+)
+def test_api_util_calls_wrap_sdk_errors_with_status_context(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    status_code: int,
+) -> None:
+    """SDK errors from job and connection calls retain status and request context."""
+    sdk_error = _sdk_status_error(status_code)
+    get_job = Mock(side_effect=sdk_error)
+    patch_connection = Mock(side_effect=sdk_error)
+    airbyte_instance = SimpleNamespace(
+        jobs=SimpleNamespace(get_job=get_job),
+        connections=SimpleNamespace(patch_connection=patch_connection),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        if operation == "get-job":
+            api_util.get_job_info(
+                job_id=42,
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=None,
+            )
+        else:
+            api_util.patch_connection(
+                connection_id="connection-1",
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=SecretString("token"),
+            )
+
+    assert exc_info.value.context is not None
+    assert exc_info.value.context["status_code"] == status_code
+    assert exc_info.value.__cause__ is sdk_error
+    if operation == "get-job":
+        assert isinstance(exc_info.value, AirbyteMissingResourceError)
+        assert exc_info.value.context["job_id"] == 42
+        get_job.assert_called_once_with(api.GetJobRequest(job_id=42))
+        patch_connection.assert_not_called()
+    else:
+        assert not isinstance(exc_info.value, AirbyteMissingResourceError)
+        assert exc_info.value.context["connection_id"] == "connection-1"
+        patch_connection.assert_called_once()
+        get_job.assert_not_called()
+
+
+def _call_create_connection() -> None:
+    """Invoke `create_connection` with canned IDs for SDKError tests."""
+    api_util.create_connection(
+        "connection-name",
+        source_id="source-id",
+        destination_id="destination-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+        prefix="",
+        selected_stream_names=["no_such_stream"],
+    )
+
+
+def test_create_connection_400_raises_input_error_without_api_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 400 raises `AirbyteLibInputError`; `data.message` is never relayed."""
+    api_message = (
+        "No streams found with name [no_such_stream] and namespace [null]. "
+        "Please call the https://reference.airbyte.com/reference/getstreamproperties "
+        "endpoint to see the valid stream name and namespace combinations."
+    )
+    body = json.dumps({
+        "status": 400,
+        "type": "https://reference.airbyte.com/reference/errors#bad-request",
+        "title": "bad-request",
+        "detail": "The request could not be understood by the server "
+        "due to malformed syntax.",
+        "documentationUrl": None,
+        "data": {"message": api_message},
+    })
+    raw_response = requests.Response()
+    raw_response.status_code = 400
+    raw_response.url = "https://api.airbyte.com/v1/connections"
+    sdk_error = SDKError("API error occurred: Status 400", 400, body, raw_response)
+    create_connection = Mock(side_effect=sdk_error)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(create_connection=create_connection),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        _call_create_connection()
+
+    assert exc_info.value.get_message() == (
+        "The request could not be understood by the server due to malformed syntax."
+    )
+    assert exc_info.value.guidance is None
+    assert api_message not in str(exc_info.value)
+    assert exc_info.value.context["source_id"] == "source-id"
+    assert exc_info.value.context["destination_id"] == "destination-id"
+    assert exc_info.value.context["status_code"] == 400
+    assert exc_info.value.__cause__ is sdk_error
+
+
+def test_create_connection_400_with_non_json_body_uses_fallback_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 400 with an unparseable body falls back to a generic input error."""
+    raw_response = requests.Response()
+    raw_response.status_code = 400
+    raw_response.url = "https://api.airbyte.com/v1/connections"
+    sdk_error = SDKError(
+        "API error occurred: Status 400",
+        400,
+        "<html>Bad Request</html>",
+        raw_response,
+    )
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(
+            create_connection=Mock(side_effect=sdk_error),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteLibInputError) as exc_info:
+        _call_create_connection()
+
+    assert exc_info.value.get_message() == ("Airbyte Cloud returned HTTP 400.")
+    assert exc_info.value.__cause__ is sdk_error
+
+
+@pytest.mark.parametrize(
+    ("body", "mcp_mode", "expected_error", "guidance_fragment"),
+    [
+        pytest.param(
+            json.dumps({"title": "actor-not-ready"}),
+            True,
+            AirbyteConnectorNotReadyError,
+            "`check_cloud_connector`",
+            id="actor-not-ready-mcp",
+        ),
+        pytest.param(
+            json.dumps({"title": "actor-not-ready"}),
+            False,
+            AirbyteConnectorNotReadyError,
+            "`connector.check()`",
+            id="actor-not-ready-python",
+        ),
+        pytest.param(
+            json.dumps({
+                "type": "https://reference.airbyte.com/reference/errors#409-actor-not-ready"
+            }),
+            True,
+            AirbyteConnectorNotReadyError,
+            "`check_cloud_connector`",
+            id="actor-not-ready-by-type",
+        ),
+        pytest.param(
+            json.dumps({
+                "title": "locked",
+                "type": "https://reference.airbyte.com/reference/errors#connection/locked",
+            }),
+            False,
+            AirbyteCloudError,
+            None,
+            id="different-problem",
+        ),
+        pytest.param(
+            "<html>Conflict</html>",
+            False,
+            AirbyteCloudError,
+            None,
+            id="non-json-body",
+        ),
+    ],
+)
+def test_create_connection_409_actor_not_ready_error_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    mcp_mode: bool,
+    expected_error: type[AirbyteCloudError],
+    guidance_fragment: str | None,
+) -> None:
+    """Map only actor-not-ready conflicts to the actionable draft-connector error."""
+    monkeypatch.setattr(api_util, "is_mcp_mode", lambda: mcp_mode)
+    raw_response = requests.Response()
+    raw_response.status_code = 409
+    raw_response.url = "https://api.airbyte.com/v1/connections"
+    sdk_error = SDKError("API error occurred: Status 409", 409, body, raw_response)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(
+            create_connection=Mock(side_effect=sdk_error),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(expected_error) as exc_info:
+        _call_create_connection()
+
+    assert type(exc_info.value) is expected_error
+    assert exc_info.value.context is not None
+    assert exc_info.value.context["status_code"] == 409
+    assert exc_info.value.__cause__ is sdk_error
+    if guidance_fragment:
+        assert guidance_fragment in (exc_info.value.guidance or "")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expect_missing_resource"),
+    [
+        pytest.param(403, True, id="403-missing-resource"),
+        pytest.param(500, False, id="500-cloud-error"),
+    ],
+)
+def test_create_connection_non_400_sdk_errors_keep_status_context(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    expect_missing_resource: bool,
+) -> None:
+    """Non-400 SDK errors go through `_wrap_sdk_error` with the create context."""
+    sdk_error = _sdk_status_error(status_code)
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(
+            create_connection=Mock(side_effect=sdk_error),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        _call_create_connection()
+
+    assert isinstance(exc_info.value, AirbyteMissingResourceError) == (
+        expect_missing_resource
+    )
+    assert exc_info.value.context["status_code"] == status_code
+    assert exc_info.value.context["source_id"] == "source-id"
+    assert exc_info.value.context["destination_id"] == "destination-id"
+    assert exc_info.value.__cause__ is sdk_error
+
+
+@pytest.mark.parametrize(
+    "source_status",
+    [
+        pytest.param(404, id="source_404"),
+        # The API hides a destination behind a 403 from the source endpoint.
+        pytest.param(403, id="source_403"),
+    ],
+)
+def test_get_connector_falls_back_to_destination(
+    monkeypatch: pytest.MonkeyPatch,
+    source_status: int,
+) -> None:
+    """A bare destination ID must still resolve when the source lookup 404s or 403s."""
+    raw_response = requests.Response()
+    raw_response.status_code = 200
+    raw_response.url = "https://api.airbyte.com/v1/destinations/dest-id"
+    raw_response._content = (
+        b'{"destinationId":"dest-id","name":"dest",'
+        b'"destinationType":"duckdb","workspaceId":"ws"}'
+    )
+    destination_response = models.DestinationResponse(
+        configuration=models.DestinationDuckdb(destination_path="/tmp/test.duckdb"),
+        created_at=0,
+        definition_id="definition-id",
+        destination_id="dest-id",
+        destination_type="duckdb",
+        name="dest",
+        workspace_id="ws",
+    )
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(side_effect=_sdk_status_error(source_status)),
+        ),
+        destinations=SimpleNamespace(
+            get_destination=Mock(
+                return_value=api.GetDestinationResponse(
+                    content_type="application/json",
+                    status_code=200,
+                    raw_response=raw_response,
+                    destination_response=destination_response,
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    connector_type, response = api_util.get_connector(
+        "dest-id",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert connector_type is ConnectorType.DESTINATION
+    assert response is destination_response
+
+
+def test_get_connector_raises_missing_resource_when_neither_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(side_effect=_sdk_404_error("SOURCE_CONNECTION")),
+        ),
+        destinations=SimpleNamespace(
+            get_destination=Mock(
+                side_effect=_sdk_404_error("DESTINATION_CONNECTION"),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteMissingResourceError):
+        api_util.get_connector(
+            "missing-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+
+@pytest.mark.parametrize(
+    (
+        "source_status",
+        "destination_status",
+        "expected_status",
+        "expect_destination_call",
+    ),
+    [
+        pytest.param(403, 403, 403, True, id="both_forbidden_raises_source_error"),
+        pytest.param(
+            403, 404, 403, True, id="forbidden_then_missing_raises_source_error"
+        ),
+        pytest.param(
+            404, 403, 404, True, id="missing_then_forbidden_raises_source_error"
+        ),
+        pytest.param(403, 500, 500, True, id="destination_server_error_propagates"),
+        pytest.param(401, None, 401, False, id="unauthorized_does_not_fall_back"),
+        pytest.param(500, None, 500, False, id="server_error_does_not_fall_back"),
+    ],
+)
+def test_get_connector_error_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    source_status: int,
+    destination_status: int | None,
+    expected_status: int,
+    expect_destination_call: bool,
+) -> None:
+    get_destination = Mock(
+        side_effect=_sdk_status_error(destination_status or 200),
+    )
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(side_effect=_sdk_status_error(source_status)),
+        ),
+        destinations=SimpleNamespace(get_destination=get_destination),
+    )
+    monkeypatch.setattr(
+        api_util, "get_airbyte_server_instance", lambda **_: airbyte_instance
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util.get_connector(
+            "connector-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    context = exc_info.value.context or {}
+    assert context["status_code"] == expected_status
+    assert ("source_id" in context) is (expected_status == source_status)
+    assert get_destination.called is expect_destination_call
+
+
+def test_get_connector_does_not_fall_back_on_non_raised_5xx_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 5xx the SDK returns instead of raising is not read as "maybe a destination"."""
+    get_destination = Mock()
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(
+            get_source=Mock(
+                return_value=SimpleNamespace(
+                    status_code=500,
+                    source_response=None,
+                    raw_response=SimpleNamespace(text="boom", url="https://api"),
+                ),
+            ),
+        ),
+        destinations=SimpleNamespace(get_destination=get_destination),
+    )
+    monkeypatch.setattr(
+        api_util, "get_airbyte_server_instance", lambda **_: airbyte_instance
+    )
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        api_util.get_connector(
+            "connector-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert (exc_info.value.context or {})["status_code"] == 500
+    get_destination.assert_not_called()
+
+
+def test_get_source_reraises_non_404_sdk_error_as_airbyte_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_response = requests.Response()
+    raw_response.status_code = 500
+    raw_response.url = "https://api.airbyte.com/v1/sources/source-id"
+    error = SDKError(
+        "API error occurred: Status 500", 500, "response body", raw_response
+    )
+    airbyte_instance = SimpleNamespace(
+        sources=SimpleNamespace(get_source=Mock(side_effect=error)),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util.get_source(
+            "source-id",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert type(exc_info.value) is AirbyteCloudError
+
+
+_INTERNAL_MARKER = "INTERNAL_MARKER select x from y"
+
+
+def _sdk_error(status_code: int, body: str | None) -> SDKError:
+    """Create an SDKError like the Speakeasy SDK raises on a non-2xx status."""
+    raw_response = requests.Response()
+    raw_response.status_code = status_code
+    raw_response.url = "https://api.airbyte.com/v1/resources/resource-id"
+    return SDKError(
+        f"API error occurred: Status {status_code}", status_code, body, raw_response
+    )
+
+
+def _problem_body(
+    problem_type: str | None = None,
+    title: str | None = None,
+    data: dict[str, Any] | None = None,
+    **extra: Any,
+) -> str:
+    """Build a Cloud problem body like the public API returns."""
+    return json.dumps({
+        "type": problem_type,
+        "title": title,
+        "detail": "Cloud detail",
+        "data": data,
+        **extra,
+    })
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body", "expected_message", "expected_guidance", "problem_type"),
+    [
+        (
+            422,
+            _problem_body("error:new-problem"),
+            "Cloud detail",
+            None,
+            "error:new-problem",
+        ),
+        (
+            403,
+            _problem_body("error:forbidden"),
+            "Cloud detail",
+            api_util.FORBIDDEN_RESOURCE_GUIDANCE,
+            "error:forbidden",
+        ),
+        (404, _problem_body("error:missing"), "Cloud detail", None, "error:missing"),
+        (
+            429,
+            '{"message":"You are being rate limited."}',
+            "Airbyte Cloud returned HTTP 429 (rate limited).",
+            None,
+            None,
+        ),
+        (
+            500,
+            '{"errorId":"123e4567-e89b-42d3-a456-426614174000","message":"internal failure"}',
+            "Airbyte Cloud returned HTTP 500.",
+            None,
+            None,
+        ),
+    ],
+)
+def test_wrap_sdk_error_relays_cloud_problem(
+    status_code: int,
+    body: str,
+    expected_message: str,
+    expected_guidance: str | None,
+    problem_type: str | None,
+) -> None:
+    """Relay only the selected problem message, with two workflow guidance cases."""
+    error = _sdk_error(status_code, body)
+    wrapped = api_util._wrap_sdk_error(error)
+    assert wrapped.message == expected_message
+    assert api_util.sdk_error_message(error) == expected_message
+    assert wrapped.guidance == expected_guidance
+    assert wrapped.context["problem_type"] == problem_type
+    assert wrapped.context["status_code"] == status_code
+    assert _INTERNAL_MARKER not in wrapped.message
+
+
+def test_public_api_json_error_context_hides_body_and_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw-HTTP helpers keep URL/status/slug in context, never bodies."""
+    response = requests.Response()
+    response.status_code = 400
+    response.url = "https://api.airbyte.com/v1/connections/connection-id"
+    response._content = json.dumps({
+        "type": "https://reference.airbyte.com/reference/errors#bad-request",
+        "data": {"message": _INTERNAL_MARKER},
+    }).encode()
+    response.request = requests.Request("GET", response.url).prepare()
+    request = Mock(return_value=response)
+    monkeypatch.setattr(api_util.requests, "get", request)
+    monkeypatch.setattr(api_util, "get_bearer_token", lambda **_: SecretString("token"))
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util._get_public_api_json(
+            api_root="https://api.airbyte.com/v1",
+            path="/connections/connection-id",
+            params=None,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    error = exc_info.value
+    assert "body" not in error.context
+    assert "response" not in error.context
+    assert error.context["problem_type"] == "bad-request"
+    assert error.context["url"] == response.request.url
+    assert _INTERNAL_MARKER not in str(error)
+
+
+@pytest.mark.parametrize(
+    ("problem", "expected_slug"),
+    [
+        pytest.param(
+            {
+                "type": (
+                    "https://reference.airbyte.com/reference/errors"
+                    "#f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                ),
+                "title": "resource-not-found",
+            },
+            None,
+            id="id-like-type-never-reads-title",
+        ),
+        pytest.param(
+            {
+                "type": "https://reference.airbyte.com/reference/errors",
+                "title": "unexpected-problem",
+            },
+            "unexpected-problem",
+            id="generic-type-reads-title",
+        ),
+        pytest.param(
+            {"title": "unexpected-problem"},
+            None,
+            id="missing-type-does-not-set-slug",
+        ),
+        pytest.param(
+            {"title": "password=hunter2"},
+            None,
+            id="missing-type-does-not-set-untrusted-slug",
+        ),
+        pytest.param(
+            {"type": 123, "title": "try-again-later"},
+            None,
+            id="non-string-type-does-not-set-slug",
+        ),
+    ],
+)
+def test_parse_cloud_error_title_fallback_only_for_generic_type(
+    problem: dict[str, Any],
+    expected_slug: str | None,
+) -> None:
+    """Only a generic string `type` permits a title slug."""
+    parsed = cloud_errors.parse_cloud_error(None, json.dumps(problem))
+
+    assert parsed.slug == expected_slug
+
+
+@pytest.mark.parametrize("detail", [None, 0, False, {}, [], "", " \n\t"])
+def test_problem_message_falls_back_to_exact_title(detail: object) -> None:
+    title = "  Title é\nmessage  "
+    problem = cloud_errors.parse_cloud_error(
+        500, json.dumps({"detail": detail, "title": title})
+    )
+    assert problem.message == title
+
+
+@pytest.mark.parametrize("title", [None, 0, False, {}, [], "", " \n\t"])
+def test_problem_message_unusable_fields_use_transport_status(title: object) -> None:
+    problem = cloud_errors.parse_cloud_error(
+        502, json.dumps({"detail": [], "title": title, "status": 400})
+    )
+    assert problem.message == "Airbyte Cloud returned HTTP 502."
+    assert problem.status_code == 502
+
+
+@pytest.mark.parametrize(
+    ("problem_type", "slug"),
+    [
+        (None, None),
+        ("about:blank", "about:blank"),
+        ("https://h/errors#future-problem", "future-problem"),
+        ("https://h/errors/path-problem", "path-problem"),
+        ("urn:problem:future", "urn:problem:future"),
+        ("error:future", "error:future"),
+        ("error:connection/locked", "locked"),
+        ("https://h/errors#409-actor-not-ready", "409-actor-not-ready"),
+        ("1234", None),
+        ("x" * 101, None),
+        ("invalid space", None),
+        ("ws-97953b90-8f3a-4c1e-9d2b-0a1b2c3d4e5f", None),
+    ],
+)
+def test_unknown_type_relays_exact_detail_independently_of_slug(
+    problem_type: str | None, slug: str | None
+) -> None:
+    message = "  Cursor é\nwas not found.  "
+    problem = cloud_errors.parse_cloud_error(
+        422,
+        json.dumps({"type": problem_type, "detail": message, "title": "ignored-title"}),
+    )
+    assert problem.message == message
+    assert problem.slug == slug
+
+
+@pytest.mark.parametrize("size", [65535, 65536, 65537])
+@pytest.mark.parametrize("character", ["a", "é"])
+def test_problem_body_byte_boundary(size: int, character: str) -> None:
+    prefix, suffix = '{"detail":"', '"}'
+    count, remainder = divmod(size - len(prefix + suffix), len(character.encode()))
+    message = character * count + "x" * remainder
+    body = prefix + message + suffix
+    assert len(body.encode()) == size
+    problem = cloud_errors.parse_cloud_error(500, body)
+    assert problem.message == (
+        message if size <= 65536 else "Airbyte Cloud returned HTTP 500."
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        None,
+        "",
+        "<html>bad</html>",
+        "{",
+        "null",
+        "[]",
+        "1",
+        '"text"',
+        '{"detail":"\ud800"}',
+        pytest.param(
+            '{"detail":"early", "padding":"' + "x" * 65536 + '"}',
+            id="oversized-body",
+        ),
+    ],
+)
+def test_problem_invalid_body_falls_back(body: str | None) -> None:
+    assert (
+        cloud_errors.parse_cloud_error(400, body).message
+        == "Airbyte Cloud returned HTTP 400."
+    )
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_problem_non_json_constants_fall_back(constant: str) -> None:
+    body = (
+        '{"detail":"relay me", "title":"actor-not-ready", '
+        '"type":"error:409-actor-not-ready", "data":[' + constant + "]}"
+    )
+    assert cloud_errors.parse_cloud_error(409, body) == cloud_errors.CloudErrorInfo(
+        status_code=409,
+        slug=None,
+        message="Airbyte Cloud returned HTTP 409.",
+        is_actor_not_ready=False,
+    )
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_problem_quoted_constants_remain_valid_strings(constant: str) -> None:
+    body = json.dumps({"detail": constant})
+    assert cloud_errors.parse_cloud_error(400, body).message == constant
+
+
+@pytest.mark.parametrize("field", ["detail", "title"])
+@pytest.mark.parametrize("surrogate", ["\ud800", "\udfff", "\udfff\ud800"])
+def test_problem_escaped_lone_surrogates_fall_back(field: str, surrogate: str) -> None:
+    body = json.dumps({field: surrogate, "type": "error:409-actor-not-ready"})
+    assert body.isascii()
+    assert cloud_errors.parse_cloud_error(409, body) == cloud_errors.CloudErrorInfo(
+        status_code=409,
+        slug=None,
+        message="Airbyte Cloud returned HTTP 409.",
+        is_actor_not_ready=False,
+    )
+
+
+@pytest.mark.parametrize("field", ["detail", "title"])
+def test_problem_valid_surrogate_pairs_preserve_unicode(field: str) -> None:
+    body = json.dumps({field: "  \U0001f680\n"})
+    assert body.isascii()
+    assert cloud_errors.parse_cloud_error(400, body).message == "  \U0001f680\n"
+
+
+def test_problem_excessive_nesting_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Inject the decoder failure without risking a native stack overflow on Windows.
+    monkeypatch.setattr(cloud_errors.json, "loads", Mock(side_effect=RecursionError))
+    assert (
+        cloud_errors.parse_cloud_error(500, '{"detail":"x"}').message
+        == "Airbyte Cloud returned HTTP 500."
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "message"),
+    [
+        (429, None, "Airbyte Cloud returned HTTP 429 (rate limited)."),
+        (
+            429,
+            '{"message":"arbitrary secret"}',
+            "Airbyte Cloud returned HTTP 429 (rate limited).",
+        ),
+        (429, '{"title":"Slow down"}', "Slow down"),
+        (429, '{"detail":"Wait please"}', "Wait please"),
+        (
+            500,
+            '{"errorId":"invalid","message":"secret","data":{"message":"SQL secret"}}',
+            "Airbyte Cloud returned HTTP 500.",
+        ),
+        (503, None, "Airbyte Cloud returned HTTP 503."),
+        (504, None, "Airbyte Cloud returned HTTP 504."),
+        (None, '{"message":"secret"}', "Airbyte Cloud request failed."),
+    ],
+)
+def test_status_only_fallbacks(
+    status: int | None, body: str | None, message: str
+) -> None:
+    assert cloud_errors.parse_cloud_error(status, body).message == message
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "ready"),
+    [
+        (409, {"title": "actor-not-ready"}, True),
+        (409, {"type": "https://h/errors#409-actor-not-ready"}, True),
+        (400, {"title": "actor-not-ready"}, False),
+        (409, {"title": " actor-not-ready"}, False),
+        (409, {"type": "error:actor-not-ready"}, False),
+        (409, {"type": "409-actor-not-ready-extra"}, False),
+    ],
+)
+@pytest.mark.parametrize("for_mcp", [False, True])
+def test_readiness_predicate_and_guidance(
+    status: int, payload: dict[str, str], ready: bool, for_mcp: bool
+) -> None:
+    payload["detail"] = "Finish authentication first."
+    body = json.dumps(payload)
+    problem = cloud_errors.parse_cloud_error(status, body)
+    assert problem.message == payload["detail"]
+    assert problem.is_actor_not_ready is ready
+    assert api_util._is_actor_not_ready_error(_sdk_error(status, body)) is ready
+    expected = (
+        (
+            api_util.ACTOR_NOT_READY_MCP_GUIDANCE
+            if for_mcp
+            else api_util.ACTOR_NOT_READY_PYTHON_GUIDANCE
+        )
+        if ready
+        else None
+    )
+    assert api_util.cloud_error_guidance(problem, for_mcp=for_mcp) == expected
+
+
+@pytest.mark.parametrize("transport", ["config", "public"])
+@pytest.mark.parametrize("status", [400, 403, 404, 409, 500])
+def test_raw_http_relay_preserves_class_cause_and_context(
+    monkeypatch: pytest.MonkeyPatch,
+    transport: str,
+    status: int,
+) -> None:
+    response = requests.Response()
+    response.status_code = status
+    response.url = "https://config.example/test"
+    response.request = requests.Request("POST", response.url).prepare()
+    response._content = json.dumps({
+        "detail": "  Cloud message\n",
+        "type": "https://h/errors#409-actor-not-ready",
+        "title": "actor-not-ready",
+    }).encode()
+    monkeypatch.setattr(api_util.requests, "request", lambda **_: response)
+    monkeypatch.setattr(api_util.requests, "get", lambda *_, **__: response)
+    monkeypatch.setattr(api_util, "is_mcp_mode", lambda: False)
+    kwargs = dict(
+        api_root="https://api.airbyte.com/v1",
+        path="/test",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+    with pytest.raises(AirbyteCloudError) as caught:
+        if transport == "config":
+            api_util._make_config_api_request(**kwargs, json={})
+        else:
+            api_util._get_public_api_json(**kwargs, params=None)
+    error = caught.value
+    missing = status == 403 or (transport == "public" and status == 404)
+    assert type(error) is (
+        AirbyteMissingResourceError if missing else AirbyteCloudError
+    )
+    assert error.message == "  Cloud message\n"
+    assert error.guidance == (
+        api_util.ACTOR_NOT_READY_PYTHON_GUIDANCE
+        if status == 409
+        else api_util.FORBIDDEN_RESOURCE_GUIDANCE
+        if status == 403
+        else None
+    )
+    assert error.context["status_code"] == status
+    assert error.context["problem_type"] == "409-actor-not-ready"
+    assert "response" not in error.context
+    assert "response_text" not in error.context
+    assert isinstance(error.__cause__, requests.HTTPError)
+    assert error.__cause__.response is response
+
+
+@pytest.mark.parametrize("field", ["detail", "title", "data"])
+def test_problem_large_integer_does_not_replace_upstream_error(field: str) -> None:
+    body = '{"title":"Title fallback", "' + field + '":' + "9" * 5000 + "}"
+    expected = (
+        "Airbyte Cloud returned HTTP 403." if field == "title" else "Title fallback"
+    )
+    assert cloud_errors.parse_cloud_error(403, body).message == expected
+
+
+@pytest.mark.parametrize(
+    ("content", "expected", "ready"),
+    [
+        (
+            b'{"title":"actor-not-ready","detail":"bad\xff"}',
+            "Airbyte Cloud returned HTTP 409.",
+            False,
+        ),
+        (b"", "Airbyte Cloud returned HTTP 409.", False),
+        (
+            b'{"title":"actor-not-ready","detail":"Finish setup."}',
+            "Finish setup.",
+            True,
+        ),
+    ],
+)
+def test_sdk_raw_bytes_control_readiness(
+    content: bytes, expected: str, ready: bool
+) -> None:
+    response = requests.Response()
+    response.status_code = 409
+    response._content = content
+    error = SDKError(
+        "ignored",
+        409,
+        '{"title":"actor-not-ready","detail":"Already decoded SDK text"}',
+        response,
+    )
+    assert api_util._is_actor_not_ready_error(error) is ready
+    wrapped = api_util._wrap_sdk_error(error)
+    assert wrapped.message == expected
+    assert isinstance(wrapped, api_util.AirbyteConnectorNotReadyError) is ready
+    assert (wrapped.guidance is not None) is ready
+
+
+def test_create_connection_rejects_invalid_sdk_response_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = b'{"detail":"bad\xff"}'
+    response.encoding = "iso-8859-1"
+    error = SDKError("ignored", 400, response.text, response)
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: SimpleNamespace(
+            connections=SimpleNamespace(create_connection=Mock(side_effect=error))
+        ),
+    )
+    with pytest.raises(AirbyteLibInputError) as caught:
+        _call_create_connection()
+    assert caught.value.message == "Airbyte Cloud returned HTTP 400."
+    assert caught.value.guidance is None
+    assert caught.value.__cause__ is error
+
+
+@responses.activate
+def test_cancel_job_wraps_sdk_conflict_with_problem_detail() -> None:
+    """A 409 SDK error becomes an AirbyteCloudError carrying the problem detail."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    responses.delete(
+        f"{api_root}/jobs/42",
+        status=409,
+        json={"title": "conflict", "detail": "Job is not currently running."},
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util.cancel_job(
+            job_id=42,
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+        )
+
+    assert exc_info.value.get_message() == "Job is not currently running."
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 409
+
+
+@responses.activate
+def test_patch_source_wraps_sdk_validation_error_with_problem_detail() -> None:
+    """A 422 SDK error becomes an AirbyteCloudError carrying the problem detail."""
+    api_root = "https://api.airbyte.test/api/public/v1"
+    detail = "The provided configuration does not fulfill the specification."
+    responses.patch(
+        f"{api_root}/sources/source-id",
+        status=422,
+        json={"title": "invalid-input", "detail": detail},
+    )
+
+    with pytest.raises(AirbyteCloudError) as exc_info:
+        api_util.patch_source(
+            source_id="source-id",
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("bearer-token"),
+            config={"count": "ten"},
+        )
+
+    assert exc_info.value.get_message() == detail
+    assert isinstance(exc_info.value.__cause__, SDKError)
+    assert exc_info.value.context["status_code"] == 422

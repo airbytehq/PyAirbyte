@@ -39,6 +39,30 @@ Environment variables:
   `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
   to `0.0.0.0`.
+- `AIRBYTE_MCP_LOG_FORMAT`: log output format, case-insensitive. Valid values:
+  - `text` (default; also used when unset or blank): leaves the existing
+    console logging untouched. Root loggers use the handler `airbyte_cdk`
+    installs on import (AirbyteMessage-shaped lines on stdout), fastmcp
+    writes Rich console output to stderr, and uvicorn uses its own text
+    handlers.
+  - `json`: one JSON object per line on stdout for every logger, including
+    fastmcp and uvicorn. Each line has `timestamp`, `severity`, `logger.name`,
+    and `message`; exceptions go in `error.kind`, `error.message`, and
+    `error.stack`, so a traceback stays in one entry. With `DD_LOGS_INJECTION`
+    enabled under `ddtrace-run`, it also includes `dd.trace_id`, `dd.span_id`,
+    `dd.service`, `dd.env`, and `dd.version`, which Datadog uses to link logs
+    to traces. `severity` uses the stdlib level names, which both Datadog and
+    Cloud Logging accept. Lines logged while `airbyte.mcp.server` is imported
+    (such as the auth provider's setup messages) come before this is applied
+    and keep the default format.
+
+  Any other value fails startup.
+- `KAPA_API_KEY`: optional secret for Kapa's Retrieval API.
+- `KAPA_RETRIEVAL_API_URL`: optional Kapa Retrieval API endpoint, including the project ID.
+
+Both settings are required to enable `search_airbyte_knowledge_sources`, which
+belongs to the `guidance` domain and can be selected with `AIRBYTE_MCP_DOMAINS` or
+`AIRBYTE_MCP_DOMAINS_DISABLED`.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:
@@ -78,53 +102,40 @@ Opt-in static client credentials:
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
   exchange; defaults to the Airbyte Cloud application-token endpoint
 
-Optional OpenTelemetry observability. Nothing is exported unless a traces endpoint
-is configured. The hosted entrypoint installs tracing after hosted mode is set;
-no launcher or agent is needed. The exporter uses OTLP/HTTP protobuf.
-Hosted startup refuses a preinstalled global tracer provider or requests
-instrumentation even without an endpoint, because its exporters could bypass the
-hosted redaction boundary and continue exporting after rollback.
+Tracing backend selection:
 
-- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: full traces URL; for example,
-  `https://otlp.datadoghq.com/v1/traces` for Datadog direct intake (confirm the
-  hostname for your Datadog site).
-  `OTEL_EXPORTER_OTLP_ENDPOINT` is the standard fallback base URL.
-- `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: exporter credentials and routing; for
-  Datadog, `dd-api-key=<key>,dd-otlp-source=llmobs`. Supply through the deployment's
-  secret mechanism. `OTEL_EXPORTER_OTLP_HEADERS` is the standard fallback.
-- `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT=5`: bound each export attempt in seconds.
-- `OTEL_SERVICE_NAME`: deployment-supplied service name.
-- `OTEL_RESOURCE_ATTRIBUTES`: comma-separated resource attributes such as
-  `deployment.environment.name=preview`. An explicit `service.version` takes
-  precedence over the installed PyAirbyte version.
-- `OTEL_TRACES_SAMPLER`: leave unset to retain every tool call.
-- `AIRBYTE_MCP_OTEL_VENDOR=datadog`: opt in to `_dd.ml_obs.metadata`, which makes
-  intent available as Datadog metadata. Leave unset for other OTLP backends.
-- `AIRBYTE_MCP_INTENT_CAPTURE=1`: advertise optional top-level `intent` and append
-  guidance to omit credentials, identifiers and data values, even without an
-  export endpoint. Removing this flag stops synthetic advertisement; declared
-  parameters remain visible and intent supplied by cached clients is still
-  recorded when export is enabled.
-
-Each tool call is a fresh trace, with outbound `requests` calls nested beneath
-it. Client-supplied MCP trace context is stripped. Export removes exception
-messages and stacks, status descriptions, URL queries, user agents and caller
-identity. Outbound URLs retain recognized public Airbyte API routes with valid
-UUID/numeric IDs; unknown routes and custom origins are redacted. Tool arguments,
-results and HTTP headers are not recorded. Unregistered
-tool names are dropped. Segment requests are excluded from instrumentation.
-Session tokens are hashed before FastMCP sees them, while their extension
-declarations are preserved. Intent is free text capped at 4096 characters.
-
-Unset both `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
-to disable export. The hosted entrypoint still strips
-synthetic `intent` arguments for cached clients and hashes session tokens.
-Declared `intent` parameters pass through unchanged; only the trace copy is
-trimmed and capped. Legacy synthetic `telemetry.intent` is accepted but never
-advertised, and top-level `intent` takes precedence. Real `telemetry` parameters
-are left untouched.
-Export is best effort; backend retention and access control apply. Local stdio
-is unchanged.
+- `AIRBYTE_MCP_TRACING_BACKEND=otel` selects OpenTelemetry; `datadog-otlp` adds
+  Datadog metadata and approved tool Input; `datadog` uses native Datadog.
+- Without an explicit backend, `AIRBYTE_MCP_OTEL_VENDOR=datadog` selects
+  `datadog-otlp`; otherwise `DD_LLMOBS_ENABLED=1` or `true` selects `datadog`,
+  with `otel` as the default.
+- OTel tracing uses `fastmcp-extensions` tool-call spans and stays dormant until
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+- `DO_NOT_TRACK` also disables hosted OTel trace export, even with an OTLP endpoint set.
+- Hosted OTel startup refuses an existing global tracer provider or pre-instrumented
+  `requests`; `requests` spans exclude `api.segment.io`.
+- `OTEL_EXPORTER_OTLP_TRACES_HEADERS` (or `OTEL_EXPORTER_OTLP_HEADERS`) supplies
+  exporter credentials; `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` and
+  `OTEL_TRACES_SAMPLER` control standard OpenTelemetry resource and sampling settings.
+- `AIRBYTE_MCP_INTENT_CAPTURE=1` enables optional top-level intent capture; intent
+  is free text, so do not include credentials, identifiers or data values.
+- `AIRBYTE_MCP_TELEMETRY_HMAC_KEY` accepts unpadded base64url for a 32-byte key;
+  argument records under `airbyte.mcp.arg.<name>` are HMAC-hashed only for
+  verified (authenticated) callers with a valid key; otherwise, presence-only.
+- Spans include `analytic_source`, `auth_method`, `workspace_id`, `organization_id`
+  and `scope_source` when available; session identifiers are digests.
+- `agent.action` and `agent.entity_type` record validated external-query metadata;
+  entity names must be printable, have no surrounding whitespace and be at most 256
+  characters; others are dropped.
+- Raw tool arguments/results, exception messages/stacks, status descriptions,
+  HTTP header values, user agents and URL queries are excluded; unrecognized
+  outbound routes are redacted.
+- The client's `_meta.traceparent` trace ID is retained while its parent is dropped;
+  `tools/list` spans and `unknown_tool` outcomes are exported.
+- `datadog-otlp` adds `_dd.ml_obs.metadata` and only intent/action/entity_name to
+  `gen_ai.tool.call.arguments`; native Datadog behavior remains deployment-configured.
+- Session header digests, exporter retention and deployment-owned HTTP/log tracing
+  remain subject to their existing policies; local stdio behavior is unchanged.
 """
 
 from __future__ import annotations
@@ -141,11 +152,18 @@ from fastmcp_extensions import (
     run_mcp_http_server,
 )
 
+from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
 )
+from airbyte.mcp._logging import (
+    apply_json_logger_overrides,
+    configure_logging,
+    resolve_log_format,
+)
+from airbyte.mcp._telemetry import McpRequestTelemetryMiddleware
 from airbyte.mcp._transport_security import (
     HTTP_HOST_ENV,
     HostOriginGuardMiddleware,
@@ -158,6 +176,8 @@ from airbyte.mcp.server import (
     MCP_SERVER_URL_ENV,
     _env_or_default,
     app,
+    build_mcp_server_instructions,
+    lifecycle_telemetry_sinks,
 )
 from airbyte.version import get_version
 
@@ -269,9 +289,14 @@ def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     from airbyte.mcp._otel import SessionIdHeaderDigest, install  # noqa: PLC0415
 
-    logging.basicConfig(level=logging.INFO)
+    log_format = resolve_log_format()
+    uvicorn_config = configure_logging(log_format)
     set_hosted_mcp_mode()
+    check_unsupported_env_vars()
+    app.instructions = build_mcp_server_instructions(hosted=True)
     install(app)
+    if log_format == "json":
+        apply_json_logger_overrides()
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the
@@ -322,7 +347,11 @@ def main() -> None:
 
     def wrap_http_app(http_app: ASGIApp) -> ASGIApp:
         return HostOriginGuardMiddleware(
-            wrap_if_enabled(SessionIdHeaderDigest(http_app)),
+            McpRequestTelemetryMiddleware(
+                wrap_if_enabled(SessionIdHeaderDigest(http_app)),
+                sinks=lifecycle_telemetry_sinks,
+                mcp_path=mcp_path,
+            ),
             allowed_hosts,
         )
 
@@ -335,6 +364,7 @@ def main() -> None:
             wrapper=wrap_http_app,
             host=http_host,
             port=DEFAULT_HTTP_PORT,
+            uvicorn_config=uvicorn_config,
         )
     except KeyboardInterrupt:
         logger.info("Airbyte MCP HTTP server interrupted by user.")

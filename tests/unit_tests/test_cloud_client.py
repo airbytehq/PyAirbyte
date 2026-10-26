@@ -88,6 +88,18 @@ def test_configured_workspace_beats_authenticated_user_default() -> None:
     get_user.assert_not_called()
 
 
+def test_get_workspace_forwards_configured_organization_id() -> None:
+    patches = _api_patches(user={"userId": "user-id"})
+    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        workspace = CloudClient(
+            bearer_token="token",
+            workspace_id="configured-workspace",
+            organization_id="configured-organization",
+        ).get_workspace()
+
+    assert workspace._credentials.organization_id == "configured-organization"
+
+
 @pytest.mark.parametrize(
     ("permissions", "expected_workspace_id"),
     [
@@ -249,7 +261,7 @@ def test_workspace_organization_failure_is_cached() -> None:
         patches[3] as get_workspace_organization_info,
         patches[4],
     ):
-        get_workspace_organization_info.side_effect = exc.AirbyteError(
+        get_workspace_organization_info.side_effect = exc.AirbyteCloudError(
             message="Organization lookup failed."
         )
         client = CloudClient(bearer_token="token")
@@ -279,7 +291,7 @@ def test_default_context_resolves_workspace_when_organization_lookup_fails() -> 
             ),
         ),
     ):
-        get_workspace_organization_info.side_effect = exc.AirbyteError(
+        get_workspace_organization_info.side_effect = exc.AirbyteCloudError(
             message="Organization lookup failed."
         )
         client = CloudClient(bearer_token="token")
@@ -347,8 +359,64 @@ def test_default_context_enriches_configured_workspace() -> None:
 def test_resolve_default_workspace_id_ignores_permission_lookup_failure() -> None:
     patches = _api_patches(user={"userId": "user-id"})
     with patches[0], patches[1], patches[2], patches[3], patches[4] as permissions:
-        permissions.side_effect = exc.AirbyteError(message="Permission lookup failed.")
+        permissions.side_effect = exc.AirbyteCloudError(
+            message="Permission lookup failed."
+        )
         assert CloudClient(bearer_token="token").resolve_default_workspace_id() is None
+
+
+@pytest.mark.parametrize(
+    ("permissions", "instance_workspace_ids", "expected_workspace_id"),
+    [
+        pytest.param(
+            [{"permissionType": "instance_admin"}],
+            ["only-workspace"],
+            "only-workspace",
+            id="instance-admin-single-workspace",
+        ),
+        pytest.param(
+            [{"permissionType": "instance_admin"}],
+            ["workspace-1", "workspace-2"],
+            None,
+            id="instance-admin-multiple-workspaces",
+        ),
+        pytest.param(
+            [{"permissionType": "organization_admin", "organizationId": "org-1"}],
+            ["only-workspace"],
+            None,
+            id="not-instance-admin",
+        ),
+    ],
+)
+def test_resolve_default_workspace_id_falls_back_to_sole_instance_workspace(
+    permissions: list[dict[str, object]],
+    instance_workspace_ids: list[str],
+    expected_workspace_id: str | None,
+) -> None:
+    patches = _api_patches(user={"userId": "user-id"}, permissions=permissions)
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.list_workspaces_by_user",
+            return_value=[
+                {"workspaceId": workspace_id, "name": workspace_id}
+                for workspace_id in instance_workspace_ids
+            ],
+        ) as list_workspaces_by_user,
+    ):
+        assert CloudClient(bearer_token="token").resolve_default_workspace_id() == (
+            expected_workspace_id
+        )
+
+    if permissions[0]["permissionType"] == "instance_admin":
+        assert list_workspaces_by_user.call_args.kwargs["limit"] == 2
+        assert list_workspaces_by_user.call_args.kwargs["page_size"] == 2
+    else:
+        list_workspaces_by_user.assert_not_called()
 
 
 def test_stale_direct_workspace_grant_is_ignored_consistently() -> None:
@@ -429,7 +497,7 @@ def test_list_workspaces_propagates_non_not_found_workspace_error() -> None:
             {"permissionType": "workspace_admin", "workspaceId": "workspace-id"}
         ],
     )
-    api_error = exc.AirbyteError(message="Workspace lookup failed.")
+    api_error = exc.AirbyteCloudError(message="Workspace lookup failed.")
     with (
         patches[0],
         patches[1],
@@ -437,7 +505,7 @@ def test_list_workspaces_propagates_non_not_found_workspace_error() -> None:
         patches[3],
         patches[4],
         patch("airbyte._util.api_util.get_workspace", side_effect=api_error),
-        pytest.raises(exc.AirbyteError, match="Workspace lookup failed"),
+        pytest.raises(exc.AirbyteCloudError, match="Workspace lookup failed"),
     ):
         CloudClient(bearer_token="token").list_workspaces(
             privilege_scope=WorkspacePrivilegeScope.MEMBER_OF
@@ -528,7 +596,7 @@ def test_list_workspaces_instance_admin_scope_requires_instance_admin() -> None:
         patches[3],
         patches[4],
         pytest.raises(
-            exc.PyAirbyteInputError,
+            exc.AirbyteLibInputError,
             match="privilege_scope=instance_admin requires the instance_admin permission",
         ),
     ):
@@ -537,7 +605,120 @@ def test_list_workspaces_instance_admin_scope_requires_instance_admin() -> None:
         )
 
 
-def test_list_workspaces_any_scope_uses_unscoped_listing_for_instance_admin() -> None:
+@pytest.mark.parametrize(
+    "privilege_scope",
+    [
+        pytest.param(WorkspacePrivilegeScope.INSTANCE_ADMIN, id="instance-admin"),
+        pytest.param(WorkspacePrivilegeScope.ANY, id="any"),
+    ],
+)
+@pytest.mark.parametrize(
+    (
+        "kwargs",
+        "expected_name_contains",
+        "expected_api_limit",
+        "api_workspaces",
+        "expected_names",
+        "expected_organization_ids",
+    ),
+    [
+        pytest.param(
+            {"name_contains": "ab", "limit": 2},
+            "ab",
+            2,
+            [
+                {
+                    "workspaceId": "workspace-1",
+                    "name": "About",
+                    "organizationId": "organization-1",
+                },
+                {
+                    "workspaceId": "workspace-2",
+                    "name": "Lab",
+                    "organizationId": "organization-2",
+                },
+            ],
+            ["About", "Lab"],
+            ["organization-1", "organization-2"],
+            id="server-side-substring-and-limit",
+        ),
+        pytest.param(
+            {"name": "Exact"},
+            "Exact",
+            None,
+            [
+                {
+                    "workspaceId": "workspace-1",
+                    "name": "Exact",
+                    "organizationId": "organization-1",
+                },
+                {
+                    "workspaceId": "workspace-2",
+                    "name": "Exact copy",
+                    "organizationId": "organization-2",
+                },
+            ],
+            ["Exact"],
+            ["organization-1"],
+            id="exact-name-filter",
+        ),
+        pytest.param(
+            {"name_filter": lambda name: name.startswith("x"), "limit": 1},
+            None,
+            1,
+            [
+                {
+                    "workspaceId": "workspace-1",
+                    "name": "before",
+                    "organizationId": "organization-1",
+                },
+                {
+                    "workspaceId": "workspace-2",
+                    "name": "xray",
+                    "organizationId": "organization-2",
+                },
+                {
+                    "workspaceId": "workspace-3",
+                    "name": "xylophone",
+                    "organizationId": "organization-3",
+                },
+            ],
+            ["xray"],
+            ["organization-2"],
+            id="callable-name-filter-and-limit",
+        ),
+    ],
+)
+def test_list_workspaces_instance_admin_uses_user_config_api(
+    privilege_scope: WorkspacePrivilegeScope,
+    kwargs: dict[str, object],
+    expected_name_contains: str | None,
+    expected_api_limit: int | None,
+    api_workspaces: list[dict[str, object]],
+    expected_names: list[str],
+    expected_organization_ids: list[str],
+) -> None:
+    def fake_list_workspaces_by_user(**kwargs: object) -> list[dict[str, object]]:
+        matching_workspaces = api_workspaces
+        name_contains = kwargs["name_contains"]
+        if isinstance(name_contains, str):
+            matching_workspaces = [
+                workspace
+                for workspace in matching_workspaces
+                if name_contains.casefold() in str(workspace.get("name", "")).casefold()
+            ]
+        name_filter = kwargs["name_filter"]
+        if callable(name_filter):
+            matching_workspaces = [
+                workspace
+                for workspace in matching_workspaces
+                if name_filter(str(workspace.get("name", "")))
+            ]
+        limit = kwargs["limit"]
+        if isinstance(limit, int):
+            matching_workspaces = matching_workspaces[:limit]
+        return matching_workspaces
+
     patches = _api_patches(
         user={"userId": "user-id"},
         permissions=[{"permissionType": "instance_admin"}],
@@ -549,15 +730,25 @@ def test_list_workspaces_any_scope_uses_unscoped_listing_for_instance_admin() ->
         patches[3],
         patches[4],
         patch(
-            "airbyte._util.api_util.list_workspaces",
-            return_value=[],
-        ) as list_workspaces,
+            "airbyte._util.api_util.list_workspaces_by_user",
+            side_effect=fake_list_workspaces_by_user,
+        ) as list_workspaces_by_user,
+        patch("airbyte._util.api_util.list_workspaces") as public_list_workspaces,
     ):
-        CloudClient(bearer_token="token").list_workspaces(
-            privilege_scope=WorkspacePrivilegeScope.ANY
+        workspaces = CloudClient(bearer_token="token").list_workspaces(
+            privilege_scope=privilege_scope,
+            **kwargs,
         )
 
-    list_workspaces.assert_called_once()
+    call_kwargs = list_workspaces_by_user.call_args.kwargs
+    assert call_kwargs["user_id"] == "user-id"
+    assert call_kwargs["name_contains"] == expected_name_contains
+    assert call_kwargs["limit"] == expected_api_limit
+    assert [workspace.name for workspace in workspaces] == expected_names
+    assert [workspace.organization_id for workspace in workspaces] == (
+        expected_organization_ids
+    )
+    public_list_workspaces.assert_not_called()
 
 
 def test_list_workspaces_any_scope_fails_closed_when_permissions_cannot_be_loaded() -> (
@@ -570,17 +761,19 @@ def test_list_workspaces_any_scope_fails_closed_when_permissions_cannot_be_loade
         patches[2],
         patches[3],
         patches[4] as list_permissions,
-        patch("airbyte._util.api_util.list_workspaces") as list_workspaces,
-        pytest.raises(exc.AirbyteError, match="Permission lookup failed"),
+        patch(
+            "airbyte._util.api_util.list_workspaces_by_user"
+        ) as list_workspaces_by_user,
+        pytest.raises(exc.AirbyteCloudError, match="Permission lookup failed"),
     ):
-        list_permissions.side_effect = exc.AirbyteError(
+        list_permissions.side_effect = exc.AirbyteCloudError(
             message="Permission lookup failed"
         )
         CloudClient(bearer_token="token").list_workspaces(
             privilege_scope=WorkspacePrivilegeScope.ANY
         )
 
-    list_workspaces.assert_not_called()
+    list_workspaces_by_user.assert_not_called()
 
 
 def test_list_workspaces_any_scope_uses_member_organizations_without_instance_admin() -> (
@@ -628,31 +821,6 @@ def test_list_workspaces_explicit_organization_ignores_privilege_scope() -> None
     list_workspaces_in_organization.assert_called_once()
 
 
-def test_list_workspaces_all_organizations_alias_warns_and_maps_to_any() -> None:
-    patches = _api_patches(
-        user={"userId": "user-id"},
-        permissions=[{"permissionType": "instance_admin"}],
-    )
-    with (
-        patches[0],
-        patches[1],
-        patches[2],
-        patches[3],
-        patches[4],
-        patch("airbyte._util.api_util.list_workspaces", return_value=[]),
-        pytest.warns(DeprecationWarning, match="all_organizations"),
-    ):
-        CloudClient(bearer_token="token").list_workspaces(all_organizations=True)
-
-
-def test_list_workspaces_all_organizations_alias_conflicts_with_scope() -> None:
-    with pytest.raises(exc.PyAirbyteInputError, match="privilege_scope"):
-        CloudClient(bearer_token="token").list_workspaces(
-            all_organizations=True,
-            privilege_scope=WorkspacePrivilegeScope.INSTANCE_ADMIN,
-        )
-
-
 def test_list_workspaces_explicit_workspace_resolution_does_not_use_member_fallback() -> (
     None
 ):
@@ -669,9 +837,9 @@ def test_list_workspaces_explicit_workspace_resolution_does_not_use_member_fallb
         patches[3] as get_workspace_organization_info,
         patches[4],
         patch("airbyte._util.api_util.get_workspace") as get_workspace,
-        pytest.raises(exc.PyAirbyteInputError),
+        pytest.raises(exc.AirbyteLibInputError),
     ):
-        get_workspace_organization_info.side_effect = exc.PyAirbyteInputError(
+        get_workspace_organization_info.side_effect = exc.AirbyteLibInputError(
             message="Workspace organization is ambiguous."
         )
         CloudClient(bearer_token="token").list_workspaces(
@@ -686,7 +854,7 @@ def test_get_workspace_raises_when_authenticated_user_has_no_default_workspace()
 ):
     patches = _api_patches(user={"userId": "user-id"})
     with patches[0], patches[1], patches[2], patches[3], patches[4]:
-        with pytest.raises(exc.PyAirbyteInputError, match="Workspace ID is required"):
+        with pytest.raises(exc.AirbyteLibInputError, match="Workspace ID is required"):
             CloudClient(bearer_token="token").get_workspace()
 
 
@@ -728,7 +896,7 @@ def test_ambient_organization_falls_back_to_memberships_when_user_lookup_fails()
         patches[3],
         patches[4] as list_permissions,
     ):
-        get_user.side_effect = exc.AirbyteError(message="User lookup failed.")
+        get_user.side_effect = exc.AirbyteCloudError(message="User lookup failed.")
         client = CloudClient(bearer_token="token")
         client._authenticated_user_id = "user-id"  # noqa: SLF001
         organization_id = client._resolve_ambient_organization_id()  # noqa: SLF001
@@ -944,7 +1112,7 @@ def test_get_default_context_for_user_degrades_without_token_identity() -> None:
         patches[3],
         patches[4],
     ):
-        get_user_id.side_effect = exc.PyAirbyteInputError(
+        get_user_id.side_effect = exc.AirbyteLibInputError(
             message="The bearer token does not contain a user_id or sub claim."
         )
         context = CloudClient(bearer_token="token").get_default_context_for_user()
@@ -987,6 +1155,57 @@ def test_get_default_context_for_user_hints_setter_when_stored_default_missing()
         "set_default_cloud_workspace(user_email=<your email>, "
         "workspace_id=<id>) to durably set one; it applies to both MCP "
         "sessions and the Airbyte Cloud web app."
+    ]
+
+
+def test_get_default_context_for_user_verified_is_none_without_default() -> None:
+    """With no resolvable default, `verified` is None rather than False."""
+    patches = _api_patches(user={"userId": "user-id"})
+    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        context = CloudClient(bearer_token="token").get_default_context_for_user()
+
+    assert context.default_workspace_id is None
+    assert context.default_workspace_verified is None
+    assert context.discovery_hints == [
+        "No default workspace is set. Use "
+        "set_default_cloud_workspace(user_email=<your email>, "
+        "workspace_id=<id>) to durably set one; it applies to both MCP "
+        "sessions and the Airbyte Cloud web app."
+    ]
+
+
+def test_get_default_context_for_user_configured_default_hint() -> None:
+    """A configured default without a profile default gets an accurate hint."""
+    patches = _api_patches(user={"userId": "user-id"})
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch(
+            "airbyte._util.api_util.get_workspace",
+            return_value=models.WorkspaceResponse(
+                data_residency="auto",
+                name="Configured",
+                notifications=models.NotificationsConfig(),
+                workspace_id="configured-workspace",
+            ),
+        ),
+    ):
+        context = CloudClient(
+            bearer_token="token",
+            workspace_id="configured-workspace",
+        ).get_default_context_for_user()
+
+    assert context.default_workspace_id == "configured-workspace"
+    assert context.default_workspace_verified is True
+    assert context.discovery_hints == [
+        "Your Airbyte user profile has no default workspace; this session "
+        "uses the configured workspace configured-workspace. Use "
+        "set_default_cloud_workspace(user_email=<your email>, "
+        "workspace_id=<id>) to set a durable default; it applies to "
+        "both MCP sessions and the Airbyte Cloud web app."
     ]
 
 
@@ -1143,7 +1362,7 @@ def test_set_default_workspace_for_user_rejects_email_mismatch() -> None:
         patches[4],
         extra[0] as get_workspace,
         extra[1] as update_user,
-        pytest.raises(exc.PyAirbyteInputError) as exc_info,
+        pytest.raises(exc.AirbyteLibInputError) as exc_info,
     ):
         CloudClient(bearer_token="token").set_default_workspace_for_user(
             user_email="other@example.com",
@@ -1174,7 +1393,7 @@ def test_set_default_workspace_for_user_rejects_disabled_user() -> None:
         patches[4],
         extra[0] as get_workspace,
         extra[1] as update_user,
-        pytest.raises(exc.PyAirbyteInputError, match="disabled"),
+        pytest.raises(exc.AirbyteLibInputError, match="disabled"),
     ):
         CloudClient(bearer_token="token").set_default_workspace_for_user(
             user_email="user@example.com",
@@ -1206,7 +1425,7 @@ def test_set_default_workspace_for_user_rejects_missing_workspace() -> None:
         patches[4],
         extra[0],
         extra[1] as update_user,
-        pytest.raises(exc.PyAirbyteInputError, match="not found"),
+        pytest.raises(exc.AirbyteLibInputError, match="not found"),
     ):
         CloudClient(bearer_token="token").set_default_workspace_for_user(
             user_email="user@example.com",
@@ -1239,7 +1458,7 @@ def test_set_default_workspace_for_user_rejects_tombstoned_workspace() -> None:
         patches[4],
         extra[0],
         extra[1] as update_user,
-        pytest.raises(exc.PyAirbyteInputError, match="tombstoned"),
+        pytest.raises(exc.AirbyteLibInputError, match="tombstoned"),
     ):
         CloudClient(bearer_token="token").set_default_workspace_for_user(
             user_email="user@example.com",
@@ -1264,7 +1483,7 @@ def test_set_default_workspace_for_user_rejects_instance_admin_only() -> None:
         patches[4],
         extra[0],
         extra[1] as update_user,
-        pytest.raises(exc.PyAirbyteInputError, match="not an explicit member"),
+        pytest.raises(exc.AirbyteLibInputError, match="not an explicit member"),
     ):
         CloudClient(bearer_token="token").set_default_workspace_for_user(
             user_email="user@example.com",
@@ -1292,7 +1511,7 @@ def test_set_default_workspace_for_user_fails_when_update_does_not_persist() -> 
         patches[4],
         extra[0],
         extra[1],
-        pytest.raises(exc.AirbyteError, match="did not persist"),
+        pytest.raises(exc.AirbyteCloudError, match="did not persist"),
     ):
         CloudClient(bearer_token="token").set_default_workspace_for_user(
             user_email="user@example.com",

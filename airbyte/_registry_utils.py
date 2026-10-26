@@ -83,12 +83,23 @@ def parse_changelog_html(  # noqa: PLR0914
     return versions
 
 
+def registry_entry_commit_date(entry: dict) -> str | None:
+    """Return the YYYY-MM-DD date of a registry entry's git commit timestamp."""
+    git_info = (entry.get("generated") or {}).get("git") or {}
+    commit_timestamp = git_info.get("commit_timestamp")
+    if isinstance(commit_timestamp, str):
+        date_match = re.match(r"(\d{4}-\d{2}-\d{2})", commit_timestamp)
+        if date_match:
+            return date_match.group(1)
+    return None
+
+
 def fetch_registry_version_date(connector_name: str, version: str) -> str | None:
     """Fetch the release date for a specific version from the registry.
 
     Returns the release date string (YYYY-MM-DD) if found, None otherwise.
     """
-    try:  # noqa: PLR1702
+    try:
         registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
         response = requests.get(registry_url, timeout=10)
         response.raise_for_status()
@@ -99,19 +110,20 @@ def fetch_registry_version_date(connector_name: str, version: str) -> str | None
         for connector in connector_list:
             docker_repo = connector.get("dockerRepository", "")
             if docker_repo == f"airbyte/{connector_name}":
+                if connector.get("dockerImageTag") == version:
+                    current_version_date = connector.get(
+                        "releaseDate"
+                    ) or registry_entry_commit_date(connector)
+                    if current_version_date:
+                        return current_version_date
+
                 releases = connector.get("releases", {})
                 release_candidates = releases.get("releaseCandidates", {})
 
                 if version in release_candidates:
-                    version_data = release_candidates[version]
-                    generated = version_data.get("generated", {})
-                    git_info = generated.get("git", {})
-                    commit_timestamp = git_info.get("commit_timestamp")
-
-                    if commit_timestamp:
-                        date_match = re.match(r"(\d{4}-\d{2}-\d{2})", commit_timestamp)
-                        if date_match:
-                            return date_match.group(1)
+                    candidate_date = registry_entry_commit_date(release_candidates[version])
+                    if candidate_date:
+                        return candidate_date
 
                 break
         else:

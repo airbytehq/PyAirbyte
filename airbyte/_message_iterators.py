@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Iterator
-from typing import IO, TYPE_CHECKING, cast
+from typing import IO, TYPE_CHECKING, cast, final
 
 import pydantic
-from typing_extensions import final
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 from airbyte_protocol.models import (
