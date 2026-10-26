@@ -1771,6 +1771,11 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
 ) -> ExternalApiExecuteResult:
     """Read data from an external system through a deployed Cloud connector's direct API.
 
+    Useful, for example, for quick investigations with live data: checking the most
+    recent records in the source when synced data looks missing or stale, confirming a
+    field is available before relying on it in a pipeline, or answering a one-off
+    question without waiting for a sync.
+
     `describe_cloud_connector` with `with_direct_access_guidance=True` also returns the
     connector's action docs.
     """
@@ -1968,6 +1973,11 @@ def execute_external_sql_query(
 
     Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
 
+    Useful, for example, for debugging pipelines and inspecting what a sync landed:
+    discovering which tables a sync created, sampling rows to see how records are
+    shaped and keyed, checking freshness or row counts, or exploring raw tables
+    before designing downstream models.
+
     Run `SHOW TABLES` first to discover tables and `SHOW DATABASES` to see the
     databases the destination is scoped to; `sql_dialect` defaults to the
     destination's registered dialect. Use `DESCRIBE TABLE <table>` to return a
@@ -2131,6 +2141,10 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     ] = None,
 ) -> ExternalSearchResult:
     """Search indexed data for a deployed Cloud source or destination.
+
+    Useful, for example, for finding records by meaning or keyword when the exact
+    entity, table, or ID isn't known, such as conversations about a customer or
+    tickets that mention an error.
 
     A source searches its own indexed data; a destination searches every indexed source
     synced to it. On a destination search, every `streams` entry needs the `source_id`
