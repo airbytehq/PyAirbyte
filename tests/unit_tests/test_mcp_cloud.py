@@ -1870,6 +1870,33 @@ def test_get_agent_skill_docs_tool_returns_direct_access_enablement_link(
     assert result.content == ""
 
 
+def test_get_agent_skill_docs_tool_redacts_connector_name_and_preserves_enablement_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enablement_url = (
+        "https://cloud.airbyte.com/x/enable-direct-access?skip-consent-screen=false"
+    )
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_name="My source https://user:secret@host/x?token=abc",
+        connector_id="source-1",
+        enablement_url=enablement_url,
+    )
+    workspace = SimpleNamespace(get_agent_skill_docs=MagicMock(side_effect=error))
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
+
+    result = guidance_mcp.get_agent_skill_docs(
+        None,
+        docs_skill_id="connector-source:source-1",
+        workspace_id=None,
+    )
+
+    assert "secret" not in result.errors[0]
+    assert "token=abc" not in result.errors[0]
+    assert enablement_url in result.errors[0]
+
+
 def test_get_agent_skill_docs_tool_reraises_without_enablement_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1669,7 +1669,7 @@ def _direct_access_disabled_message(
     """Return the user-facing message for disabled direct access."""
     return (
         f"Show the user this message as-is: Direct access is currently disabled for "
-        f"{label}. [Click here]({error.enablement_url}) to enable it."
+        f"{redact_agent_text(label)}. [Click here]({error.enablement_url}) to enable it."
     )
 
 
