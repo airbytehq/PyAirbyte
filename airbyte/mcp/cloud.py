@@ -1657,10 +1657,19 @@ def _direct_access_disabled_result(
     label = error.connector_name or f"{connector.connector_type} {connector.connector_id}"
     return ExternalApiExecuteResult(
         status="error",
-        errors=[
-            f"Show the user this message as-is: Direct access is currently disabled for "
-            f"{label}. [Click here]({error.enablement_url}) to enable it."
-        ],
+        errors=[_direct_access_disabled_message(error, label=label)],
+    )
+
+
+def _direct_access_disabled_message(
+    error: AirbyteExternalAccessNotEnabledError,
+    *,
+    label: str,
+) -> str:
+    """Return the user-facing message for disabled direct access."""
+    return (
+        f"Show the user this message as-is: Direct access is currently disabled for "
+        f"{label}. [Click here]({error.enablement_url}) to enable it."
     )
 
 

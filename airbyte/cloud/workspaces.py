@@ -635,6 +635,10 @@ class CloudWorkspace:
             raise exc.AirbyteLibInputError(
                 message="Provide exactly one of `docs_skill_id` or `connector_id`.",
             )
+        if docs_skill_id.startswith(connector_docs.SOURCE_SKILL_PREFIX):
+            return self.get_source(
+                connector_docs.connector_id_from_skill_id(docs_skill_id)
+            ).read_agent_skill_docs(section=section)
         if docs_skill_id.startswith(connector_docs.DESTINATION_SKILL_PREFIX):
             destination = self.get_destination(
                 connector_docs.connector_id_from_skill_id(docs_skill_id)

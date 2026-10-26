@@ -298,9 +298,10 @@ def test_direct_access_guidance_id_source_probe_not_enabled(
     monkeypatch: pytest.MonkeyPatch,
     probe_error: AirbyteCloudError,
 ) -> None:
-    """A 403/404 docs probe leaves no guidance ID; reads raise not-enabled."""
+    """A 403/404 probe leaves no guidance ID and reads return an enablement URL."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
+    monkeypatch.setattr(CloudConnector, "is_feature_enabled", lambda *_: False)
     monkeypatch.setattr(
         agents_api_util,
         "read_cloud_skill_docs",
@@ -309,8 +310,12 @@ def test_direct_access_guidance_id_source_probe_not_enabled(
     source = _seed_source(workspace, "source-1", "GitHub")
 
     assert source._direct_access_guidance_id() is None  # noqa: SLF001
-    with pytest.raises(AirbyteExternalAccessNotEnabledError):
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
         source.get_direct_access_guidance()
+    assert (
+        exc_info.value.enablement_url
+        == f"{source.connector_url}/enable-direct-access?skip-consent-screen=false"
+    )
 
 
 @pytest.mark.parametrize(

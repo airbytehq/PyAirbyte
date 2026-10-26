@@ -1655,6 +1655,99 @@ def test_docs_probe_not_enabled_handling_unchanged(
     assert "docs lookup failed" in warnings[0]
 
 
+def test_read_agent_skill_docs_translates_disabled_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    cloud_error = AirbyteCloudApiError(status_code=403)
+
+    def fail_read_docs(**_: Any) -> Any:  # noqa: ANN401
+        raise cloud_error
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
+    with _patch_direct_access(enabled=False):
+        with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+            source.read_agent_skill_docs()
+
+    assert exc_info.value.connector_id == "source-1"
+    assert (
+        exc_info.value.enablement_url
+        == f"{source.connector_url}/enable-direct-access?skip-consent-screen=false"
+    )
+
+
+def test_read_agent_skill_docs_propagates_cloud_error_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    cloud_error = AirbyteCloudApiError(status_code=403)
+
+    def fail_read_docs(**_: Any) -> Any:  # noqa: ANN401
+        raise cloud_error
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
+    with _patch_direct_access(enabled=True):
+        with pytest.raises(AirbyteCloudApiError) as exc_info:
+            source.read_agent_skill_docs()
+
+    assert exc_info.value is cloud_error
+    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+
+
+def test_read_agent_skill_docs_without_context_layer_skips_docs_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch, available=False)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    calls: list[dict[str, Any]] = []
+
+    def read_docs(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+        source.read_agent_skill_docs()
+
+    assert exc_info.value.connector_id == "source-1"
+    assert exc_info.value.enablement_url is None
+    assert calls == []
+
+
+def test_read_agent_skill_docs_uses_source_skill_id_and_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    calls: list[dict[str, Any]] = []
+
+    def read_docs(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "metadata": {
+                "id": "connector-source:source-1",
+                "kind": "connector_source",
+                "title": "GitHub Issues",
+            },
+            "content": [],
+        }
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+
+    docs = source.read_agent_skill_docs(section="actions.issues.list")
+
+    assert docs.metadata.id == "connector-source:source-1"
+    assert calls[0]["skill_id"] == "connector-source:source-1"
+    assert calls[0]["section"] == "actions.issues.list"
+
+
 _BACKFILL_RESPONSE = {
     "streams": [
         {

@@ -1840,6 +1840,56 @@ def test_get_agent_skill_docs_tool(
     assert "Hello" in result.content
 
 
+def test_get_agent_skill_docs_tool_returns_direct_access_enablement_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enablement_url = (
+        "https://cloud.airbyte.com/x/enable-direct-access?skip-consent-screen=false"
+    )
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_name="GitHub",
+        connector_id="source-1",
+        enablement_url=enablement_url,
+    )
+    workspace = SimpleNamespace(get_agent_skill_docs=MagicMock(side_effect=error))
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
+
+    result = guidance_mcp.get_agent_skill_docs(
+        None,
+        docs_skill_id="connector-source:source-1",
+        workspace_id=None,
+    )
+
+    assert result.errors == [
+        "Show the user this message as-is: Direct access is currently disabled for "
+        "GitHub. [Click here](https://cloud.airbyte.com/x/enable-direct-access?"
+        "skip-consent-screen=false) to enable it."
+    ]
+    assert result.content == ""
+
+
+def test_get_agent_skill_docs_tool_reraises_without_enablement_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = AirbyteExternalAccessNotEnabledError(
+        connector_name="GitHub",
+        connector_id="source-1",
+    )
+    workspace = SimpleNamespace(get_agent_skill_docs=MagicMock(side_effect=error))
+    monkeypatch.setattr(
+        guidance_mcp, "_get_cloud_workspace", lambda _ctx, _id: workspace
+    )
+
+    with pytest.raises(AirbyteExternalAccessNotEnabledError):
+        guidance_mcp.get_agent_skill_docs(
+            None,
+            docs_skill_id="connector-source:source-1",
+            workspace_id=None,
+        )
+
+
 def test_get_agent_skill_docs_tool_connector_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

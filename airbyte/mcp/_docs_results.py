@@ -71,6 +71,9 @@ class AgentSkillDocsResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     """Non-fatal issues reported while reading or rendering the docs."""
 
+    errors: list[str] = Field(default_factory=list)
+    """Errors to relay to the user, for example when direct access is disabled for the connector."""
+
 
 def render_connector_docs_result(docs: DirectAccessGuidance) -> CloudConnectorDocsResult:
     """Render `DirectAccessGuidance` into a `CloudConnectorDocsResult`."""
