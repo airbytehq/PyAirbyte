@@ -4,12 +4,15 @@ on:
   push:
     branches:
     - main
+    - release-candidate/v1
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+  # Published under `/rc/` so pre-release docs are browsable before the RC merges to `main`.
+  RC_BRANCH: release-candidate/v1
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
@@ -24,15 +27,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The `github-pages` environment only accepts deployments from `main`, so an RC push
+  # re-runs this workflow on `main`, which rebuilds both doc sets.
+  dispatch_from_rc:
+    name: Dispatch Docs Publish on `main`
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+    - name: Trigger docs publish on `main`
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh workflow run pydoc_publish.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   publish_docs:
+    name: Publish Docs
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: "github-pages"
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-    - name: Checkout code
+    - name: Checkout `main`
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        path: stable
+    - name: Checkout release candidate
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ env.RC_BRANCH }}
+        path: rc
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
@@ -41,19 +67,36 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
-    - name: Install dev dependencies
+    # ---------- `main` docs (site root) ----------
+    - name: Install dev dependencies (`main`)
       # We only need helper libraries
+      working-directory: stable
       run: uv sync --group dev
+    - name: Generate documentation (`main`)
+      working-directory: stable
+      run: uv run poe docs-generate
 
-    - name: Generate documentation
-      run: |
-        uv run poe docs-generate
+    # ---------- Release candidate docs (`/rc/`) ----------
+    # A broken RC docs build must not block publishing the `main` docs.
+    - name: Install dev dependencies (release candidate)
+      id: rc-deps
+      continue-on-error: true
+      working-directory: rc
+      run: uv sync --group dev
+    - name: Generate documentation (release candidate)
+      id: rc-docs
+      if: steps.rc-deps.outcome == 'success'
+      continue-on-error: true
+      working-directory: rc
+      run: uv run poe docs-generate
+    - name: Add release candidate docs under `/rc/`
+      if: steps.rc-docs.outcome == 'success'
+      run: cp -r rc/docs/generated stable/docs/generated/rc
 
     - name: Upload artifact
       uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
       with:
-        # Upload entire repository
-        path: 'docs/generated'
+        path: 'stable/docs/generated'
 
     - name: Deploy to GitHub Pages
       id: deployment
