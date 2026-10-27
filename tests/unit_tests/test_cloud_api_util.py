@@ -2399,7 +2399,7 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
             json.dumps({"title": "actor-not-ready"}),
             True,
             AirbyteConnectorNotReadyError,
-            "`check_cloud_connector`",
+            "`check_connector`",
             id="actor-not-ready-mcp",
         ),
         pytest.param(
@@ -2415,7 +2415,7 @@ def test_create_connection_400_with_non_json_body_uses_fallback_message(
             }),
             True,
             AirbyteConnectorNotReadyError,
-            "`check_cloud_connector`",
+            "`check_connector`",
             id="actor-not-ready-by-type",
         ),
         pytest.param(

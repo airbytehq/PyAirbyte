@@ -1511,7 +1511,7 @@ def test_search_result_warns_when_no_index_was_searched() -> None:
 
     assert len(result.warnings) == 1
     assert "No index matched" in result.warnings[0]
-    assert "get_cloud_search_status" in result.warnings[0]
+    assert "get_search_index_status" in result.warnings[0]
 
 
 def test_search_status_result_accepts_null_warnings() -> None:

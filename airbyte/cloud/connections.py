@@ -371,7 +371,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     guidance=(
                         "Re-enable the connection first (e.g. "
                         "`connection.set_enabled(enabled=True)`, or the "
-                        "`update_cloud_connection` MCP tool with `enabled=True`), then retry."
+                        "`update_connection` MCP tool with `enabled=True`), then retry."
                     ),
                     context={"connection_id": self.connection_id},
                 ) from ex
@@ -599,7 +599,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                         "or you don't have access to it."
                     ),
                     guidance=(
-                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                        "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
                     ),
                     context={"connection_id": self.connection_id, "job_id": job_id},
                 ) from ex
@@ -612,7 +612,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 message=(
                     f"Job {job_id} belongs to a different connection, not {self.connection_id}."
                 ),
-                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                guidance=(
+                    "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
+                ),
                 context={"connection_id": self.connection_id, "job_id": job_id},
             )
 

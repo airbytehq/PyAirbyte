@@ -37,7 +37,7 @@ logger = logging.getLogger("airbyte.mcp")
     read_only=True,
     idempotent=True,
 )
-def list_connectors(
+def list_connector_definitions(
     keyword_filter: Annotated[
         str | None,
         Field(
@@ -80,11 +80,11 @@ def list_connectors(
         ),
     ],
 ) -> list[str]:
-    """List available Airbyte connectors with optional filtering.
+    """List connector types available to deploy (the Airbyte connector registry).
 
-    This lists connector types in the public registry, not sources, destinations, or connections
-    deployed in a workspace; use `list_cloud_connectors`, `list_cloud_connections`, or
-    `describe_cloud_connection` for workspace resources.
+    Use `list_connectors` for deployed sources and destinations in a workspace, and
+    `list_custom_source_definitions` for workspace custom definitions. Use `list_connections`
+    or `describe_connection` for workspace pipelines. Optional filters narrow the registry.
 
     Returns:
         List of connector names.
@@ -129,7 +129,7 @@ def list_connectors(
     read_only=True,
     idempotent=True,
 )
-def get_connector_version_history(
+def get_connector_definition_version_history(
     connector_name: Annotated[
         str,
         Field(

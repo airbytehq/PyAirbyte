@@ -3,7 +3,7 @@
 
 This module provides the core logic for running smoke tests against destination
 connectors. It is used by both the CLI (`pyab destination-smoke-test`) and the
-MCP tool (`destination_smoke_test`).
+MCP tool (`run_local_destination_smoke_test`).
 
 Smoke tests send synthetic data from the built-in smoke test source to a
 destination connector and report whether the destination accepted the data

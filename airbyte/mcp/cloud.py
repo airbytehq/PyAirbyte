@@ -163,7 +163,7 @@ DEFER_CREDENTIALS_TIP_TEXT = (
     "authentication methods, include the method's selector field in `config`. The result "
     "includes a settings link for the person to complete any missing fields and test the draft. "
     "After they report a successful test and save, call "
-    "`check_cloud_connector` with the `connector_id` (optionally `connector_type` and "
+    "`check_connector` with the `connector_id` (optionally `connector_type` and "
     "`workspace_id`)."
 )
 DEFERRED_SETUP_GUIDANCE = (
@@ -171,7 +171,7 @@ DEFERRED_SETUP_GUIDANCE = (
     "missing settings, then test and save. Until then the connector is a draft: you can "
     "describe or delete it, but creating a connection, discovering streams, or running a "
     "sync fails with `409 actor-not-ready`. Don't attempt or retry those until the user "
-    "confirms. Then call `check_cloud_connector` with `connector_id` (optionally "
+    "confirms. Then call `check_connector` with `connector_id` (optionally "
     "`connector_type` and `workspace_id`); a successful check makes the connector ready "
     "to use."
 )
@@ -355,7 +355,7 @@ class CloudOrganizationResult(BaseModel):
     email: str | None = None
     """Email associated with the organization, when available.
 
-    Only returned by `describe_cloud_organization`; `list_cloud_organizations`
+    Only returned by `describe_organization`; `list_organizations`
     reports `email_domain` instead.
     """
     email_domain: str | None = None
@@ -567,7 +567,7 @@ class DeferredDeployResult(BaseModel):
     name: str
     """The connector name in Airbyte Cloud."""
     workspace_id: str
-    """The workspace the connector was created in; pass it to `check_cloud_connector`."""
+    """The workspace the connector was created in; pass it to `check_connector`."""
     settings_url: str
     """Cloud settings page where a person completes the credentials."""
     guidance: str = DEFERRED_SETUP_GUIDANCE
@@ -635,7 +635,7 @@ def _get_cloud_client(
 
 
 @mcp_tool()
-def deploy_connector_to_cloud(  # noqa: PLR0913  # Mirrors the API surface.
+def deploy_connector(  # noqa: PLR0913  # Mirrors the API surface.
     ctx: Context,
     name: Annotated[
         str,
@@ -890,7 +890,7 @@ def _get_suggested_streams_for_source(
 
 
 @mcp_tool()
-def create_connection_on_cloud(
+def create_connection(
     ctx: Context,
     connection_name: Annotated[
         str,
@@ -939,7 +939,7 @@ def create_connection_on_cloud(
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
     New connections use a manual schedule by default. Automatic syncs require a later
-    schedule update with `update_cloud_connection`.
+    schedule update with `update_connection`.
 
     When `selected_streams` is not provided, the connection selects the source
     connector's suggested streams from the connector registry. If the connector has
@@ -994,7 +994,7 @@ def create_connection_on_cloud(
 @mcp_tool(
     pipeline_change=False,
 )
-def run_cloud_sync(
+def run_connection_sync(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1044,7 +1044,7 @@ def run_cloud_sync(
 
 
 @mcp_tool()
-def deploy_noop_destination_to_cloud(
+def deploy_noop_destination(
     ctx: Context,
     destination_name: Annotated[
         str,
@@ -1082,7 +1082,7 @@ def deploy_noop_destination_to_cloud(
     read_only=True,
     idempotent=True,
 )
-def get_cloud_sync_status(
+def get_connection_sync_status(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1095,7 +1095,7 @@ def get_cloud_sync_status(
         Field(
             description=(
                 "Optional job ID; it must belong to `connection_id`. Use "
-                "`list_cloud_sync_jobs` to find job IDs for this connection."
+                "`list_connection_sync_jobs` to find job IDs for this connection."
             ),
             default=None,
         ),
@@ -1120,7 +1120,7 @@ def get_cloud_sync_status(
     """Get the status of a sync job from Airbyte Cloud.
 
     `connection_id` is required, and any supplied `job_id` must belong to that connection. Use
-    `list_cloud_sync_jobs` to find job IDs for the connection.
+    `list_connection_sync_jobs` to find job IDs for the connection.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
@@ -1162,7 +1162,7 @@ def get_cloud_sync_status(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_sync_jobs(
+def list_connection_sync_jobs(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1257,7 +1257,7 @@ def list_cloud_sync_jobs(
     destructive=True,
     pipeline_change=False,
 )
-def cancel_cloud_sync(
+def cancel_connection_sync(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -1327,7 +1327,7 @@ class CloudConnectorResult(BaseModel):
     read_only=True,
     idempotent=True,
 )
-def list_cloud_connectors(
+def list_connectors(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -1371,7 +1371,8 @@ def list_cloud_connectors(
 ) -> list[CloudConnectorResult]:
     """List deployed source and destination connectors in the Airbyte Cloud workspace.
 
-    Use `list_cloud_connections` to find the pipelines between these connectors, and
+    Use `list_connector_definitions` for available connector types in the Airbyte registry.
+    Use `list_connections` to find the pipelines between these connectors, and
     `feature_filter` to find connectors with external-access features.
     """
     if limit is not None and limit <= 0:
@@ -1453,7 +1454,7 @@ def list_cloud_connectors(
 class CloudConnectorDetailsResult(BaseModel):
     """A description of a deployed Cloud connector.
 
-    As returned by the `describe_cloud_connector` MCP tool.
+    As returned by the `describe_connector` MCP tool.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -1509,7 +1510,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     with_direct_access_guidance: bool,
     with_data_replication_docs: bool,
 ) -> CloudConnectorDetailsResult:
-    """Assemble the `describe_cloud_connector` MCP tool's result for a deployed connector."""
+    """Assemble the `describe_connector` MCP tool's result for a deployed connector."""
     connector_type = connector.connector_type
     warnings: list[str] = []
     try:
@@ -1588,7 +1589,7 @@ def _describe_cloud_connector(  # noqa: PLR0912  # Too many branches
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_connector(
+def describe_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -1798,7 +1799,7 @@ def execute_external_api_query(  # noqa: PLR0913  # Explicit args mirror the con
     field is available before relying on it in a pipeline, or answering a one-off
     question without waiting for a sync.
 
-    `describe_cloud_connector` with `with_direct_access_guidance=True` also returns the
+    `describe_connector` with `with_direct_access_guidance=True` also returns the
     connector's action docs.
     """
     connector = _get_cloud_workspace(ctx, workspace_id).get_connector(connector_id)
@@ -1902,7 +1903,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
     Creates, updates, or deletes data in the external system.
 
     Before calling, read the connector's action docs with `get_external_access_skill_docs`
-    (or `describe_cloud_connector` with `with_direct_access_guidance=True`) to
+    (or `describe_connector` with `with_direct_access_guidance=True`) to
     learn the entity types, actions, and required `api_args`; argument names
     differ per connector and are not guessable.
     """
@@ -2050,8 +2051,8 @@ def _search_disabled_errors(
         ),
         "Once search is enabled, the connector's synced data must be indexed before "
         "searches return results. New syncs are indexed as they run; data already in the "
-        "destination is indexed only after `request_cloud_search_index_backfill`. Call "
-        "`get_cloud_search_status` to check which streams are indexed and whether their "
+        "destination is indexed only after `request_search_index_backfill`. Call "
+        "`get_search_index_status` to check which streams are indexed and whether their "
         "backfill is complete.",
     ]
 
@@ -2171,14 +2172,14 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     A source searches its own indexed data; a destination searches every indexed source
     synced to it. On a destination search, every `streams` entry needs the `source_id`
     of the source that stream belongs to. When results are empty, call
-    `get_cloud_search_status` to check which streams are indexed and whether their
+    `get_search_index_status` to check which streams are indexed and whether their
     backfill is complete.
 
     Keep responses small: use `streams[].fields` to project each hit's `entity_data`
     (an output projection, not a match filter) and `max_context_chars` to truncate
     each hit's `context`. `min_similarity` and `max_similarity_diff` apply only to
     `semantic` and `hybrid` searches. Pass `destination_id` for a source synced to
-    several enabled destinations; the IDs are listed by `get_cloud_search_status`.
+    several enabled destinations; the IDs are listed by `get_search_index_status`.
     Per-index failures are reported in `warnings`.
 
     A keyword-only hit leaves out of `entity_data` any field longer than 4096 characters
@@ -2214,7 +2215,7 @@ def execute_external_search_query(  # noqa: PLR0913  # Explicit args mirror the 
     idempotent=True,
     external_access=True,
 )
-def get_cloud_search_status(
+def get_search_index_status(
     ctx: Context,
     *,
     connector_id: Annotated[
@@ -2260,7 +2261,7 @@ def get_cloud_search_status(
     search indexes. A stream is searchable once it has at least one index.
 
     Turning search on indexes only data from new syncs; data already in the destination
-    is indexed only by a backfill requested with `request_cloud_search_index_backfill`. A
+    is indexed only by a backfill requested with `request_search_index_backfill`. A
     stream's `backfill` is null when none was requested. Otherwise `backfill.status` is
     `starting`, `running`, `finalizing`, `complete`, `failed`, or `cancelled`, with
     `failed_at` or `cancelled_at` set when the run ended that way. A stream whose table is
@@ -2318,7 +2319,7 @@ def get_cloud_search_status(
     pipeline_change=False,
     external_access=True,
 )
-def request_cloud_search_index_backfill(
+def request_search_index_backfill(
     ctx: Context,
     *,
     connection_id: Annotated[
@@ -2371,7 +2372,7 @@ def request_cloud_search_index_backfill(
     run. Without `streams`, the result has one entry with an empty `stream_name` that
     stands for every stream.
 
-    Track progress with `get_cloud_search_status` on the connection's source or
+    Track progress with `get_search_index_status` on the connection's source or
     destination: each stream's `backfill.status` moves from `starting` through `running`
     and `finalizing` to `complete`, `failed`, or `cancelled`. A stream whose table exists
     but is empty completes with 0 records. A run fails when, for example, the destination
@@ -2398,7 +2399,7 @@ def request_cloud_search_index_backfill(
     read_only=True,
     idempotent=True,
 )
-def check_cloud_connector(
+def check_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -2437,7 +2438,7 @@ def check_cloud_connector(
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_connection(
+def describe_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -2476,7 +2477,7 @@ def describe_cloud_connection(
     read_only=True,
     idempotent=True,
 )
-def get_cloud_sync_logs(
+def get_connection_sync_logs(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -2555,7 +2556,7 @@ def get_cloud_sync_logs(
                 resource_type="sync job",
                 resource_name_or_id=connection_id,
                 message=f"Connection '{connection_id}' has no sync jobs yet.",
-                guidance="Run a sync first with `run_cloud_sync`, then request its logs.",
+                guidance="Run a sync first with `run_connection_sync`, then request its logs.",
             )
         raise AirbyteMissingResourceError(
             resource_type="sync job",
@@ -2630,7 +2631,7 @@ def get_cloud_sync_logs(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_connections(
+def list_connections(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -2674,7 +2675,7 @@ def list_cloud_connections(
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
-    Each connection links a source to a destination; use `list_cloud_connectors` to list those
+    Each connection links a source to a destination; use `list_connectors` to list those
     deployed resources.
 
     When with_connection_status is True, each connection result will include
@@ -2757,7 +2758,7 @@ def list_cloud_connections(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_workspaces(
+def list_workspaces(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -2845,7 +2846,7 @@ def list_cloud_workspaces(
         "No workspaces were returned for these credentials. By default only direct "
         "workspace memberships are listed; pass `organization_id` or a broader "
         "`privilege_scope` to discover organization-wide workspaces, or call "
-        "`get_default_cloud_context` to inspect your memberships."
+        "`get_default_workspace_context` to inspect your memberships."
         if not results
         else None
     )
@@ -2878,7 +2879,7 @@ def list_cloud_workspaces(
     read_only=True,
     idempotent=True,
 )
-def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
+def get_default_workspace_context(ctx: Context) -> CloudDefaultContextResult:
     """Return the authenticated user's default Cloud context.
 
     This is the one-call orientation entry point: it resolves the default
@@ -2930,13 +2931,13 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     if truncated_memberships:
         message += (
             f" Only the first {' and '.join(truncated_memberships)} are shown; use "
-            "list_cloud_organizations or list_cloud_workspaces to see the rest."
+            "list_organizations or list_workspaces to see the rest."
         )
     if context.unvalidated_workspace_count > 0:
         message += (
             f" {context.unvalidated_workspace_count} additional direct workspace grant(s) were "
             f"not validated because this call checks at most {_MAX_WORKSPACES_TO_VALIDATE}; use "
-            "list_cloud_workspaces to see them."
+            "list_workspaces to see them."
         )
     if resolved_default_workspace is not None:
         message = resolved_default_workspace + message
@@ -2973,7 +2974,7 @@ def get_default_cloud_context(ctx: Context) -> CloudDefaultContextResult:
     idempotent=True,
     destructive=True,
 )
-def set_default_cloud_workspace(
+def set_default_workspace(
     ctx: Context,
     user_email: Annotated[
         str,
@@ -2981,7 +2982,7 @@ def set_default_cloud_workspace(
             description=(
                 "Email of the authenticated Airbyte Cloud user this change applies to. "
                 "Must match the current credentials' user (compared case-insensitively, "
-                "ignoring surrounding whitespace; see get_default_cloud_context); "
+                "ignoring surrounding whitespace; see get_default_workspace_context); "
                 "mismatches fail with a validation error. "
                 "Required as a safety confirmation."
             ),
@@ -3003,10 +3004,10 @@ def set_default_cloud_workspace(
 
     WARNING: This is a persistent, account-level change. It updates the user's
     stored default workspace in Airbyte Cloud, which affects both future MCP
-    sessions (default_workspace_id in get_default_cloud_context and every tool
+    sessions (default_workspace_id in get_default_workspace_context and every tool
     that falls back to the default workspace) AND the Airbyte Cloud web app,
     where this workspace becomes the user's default landing workspace.
-    Call get_default_cloud_context first to confirm the current user and to
+    Call get_default_workspace_context first to confirm the current user and to
     discover member workspaces.
     """
     result: CloudDefaultWorkspaceUpdateInfo = _get_cloud_client(ctx).set_default_workspace_for_user(
@@ -3031,7 +3032,7 @@ def set_default_cloud_workspace(
     read_only=True,
     idempotent=True,
 )
-def list_cloud_organizations(
+def list_organizations(
     ctx: Context,
     name_contains: Annotated[
         str | None,
@@ -3098,7 +3099,7 @@ def list_cloud_organizations(
             message=(
                 "No organizations were returned for these credentials. Verify the credentials "
                 "or ask the user to provide an organization ID. Call "
-                "`get_default_cloud_context` to inspect your memberships."
+                "`get_default_workspace_context` to inspect your memberships."
             ),
         )
 
@@ -3125,7 +3126,7 @@ def list_cloud_organizations(
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_workspace(
+def describe_workspace(
     ctx: Context,
     *,
     workspace_id: Annotated[
@@ -3142,7 +3143,7 @@ def describe_cloud_workspace(
 ) -> CloudWorkspaceResult:
     """Get basic details about a workspace (ID, name, URL, parent organization).
 
-    Does not include billing/account status; use `get_cloud_organization_billing_status` for that.
+    Does not include billing/account status; use `get_organization_billing_status` for that.
     """
     workspace = _get_cloud_workspace(ctx, workspace_id)
     workspace_response = api_util.get_workspace(
@@ -3170,7 +3171,7 @@ def describe_cloud_workspace(
     read_only=True,
     idempotent=True,
 )
-def describe_cloud_organization(
+def describe_organization(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -3191,7 +3192,7 @@ def describe_cloud_organization(
 ) -> CloudOrganizationResult:
     """Get basic details about an organization (ID, name, email, feature flags).
 
-    Billing/account status is available via `get_cloud_organization_billing_status`.
+    Billing/account status is available via `get_organization_billing_status`.
 
     With no arguments, resolves the organization from the configured default or the
     authenticated user's sole membership. With multiple memberships, the error lists
@@ -3216,7 +3217,7 @@ def describe_cloud_organization(
     read_only=True,
     idempotent=True,
 )
-def get_cloud_organization_billing_status(
+def get_organization_billing_status(
     ctx: Context,
     *,
     organization_id: Annotated[
@@ -3753,7 +3754,7 @@ def permanently_delete_custom_source_definition(
     destructive=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
-def permanently_delete_cloud_connector(
+def permanently_delete_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -3827,7 +3828,7 @@ def permanently_delete_cloud_connector(
     destructive=True,
     extra_help_text=DELETE_NAME_GUARD_TIP_TEXT,
 )
-def permanently_delete_cloud_connection(
+def permanently_delete_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -3903,7 +3904,7 @@ def permanently_delete_cloud_connection(
 
 
 @mcp_tool()
-def rename_cloud_connector(
+def rename_connector(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -3944,7 +3945,7 @@ def rename_cloud_connector(
 @mcp_tool(
     destructive=True,
 )
-def update_cloud_connector_config(
+def update_connector_config(
     ctx: Context,
     connector_id: Annotated[
         str,
@@ -4004,7 +4005,7 @@ def update_cloud_connector_config(
 
 
 @mcp_tool()
-def rename_cloud_connection(
+def rename_connection(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4038,7 +4039,7 @@ def rename_cloud_connection(
 @mcp_tool(
     destructive=True,
 )
-def set_cloud_connection_table_prefix(
+def set_connection_table_prefix(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4077,7 +4078,7 @@ def set_cloud_connection_table_prefix(
 @mcp_tool(
     destructive=True,
 )
-def set_cloud_connection_selected_streams(
+def set_connection_selected_streams(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4124,7 +4125,7 @@ def set_cloud_connection_selected_streams(
 @mcp_tool(
     destructive=True,
 )
-def update_cloud_connection(
+def update_connection(
     ctx: Context,
     connection_id: Annotated[
         str,

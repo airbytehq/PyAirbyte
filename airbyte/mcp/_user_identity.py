@@ -74,7 +74,7 @@ _current_airbyte_user_id: ContextVar[str | None] = ContextVar(
 class AirbyteUser:
     """Canonical Airbyte user identity and its default workspace, when available.
 
-    Cached without expiry (evicted when `set_default_cloud_workspace` changes it), so
+    Cached without expiry (evicted when `set_default_workspace` changes it), so
     `default_workspace_id` may be stale. It is only used to derive the organization
     recorded in telemetry; tools resolve the default workspace live.
     """

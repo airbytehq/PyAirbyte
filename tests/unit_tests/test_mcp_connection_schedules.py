@@ -96,7 +96,7 @@ async def _update(server: FastMCP, **arguments: object) -> str:
     """Call the registered tool through the serialized MCP boundary."""
     async with Client(server) as client:
         result = await client.call_tool(
-            "update_cloud_connection",
+            "update_connection",
             {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments},
         )
     return str(result)
@@ -110,7 +110,7 @@ def test_interval_schema() -> None:
     async def inspect_tools() -> None:
         async with Client(server) as client:
             tools = {tool.name: tool for tool in await client.list_tools()}
-        update = tools["update_cloud_connection"]
+        update = tools["update_connection"]
         interval = update.input_schema["properties"]["interval_hours"]
         integer_schema = next(
             option for option in interval["anyOf"] if option["type"] == "integer"
@@ -133,12 +133,12 @@ def test_create_manual_default_description() -> None:
     async def inspect_tools() -> None:
         async with Client(server) as client:
             tools = {tool.name: tool for tool in await client.list_tools()}
-        create = tools["create_connection_on_cloud"]
+        create = tools["create_connection"]
         description = (create.description or "").lower()
         assert "manual" in description
         assert "default" in description
         assert "automatic syncs" in description
-        assert "update_cloud_connection" in description
+        assert "update_connection" in description
 
     asyncio.run(inspect_tools())
 
@@ -152,7 +152,7 @@ def test_direct_update_rejects_invalid_intervals_before_status_change(
     _server, http, lookup, patch = schedule_backend
 
     with pytest.raises(AirbyteLibInputError, match="positive whole number"):
-        cloud_mcp.update_cloud_connection(
+        cloud_mcp.update_connection(
             ctx=None,
             connection_id="12345678-1234-1234-1234-1234567890ab",
             enabled=True,
@@ -300,7 +300,7 @@ def test_update_remains_hidden_in_readonly_mode(
     server = FastMCP("readonly-schedule-tests")
     cloud_mcp.register_cloud_tools(server)
     monkeypatch.setenv(MCP_READONLY_MODE_ENV_VAR, "1")
-    tool = asyncio.run(server.get_tool("update_cloud_connection"))
+    tool = asyncio.run(server.get_tool("update_connection"))
 
     assert not _tool_utils.airbyte_readonly_mode_filter(tool.to_mcp_tool(), server)
 

@@ -335,16 +335,24 @@ _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
         lambda: local._get_mcp_source("source-faker", manifest_path=None),
         id="_get_mcp_source",
     ),
-    pytest.param(lambda: local.list_cached_streams(), id="list_cached_streams"),
-    pytest.param(lambda: local.describe_default_cache(), id="describe_default_cache"),
-    pytest.param(lambda: local.run_sql_query("SELECT 1", 10), id="run_sql_query"),
-    pytest.param(lambda: local.list_dotenv_secrets(), id="list_dotenv_secrets"),
     pytest.param(
-        lambda: local.list_connector_config_secrets("source-faker"),
-        id="list_connector_config_secrets",
+        lambda: local.list_local_cached_streams(), id="list_local_cached_streams"
     ),
     pytest.param(
-        lambda: local.destination_smoke_test(
+        lambda: local.describe_local_default_cache(), id="describe_local_default_cache"
+    ),
+    pytest.param(
+        lambda: local.run_local_sql_query("SELECT 1", 10), id="run_local_sql_query"
+    ),
+    pytest.param(
+        lambda: local.list_local_dotenv_secrets(), id="list_local_dotenv_secrets"
+    ),
+    pytest.param(
+        lambda: local.list_local_connector_config_secrets("source-faker"),
+        id="list_local_connector_config_secrets",
+    ),
+    pytest.param(
+        lambda: local.run_local_destination_smoke_test(
             "destination-dev-null",
             None,
             None,
@@ -356,7 +364,7 @@ _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
             None,
             False,
         ),
-        id="destination_smoke_test",
+        id="run_local_destination_smoke_test",
     ),
 ]
 
@@ -391,7 +399,7 @@ def test_run_sql_query_log_omits_exception_text(
     local.logger.addHandler(caplog.handler)
     try:
         caplog.set_level(logging.WARNING, logger=local.logger.name)
-        local.run_sql_query("SELECT 1", 10)
+        local.run_local_sql_query("SELECT 1", 10)
     finally:
         local.logger.removeHandler(caplog.handler)
 

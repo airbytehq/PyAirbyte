@@ -912,7 +912,7 @@ def run_connector_builder_readiness_checks(
             description=(
                 "Optional. If no named stream failed or is still pending (or none are named), "
                 "publish the draft and start a full sync of every stream to a no-op destination. "
-                "Returns the job in `full_sync`; poll it with `get_cloud_sync_status`."
+                "Returns the job in `full_sync`; poll it with `get_connection_sync_status`."
             ),
             default=False,
         ),

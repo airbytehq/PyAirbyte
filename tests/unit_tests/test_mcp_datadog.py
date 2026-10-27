@@ -1221,7 +1221,7 @@ def _native_http_contract():
         return ToolResult(content=private_payload, is_error=mode == "error")
 
     @app.tool()
-    def run_sql_query() -> str:
+    def run_local_sql_query() -> str:
         return "private synthetic result"
 
     @app.tool()
@@ -1327,7 +1327,7 @@ def _native_http_contract():
                         )
                         for mode in ("ok", "error", "raise")
                     ],
-                    ("tools/call", {"name": "run_sql_query", "arguments": {}}),
+                    ("tools/call", {"name": "run_local_sql_query", "arguments": {}}),
                     ("tools/call", {"name": "unknown_tool", "arguments": {}}),
                     (
                         "tools/call",
@@ -1913,13 +1913,13 @@ def _native_http_contract():
             "execute_external_api_query",
             "execute_external_api_query",
             "execute_external_api_query",
-            "run_sql_query",
+            "run_local_sql_query",
             "unknown_tool",
         ]
         assert [span.resource for span in primary] == [
             "unknown_tool",
             *(["execute_external_api_query"] * 3),
-            "run_sql_query",
+            "run_local_sql_query",
             "unknown_tool",
         ]
         for index in (1, 2, 3):

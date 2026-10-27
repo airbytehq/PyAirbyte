@@ -406,7 +406,7 @@ class ExternalSearchResult(BaseModel):
         if not self.metadata and not self.errors:
             collected.append(
                 "No index matched this search type and stream selection, so empty results "
-                "do not mean there are no matches. Call `get_cloud_search_status` to see "
+                "do not mean there are no matches. Call `get_search_index_status` to see "
                 "which streams have which index types."
             )
         self.warnings = [

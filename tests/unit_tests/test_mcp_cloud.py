@@ -250,19 +250,19 @@ class _CloudWorkspace:
     "tool,limit_key,extra_kwargs",
     [
         pytest.param(
-            cloud_mcp.list_cloud_connectors,
+            cloud_mcp.list_connectors,
             "sources",
             {"connector_type": ConnectorType.SOURCE},
             id="sources",
         ),
         pytest.param(
-            cloud_mcp.list_cloud_connectors,
+            cloud_mcp.list_connectors,
             "destinations",
             {"connector_type": ConnectorType.DESTINATION},
             id="destinations",
         ),
         pytest.param(
-            cloud_mcp.list_cloud_connections,
+            cloud_mcp.list_connections,
             "connections",
             {"with_connection_status": False, "failing_connections_only": False},
             id="connections",
@@ -299,21 +299,21 @@ def test_mcp_cloud_list_tools_pass_limit_to_workspace(
     "tool,limit_key,forwarded_limit,extra_kwargs",
     [
         pytest.param(
-            cloud_mcp.list_cloud_connectors,
+            cloud_mcp.list_connectors,
             "sources",
             1,
             {"connector_type": ConnectorType.SOURCE},
             id="sources",
         ),
         pytest.param(
-            cloud_mcp.list_cloud_connectors,
+            cloud_mcp.list_connectors,
             "destinations",
             1,
             {"connector_type": ConnectorType.DESTINATION},
             id="destinations",
         ),
         pytest.param(
-            cloud_mcp.list_cloud_connections,
+            cloud_mcp.list_connections,
             "connections",
             None,
             {"with_connection_status": False, "failing_connections_only": False},
@@ -367,7 +367,7 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
         lambda ctx, workspace_id=None: workspace,
     )
 
-    results = cloud_mcp.list_cloud_connections(
+    results = cloud_mcp.list_connections(
         ctx=cast(Context, object()),
         workspace_id="workspace-id",
         name_contains=None,
@@ -441,7 +441,7 @@ def test_mcp_cloud_connector_checks_map_results(
         lambda ctx, workspace_id=None: workspace,
     )
 
-    result = cloud_mcp.check_cloud_connector(
+    result = cloud_mcp.check_connector(
         ctx=cast(Context, object()),
         connector_id=connector_id,
         connector_type=explicit_type,
@@ -480,7 +480,7 @@ def test_cancel_cloud_sync_returns_cancelled_job(
 
     result = cast(
         SyncJobResult,
-        cloud_mcp.cancel_cloud_sync(
+        cloud_mcp.cancel_connection_sync(
             ctx=cast(Context, object()),
             connection_id="connection-id",
             job_id=42,
@@ -515,7 +515,7 @@ def test_cancel_cloud_sync_forwards_missing_job_id(
         lambda ctx, workspace_id=None: workspace,
     )
 
-    cloud_mcp.cancel_cloud_sync(
+    cloud_mcp.cancel_connection_sync(
         ctx=cast(Context, object()),
         connection_id="connection-id",
         job_id=None,
@@ -566,7 +566,7 @@ def test_get_default_cloud_context_returns_context_model(
 
     monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
 
-    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+    result = cloud_mcp.get_default_workspace_context(cast(Context, object()))
 
     assert result.user_id == "user-id"
     assert result.member_organizations[0].organization_id == "organization-id"
@@ -614,7 +614,7 @@ def test_get_default_cloud_context_flags_unverified_default_workspace(
 
     monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
 
-    result = cloud_mcp.get_default_cloud_context(cast(Context, object()))
+    result = cloud_mcp.get_default_workspace_context(cast(Context, object()))
 
     assert result.message.startswith(
         "Default workspace ID deleted-workspace could not be verified "
@@ -643,9 +643,7 @@ def test_describe_cloud_workspace_includes_parent_organization(
         "get_workspace",
         lambda **_: SimpleNamespace(workspace_id="workspace-id", name="Workspace"),
     )
-    result = cloud_mcp.describe_cloud_workspace(
-        cast(Context, object()), workspace_id=None
-    )
+    result = cloud_mcp.describe_workspace(cast(Context, object()), workspace_id=None)
     assert result.organization_id == "org-id"
     assert result.organization_name == "Organization"
 
@@ -668,9 +666,7 @@ def test_describe_cloud_workspace_allows_missing_parent_organization(
         "get_workspace",
         lambda **_: SimpleNamespace(workspace_id="workspace-id", name="Workspace"),
     )
-    result = cloud_mcp.describe_cloud_workspace(
-        cast(Context, object()), workspace_id=None
-    )
+    result = cloud_mcp.describe_workspace(cast(Context, object()), workspace_id=None)
     assert result.organization_id is None
     assert result.organization_name is None
 
@@ -692,7 +688,7 @@ def test_get_cloud_organization_billing_status_returns_billing_info(
         "_get_cloud_client",
         lambda _: SimpleNamespace(get_organization=lambda **_: organization),
     )
-    result = cloud_mcp.get_cloud_organization_billing_status(
+    result = cloud_mcp.get_organization_billing_status(
         cast(Context, object()), organization_id=None, organization_name=None
     )
     assert result.billing_info_available is True
@@ -717,7 +713,7 @@ def test_get_cloud_organization_billing_status_handles_permission_error(
         "_get_cloud_client",
         lambda _: SimpleNamespace(get_organization=lambda **_: organization),
     )
-    result = cloud_mcp.get_cloud_organization_billing_status(
+    result = cloud_mcp.get_organization_billing_status(
         cast(Context, object()), organization_id=None, organization_name=None
     )
     assert result.billing_info_available is False
@@ -741,7 +737,7 @@ def test_describe_cloud_organization_excludes_billing_fields(
         "_get_cloud_client",
         lambda _: SimpleNamespace(get_organization=lambda **_: organization),
     )
-    result = cloud_mcp.describe_cloud_organization(
+    result = cloud_mcp.describe_organization(
         cast(Context, object()), organization_id=None, organization_name=None
     )
     assert result.id == "org-id"
@@ -782,7 +778,7 @@ def test_set_default_cloud_workspace_returns_update_result(
 
     monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
 
-    result = cloud_mcp.set_default_cloud_workspace(
+    result = cloud_mcp.set_default_workspace(
         cast(Context, object()),
         user_email="user@example.com",
         workspace_id="workspace-id",
@@ -820,7 +816,7 @@ def test_set_default_cloud_workspace_does_not_forget_cache_when_client_fails(
     monkeypatch.setattr(cloud_mcp, "_get_cloud_client", lambda _: ContextClient())
 
     with pytest.raises(RuntimeError, match="client failed"):
-        cloud_mcp.set_default_cloud_workspace(
+        cloud_mcp.set_default_workspace(
             cast(Context, object()),
             user_email="user@example.com",
             workspace_id="workspace-id",
@@ -834,7 +830,7 @@ def test_set_default_cloud_workspace_does_not_forget_cache_when_client_fails(
     [
         pytest.param(
             functools.partial(
-                cloud_mcp.permanently_delete_cloud_connector,
+                cloud_mcp.permanently_delete_connector,
                 connector_type=ConnectorType.SOURCE,
             ),
             "connector_id",
@@ -844,7 +840,7 @@ def test_set_default_cloud_workspace_does_not_forget_cache_when_client_fails(
         ),
         pytest.param(
             functools.partial(
-                cloud_mcp.permanently_delete_cloud_connector,
+                cloud_mcp.permanently_delete_connector,
                 connector_type=ConnectorType.DESTINATION,
             ),
             "connector_id",
@@ -853,7 +849,7 @@ def test_set_default_cloud_workspace_does_not_forget_cache_when_client_fails(
             id="destination",
         ),
         pytest.param(
-            cloud_mcp.permanently_delete_cloud_connection,
+            cloud_mcp.permanently_delete_connection,
             "connection_id",
             "get_connection",
             "permanently_delete_connection",
@@ -953,7 +949,7 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
 
     if in_use:
         with pytest.raises(AirbyteConnectorInUseError) as exc_info:
-            cloud_mcp.permanently_delete_cloud_connector(
+            cloud_mcp.permanently_delete_connector(
                 cast(Context, object()),
                 connector_id="connector-id",
                 name="delete-me connector",
@@ -963,7 +959,7 @@ def test_permanently_delete_cloud_connector_surfaces_library_behavior(
 
         assert exc_info.value is original_error
     else:
-        result = cloud_mcp.permanently_delete_cloud_connector(
+        result = cloud_mcp.permanently_delete_connector(
             cast(Context, object()),
             connector_id="connector-id",
             name="delete-me connector",
@@ -1006,7 +1002,7 @@ def test_permanently_delete_cloud_connector_respects_delete_guard_setting(
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
-    result = cloud_mcp.permanently_delete_cloud_connector(
+    result = cloud_mcp.permanently_delete_connector(
         cast(Context, object()),
         connector_id="connector-id",
         name="delete-me connector",
@@ -1028,12 +1024,8 @@ def test_permanently_delete_cloud_connector_respects_delete_guard_setting(
             cloud_mcp.permanently_delete_custom_source_definition,
             id="custom-source-definition",
         ),
-        pytest.param(
-            cloud_mcp.permanently_delete_cloud_connector, id="cloud-connector"
-        ),
-        pytest.param(
-            cloud_mcp.permanently_delete_cloud_connection, id="cloud-connection"
-        ),
+        pytest.param(cloud_mcp.permanently_delete_connector, id="cloud-connector"),
+        pytest.param(cloud_mcp.permanently_delete_connection, id="cloud-connection"),
     ],
 )
 def test_delete_tools_include_shared_name_guard_tip(
@@ -1084,7 +1076,7 @@ def test_list_cloud_sync_jobs_includes_duration_and_last_updated_at(
     )
     _patch_sync_status_workspace(monkeypatch, connection)
 
-    result = cloud_mcp.list_cloud_sync_jobs(
+    result = cloud_mcp.list_connection_sync_jobs(
         ctx=cast(Context, object()),
         connection_id="connection-1",
         workspace_id=None,
@@ -1116,7 +1108,7 @@ def test_get_cloud_sync_status_includes_duration_and_last_updated_at(
     connection = SimpleNamespace(get_sync_result=MagicMock(return_value=sync_result))
     _patch_sync_status_workspace(monkeypatch, connection)
 
-    result = cloud_mcp.get_cloud_sync_status(
+    result = cloud_mcp.get_connection_sync_status(
         ctx=cast(Context, object()),
         connection_id="connection-1",
         job_id=42,
@@ -1176,7 +1168,7 @@ def test_get_cloud_sync_status_surfaces_library_errors(
     _patch_sync_status_workspace(monkeypatch, connection)
 
     with pytest.raises(AirbyteCloudError) as exc_info:
-        cloud_mcp.get_cloud_sync_status(
+        cloud_mcp.get_connection_sync_status(
             cast(Context, object()),
             connection_id="connection-1",
             job_id=42,
@@ -1201,7 +1193,7 @@ def test_get_cloud_sync_logs_without_jobs_explains_no_syncs_yet(
     _patch_sync_status_workspace(monkeypatch, connection)
 
     with pytest.raises(AirbyteMissingResourceError) as exc_info:
-        cloud_mcp.get_cloud_sync_logs(
+        cloud_mcp.get_connection_sync_logs(
             cast(Context, object()),
             connection_id="connection-1",
             job_id=None,
@@ -1212,10 +1204,10 @@ def test_get_cloud_sync_logs_without_jobs_explains_no_syncs_yet(
         )
 
     assert "Connection 'connection-1' has no sync jobs yet." in str(exc_info.value)
-    assert "run_cloud_sync" in (exc_info.value.guidance or "")
+    assert "run_connection_sync" in (exc_info.value.guidance or "")
 
     with pytest.raises(AirbyteMissingResourceError) as explicit_exc_info:
-        cloud_mcp.get_cloud_sync_logs(
+        cloud_mcp.get_connection_sync_logs(
             cast(Context, object()),
             connection_id="connection-1",
             job_id=42,
@@ -1246,7 +1238,7 @@ def test_set_cloud_connection_selected_streams_surfaces_library_error(
     monkeypatch.setattr(cloud_mcp, "check_guid_created_in_session", lambda _: None)
 
     with pytest.raises(AirbyteLibInputError) as exc_info:
-        cloud_mcp.set_cloud_connection_selected_streams(
+        cloud_mcp.set_connection_selected_streams(
             cast(Context, object()),
             connection_id="connection-1",
             stream_names=["missing", "orders"],
@@ -1286,7 +1278,7 @@ def test_deploy_connector_to_cloud_routes_by_type(
     registry_getter: str,
     explicit_type: bool,
 ) -> None:
-    """Verify `deploy_connector_to_cloud` dispatches to the matching getter and deploy path."""
+    """Verify `deploy_connector` dispatches to the matching getter and deploy path."""
     connector_cls = Source if connector_type == ConnectorType.SOURCE else Destination
     connector = MagicMock(spec=connector_cls)
     connector.config_spec = {"type": "object"}
@@ -1318,7 +1310,7 @@ def test_deploy_connector_to_cloud_routes_by_type(
     monkeypatch.setattr(
         cloud_mcp, "register_guid_created_in_session", registered.append
     )
-    result = cloud_mcp.deploy_connector_to_cloud(
+    result = cloud_mcp.deploy_connector(
         cast(Context, object()),
         name="My Connector",
         connector_name=connector_name,
@@ -1343,7 +1335,7 @@ def test_deploy_connector_to_cloud_routes_by_type(
 def test_deploy_connector_to_cloud_rejects_unknown_prefix() -> None:
     """Verify a non-canonical name without an explicit type raises `AirbyteLibInputError`."""
     with pytest.raises(AirbyteLibInputError, match="Cannot infer connector type"):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             cast(Context, object()),
             name="My Connector",
             connector_name="faker",
@@ -1389,7 +1381,7 @@ def test_deploy_connector_to_cloud_supports_custom_definition(
         cloud_mcp, "register_guid_created_in_session", registered.append
     )
 
-    result = cloud_mcp.deploy_connector_to_cloud(
+    result = cloud_mcp.deploy_connector(
         cast(Context, object()),
         name="My custom source",
         connector_name=None,
@@ -1437,7 +1429,7 @@ def test_deploy_connector_to_cloud_requires_one_definition_selector(
 ) -> None:
     """Exactly one of a registry connector name or custom definition ID is required."""
     with pytest.raises(AirbyteLibInputError, match="exactly one"):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             cast(Context, object()),
             name="My connector",
             connector_name=connector_name,
@@ -1453,7 +1445,7 @@ def test_deploy_connector_to_cloud_requires_one_definition_selector(
 def test_deploy_connector_to_cloud_rejects_custom_destination() -> None:
     """Custom source definitions cannot be deployed as destinations."""
     with pytest.raises(AirbyteLibInputError, match="only be deployed as sources"):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             cast(Context, object()),
             name="My connector",
             connector_name=None,
@@ -1491,7 +1483,7 @@ def test_deploy_connector_to_cloud_deferred_custom_definition_skips_registry(
         cloud_mcp, "register_guid_created_in_session", registered.append
     )
 
-    result = cloud_mcp.deploy_connector_to_cloud(
+    result = cloud_mcp.deploy_connector(
         cast(Context, object()),
         name="My custom source",
         connector_name=None,
@@ -1592,7 +1584,7 @@ def test_create_connection_on_cloud_uses_explicit_streams(
         cloud_mcp, "get_connector_metadata_by_definition_id", fail_lookup
     )
 
-    result = cloud_mcp.create_connection_on_cloud(
+    result = cloud_mcp.create_connection(
         cast(Context, object()),
         connection_name="My Connection",
         source_id="source-id",
@@ -1628,7 +1620,7 @@ def test_create_connection_on_cloud_defaults_to_suggested_streams(
         lambda definition_id: metadata if definition_id == "definition-id" else None,
     )
 
-    result = cloud_mcp.create_connection_on_cloud(
+    result = cloud_mcp.create_connection(
         cast(Context, object()),
         connection_name="My Connection",
         source_id="source-id",
@@ -1664,7 +1656,7 @@ def test_create_connection_on_cloud_without_suggested_streams_raises(
     )
 
     with pytest.raises(AirbyteLibInputError, match="suggested streams"):
-        cloud_mcp.create_connection_on_cloud(
+        cloud_mcp.create_connection(
             cast(Context, object()),
             connection_name="My Connection",
             source_id="source-id",
@@ -1686,7 +1678,7 @@ def test_create_connection_on_cloud_unknown_destination_names_arg(
     )
 
     with pytest.raises(AirbyteMissingResourceError, match="`destination_id`"):
-        cloud_mcp.create_connection_on_cloud(
+        cloud_mcp.create_connection(
             cast(Context, object()),
             connection_name="My Connection",
             source_id="source-id",
@@ -1708,7 +1700,7 @@ def test_create_connection_on_cloud_unknown_source_names_arg(
     )
 
     with pytest.raises(AirbyteMissingResourceError, match="`source_id`"):
-        cloud_mcp.create_connection_on_cloud(
+        cloud_mcp.create_connection(
             cast(Context, object()),
             connection_name="My Connection",
             source_id="source-id",
@@ -1787,7 +1779,7 @@ def test_list_cloud_connectors_returns_both_kinds(
     """The combined tool maps each connector's type and enabled features."""
     _patch_combined_listing(monkeypatch)
 
-    results = cloud_mcp.list_cloud_connectors(
+    results = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -1801,7 +1793,7 @@ def test_list_cloud_connectors_returns_both_kinds(
     assert results[0].enabled_features == cloud_mcp.FEATURES_NOT_CHECKED
     assert results[1].enabled_features == cloud_mcp.FEATURES_NOT_CHECKED
 
-    resolved = cloud_mcp.list_cloud_connectors(
+    resolved = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -1824,7 +1816,7 @@ def test_list_cloud_connectors_filters(
     """`connector_type` and `feature_filter` narrow the combined listing."""
     workspace = _patch_combined_listing(monkeypatch)
 
-    results = cloud_mcp.list_cloud_connectors(
+    results = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         connector_type=ConnectorType.DESTINATION,
@@ -2442,7 +2434,7 @@ def test_get_cloud_search_status_filters_by_stream_name(
     connector = _RecordingExecuteConnector()
     workspace = _execute_workspace(monkeypatch, connector)
 
-    result = cloud_mcp.get_cloud_search_status(
+    result = cloud_mcp.get_search_index_status(
         None,
         connector_id="destination-1",
         stream_name=stream_name,
@@ -2493,7 +2485,7 @@ def test_get_cloud_search_status_namespace_filter_and_miss_warning(
     connector = _RecordingExecuteConnector()
     _execute_workspace(monkeypatch, connector)
 
-    result = cloud_mcp.get_cloud_search_status(
+    result = cloud_mcp.get_search_index_status(
         None,
         connector_id="destination-1",
         stream_name=stream_name,
@@ -2523,7 +2515,7 @@ def test_get_cloud_search_status_miss_warning_caps_stream_list(
     monkeypatch.setattr(connector, "get_search_status", lambda: status)
     _execute_workspace(monkeypatch, connector)
 
-    result = cloud_mcp.get_cloud_search_status(
+    result = cloud_mcp.get_search_index_status(
         None,
         connector_id="source-1",
         stream_name="missing",
@@ -2570,7 +2562,7 @@ def test_search_tools_use_connector_type_without_probe(
         prompt="refund requests",
         workspace_id=None,
     )
-    cloud_mcp.get_cloud_search_status(
+    cloud_mcp.get_search_index_status(
         None,
         connector_id="connector-1",
         connector_type=connector_type,
@@ -2644,7 +2636,7 @@ def test_search_tools_return_search_disabled_errors(
         prompt="refund requests",
         workspace_id=None,
     )
-    status = cloud_mcp.get_cloud_search_status(
+    status = cloud_mcp.get_search_index_status(
         None,
         connector_id="source-1",
         stream_name="issues",
@@ -2655,8 +2647,8 @@ def test_search_tools_return_search_disabled_errors(
         expected_message,
         "Once search is enabled, the connector's synced data must be indexed before "
         "searches return results. New syncs are indexed as they run; data already in the "
-        "destination is indexed only after `request_cloud_search_index_backfill`. Call "
-        "`get_cloud_search_status` to check which streams are indexed and whether their "
+        "destination is indexed only after `request_search_index_backfill`. Call "
+        "`get_search_index_status` to check which streams are indexed and whether their "
         "backfill is complete.",
     ]
     assert search.errors == expected_errors
@@ -2693,7 +2685,7 @@ def test_search_disabled_errors_are_redacted(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize(
-    "tool_name", ["execute_external_search_query", "get_cloud_search_status"]
+    "tool_name", ["execute_external_search_query", "get_search_index_status"]
 )
 def test_search_tools_reraise_without_enablement_url(
     monkeypatch: pytest.MonkeyPatch,
@@ -2737,7 +2729,7 @@ def test_search_tools_are_always_advertised(
     else:
         monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, insiders_env)
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
-    assert {"execute_external_search_query", "get_cloud_search_status"} <= names
+    assert {"execute_external_search_query", "get_search_index_status"} <= names
 
 
 @pytest.mark.parametrize(
@@ -2784,7 +2776,7 @@ def _describe_details() -> CloudConnectorDetailsResult:
 def test_describe_cloud_connector_forwards_id_and_toggles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`describe_cloud_connector` forwards the ID and all `with_*` toggles."""
+    """`describe_connector` forwards the ID and all `with_*` toggles."""
     details = _describe_details()
     describe = MagicMock(return_value=details)
     monkeypatch.setattr(cloud_mcp, "_describe_cloud_connector", describe)
@@ -2795,7 +2787,7 @@ def test_describe_cloud_connector_forwards_id_and_toggles(
         cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
     )
 
-    result = cloud_mcp.describe_cloud_connector(
+    result = cloud_mcp.describe_connector(
         ctx=cast(Context, object()),
         connector_id="connector-1",
         workspace_id="workspace-1",
@@ -2849,7 +2841,7 @@ def test_describe_cloud_connector_explicit_type_skips_lookup(
         cloud_mcp, "_get_cloud_workspace", lambda *args, **kwargs: workspace
     )
 
-    result = cloud_mcp.describe_cloud_connector(
+    result = cloud_mcp.describe_connector(
         ctx=cast(Context, object()),
         connector_id="connector-1",
         connector_type=connector_type,
@@ -3097,7 +3089,7 @@ def test_describe_cloud_connection_includes_status_and_schedule(
     workspace = SimpleNamespace(get_connection=lambda **_: connection)
     monkeypatch.setattr(cloud_mcp, "_get_cloud_workspace", lambda *_args: workspace)
 
-    result = cloud_mcp.describe_cloud_connection(
+    result = cloud_mcp.describe_connection(
         cast(Context, object()),
         connection_id="connection-1",
         workspace_id=None,
@@ -3316,7 +3308,7 @@ def test_list_cloud_connectors_feature_filter_probe_failure_marks_unknown(
         ],
     )
 
-    results = cloud_mcp.list_cloud_connectors(
+    results = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -3361,7 +3353,7 @@ def test_list_cloud_connectors_feature_filter_connector_failure_keeps_probing(
         ],
     )
 
-    results = cloud_mcp.list_cloud_connectors(
+    results = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -3381,7 +3373,7 @@ def test_list_cloud_connectors_limit_must_be_positive(
 ) -> None:
     """`limit=0` raises `AirbyteLibInputError` before listing connectors."""
     with pytest.raises(AirbyteLibInputError, match="`limit` must be greater than 0"):
-        cloud_mcp.list_cloud_connectors(
+        cloud_mcp.list_connectors(
             None,
             workspace_id=None,
             name_contains=None,
@@ -3411,7 +3403,7 @@ def test_list_cloud_connectors_feature_filter_not_enabled_still_excluded(
         ],
     )
 
-    results = cloud_mcp.list_cloud_connectors(
+    results = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -3440,7 +3432,7 @@ def test_list_cloud_connectors_feature_filter_limit_counts_unknown(
         ],
     )
 
-    results = cloud_mcp.list_cloud_connectors(
+    results = cloud_mcp.list_connectors(
         None,
         workspace_id=None,
         name_contains=None,
@@ -3584,7 +3576,7 @@ def test_successful_results_redact_caught_cloud_error_credentials(
     @server.tool
     def caught_error_result() -> dict[str, Any]:
         if result_path == "billing":
-            return cloud_mcp.get_cloud_organization_billing_status(
+            return cloud_mcp.get_organization_billing_status(
                 cast(Context, object()), organization_id=None, organization_name=None
             ).model_dump()
         if result_path == "feature-warning":
@@ -3673,7 +3665,7 @@ def test_request_cloud_search_index_backfill_forwards_args(
 ) -> None:
     workspace = _backfill_workspace(monkeypatch)
 
-    cloud_mcp.request_cloud_search_index_backfill(
+    cloud_mcp.request_search_index_backfill(
         None,
         connection_id="connection-1",
         streams=streams,
@@ -3695,7 +3687,7 @@ def test_request_cloud_search_index_backfill_rejects_invalid_start_time(
     workspace = _backfill_workspace(monkeypatch)
 
     with pytest.raises(AirbyteLibInputError, match="ISO 8601"):
-        cloud_mcp.request_cloud_search_index_backfill(
+        cloud_mcp.request_search_index_backfill(
             None,
             connection_id="connection-1",
             backfill_start_time="last tuesday",
@@ -3708,15 +3700,13 @@ def test_request_cloud_search_index_backfill_rejects_invalid_start_time(
 def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
     """Requesting a backfill queues index work, so the tool is a closed-world write."""
     (annotations,) = [
-        a
-        for f, a in _REGISTERED_TOOLS
-        if f is cloud_mcp.request_cloud_search_index_backfill
+        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.request_search_index_backfill
     ]
     assert annotations["readOnlyHint"] is False
     assert annotations["destructiveHint"] is False
     assert annotations["idempotentHint"] is False
     assert annotations["openWorldHint"] is False
-    policy = _TOOL_POLICIES["request_cloud_search_index_backfill"]
+    policy = _TOOL_POLICIES["request_search_index_backfill"]
     assert policy.external_access is True
     assert policy.pipeline_change is False
 
@@ -3894,7 +3884,7 @@ def test_deploy_noop_destination_to_cloud_uses_destination_name(
     monkeypatch.setattr(cloud_mcp, "get_noop_destination", object)
     monkeypatch.setattr(cloud_mcp, "register_guid_created_in_session", lambda _: None)
 
-    result = cloud_mcp.deploy_noop_destination_to_cloud(
+    result = cloud_mcp.deploy_noop_destination(
         cast(Context, object()),
         destination_name="my-noop",
         workspace_id=None,
@@ -3905,7 +3895,7 @@ def test_deploy_noop_destination_to_cloud_uses_destination_name(
     assert deployed["unique"] is False
     assert "noop-id" in result
 
-    default_result = cloud_mcp.deploy_noop_destination_to_cloud(
+    default_result = cloud_mcp.deploy_noop_destination(
         cast(Context, object()), workspace_id=None
     )
     assert deployed["name"] == "No-op Destination"
@@ -3915,7 +3905,7 @@ def test_deploy_noop_destination_to_cloud_uses_destination_name(
 
 def test_deploy_noop_destination_to_cloud_params_have_descriptions() -> None:
     """Verify every No-op deploy tool parameter exposes a schema description."""
-    signature = inspect.signature(cloud_mcp.deploy_noop_destination_to_cloud)
+    signature = inspect.signature(cloud_mcp.deploy_noop_destination)
     for param_name in ("destination_name", "workspace_id", "unique"):
         annotation = signature.parameters[param_name].annotation
         field_infos = [

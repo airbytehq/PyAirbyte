@@ -122,15 +122,15 @@ The easiest way to test Airbyte Replication MCP tools during development is usin
 ```bash
 poe mcp-tool-test <tool_name> '<json_args>'
 
-poe mcp-tool-test list_connectors '{}'
+poe mcp-tool-test list_connector_definitions '{}'
 poe mcp-tool-test get_config_spec '{"connector_name": "source-pokeapi"}'
 poe mcp-tool-test validate_config \
     '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 poe mcp-tool-test run_sync \
     '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
-poe mcp-tool-test get_default_cloud_context '{}'
-poe mcp-tool-test list_cloud_connections '{}'
+poe mcp-tool-test get_default_workspace_context '{}'
+poe mcp-tool-test list_connections '{}'
 ```
 
 You can also invoke the server using one of these helper tasks:
@@ -174,7 +174,7 @@ PyAirbyte server that is:
 Inside each module page, primitives are grouped by kind (`## Tools`,
 `## Prompts`, `## Resources`), and each primitive has an HTML anchor
 (`<a id="name"></a>`) above its H3 so links like
-`cloud.md#deploy_connector_to_cloud` resolve in both pdoc and Docusaurus.
+`cloud.md#deploy_connector` resolve in both pdoc and Docusaurus.
 Regenerate after any change to MCP tool signatures, descriptions, or schemas.
 
 ## Removing Environment Variables and MCP Headers
