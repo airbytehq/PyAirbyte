@@ -771,7 +771,7 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     connector_type: str,
 ) -> None:
     """Deferred MCP deploys return the settings link and next-step guidance."""
-    raw = cloud_mcp.deploy_connector_to_cloud(
+    raw = cloud_mcp.deploy_connector(
         ctx=cast(Context, object()),
         name="My connector",
         connector_name=f"{connector_type}-faker",
@@ -787,7 +787,7 @@ def test_mcp_deploy_with_deferred_credentials_returns_handoff(
     assert result.connector_type == connector_type
     assert result.workspace_id == WORKSPACE_ID
     assert result.settings_url.endswith("/settings")
-    assert "check_cloud_connector" in result.guidance
+    assert "check_connector" in result.guidance
     assert "`workspace_id`" in result.guidance
     assert "409 actor-not-ready" in result.guidance
     assert "creating a connection" in result.guidance
@@ -816,7 +816,7 @@ def test_mcp_deploy_deferred_registers_unacknowledged_actor_for_cleanup(
     monkeypatch.setattr(workspace_like, "deploy_source", _unacknowledged)
 
     with pytest.raises(exc.AirbyteDeferredSetupError):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             ctx=cast(Context, object()),
             name="My connector",
             connector_name="source-faker",
@@ -835,7 +835,7 @@ def test_mcp_deploy_deferred_rejects_connector_type_mismatch(
 ) -> None:
     """An explicit `connector_type` must agree with the registry's type for the connector."""
     with pytest.raises(exc.AirbyteLibInputError, match="not a source connector"):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             ctx=cast(Context, object()),
             name="My connector",
             connector_name="destination-faker",
@@ -867,7 +867,7 @@ def test_mcp_deploy_deferred_rejects_plaintext_credentials(
     monkeypatch.setattr(workspace_like, "deploy_source", _validated_deploy)
 
     with pytest.raises(exc.AirbyteLibInputError, match="credential values"):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             ctx=cast(Context, object()),
             name="My connector",
             connector_name="source-faker",
@@ -881,9 +881,7 @@ def test_mcp_deploy_deferred_rejects_plaintext_credentials(
 
 def test_mcp_check_cloud_connector_is_read_only_and_idempotent() -> None:
     """The check only reads the connector's check result; it mutates nothing."""
-    (annotations,) = [
-        a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_cloud_connector
-    ]
+    (annotations,) = [a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.check_connector]
     assert annotations["readOnlyHint"] is True
     assert annotations["idempotentHint"] is True
 
@@ -893,7 +891,7 @@ def test_mcp_deploy_deferred_rejects_config_secret_name(
 ) -> None:
     """Server-side secrets cannot be combined with deferred credentials."""
     with pytest.raises(exc.AirbyteLibInputError, match="config_secret_name"):
-        cloud_mcp.deploy_connector_to_cloud(
+        cloud_mcp.deploy_connector(
             ctx=cast(Context, object()),
             name="My connector",
             connector_name="source-faker",

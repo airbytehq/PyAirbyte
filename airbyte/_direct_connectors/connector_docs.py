@@ -6,7 +6,7 @@ Three paths serve destination docs:
 - `CloudWorkspace.get_agent_skill_docs` / `CloudConnector.read_agent_skill_docs`
   (MCP tool `get_external_access_skill_docs`) read destination skill docs straight from
   the Agents API, with no local enrichment.
-- `CloudConnector.get_direct_access_guidance` (MCP tool `describe_cloud_connector`
+- `CloudConnector.get_direct_access_guidance` (MCP tool `describe_connector`
   with `with_direct_access_guidance=True`) prepends a short local intro --
   location, table naming, and dialect notes -- to the server-served destination
   docs overview.
@@ -17,7 +17,7 @@ Three paths serve destination docs:
 
 This module also builds `_DirectConnectorInspectResult` payloads locally from the
 Cloud workspace objects and summarizes the connections touching a connector for
-the `describe_cloud_connector` MCP tool.
+the `describe_connector` MCP tool.
 """
 
 from __future__ import annotations

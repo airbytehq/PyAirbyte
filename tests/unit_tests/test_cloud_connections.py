@@ -439,7 +439,7 @@ def test_get_sync_result_validates_job_id(
         assert exc_info.value.resource_type == "sync job"
         assert exc_info.value.resource_name_or_id == "42"
         assert exc_info.value.guidance == (
-            "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+            "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
         )
         assert exc_info.value.context == {
             "connection_id": "connection-id",
@@ -460,7 +460,7 @@ def test_get_sync_result_validates_job_id(
         assert exc_info.value.resource_type == "sync job"
         assert exc_info.value.resource_name_or_id == "42"
         assert exc_info.value.guidance == (
-            "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+            "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
         )
         assert exc_info.value.context == {
             "connection_id": "connection-id",

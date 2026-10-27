@@ -308,12 +308,12 @@ class AirbyteMissingWorkspaceContextError(AirbyteLibInputError):
         if is_mcp_mode():
             self.guidance = (
                 "The authenticated user's default workspace was checked and none was "
-                "available. `list_cloud_workspaces` returns direct workspace memberships "
+                "available. `list_workspaces` returns direct workspace memberships "
                 "by default; pass `organization_id`/`organization_name` or a broader "
                 "`privilege_scope` for organization-wide discovery, or call "
-                "`list_cloud_organizations` to search organizations by name. If exactly "
+                "`list_organizations` to search organizations by name. If exactly "
                 "one workspace is found, use it; otherwise ask the user to choose. Call "
-                "`get_default_cloud_context` to inspect your memberships."
+                "`get_default_workspace_context` to inspect your memberships."
             )
         else:
             self.guidance = (

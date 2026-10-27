@@ -1036,9 +1036,7 @@ def test_get_default_context_for_user_is_bounded_to_permission_derived_scope() -
     assert context.member_organizations_truncated is False
     assert context.member_workspaces_truncated is False
     assert len(context.discovery_hints) == 3
-    assert any(
-        "set_default_cloud_workspace" in hint for hint in context.discovery_hints
-    )
+    assert any("set_default_workspace" in hint for hint in context.discovery_hints)
 
 
 def test_get_default_context_for_user_truncates_organization_memberships() -> None:
@@ -1152,7 +1150,7 @@ def test_get_default_context_for_user_hints_setter_when_stored_default_missing()
     assert context.default_workspace_id == "workspace-1"
     assert context.discovery_hints == [
         "No default workspace is set. Use "
-        "set_default_cloud_workspace(user_email=<your email>, "
+        "set_default_workspace(user_email=<your email>, "
         "workspace_id=<id>) to durably set one; it applies to both MCP "
         "sessions and the Airbyte Cloud web app."
     ]
@@ -1168,7 +1166,7 @@ def test_get_default_context_for_user_verified_is_none_without_default() -> None
     assert context.default_workspace_verified is None
     assert context.discovery_hints == [
         "No default workspace is set. Use "
-        "set_default_cloud_workspace(user_email=<your email>, "
+        "set_default_workspace(user_email=<your email>, "
         "workspace_id=<id>) to durably set one; it applies to both MCP "
         "sessions and the Airbyte Cloud web app."
     ]
@@ -1203,7 +1201,7 @@ def test_get_default_context_for_user_configured_default_hint() -> None:
     assert context.discovery_hints == [
         "Your Airbyte user profile has no default workspace; this session "
         "uses the configured workspace configured-workspace. Use "
-        "set_default_cloud_workspace(user_email=<your email>, "
+        "set_default_workspace(user_email=<your email>, "
         "workspace_id=<id>) to set a durable default; it applies to "
         "both MCP sessions and the Airbyte Cloud web app."
     ]
@@ -1371,7 +1369,7 @@ def test_set_default_workspace_for_user_rejects_email_mismatch() -> None:
 
     assert "does not match the authenticated user" in str(exc_info.value)
     assert "user@example.com" in str(exc_info.value.context)
-    assert "get_default_cloud_context" in str(exc_info.value.guidance)
+    assert "get_default_workspace_context" in str(exc_info.value.guidance)
     get_workspace.assert_not_called()
     update_user.assert_not_called()
 

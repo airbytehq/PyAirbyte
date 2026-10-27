@@ -141,7 +141,7 @@ def _get_mcp_source(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def validate_connector_config(
+def validate_local_connector_config(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector to validate."),
@@ -231,7 +231,7 @@ def validate_connector_config(
     idempotent=True,
     requires_client_filesystem=True,
 )
-def list_connector_config_secrets(
+def list_local_connector_config_secrets(
     connector_name: Annotated[
         str,
         Field(description="The name of the connector."),
@@ -245,7 +245,7 @@ def list_connector_config_secrets(
     return the actual secret values.
     """
     raise_if_untrusted_execution_context(
-        "Listing connector config secrets (`list_connector_config_secrets`)"
+        "Listing connector config secrets (`list_local_connector_config_secrets`)"
     )
     secrets_names: list[str] = []
     for secrets_mgr in _get_secret_sources():
@@ -265,13 +265,15 @@ def list_connector_config_secrets(
     idempotent=True,
     requires_client_filesystem=True,
 )
-def list_dotenv_secrets() -> dict[str, list[str]]:
+def list_local_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
 
     This returns a dictionary mapping the .env file name to a list of environment
     variable names. The values of the environment variables are not returned.
     """
-    raise_if_untrusted_execution_context("Listing dotenv secret names (`list_dotenv_secrets`)")
+    raise_if_untrusted_execution_context(
+        "Listing dotenv secret names (`list_local_dotenv_secrets`)"
+    )
     result: dict[str, list[str]] = {}
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, DotenvSecretManager) and secrets_mgr.dotenv_path:
@@ -286,7 +288,7 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def list_source_streams(
+def list_local_source_streams(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -357,7 +359,7 @@ def list_source_streams(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def get_source_stream_json_schema(
+def get_local_source_stream_json_schema(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -429,7 +431,7 @@ def get_source_stream_json_schema(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def read_source_stream_records(
+def read_local_source_stream_records(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -531,7 +533,7 @@ def read_source_stream_records(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def get_stream_previews(
+def get_local_stream_previews(
     source_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -655,7 +657,7 @@ def get_stream_previews(
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
-def sync_source_to_cache(
+def sync_local_source_to_cache(
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -769,9 +771,11 @@ class CachedDatasetInfo(BaseModel):
     idempotent=True,
     requires_client_filesystem=True,
 )
-def list_cached_streams() -> list[CachedDatasetInfo]:
+def list_local_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
-    raise_if_untrusted_execution_context("Reading the local default cache (`list_cached_streams`)")
+    raise_if_untrusted_execution_context(
+        "Reading the local default cache (`list_local_cached_streams`)"
+    )
     cache: DuckDBCache = get_default_cache()
     result = [
         CachedDatasetInfo(
@@ -790,10 +794,10 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     idempotent=True,
     requires_client_filesystem=True,
 )
-def describe_default_cache() -> dict[str, Any]:
+def describe_local_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
     raise_if_untrusted_execution_context(
-        "Describing the local default cache (`describe_default_cache`)"
+        "Describing the local default cache (`describe_local_default_cache`)"
     )
     cache = get_default_cache()
     return {
@@ -844,7 +848,7 @@ def _is_safe_sql(sql_query: str) -> bool:
     idempotent=True,
     requires_client_filesystem=True,
 )
-def run_sql_query(
+def run_local_sql_query(
     sql_query: Annotated[
         str,
         Field(description="The SQL query to execute."),
@@ -860,7 +864,7 @@ def run_sql_query(
     """Run a SQL query against the default cache.
 
     The dialect of SQL should match the dialect of the default cache.
-    Use `describe_default_cache` to see the cache type.
+    Use `describe_local_default_cache` to see the cache type.
 
     For DuckDB-type caches:
     - Use `SHOW TABLES` to list all tables.
@@ -868,7 +872,7 @@ def run_sql_query(
 
     For security reasons, only read-only operations are allowed: SELECT, DESCRIBE, SHOW, EXPLAIN.
     """
-    raise_if_untrusted_execution_context("Querying the local default cache (`run_sql_query`)")
+    raise_if_untrusted_execution_context("Querying the local default cache (`run_local_sql_query`)")
     # Check if the query is safe to execute
     if not _is_safe_sql(sql_query):
         return [
@@ -905,7 +909,7 @@ def run_sql_query(
     destructive=True,
     requires_client_filesystem=True,
 )
-def destination_smoke_test(  # noqa: PLR0913, PLR0917
+def run_local_destination_smoke_test(  # noqa: PLR0913, PLR0917
     destination_connector_name: Annotated[
         str,
         Field(
@@ -1028,7 +1032,9 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
     per-column null/non-null counts. Results are included in the response
     as `table_statistics` and `tables_not_found`.
     """
-    raise_if_untrusted_execution_context("Destination smoke test (`destination_smoke_test`)")
+    raise_if_untrusted_execution_context(
+        "Destination smoke test (`run_local_destination_smoke_test`)"
+    )
     # Resolve destination config
     config_dict = resolve_connector_config(
         config=config,

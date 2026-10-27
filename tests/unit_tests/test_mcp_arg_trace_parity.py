@@ -55,7 +55,7 @@ CALLS: dict[str, dict[str, object]] = {
         "streams": [{"name": SENTINEL}],
         "limit": 3,
     },
-    "list_cloud_connections": {"name_contains": SENTINEL, "limit": 5},
+    "list_connections": {"name_contains": SENTINEL, "limit": 5},
 }
 
 

@@ -214,7 +214,7 @@ class CloudWorkspace:
             raise exc.AirbyteLibInputError(
                 message="Workspace ID is required.",
                 guidance=(
-                    "Provide a workspace ID, or call `get_default_cloud_context` to discover "
+                    "Provide a workspace ID, or call `get_default_workspace_context` to discover "
                     "available workspaces."
                 ),
             )

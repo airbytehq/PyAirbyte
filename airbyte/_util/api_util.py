@@ -72,7 +72,7 @@ ACTOR_NOT_READY_MCP_GUIDANCE = (
     "This is expected right after creating a connector with `defer_credentials=True`. "
     "Don't retry yet. Ask the user to open the connector's settings page, complete "
     "authentication and any missing settings, then test and save. After they confirm, call "
-    "`check_cloud_connector`; once it succeeds, retry this call."
+    "`check_connector`; once it succeeds, retry this call."
 )
 ACTOR_NOT_READY_PYTHON_GUIDANCE = (
     "This is expected right after creating a connector as a draft. Don't retry yet. "

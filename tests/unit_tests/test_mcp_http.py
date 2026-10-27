@@ -29,7 +29,7 @@ from fastmcp_extensions.capability_tokens import decode_capability_token
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
 UI_TOOL_NAMES = {
-    "show_connectors_list",
+    "show_connector_definitions",
     "show_workspace_sync_status",
     "show_connection_sync_history",
 }

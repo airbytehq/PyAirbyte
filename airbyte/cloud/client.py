@@ -246,7 +246,7 @@ class CloudClient:
                 guidance=(
                     "No workspace was configured, and no default workspace could be resolved "
                     "for the authenticated user. Provide a workspace ID, or call "
-                    "`get_default_cloud_context` to discover your workspaces and organizations."
+                    "`get_default_workspace_context` to discover your workspaces and organizations."
                 ),
             )
 
@@ -907,13 +907,13 @@ class CloudClient:
         if any(permission.get("permissionType") == "instance_admin" for permission in permissions):
             discovery_hints.append(
                 "Instance-admin access may include every organization and workspace in the "
-                "instance. Use list_cloud_organizations(name_contains=...) or "
-                "list_cloud_workspaces(organization_id=...) to discover others."
+                "instance. Use list_organizations(name_contains=...) or "
+                "list_workspaces(organization_id=...) to discover others."
             )
         if membership_organization_ids:
             discovery_hints.append(
                 "Organization membership grants access to every workspace in those "
-                "organizations. Use list_cloud_workspaces(organization_id=<id>) to "
+                "organizations. Use list_workspaces(organization_id=<id>) to "
                 "discover workspaces."
             )
         if user is not None and not isinstance(user.get("defaultWorkspaceId"), str):
@@ -956,13 +956,13 @@ class CloudClient:
                 "Your Airbyte user profile has no default workspace; this "
                 "session uses the configured workspace "
                 f"{self.default_workspace_id}. Use "
-                "set_default_cloud_workspace(user_email=<your email>, "
+                "set_default_workspace(user_email=<your email>, "
                 "workspace_id=<id>) to set a durable default; it applies to "
                 "both MCP sessions and the Airbyte Cloud web app."
             )
         return (
             "No default workspace is set. Use "
-            "set_default_cloud_workspace(user_email=<your email>, "
+            "set_default_workspace(user_email=<your email>, "
             "workspace_id=<id>) to durably set one; it applies to both MCP "
             "sessions and the Airbyte Cloud web app."
         )
@@ -1008,7 +1008,7 @@ class CloudClient:
             raise exc.AirbyteLibInputError(
                 message=("The provided `user_email` does not match the authenticated user."),
                 guidance=(
-                    "Call get_default_cloud_context to see the authenticated user "
+                    "Call get_default_workspace_context to see the authenticated user "
                     "context, then pass that user's email."
                 ),
                 context={
@@ -1030,21 +1030,21 @@ class CloudClient:
         except exc.AirbyteMissingResourceError as error:
             raise exc.AirbyteLibInputError(
                 message=f"Workspace {workspace_id} was not found.",
-                guidance=("Call get_default_cloud_context to see your member workspaces."),
+                guidance=("Call get_default_workspace_context to see your member workspaces."),
                 context={"workspace_id": workspace_id},
             ) from error
         except exc.AirbyteCloudError as error:
             if (error.context or {}).get("status_code") == HTTPStatus.NOT_FOUND:
                 raise exc.AirbyteLibInputError(
                     message=f"Workspace {workspace_id} was not found.",
-                    guidance=("Call get_default_cloud_context to see your member workspaces."),
+                    guidance=("Call get_default_workspace_context to see your member workspaces."),
                     context={"workspace_id": workspace_id},
                 ) from error
             raise
         if workspace.get("tombstone"):
             raise exc.AirbyteLibInputError(
                 message=f"Workspace {workspace_id} is tombstoned (deleted).",
-                guidance=("Call get_default_cloud_context to see your member workspaces."),
+                guidance=("Call get_default_workspace_context to see your member workspaces."),
                 context={"workspace_id": workspace_id},
             )
         workspace_organization_id = workspace.get("organizationId")
@@ -1063,7 +1063,7 @@ class CloudClient:
                     f"or its organization {workspace_organization_id}."
                 ),
                 guidance=(
-                    "Call get_default_cloud_context to see your member_workspaces "
+                    "Call get_default_workspace_context to see your member_workspaces "
                     "and member_organizations, then choose a workspace you are a "
                     "member of."
                 ),
@@ -1173,7 +1173,7 @@ class CloudClient:
                 "with one of these "
                 "organization IDs "
                 f"(showing {len(candidates)} of {len(organization_ids)}): {candidate_details}. "
-                "Call `get_default_cloud_context` to see your memberships."
+                "Call `get_default_workspace_context` to see your memberships."
             ),
             context={
                 "organization_ids": list(organization_ids),
@@ -1350,7 +1350,7 @@ class CloudClient:
             raise exc.AirbyteLibInputError(
                 message="Organization ID or organization name is required.",
                 guidance=(
-                    "Provide an organization ID or name, or call `get_default_cloud_context` "
+                    "Provide an organization ID or name, or call `get_default_workspace_context` "
                     "to discover your organizations."
                 ),
             )
