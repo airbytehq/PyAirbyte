@@ -9,8 +9,8 @@
 ## MCP UI Development
 
 When adding or changing MCP tools that return UI elements, use the
-`mcp-ui-development-testing` skill from `airbytehq/ai-skills`
-(`.agents/skills/mcp-ui-development-testing/SKILL.md`).
+`mcp-development-and-testing` skill from `airbytehq/ai-skills`
+(`plugins/common-skills/skills/mcp-development-and-testing/SKILL.md`).
 
 Key conventions:
 
