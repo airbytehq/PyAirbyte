@@ -605,14 +605,29 @@ def test_destination_guidance_exposes_connection_loading_schemas(
     assert detail.table_prefix == "raw_"
 
 
+@pytest.mark.parametrize("lookup", ["list_connections", "list_sources"])
+@pytest.mark.parametrize(
+    "error",
+    [
+        AirbyteCloudError(context={"status_code": 403}),
+        requests.Timeout("timed out"),
+        requests.ConnectionError("connection failed"),
+    ],
+)
 def test_connection_hint_failure_preserves_server_docs(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, lookup: str, error: Exception
 ) -> None:
     """A Cloud connection lookup failure is a warning, not missing server guidance."""
     workspace = _make_workspace(monkeypatch)
     _patch_context_layer(monkeypatch)
     destination = _seed_destination(
         workspace, "dest", SNOWFLAKE_DEFINITION_ID, configuration={}
+    )
+    connection = _fake_connection(
+        workspace, "connection-1", "source-1", destination.connector_id
+    )
+    monkeypatch.setattr(
+        CloudWorkspace, "list_connections", lambda *_, **__: [connection]
     )
     monkeypatch.setattr(
         agents_api_util,
@@ -621,9 +636,9 @@ def test_connection_hint_failure_preserves_server_docs(
     )
 
     def fail(*_: Any, **__: Any) -> list[CloudConnection]:
-        raise AirbyteCloudError(context={"status_code": 403})
+        raise error
 
-    monkeypatch.setattr(CloudWorkspace, "list_connections", fail)
+    monkeypatch.setattr(CloudWorkspace, lookup, fail)
     guidance = destination.get_direct_access_guidance()
     assert guidance.content[-1]["text"] == "Server overview."
     assert "could not be loaded" in guidance.metadata.warnings[-1]

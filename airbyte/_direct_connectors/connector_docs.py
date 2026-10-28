@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import requests
+
 from airbyte import exceptions as exc
 from airbyte._direct_connectors.models import (
     _BIGQUERY_DESTINATION_DEFINITION_ID,
@@ -274,7 +276,7 @@ def merge_destination_skill_docs(
     metadata = server_docs.metadata
     try:
         content += _connections_section(destination, _destination_connections(destination))
-    except exc.AirbyteCloudError:
+    except (exc.AirbyteCloudError, requests.RequestException):
         metadata = metadata.model_copy(
             update={
                 "warnings": [
