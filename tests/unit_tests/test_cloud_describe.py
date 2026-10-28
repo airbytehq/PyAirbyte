@@ -516,6 +516,155 @@ def test_get_direct_access_guidance_destination_merges_server_docs(
     )
 
 
+@pytest.mark.parametrize(
+    ("definition_id", "configuration", "expected_database"),
+    [
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "WAREHOUSE", "schema": "RAW_DEFAULT"},
+            "WAREHOUSE",
+        ),
+        (
+            BIGQUERY_DEFINITION_ID,
+            {"project_id": "my-project", "dataset_id": "RAW_DEFAULT"},
+            "my-project",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("mode", "namespace_format", "expected_schema", "expected_hint"),
+    [
+        ("destination", None, "RAW_DEFAULT", "schema `RAW_DEFAULT`"),
+        (
+            "custom_format",
+            "raw_salesforce",
+            "raw_salesforce",
+            "Expected loading schema `raw_salesforce`",
+        ),
+        (
+            "custom_format",
+            "raw_${SOURCE_NAMESPACE}",
+            None,
+            "Loading schema template `raw_${SOURCE_NAMESPACE}`",
+        ),
+        ("source", None, None, "Loading schemas mirror each source stream's namespace"),
+    ],
+)
+def test_destination_guidance_exposes_connection_loading_schemas(
+    monkeypatch: pytest.MonkeyPatch,
+    definition_id: str,
+    configuration: dict[str, str],
+    expected_database: str,
+    mode: str,
+    namespace_format: str | None,
+    expected_schema: str | None,
+    expected_hint: str,
+) -> None:
+    """Enrolled docs and structured details use connection namespaces, not query defaults."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    destination = _seed_destination(
+        workspace, "destination-1", definition_id, configuration=configuration
+    )
+    source = _seed_source(workspace, "source-1", "Salesforce")
+    connection = _fake_connection(
+        workspace, "connection-1", source.connector_id, destination.connector_id
+    )
+    connection._connection_info.namespace_definition = mode  # noqa: SLF001
+    connection._connection_info.namespace_format = namespace_format  # noqa: SLF001
+    other_connection = _fake_connection(
+        workspace, "other-connection", source.connector_id, "other-destination"
+    )
+    monkeypatch.setattr(
+        CloudWorkspace,
+        "list_connections",
+        lambda *_, **__: [connection, other_connection],
+    )
+    monkeypatch.setattr(CloudWorkspace, "list_sources", lambda *_, **__: [source])
+    monkeypatch.setattr(
+        CloudWorkspace, "list_destinations", lambda *_, **__: [destination]
+    )
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: DESTINATION_SKILL_DOCS_RESPONSE,
+    )
+
+    guidance = destination.get_direct_access_guidance()
+    text = _content_text(guidance)
+    assert expected_hint in text
+    assert "default query context" in text
+    assert "not exhaustive warehouse inventory or an authorization boundary" in text
+    assert "table prefix 'raw_'" in text
+    assert "other-connection" not in text
+    assert guidance.content[-1]["text"] == "Server overview."
+    detail = connector_docs.build_connection_details(destination)[0]
+    assert detail.destination_database == expected_database
+    assert detail.destination_schema == expected_schema
+    assert detail.namespace_format == namespace_format
+    assert detail.table_prefix == "raw_"
+
+
+def test_connection_hint_failure_preserves_server_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Cloud connection lookup failure is a warning, not missing server guidance."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    destination = _seed_destination(
+        workspace, "dest", SNOWFLAKE_DEFINITION_ID, configuration={}
+    )
+    monkeypatch.setattr(
+        agents_api_util,
+        "read_cloud_skill_docs",
+        lambda **_: DESTINATION_SKILL_DOCS_RESPONSE,
+    )
+
+    def fail(*_: Any, **__: Any) -> list[CloudConnection]:
+        raise AirbyteCloudError(context={"status_code": 403})
+
+    monkeypatch.setattr(CloudWorkspace, "list_connections", fail)
+    guidance = destination.get_direct_access_guidance()
+    assert guidance.content[-1]["text"] == "Server overview."
+    assert "could not be loaded" in guidance.metadata.warnings[-1]
+    assert "No connections sync" not in _content_text(guidance)
+
+
+@pytest.mark.parametrize(
+    ("definition_id", "configuration", "expected"),
+    [
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "WAREHOUSE", "schema": "RAW"},
+            "SELECT * FROM WAREHOUSE.RAW.<table> LIMIT 10",
+        ),
+        (
+            BIGQUERY_DEFINITION_ID,
+            {"project_id": "my-project", "dataset_id": "raw"},
+            "SELECT * FROM `my-project.raw.<table>` LIMIT 10",
+        ),
+        (BIGQUERY_DEFINITION_ID, {}, "SELECT * FROM <table> LIMIT 10"),
+    ],
+)
+def test_destination_examples_use_three_part_table_names(
+    monkeypatch: pytest.MonkeyPatch,
+    definition_id: str,
+    configuration: dict[str, str],
+    expected: str,
+) -> None:
+    """Fallback examples qualify the configured project/database and dataset/schema."""
+    workspace = _make_workspace(monkeypatch)
+    destination = _seed_destination(
+        workspace, "dest", definition_id, configuration=configuration
+    )
+    monkeypatch.setattr(CloudWorkspace, "list_connections", lambda *_, **__: [])
+    guidance = connector_docs.build_direct_access_sql_guidance(destination)
+    assert (
+        next(block["code"] for block in guidance.content if block["type"] == "code")
+        == expected
+    )
+
+
 def test_get_direct_access_guidance_destination_server_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

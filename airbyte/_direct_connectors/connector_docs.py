@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from airbyte import exceptions as exc
 from airbyte._direct_connectors.models import (
     _BIGQUERY_DESTINATION_DEFINITION_ID,
     _SNOWFLAKE_DESTINATION_DEFINITION_ID,
@@ -182,6 +183,8 @@ def _destination_load_context(
         table_prefix = connection.table_prefix or None
         if connection.namespace_definition == "custom_format":
             schema_name = connection.namespace_format or None
+            if schema_name is not None and "${" in schema_name:
+                schema_name = None
         elif connection.namespace_definition == "source":
             schema_name = None
 
@@ -255,7 +258,7 @@ def merge_destination_skill_docs(
     server_docs: DirectAccessGuidance,
     destination: _DestinationLike,
 ) -> DirectAccessGuidance:
-    """Prepend PyAirbyte's local table-layout intro to the server's overview content.
+    """Prepend table-layout and connection loading hints to the server's overview.
 
     Only the default (no-section) or `overview` read is augmented; the server
     outline and all other section reads pass through unchanged.
@@ -263,15 +266,26 @@ def merge_destination_skill_docs(
     if server_docs.section_id not in {None, "overview"}:
         return server_docs
     dialect = _SQL_PASSTHROUGH_DESTINATION_DIALECTS[destination.definition_id]
-    content = (
-        _destination_layout_blocks(
-            destination=destination,
-            dialect=dialect,
-            load_context=_destination_load_context(destination),
-        )
-        + server_docs.content
+    content = _destination_layout_blocks(
+        destination=destination,
+        dialect=dialect,
+        load_context=_destination_load_context(destination),
     )
-    return server_docs.model_copy(update={"content": content})
+    metadata = server_docs.metadata
+    try:
+        content += _connections_section(destination, _destination_connections(destination))
+    except exc.AirbyteCloudError:
+        metadata = metadata.model_copy(
+            update={
+                "warnings": [
+                    *metadata.warnings,
+                    "Connection-derived schema hints could not be loaded. "
+                    "Use SQL discovery to verify schemas and table names.",
+                ]
+            }
+        )
+    content += server_docs.content
+    return server_docs.model_copy(update={"content": content, "metadata": metadata})
 
 
 def _location_sentence(dialect: str, load_context: _DestinationLoadContext) -> str:
@@ -287,12 +301,12 @@ def _location_sentence(dialect: str, load_context: _DestinationLoadContext) -> s
             if value is not None
         )
         return (
-            f"Tables land in {location_text} unless a connection overrides the "
-            "namespace; unqualified table names resolve there"
+            f"The default query context is {location_text}; connection namespace "
+            "overrides change loading schemas, not where unqualified queries resolve"
         )
     return (
-        f"Tables land in the destination's configured {_NAMESPACE_NOUNS[dialect]}, "
-        "which is also where unqualified table names resolve"
+        f"Unqualified queries use the destination's configured {_NAMESPACE_NOUNS[dialect]}; "
+        "connections may load into other schemas"
     )
 
 
@@ -326,6 +340,16 @@ def _destination_layout_blocks(
         },
         {
             "type": "paragraph",
+            "text": (
+                "Use database.schema.table names: BigQuery project.dataset.table; "
+                "Snowflake database.schema.table. Connection-derived schemas and table "
+                "prefixes below are expected loading locations, not exhaustive warehouse "
+                "inventory or an authorization boundary. Confirm actual tables through SQL "
+                "discovery; warehouse permissions and BigQuery query location still apply."
+            ),
+        },
+        {
+            "type": "paragraph",
             "text": _DIALECT_NOTES[dialect] + _AIRBYTE_METADATA_COLUMNS,
         },
     ]
@@ -333,9 +357,12 @@ def _destination_layout_blocks(
 
 def _qualified_table_example(destination: _DestinationLike) -> str:
     """Return an example `SELECT` qualifying the table with the destination's namespace."""
-    namespace = _destination_load_context(destination).schema_name
+    context = _destination_load_context(destination)
+    namespace = context.schema_name
     if namespace is None:
         return "SELECT * FROM <table> LIMIT 10"
+    if context.database_name is not None:
+        namespace = f"{context.database_name}.{namespace}"
     if destination.definition_id == _BIGQUERY_DESTINATION_DEFINITION_ID:
         return f"SELECT * FROM `{namespace}.<table>` LIMIT 10"
     return f"SELECT * FROM {namespace}.<table> LIMIT 10"
@@ -361,8 +388,9 @@ def _connections_section(
             f"{connection.name} (connection_id={connection.connection_id}) "
             f"syncs from source {source_name} (source_id={connection.source_id})"
         )
-        if connection.table_prefix:
-            item += f", with table prefix {connection.table_prefix!r}"
+        item += ". " + _connection_namespace_note(
+            connection, _destination_load_context(destination, connection)
+        )
         items.append(item)
     return [
         {"type": "heading", "level": 2, "text": "Connections syncing into this destination"},
@@ -387,9 +415,21 @@ def _connection_namespace_note(
     )
     namespace_definition = connection.namespace_definition
     if namespace_definition == "source":
-        note = "Streams land in a namespace mirroring the source's own namespace (e.g. its schema)"
+        note = (
+            "Loading schemas mirror each source stream's namespace; a single schema "
+            "cannot be inferred from the destination default"
+        )
     elif namespace_definition == "custom_format":
-        note = f"Streams land in namespace format `{connection.namespace_format}`"
+        if load_context.schema_name is not None:
+            note = (
+                f"Expected loading schema `{load_context.schema_name}` "
+                "(connection namespace override)"
+            )
+        else:
+            note = (
+                f"Loading schema template `{connection.namespace_format}`; resolve it "
+                "per stream rather than treating it as a concrete schema"
+            )
     else:
         note = "Streams land in the destination's default namespace"
         if load_context.schema_name is not None:
@@ -415,8 +455,8 @@ def _streams_section(
             "type": "paragraph",
             "text": (
                 "Each enabled stream is written to a table named `<table_prefix><stream_name>` "
-                f"in the destination's configured {_NAMESPACE_NOUNS[dialect]}. Names below "
-                "assume the destination's default identifier casing and namespace."
+                "in its connection's loading schema, which may override the destination "
+                "default. Names below assume the destination's default identifier casing."
             ),
         },
     ]
