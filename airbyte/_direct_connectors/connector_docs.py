@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import requests
+from snowflake.sqlalchemy.snowdialect import SnowflakeDialect
 
 from airbyte import exceptions as exc
 from airbyte._direct_connectors.models import (
@@ -364,7 +365,10 @@ def _qualified_table_example(destination: _DestinationLike) -> str:
     if namespace is None:
         return "SELECT * FROM <table> LIMIT 10"
     if context.database_name is not None:
-        namespace = f"{context.database_name}.{namespace}"
+        database_name = context.database_name
+        if destination.definition_id == _SNOWFLAKE_DESTINATION_DEFINITION_ID:
+            database_name = SnowflakeDialect().identifier_preparer.quote(database_name)
+        namespace = f"{database_name}.{namespace}"
     if destination.definition_id == _BIGQUERY_DESTINATION_DEFINITION_ID:
         return f"SELECT * FROM `{namespace}.<table>` LIMIT 10"
     return f"SELECT * FROM {namespace}.<table> LIMIT 10"

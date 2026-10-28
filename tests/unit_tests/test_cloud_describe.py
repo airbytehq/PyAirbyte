@@ -651,7 +651,32 @@ def test_connection_hint_failure_preserves_server_docs(
         (
             SNOWFLAKE_DEFINITION_ID,
             {"database": "WAREHOUSE", "schema": "RAW"},
-            "SELECT * FROM WAREHOUSE.RAW.<table> LIMIT 10",
+            'SELECT * FROM "WAREHOUSE".RAW.<table> LIMIT 10',
+        ),
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "warehouse", "schema": "RAW"},
+            "SELECT * FROM warehouse.RAW.<table> LIMIT 10",
+        ),
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "ANALYTICS-PROD", "schema": "RAW"},
+            'SELECT * FROM "ANALYTICS-PROD".RAW.<table> LIMIT 10',
+        ),
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "ANALYTICS.PROD", "schema": "RAW"},
+            'SELECT * FROM "ANALYTICS.PROD".RAW.<table> LIMIT 10',
+        ),
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": 'ANALYTICS"PROD', "schema": "RAW"},
+            'SELECT * FROM "ANALYTICS""PROD".RAW.<table> LIMIT 10',
+        ),
+        (
+            SNOWFLAKE_DEFINITION_ID,
+            {"database": "SELECT", "schema": "RAW"},
+            'SELECT * FROM "SELECT".RAW.<table> LIMIT 10',
         ),
         (
             BIGQUERY_DEFINITION_ID,
