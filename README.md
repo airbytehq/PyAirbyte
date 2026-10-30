@@ -24,6 +24,24 @@ Watch this [Getting Started Loom video](https://www.loom.com/share/3de81ca3ce914
 * [GitHub](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Github_Incremental_Demo.ipynb)
 * [Postgres (cache)](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Postgres_Custom_Cache_Demo.ipynb)
 
+## Airbyte MCP
+
+The [Airbyte MCP](https://docs.airbyte.com/platform/airbyte-mcp) is a [Model Context Protocol](https://modelcontextprotocol.io/) server that connects AI agents to your Airbyte organization. Use it with clients such as Claude, ChatGPT, and VS Code Copilot.
+
+With the Airbyte MCP, your agent can:
+
+* Build and manage pipelines: deploy sources and destinations, create connections, select streams, and start syncs.
+* Troubleshoot pipelines: check sync status, read job logs, and inspect connector configurations.
+* Read live data from supported sources and query supported destinations without waiting for a sync.
+* Learn connector capabilities through connector skills, which describe supported entities, actions, and parameters.
+* Find answers in Airbyte's documentation and other Airbyte knowledge sources.
+
+Direct reads are read-only and only work with supported connectors after an organization admin enables the [context layer](https://docs.airbyte.com/platform/context-layer). They do not work with connectors whose secrets are stored in an external secrets manager.
+
+The hosted server works with all editions of Airbyte Cloud and Airbyte Flex. You can [run it locally with self-managed Airbyte Core](https://docs.airbyte.com/platform/airbyte-mcp/self-managed), but local deployments have known issues.
+
+To connect, use `https://mcp.airbyte.com/mcp` and sign in with your Airbyte Cloud account through OAuth. See the [installation instructions](https://docs.airbyte.com/platform/airbyte-mcp/install) and [complete tool list](https://docs.airbyte.com/platform/airbyte-mcp/tools).
+
 ## Connector Installation
 
 ### Declarative Source Installation
