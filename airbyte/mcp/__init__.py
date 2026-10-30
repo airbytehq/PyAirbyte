@@ -126,6 +126,9 @@ When enabled, only read-only Cloud tools are available. Write and destructive op
 disabled. Running and cancelling syncs are also disabled.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+HTTP clients that cannot send custom headers can use the shared standard filter's
+`?read-only=true` URL parameter, for example
+`https://mcp.airbyte.com/mcp?read-only=true`.
 
 ### Local Demo Mode
 

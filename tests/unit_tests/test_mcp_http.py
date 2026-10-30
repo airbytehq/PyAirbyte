@@ -20,11 +20,15 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.middleware import Middleware
 
-from airbyte.constants import MCP_EXTENSIONS_HEADER
+from airbyte.constants import (
+    MCP_EXTENSIONS_HEADER,
+    MCP_READONLY_MODE_ENV_VAR,
+)
 from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
 from fastmcp_extensions.capability_tokens import decode_capability_token
+from fastmcp_extensions.tool_filters import ENV_READONLY_MODE
 
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
@@ -143,6 +147,7 @@ async def _http_session(
     *,
     headers: dict[str, str] | None,
     configure_client_capabilities: Any,
+    url: str = "http://testserver/mcp",
     ui: bool = False,
     wire_headers: list[list[tuple[bytes, bytes]]] | None = None,
     response_headers: list[list[tuple[bytes, bytes]]] | None = None,
@@ -169,7 +174,7 @@ async def _http_session(
             },
         ) as http_client:
             async with streamable_http_client(
-                "http://testserver/mcp",
+                url,
                 http_client=http_client,
             ) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
@@ -181,6 +186,63 @@ async def _tool_names(session_factory: Any) -> set[str]:
         await session.initialize()
         result = await session.list_tools()
         return {tool.name for tool in result.tools}
+
+
+def _http_tool_names(
+    *,
+    headers: dict[str, str] | None,
+    configure_client_capabilities: Any,
+    url: str = "http://testserver/mcp",
+) -> set[str]:
+    return asyncio.run(
+        _tool_names(
+            _http_session(
+                headers=headers,
+                configure_client_capabilities=configure_client_capabilities,
+                url=url,
+            )
+        )
+    )
+
+
+def test_http_read_only_url_param_hides_non_read_only_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+) -> None:
+    """The shared read-only filter applies to HTTP `tools/list` requests."""
+    monkeypatch.delenv(MCP_READONLY_MODE_ENV_VAR, raising=False)
+
+    unrestricted_names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+    )
+    read_only_names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+        url="http://testserver/mcp?read-only=true",
+    )
+
+    assert "run_connection_sync" in unrestricted_names
+    assert "run_connection_sync" not in read_only_names
+    assert "list_workspaces" in read_only_names
+
+
+def test_http_read_only_url_param_cannot_disable_server_read_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+) -> None:
+    """A request cannot disable read-only mode enforced by the server."""
+    monkeypatch.setenv(ENV_READONLY_MODE, "1")
+    monkeypatch.delenv(MCP_READONLY_MODE_ENV_VAR, raising=False)
+
+    names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+        url="http://testserver/mcp?read-only=false",
+    )
+
+    assert "run_connection_sync" not in names
+    assert "list_workspaces" in names
 
 
 @pytest.mark.parametrize("ui", [True, False], ids=["ui-client", "non-ui-client"])
