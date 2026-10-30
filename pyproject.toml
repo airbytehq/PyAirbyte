@@ -46,7 +46,7 @@ dependencies = [
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=4.0.9,<5.0",
-    "fastmcp-extensions>=0.35.0,<1.0.0",
+    "fastmcp-extensions==0.36.0.dev15740980248948",
     "starlette",  # Transitive dependency of fastmcp, imported directly
     "httpx",  # Transitive dependency of fastmcp, imported directly
     "mcp",  # Transitive dependency of fastmcp, imported directly
@@ -87,9 +87,6 @@ dev = [
     "viztracer>=0.16.3,<1.2.0",
     "pydantic-ai>=0.2.16",
 ]
-
-[tool.uv.sources]
-fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", branch = "devin/1793319296-url-param-config-args" }
 
 [project.scripts]
 pyairbyte = "airbyte.cli.pyab:cli"
