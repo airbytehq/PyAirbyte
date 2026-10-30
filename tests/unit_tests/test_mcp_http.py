@@ -28,6 +28,7 @@ from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
 from fastmcp_extensions.capability_tokens import decode_capability_token
+from fastmcp_extensions.tool_filters import ENV_READONLY_MODE
 
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
@@ -224,6 +225,24 @@ def test_http_read_only_url_param_hides_non_read_only_tools(
     assert "run_connection_sync" in unrestricted_names
     assert "run_connection_sync" not in read_only_names
     assert "list_workspaces" in read_only_names
+
+
+def test_http_read_only_url_param_cannot_disable_server_read_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+) -> None:
+    """A request cannot disable read-only mode enforced by the server."""
+    monkeypatch.setenv(ENV_READONLY_MODE, "1")
+    monkeypatch.delenv(MCP_READONLY_MODE_ENV_VAR, raising=False)
+
+    names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+        url="http://testserver/mcp?read-only=false",
+    )
+
+    assert "run_connection_sync" not in names
+    assert "list_workspaces" in names
 
 
 @pytest.mark.parametrize("ui", [True, False], ids=["ui-client", "non-ui-client"])
