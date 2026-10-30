@@ -373,9 +373,8 @@ MCP_INSIDERS_ENV_VAR: str = "AIRBYTE_MCP_INSIDERS"
 
 Set to `0`/`false`/`no` to hide insiders tools (see `MCP_INSIDERS_MODULES`) from every
 caller, regardless of `MCP_INSIDERS_HEADER`. Set to `1`/`true`/`yes` to advertise them by
-default; a caller can still opt out with `MCP_INSIDERS_HEADER: 0` or
-`?insiders=0`. Any other value, including an empty string, leaves the decision
-to the caller.
+default; a caller can still opt out with `MCP_INSIDERS_HEADER: 0`. Any other value,
+including an empty string, leaves the decision to that header.
 """
 
 MCP_INSIDERS_HEADER: str = "X-MCP-Insiders"
@@ -385,12 +384,8 @@ Set to `1`/`true`/`yes` to add insiders tools (see `MCP_INSIDERS_MODULES`) to th
 tool surface. This selects which tools are advertised and is not an access-control
 boundary: every insiders tool authorizes each call against the Airbyte API.
 A falsy `MCP_INSIDERS_ENV_VAR` overrides this header; a truthy one makes insiders tools
-the default, which this header or `MCP_INSIDERS_URL_PARAM` can only narrow by setting it to
-`0`.
+the default, which this header can only narrow by setting it to `0`.
 """
-
-MCP_INSIDERS_URL_PARAM: str = "insiders"
-"""URL query parameter for advertising insiders tools."""
 
 # MCP Config Arg Names (used with get_mcp_config)
 
@@ -450,20 +445,11 @@ MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
 MCP_ALLOW_PIPELINE_CHANGES_HEADER: str = "X-MCP-Allow-Pipeline-Changes"
 """HTTP header key for narrowing Cloud pipeline-change permission."""
 
-MCP_ALLOW_PIPELINE_CHANGES_URL_PARAM: str = "allow-pipeline-changes"
-"""URL query parameter for narrowing Cloud pipeline-change permission."""
-
 MCP_ALLOW_EXTERNAL_ACCESS_HEADER: str = "X-MCP-Allow-External-Access"
 """HTTP header key for narrowing external-access permission."""
 
-MCP_ALLOW_EXTERNAL_ACCESS_URL_PARAM: str = "allow-external-access"
-"""URL query parameter for narrowing external-access permission."""
-
 MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER: str = "X-MCP-Allow-Destructive-Tools"
 """HTTP header key for narrowing destructive-tools permission."""
-
-MCP_ALLOW_DESTRUCTIVE_TOOLS_URL_PARAM: str = "allow-destructive-tools"
-"""URL query parameter for narrowing destructive-tools permission."""
 
 MCP_DISABLE_DELETE_GUARD_HEADER: str = "X-MCP-Disable-Delete-Guard"
 """HTTP header key for disabling the MCP delete guard."""
