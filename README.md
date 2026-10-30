@@ -26,13 +26,13 @@ Watch this [Getting Started Loom video](https://www.loom.com/share/3de81ca3ce914
 
 ## Airbyte MCP
 
-The [Airbyte MCP](https://docs.airbyte.com/platform/airbyte-mcp) is a [Model Context Protocol](https://modelcontextprotocol.io/) server that connects AI agents to your Airbyte organization. Use it with clients such as Claude, ChatGPT, and VS Code Copilot.
+The [Airbyte MCP](https://docs.airbyte.com/platform/airbyte-mcp) is a [Model Context Protocol](https://modelcontextprotocol.io/) server that connects AI agents to your Airbyte organization. Your agent works with the same permissions you have in Airbyte. Use it with clients such as Claude, ChatGPT, and VS Code Copilot.
 
 With the Airbyte MCP, your agent can:
 
 * Build and manage pipelines: deploy sources and destinations, create connections, select streams, and start syncs.
 * Troubleshoot pipelines: check sync status, read job logs, and inspect connector configurations.
-* Read live data from supported sources and query supported destinations without waiting for a sync.
+* Read data directly: get live records from supported sources and query supported destinations without waiting for a sync.
 * Learn connector capabilities through connector skills, which describe supported entities, actions, and parameters.
 * Find answers in Airbyte's documentation and other Airbyte knowledge sources.
 
