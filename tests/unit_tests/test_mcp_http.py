@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import httpx2
+import httpx
 import mcp_types as types
 import pytest
 from mcp.client.session import ClientSession
@@ -154,17 +154,17 @@ async def _http_session(
     configure_client_capabilities(ui)
     http_app = _http_app()
 
-    async def capture_request(request: httpx2.Request) -> None:
+    async def capture_request(request: httpx.Request) -> None:
         if wire_headers is not None:
             wire_headers.append(request.headers.raw)
 
-    async def capture_response(response: httpx2.Response) -> None:
+    async def capture_response(response: httpx.Response) -> None:
         if response_headers is not None:
             response_headers.append(response.headers.raw)
 
     async with http_app.router.lifespan_context(http_app):
-        async with httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=http_app),
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=http_app),
             base_url="http://testserver",
             headers=headers,
             event_hooks={

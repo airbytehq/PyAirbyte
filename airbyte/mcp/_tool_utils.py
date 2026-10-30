@@ -476,8 +476,8 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     """Decorate an MCP tool with deferred Airbyte registration metadata.
 
     When `insiders_only` is true, the tool is hidden unless insiders mode is on
-    (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`). When `force_disabled` is true, the
-    function is returned unchanged and never registered.
+    (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`). When `force_disabled` is true, the function
+    is returned unchanged and never registered.
     """
     base_decorator = _mcp_tool(
         read_only=read_only,
