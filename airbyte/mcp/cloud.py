@@ -1628,7 +1628,11 @@ def describe_connector(
     with_replication_details: Annotated[
         bool,
         Field(
-            description="Include the connections that read from or write to this " "connector.",
+            description=(
+                "Include connections that read from or write to this connector, "
+                "including expected destination database, loading schema or namespace "
+                "format, and table prefix. These are advisory loading hints, not inventory."
+            ),
             default=False,
         ),
     ],
@@ -1995,6 +1999,21 @@ def execute_external_sql_query(
     """Run a read-only SQL query against a deployed SQL-passthrough destination.
 
     Only SQL-passthrough destinations (Snowflake/BigQuery) support this tool.
+
+    Use three-part table names: BigQuery `project.dataset.table` maps to
+    database.schema.table, as does Snowflake `database.schema.table`. `SHOW DATABASES`
+    identifies the configured project/database, not its datasets/schemas; `SHOW TABLES`
+    discovers tables across that context's schemas without changing the default query
+    dataset/schema. BigQuery metadata is scoped to the configured query location and
+    warehouse metadata permissions still apply.
+
+    For expected loading schemas, call `describe_connector` with
+    `with_replication_details=True` or `with_direct_access_guidance=True`. Connection
+    namespace overrides and prefixes describe where each sync writes, not where
+    unqualified queries resolve. Source-derived namespaces and schema templates may
+    vary per stream. These hints are advisory, not exhaustive warehouse inventory or
+    an authorization boundary. Confirm table names with discovery and qualify queries
+    rather than assuming every connection loads into the destination default schema.
 
     Useful, for example, for debugging pipelines and inspecting what a sync landed:
     discovering which tables a sync created, sampling rows to see how records are
