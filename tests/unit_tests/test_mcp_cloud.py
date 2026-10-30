@@ -38,7 +38,13 @@ from airbyte.cloud.models import (
     ConnectionStatus,
     JobStatusEnum,
 )
-from airbyte.constants import MCP_DISABLE_DELETE_GUARD_ENV_VAR, MCP_INSIDERS_ENV_VAR
+from airbyte.constants import (
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_DISABLE_DELETE_GUARD_ENV_VAR,
+    MCP_INSIDERS_ENV_VAR,
+    MCP_READONLY_MODE_ENV_VAR,
+)
 from airbyte.cloud.connector_builder import _models as _builder_models
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp import connector_builder as connector_builder_mcp
@@ -2730,6 +2736,34 @@ def test_search_tools_are_always_advertised(
         monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, insiders_env)
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
     assert {"execute_external_search_query", "get_search_index_status"} <= names
+
+
+@pytest.mark.parametrize(
+    ("insiders_env", "unsafe_visible"),
+    [
+        pytest.param("0", False, id="insiders_off"),
+        pytest.param("1", True, id="insiders_on"),
+    ],
+)
+def test_unsafe_connection_update_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+    insiders_env: str,
+    unsafe_visible: bool,
+) -> None:
+    """The safe update stays visible while the unsafe update follows insiders mode."""
+    from airbyte.mcp import server
+
+    monkeypatch.setenv(MCP_INSIDERS_ENV_VAR, insiders_env)
+    for env_var in (
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+        MCP_READONLY_MODE_ENV_VAR,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+
+    names = {tool.name for tool in asyncio.run(server.app.list_tools())}
+    assert "update_cloud_connection" in names
+    assert ("update_cloud_connection_unsafe" in names) is unsafe_visible
 
 
 @pytest.mark.parametrize(

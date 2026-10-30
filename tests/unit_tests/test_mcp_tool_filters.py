@@ -26,8 +26,8 @@ from airbyte.constants import (
     MCP_READONLY_MODE_ENV_VAR,
     _str_to_bool,
 )
-from airbyte.mcp import _tool_utils
-from fastmcp import FastMCP
+from airbyte.mcp import _tool_utils, cloud as cloud_mcp
+from fastmcp import Context, FastMCP
 from mcp.types import Tool
 
 
@@ -204,6 +204,41 @@ def test_insiders_tool_visibility(
     insiders_filter = _tool_utils.airbyte_insiders_tools_filter
     assert insiders_filter(_tool("insiders_tool"), APP) is expected
     assert insiders_filter(_tool("regular_tool"), APP) is True
+
+
+@pytest.mark.parametrize(
+    ("insiders", "destructive", "pipeline_changes", "readonly", "expected"),
+    [
+        pytest.param(None, None, None, None, False, id="insiders_unset"),
+        pytest.param("1", None, None, None, True, id="insiders_on"),
+        pytest.param("1", "0", None, None, False, id="destructive_tools_off"),
+        pytest.param("1", None, "0", None, False, id="pipeline_changes_off"),
+        pytest.param("1", None, None, "1", False, id="readonly_mode_on"),
+    ],
+)
+def test_unsafe_connection_update_tool_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    mcp_config: dict[str, str],
+    insiders: str | None,
+    destructive: str | None,
+    pipeline_changes: str | None,
+    readonly: str | None,
+    expected: bool,
+) -> None:
+    """The unsafe connection update is advertised only when every gate permits it."""
+    for env_var, value in (
+        (MCP_INSIDERS_ENV_VAR, insiders),
+        (MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR, destructive),
+        (MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR, pipeline_changes),
+        (MCP_READONLY_MODE_ENV_VAR, readonly),
+    ):
+        if value is None:
+            monkeypatch.delenv(env_var, raising=False)
+        else:
+            monkeypatch.setenv(env_var, value)
+
+    ctx = Context(fastmcp=FastMCP("unsafe-tool-policy-test"))
+    assert cloud_mcp._is_unsafe_connection_update_tool_enabled(ctx) is expected
 
 
 def test_sync_tools_stay_visible_when_pipeline_changes_are_disabled(

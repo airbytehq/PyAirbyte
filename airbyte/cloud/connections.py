@@ -7,6 +7,8 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from airbyte_protocol.models import ConfiguredAirbyteCatalog
+
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte.cloud._connection_catalog import (
@@ -22,6 +24,13 @@ from airbyte.cloud._connection_state import (
     _match_stream,
     _normalize_state_to_protocol,
 )
+from airbyte.cloud._stream_config_overrides import (
+    _apply_stream_override,
+    _find_unsafe_stream_changes,
+    _index_catalog_streams,
+    _raise_for_override_errors,
+    _raise_for_unsafe_stream_config_changes,
+)
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
@@ -30,6 +39,9 @@ from airbyte.cloud.models import (
     ConnectionSchedule,
     ConnectionStatus,
     JobTypeEnum,
+    StreamConfigChange,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
@@ -911,7 +923,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return _normalize_catalog_to_protocol(raw)
         return raw
 
-    def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
+    def import_raw_catalog(
+        self,
+        catalog: dict[str, Any],
+        *,
+        skip_reset: bool = True,
+    ) -> None:
         """Replace the configured catalog for this connection.
 
         > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and
@@ -929,6 +946,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             catalog: The configured catalog dict in either format.
+            skip_reset: Whether to skip the platform reset of changed streams.
         """
         if _is_protocol_catalog_format(catalog):
             catalog = _denormalize_catalog_to_api(catalog)
@@ -941,6 +959,102 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
+            skip_reset=skip_reset,
+        )
+        self._connection_info = None
+
+    def _evaluate_stream_config_updates(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+    ) -> tuple[ConfiguredAirbyteCatalog, list[StreamConfigChange], list[StreamConfigChange]]:
+        """Validate overrides and evaluate their effect without writing the catalog."""
+        if not overrides:
+            raise AirbyteLibInputError(
+                message="At least one stream configuration override must be provided.",
+            )
+
+        raw_catalog = self.dump_raw_catalog(normalize=False)
+        if raw_catalog is None:
+            raise AirbyteLibInputError(
+                message="Connection catalog is empty or missing.",
+                context={"connection_id": self.connection_id},
+            )
+
+        catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(raw_catalog)
+        )
+        available_streams = _index_catalog_streams(
+            catalog,
+            connection_id=self.connection_id,
+        )
+        old_catalog = catalog
+        catalog = catalog.model_copy(deep=True)
+
+        validation_errors: list[str] = []
+        updated_streams: list[StreamConfigChange] = []
+        override_keys: set[tuple[str, str | None]] = set()
+        for index, override in enumerate(overrides, start=1):
+            result = _apply_stream_override(
+                catalog,
+                override,
+                override_index=index,
+                override_keys=override_keys,
+            )
+            if isinstance(result, str):
+                validation_errors.append(result)
+            else:
+                updated_streams.append(result)
+
+        _raise_for_override_errors(
+            validation_errors,
+            available_streams,
+            connection_id=self.connection_id,
+        )
+
+        changed_streams = [stream for stream in updated_streams if stream.changed_fields]
+        unsafe_streams: list[StreamConfigChange] = []
+        if changed_streams:
+            state_messages = self.dump_raw_state(normalize=True)
+            unsafe_streams = _find_unsafe_stream_changes(
+                old_catalog,
+                catalog,
+                state_messages,
+            )
+
+        _raise_for_unsafe_stream_config_changes(
+            unsafe_streams,
+            allow_unsafe=allow_unsafe,
+            connection_id=self.connection_id,
+        )
+        return catalog, updated_streams, unsafe_streams
+
+    def update_stream_configs(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+    ) -> StreamConfigUpdateResult:
+        """Update one or more stream configurations in a single catalog write."""
+        catalog, updated_streams, unsafe_streams = self._evaluate_stream_config_updates(
+            overrides,
+            allow_unsafe=allow_unsafe,
+        )
+        reset_requested = bool(unsafe_streams and allow_unsafe)
+        self.import_raw_catalog(
+            _denormalize_catalog_to_api(catalog.model_dump(mode="json", exclude_unset=True)),
+            skip_reset=not reset_requested,
+        )
+        return StreamConfigUpdateResult(
+            updated_streams=updated_streams,
+            unsafe_streams=unsafe_streams,
+            reset_streams=(
+                [stream for stream in updated_streams if stream.changed_fields]
+                if reset_requested
+                else []
+            ),
+            reset_requested=reset_requested,
         )
 
     def rename(self, name: str) -> CloudConnection:
