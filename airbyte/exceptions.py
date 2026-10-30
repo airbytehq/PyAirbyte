@@ -375,7 +375,8 @@ class AirbytePipelineChangesDisabledError(AirbyteMCPError):
 
     guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES=1` and ensure the "
-        "`X-MCP-Allow-Pipeline-Changes` request header is not `0`."
+        "`X-MCP-Allow-Pipeline-Changes` request header or `?allow-pipeline-changes=0` "
+        "URL query parameter is not set."
     )
 
 
@@ -385,7 +386,8 @@ class AirbyteDestructiveToolsDisabledError(AirbyteMCPError):
 
     guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=1` and ensure the "
-        "`X-MCP-Allow-Destructive-Tools` request header is not `0`."
+        "`X-MCP-Allow-Destructive-Tools` request header or "
+        "`?allow-destructive-tools=0` URL query parameter is not set."
     )
 
 
@@ -395,7 +397,8 @@ class AirbyteExternalAccessDisabledError(AirbyteMCPError):
 
     guidance: str | None = (
         "Set `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS=1` and ensure the "
-        "`X-MCP-Allow-External-Access` request header is not `0`."
+        "`X-MCP-Allow-External-Access` request header or "
+        "`?allow-external-access=0` URL query parameter is not set."
     )
 
 

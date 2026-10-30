@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from mcp.client.session import ClientSession
@@ -20,7 +20,20 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.middleware import Middleware
 
-from airbyte.constants import MCP_EXTENSIONS_HEADER
+from airbyte.constants import (
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+    MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+    MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+    MCP_DOMAINS_DISABLED_ENV_VAR,
+    MCP_DOMAINS_ENV_VAR,
+    MCP_EXTENSIONS_HEADER,
+    MCP_INSIDERS_ENV_VAR,
+    MCP_INSIDERS_HEADER,
+    MCP_READONLY_MODE_ENV_VAR,
+)
 from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
 from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
@@ -143,6 +156,7 @@ async def _http_session(
     *,
     headers: dict[str, str] | None,
     configure_client_capabilities: Any,
+    url: str = "http://testserver/mcp",
     ui: bool = False,
     wire_headers: list[list[tuple[bytes, bytes]]] | None = None,
     response_headers: list[list[tuple[bytes, bytes]]] | None = None,
@@ -150,17 +164,17 @@ async def _http_session(
     configure_client_capabilities(ui)
     http_app = _http_app()
 
-    async def capture_request(request: httpx.Request) -> None:
+    async def capture_request(request: httpx2.Request) -> None:
         if wire_headers is not None:
             wire_headers.append(request.headers.raw)
 
-    async def capture_response(response: httpx.Response) -> None:
+    async def capture_response(response: httpx2.Response) -> None:
         if response_headers is not None:
             response_headers.append(response.headers.raw)
 
     async with http_app.router.lifespan_context(http_app):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=http_app),
+        async with httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=http_app),
             base_url="http://testserver",
             headers=headers,
             event_hooks={
@@ -169,7 +183,7 @@ async def _http_session(
             },
         ) as http_client:
             async with streamable_http_client(
-                "http://testserver/mcp",
+                url,
                 http_client=http_client,
             ) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
@@ -181,6 +195,184 @@ async def _tool_names(session_factory: Any) -> set[str]:
         await session.initialize()
         result = await session.list_tools()
         return {tool.name for tool in result.tools}
+
+
+def _http_tool_names(
+    *,
+    headers: dict[str, str] | None,
+    configure_client_capabilities: Any,
+    url: str = "http://testserver/mcp",
+) -> set[str]:
+    return asyncio.run(
+        _tool_names(
+            _http_session(
+                headers=headers,
+                configure_client_capabilities=configure_client_capabilities,
+                url=url,
+            )
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("query_param", "header", "header_value", "tool_name", "visible"),
+    [
+        pytest.param(
+            "allow-pipeline-changes=0",
+            MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+            "0",
+            "create_connection",
+            False,
+            id="pipeline-changes",
+        ),
+        pytest.param(
+            "allow-destructive-tools=false",
+            MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+            "false",
+            "permanently_delete_connection",
+            False,
+            id="destructive-tools",
+        ),
+        pytest.param(
+            "allow-external-access=0",
+            MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+            "0",
+            "execute_external_api_query",
+            False,
+            id="external-access",
+        ),
+        pytest.param(
+            "insiders=1",
+            MCP_INSIDERS_HEADER,
+            "1",
+            "create_connector_builder_project",
+            True,
+            id="insiders",
+        ),
+    ],
+)
+def test_http_url_policy_params_match_headers(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+    query_param: str,
+    header: str,
+    header_value: str,
+    tool_name: str,
+    visible: bool,
+) -> None:
+    """URL policy parameters have the same tool-list effects as request headers."""
+    for env_var in (
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+        MCP_DOMAINS_DISABLED_ENV_VAR,
+        MCP_DOMAINS_ENV_VAR,
+        MCP_INSIDERS_ENV_VAR,
+        MCP_READONLY_MODE_ENV_VAR,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+
+    query_names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+        url=f"http://testserver/mcp?{query_param}",
+    )
+    header_names = _http_tool_names(
+        headers={header: header_value},
+        configure_client_capabilities=configure_client_capabilities,
+    )
+
+    assert (tool_name in query_names) is visible
+    assert (tool_name in header_names) is visible
+
+
+@pytest.mark.parametrize(
+    ("env_var", "query_param", "tool_name"),
+    [
+        pytest.param(
+            MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+            "allow-pipeline-changes=1",
+            "create_connection",
+            id="pipeline-changes",
+        ),
+        pytest.param(
+            MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+            "allow-destructive-tools=1",
+            "permanently_delete_connection",
+            id="destructive-tools",
+        ),
+        pytest.param(
+            MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+            "allow-external-access=1",
+            "execute_external_api_query",
+            id="external-access",
+        ),
+        pytest.param(
+            MCP_INSIDERS_ENV_VAR,
+            "insiders=1",
+            "create_connector_builder_project",
+            id="insiders",
+        ),
+    ],
+)
+def test_http_falsy_environment_overrides_truthy_url_param(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+    env_var: str,
+    query_param: str,
+    tool_name: str,
+) -> None:
+    """A falsy deployment setting overrides a truthy per-request URL parameter."""
+    for policy_env_var in (
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+        MCP_DOMAINS_DISABLED_ENV_VAR,
+        MCP_DOMAINS_ENV_VAR,
+        MCP_INSIDERS_ENV_VAR,
+        MCP_READONLY_MODE_ENV_VAR,
+    ):
+        monkeypatch.delenv(policy_env_var, raising=False)
+    monkeypatch.setenv(env_var, "0")
+
+    names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+        url=f"http://testserver/mcp?{query_param}",
+    )
+
+    assert tool_name not in names
+
+
+def test_http_read_only_url_param_hides_non_read_only_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    configure_client_capabilities: Any,
+) -> None:
+    """The shared read-only filter applies to HTTP `tools/list` requests."""
+    for env_var in (
+        MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
+        MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
+        MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
+        MCP_DOMAINS_DISABLED_ENV_VAR,
+        MCP_DOMAINS_ENV_VAR,
+        MCP_INSIDERS_ENV_VAR,
+        MCP_READONLY_MODE_ENV_VAR,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+
+    unrestricted_names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+    )
+    read_only_names = _http_tool_names(
+        headers={},
+        configure_client_capabilities=configure_client_capabilities,
+        url="http://testserver/mcp?read-only=true",
+    )
+
+    assert "run_connection_sync" in unrestricted_names
+    assert "run_connection_sync" not in read_only_names
+    assert "list_workspaces" in read_only_names
 
 
 @pytest.mark.parametrize("ui", [True, False], ids=["ui-client", "non-ui-client"])

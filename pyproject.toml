@@ -88,6 +88,9 @@ dev = [
     "pydantic-ai>=0.2.16",
 ]
 
+[tool.uv.sources]
+fastmcp-extensions = { git = "https://github.com/airbytehq/fastmcp-extensions.git", branch = "devin/1793319296-url-param-config-args" }
+
 [project.scripts]
 pyairbyte = "airbyte.cli.pyab:cli"
 pyab = "airbyte.cli.pyab:cli"

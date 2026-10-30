@@ -126,6 +126,9 @@ When enabled, only read-only Cloud tools are available. Write and destructive op
 disabled. Running and cancelling syncs are also disabled.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+HTTP clients that cannot send custom headers can use the shared standard filter's
+`?read-only=true` URL parameter, for example
+`https://mcp.airbyte.com/mcp?read-only=true`.
 
 ### Local Demo Mode
 
@@ -140,24 +143,32 @@ Deletion tools only delete resources whose names contain `delete-me` or `deletem
 insensitive). To opt out, set `AIRBYTE_CLOUD_MCP_DISABLE_DELETE_GUARD=1` or send the
 `X-MCP-Disable-Delete-Guard: 1` request header; the same environment and header rules as the
 permission settings below apply. The stronger option is to disable deletions entirely with
-`AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=0` or `X-MCP-Allow-Destructive-Tools: 0`.
+`AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS=0`, `X-MCP-Allow-Destructive-Tools: 0`, or
+`?allow-destructive-tools=0`.
 
 ## Airbyte Cloud Pipeline and External Access Permissions
 
 Pipeline changes and external access can be controlled independently. The
 `AIRBYTE_CLOUD_MCP_ALLOW_PIPELINE_CHANGES` environment variable and
-`X-MCP-Allow-Pipeline-Changes` request header control pipeline-changing tools. The
+`X-MCP-Allow-Pipeline-Changes` request header or `?allow-pipeline-changes=...` URL
+parameter control pipeline-changing tools. The
 `AIRBYTE_CLOUD_MCP_ALLOW_EXTERNAL_ACCESS` environment variable and
-`X-MCP-Allow-External-Access` request header control external-access tools, such as
+`X-MCP-Allow-External-Access` request header or `?allow-external-access=...` URL
+parameter control external-access tools, such as
 `execute_external_api_query`, which can run connector passthrough queries, search, and inspect
 external data or skill documentation. The `AIRBYTE_CLOUD_MCP_ALLOW_DESTRUCTIVE_TOOLS`
-environment variable and `X-MCP-Allow-Destructive-Tools` request header control
-destructive-annotated tools.
+environment variable and `X-MCP-Allow-Destructive-Tools` request header or
+`?allow-destructive-tools=...` URL parameter control destructive-annotated tools.
 
 Each setting accepts `1`, `true`, or `yes` to allow, and `0`, `false`, or `no` to deny. An
-explicit environment denial cannot be overridden by a request header. An environment allow can
-be narrowed by a request header denial. If the environment setting is unset, the request header
-decides. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also disables pipeline changes.
+explicit environment denial cannot be overridden by a request header or URL parameter. An
+environment allow can be narrowed by either. If the environment setting is unset, the request
+header takes precedence over the URL parameter. `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` also
+disables pipeline changes.
+
+Insiders tools can be advertised with the `AIRBYTE_MCP_INSIDERS` environment variable,
+`X-MCP-Insiders` request header, or `?insiders=1` URL parameter. The environment can deny
+insiders tools outright; request values can only narrow an environment allow.
 
 Read-only mode blocks both pipeline changes and running or cancelling syncs. However, running
 or cancelling a sync is _not_ considered a pipeline change, so those tools stay available when

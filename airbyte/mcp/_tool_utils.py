@@ -50,10 +50,13 @@ from airbyte.constants import (
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
     MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    MCP_ALLOW_DESTRUCTIVE_TOOLS_URL_PARAM,
     MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    MCP_ALLOW_EXTERNAL_ACCESS_URL_PARAM,
     MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+    MCP_ALLOW_PIPELINE_CHANGES_URL_PARAM,
     MCP_BEARER_TOKEN_HEADER,
     MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
@@ -77,6 +80,7 @@ from airbyte.constants import (
     MCP_INSIDERS_ENV_VAR,
     MCP_INSIDERS_HEADER,
     MCP_INSIDERS_MODULES,
+    MCP_INSIDERS_URL_PARAM,
     MCP_LEGACY_SAFE_MODE_HEADER,
     MCP_LOCAL_DEMO_MODE_ENV_VAR,
     MCP_ORGANIZATION_ID_HEADER,
@@ -154,11 +158,14 @@ UNSUPPORTED_MCP_HEADERS: dict[str, str] = {
     MCP_LEGACY_SAFE_MODE_HEADER: (
         "Remove the `X-MCP-Safe-Mode` header and consider using one of these "
         "alternatives:\n"
-        "- `X-MCP-Allow-Pipeline-Changes: 0`: block changes to sources, "
+        "- `X-MCP-Allow-Pipeline-Changes: 0` / `?allow-pipeline-changes=0`: "
+        "block changes to sources, "
         "destinations, and connections.\n"
-        "- `X-MCP-Allow-External-Access: 0`: block SQL and API passthrough tools.\n"
-        "- `X-MCP-Readonly-Mode: 1`: only expose read-only tools.\n"
-        "- `X-MCP-Allow-Destructive-Tools: 0`: hide destructive tools.\n"
+        "- `X-MCP-Allow-External-Access: 0` / `?allow-external-access=0`: "
+        "block SQL and API passthrough tools.\n"
+        "- `X-MCP-Readonly-Mode: 1` / `?read-only=true`: only expose read-only tools.\n"
+        "- `X-MCP-Allow-Destructive-Tools: 0` / `?allow-destructive-tools=0`: "
+        "hide destructive tools.\n"
     ),
 }
 """Removed MCP request headers, mapped to replacement guidance.
@@ -218,6 +225,7 @@ AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
 INSIDERS_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_INSIDERS,
     http_header_key=MCP_INSIDERS_HEADER,
+    url_param_key=MCP_INSIDERS_URL_PARAM,
     env_var=MCP_INSIDERS_ENV_VAR,
     default="",
     required=False,
@@ -225,12 +233,14 @@ INSIDERS_CONFIG_ARG = MCPServerConfigArg(
 """Config arg for the insiders tools gate.
 
 The default is empty rather than `0`, because `0` is an explicit denial that also refuses
-the include-list opt-in.
+the include-list opt-in. Callers can narrow an environment allow with the `X-MCP-Insiders`
+header or `?insiders=0` URL parameter.
 """
 
 ALLOW_PIPELINE_CHANGES_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_ALLOW_PIPELINE_CHANGES,
     http_header_key=MCP_ALLOW_PIPELINE_CHANGES_HEADER,
+    url_param_key=MCP_ALLOW_PIPELINE_CHANGES_URL_PARAM,
     env_var=MCP_ALLOW_PIPELINE_CHANGES_ENV_VAR,
     default="",
     required=False,
@@ -240,6 +250,7 @@ ALLOW_PIPELINE_CHANGES_CONFIG_ARG = MCPServerConfigArg(
 ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_ALLOW_EXTERNAL_ACCESS,
     http_header_key=MCP_ALLOW_EXTERNAL_ACCESS_HEADER,
+    url_param_key=MCP_ALLOW_EXTERNAL_ACCESS_URL_PARAM,
     env_var=MCP_ALLOW_EXTERNAL_ACCESS_ENV_VAR,
     default="",
     required=False,
@@ -249,6 +260,7 @@ ALLOW_EXTERNAL_ACCESS_CONFIG_ARG = MCPServerConfigArg(
 ALLOW_DESTRUCTIVE_TOOLS_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_ALLOW_DESTRUCTIVE_TOOLS,
     http_header_key=MCP_ALLOW_DESTRUCTIVE_TOOLS_HEADER,
+    url_param_key=MCP_ALLOW_DESTRUCTIVE_TOOLS_URL_PARAM,
     env_var=MCP_ALLOW_DESTRUCTIVE_TOOLS_ENV_VAR,
     default="",
     required=False,
@@ -476,8 +488,8 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     """Decorate an MCP tool with deferred Airbyte registration metadata.
 
     When `insiders_only` is true, the tool is hidden unless insiders mode is on
-    (`AIRBYTE_MCP_INSIDERS` / `X-MCP-Insiders`). When `force_disabled` is true, the function
-    is returned unchanged and never registered.
+    (`AIRBYTE_MCP_INSIDERS`, `X-MCP-Insiders`, or `?insiders=1`). When `force_disabled` is
+    true, the function is returned unchanged and never registered.
     """
     base_decorator = _mcp_tool(
         read_only=read_only,
@@ -663,7 +675,8 @@ def _insiders_mode(app: FastMCP) -> bool | None:
 
     `AIRBYTE_MCP_INSIDERS` sets the deployment default and callers may only narrow it: a
     falsy host value denies insiders tools outright, while a truthy one still honors an
-    explicit `X-MCP-Insiders: 0`. Returns `None` when neither is set to a recognized value.
+    explicit `X-MCP-Insiders: 0` or `?insiders=0`. Returns `None` when neither is set to a
+    recognized value.
     """
     hosted_mode = _str_to_bool(os.environ.get(MCP_INSIDERS_ENV_VAR))
     caller_mode = _str_to_bool(get_mcp_config(app, MCP_CONFIG_INSIDERS))
