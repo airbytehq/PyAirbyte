@@ -942,6 +942,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
         )
+        self._connection_info = None
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
