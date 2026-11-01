@@ -69,7 +69,7 @@ jobs:
           Windows,
         ]
       fail-fast: false
-    runs-on: "${{ matrix.os }}-latest"
+    runs-on: "${{ matrix.os == 'Ubuntu' && 'ubuntu-24.04' || format('{0}-latest', matrix.os) }}"
     env:
       # Enforce UTF-8 encoding so Windows runners don't fail inside the connector code.
       # TODO: See if we can fully enforce this within PyAirbyte itself.
