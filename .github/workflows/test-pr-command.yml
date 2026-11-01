@@ -26,7 +26,7 @@ permissions:
 jobs:
   start-workflow:
     name: Start Workflow
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
 
     - name: Resolve workflow variables
@@ -157,7 +157,7 @@ jobs:
   log-success-comment:
     name: Append 'Success' Comment
     needs: [pytest-on-demand]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Append success comment
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
@@ -173,7 +173,7 @@ jobs:
     # This job will only run if the workflow fails
     needs: [pytest-on-demand, start-workflow]
     if: always() && needs.pytest-on-demand.result == 'failure'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Append failure comment
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
