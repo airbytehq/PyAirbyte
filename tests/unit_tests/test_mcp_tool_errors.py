@@ -17,6 +17,7 @@ from airbyte._util import api_util
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
@@ -521,8 +522,6 @@ def test_cloud_chain_uses_exact_message_for_agent_and_span(
         )
         error.__cause__ = requests.HTTPError(response=response)
     expected = f"{message} {guidance}".rstrip() if guidance else message
-    if carrier == "nested":
-        expected = f"local override local advice Airbyte Cloud response: {message}"
     assert format_user_facing_error(error) == expected
     tool = ToolError("ignored wrapper")
     tool.__cause__ = error
@@ -531,55 +530,56 @@ def test_cloud_chain_uses_exact_message_for_agent_and_span(
 
 
 @pytest.mark.parametrize(
-    ("local_message", "cloud_message", "expected"),
+    ("error_type", "status", "expected"),
     [
         pytest.param(
-            "Connection 'connection-id' is disabled (status 'inactive'), so a sync cannot "
-            "be started.",
-            "State conflict",
-            "Connection 'connection-id' is disabled (status 'inactive'), so a sync cannot "
-            "be started. Re-enable the connection first (e.g. "
-            "`connection.set_enabled(enabled=True)`, or the "
-            "`update_connection` MCP tool with `enabled=True`), then retry. "
-            "Airbyte Cloud response: State conflict",
+            AirbyteConnectionSyncDisabledError,
+            409,
+            "State conflict Re-enable with `update_connection` (`enabled=True`).",
             id="disabled-connection",
         ),
         pytest.param(
+            AirbyteLibInputError,
+            409,
             "State conflict",
+            id="unrelated-local-guidance-is-ignored",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncDisabledError,
+            500,
             "State conflict",
-            "State conflict Local advice.",
-            id="cloud-message-already-present",
+            id="non-conflict-is-not-enriched",
+        ),
+        pytest.param(
+            AirbyteConnectionSyncDisabledError,
+            403,
+            f"State conflict {api_util.FORBIDDEN_RESOURCE_GUIDANCE}",
+            id="access-guidance-is-preserved",
         ),
     ],
 )
-def test_local_guidance_is_preserved_with_cloud_error(
-    local_message: str,
-    cloud_message: str,
+def test_only_sync_conflict_guidance_is_preserved_with_cloud_error(
+    error_type: type[AirbyteLibInputError],
+    status: int,
     expected: str,
 ) -> None:
     body = json.dumps({
         "type": "https://reference.airbyte.com/reference/errors",
         "title": "state-conflict",
-        "detail": cloud_message,
+        "detail": "State conflict",
     })
     response = requests.Response()
-    response.status_code = 409
+    response.status_code = status
     response._content = body.encode()
-    sdk = SDKError("ignored SDK message", 409, body, response)
+    sdk = SDKError("ignored SDK message", status, body, response)
     sync_error = AirbyteConnectionSyncError(
         connection_id="connection-id",
-        context={"status_code": 409},
+        context={"status_code": status},
     )
     sync_error.__cause__ = sdk
-    error = AirbyteLibInputError(
-        message=local_message,
-        guidance=(
-            "Re-enable the connection first (e.g. "
-            "`connection.set_enabled(enabled=True)`, or the "
-            "`update_connection` MCP tool with `enabled=True`), then retry."
-            if "disabled" in local_message
-            else "Local advice."
-        ),
+    error = error_type(
+        message="local override with diagnostic context",
+        guidance="Re-enable with `update_connection` (`enabled=True`).",
     )
     error.__cause__ = sync_error
 
@@ -588,7 +588,7 @@ def test_local_guidance_is_preserved_with_cloud_error(
     tool_error.__cause__ = error
     assert agent_error_text(tool_error) == expected
 
-    assert cloud_error_trace_message(error) == cloud_message
+    assert cloud_error_trace_message(error) == "State conflict"
 
 
 def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
@@ -597,7 +597,7 @@ def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
     message = (
         f"A sync is already running for connection '{connection_id}' (job {job_id})."
     )
-    guidance = "Monitor it with `get_connection_sync_status`."
+    guidance = "Monitor job 42 with `get_connection_sync_status`."
     body = json.dumps({
         "type": "https://reference.airbyte.com/reference/errors#try-again-later",
         "title": "try-again-later",
@@ -609,6 +609,7 @@ def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
     sdk = SDKError("ignored SDK message", 409, body, response)
     error = AirbyteConnectionSyncActiveError(
         connection_id=connection_id,
+        job_id=job_id,
         message=message,
         guidance=guidance,
         context={"connection_id": connection_id, "job_id": job_id},
@@ -628,10 +629,7 @@ def test_active_sync_error_is_a_user_facing_mcp_error() -> None:
 
     text = _call_error(server, "running_sync")
 
-    assert text == (
-        f"{message} {guidance} Airbyte Cloud response: "
-        f"A sync is already running for: {connection_id}"
-    )
+    assert text == (f"A sync is already running for: {connection_id} {guidance}")
 
 
 @pytest.mark.parametrize("field", ["detail", "title"])

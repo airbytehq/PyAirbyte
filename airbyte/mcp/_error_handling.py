@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Mapping
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -28,8 +29,8 @@ from airbyte._util.cloud_errors import (
 from airbyte.exceptions import (
     AirbyteAgentsUnavailableError,
     AirbyteCloudApiError,
-    AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteConnectionSyncTimeoutError,
     AirbyteConnectorInUseError,
@@ -194,43 +195,26 @@ def cloud_error_route(error: BaseException) -> tuple[str, str] | None:
     return None
 
 
-def _cloud_problem_text(problem: CloudErrorInfo) -> str:
+def _cloud_problem_text(problem: CloudErrorInfo, error: BaseException) -> str:
     guidance = cloud_error_guidance(problem, for_mcp=True)
+    if guidance is None and problem.status_code == HTTPStatus.CONFLICT:
+        guidance = next(
+            (
+                cause.guidance
+                for cause in _chain(error)
+                if isinstance(
+                    cause, (AirbyteConnectionSyncActiveError, AirbyteConnectionSyncDisabledError)
+                )
+            ),
+            None,
+        )
     return f"{problem.message} {guidance}".rstrip() if guidance else problem.message
-
-
-def _format_cloud_error_with_local_guidance(error: BaseException) -> str | None:
-    """Keep local recovery guidance alongside a selected Cloud problem message."""
-    problem = _cloud_error_info(error)
-    if problem is None:
-        return None
-
-    local_error = next(
-        (
-            cause
-            for cause in _chain(error)
-            if isinstance(cause, AirbyteLibError)
-            and not isinstance(cause, AirbyteCloudApiError)
-            and not (
-                isinstance(cause, AirbyteCloudError) and cause.get_message() == problem.message
-            )
-        ),
-        None,
-    )
-    if local_error is None or not local_error.guidance:
-        return _cloud_problem_text(problem)
-
-    local_message = local_error.get_message()
-    local_text = f"{local_message} {local_error.guidance}"
-    if problem.message == local_message or problem.message in local_text:
-        return local_text
-    return f"{local_text} Airbyte Cloud response: {problem.message}"
 
 
 def format_user_facing_error(error: BaseException) -> str:
     """Format local error guidance and Cloud problem details without debug context."""
-    if text := _format_cloud_error_with_local_guidance(error):
-        return text
+    if (problem := _cloud_error_info(error)) is not None:
+        return _cloud_problem_text(problem, error)
     if not isinstance(error, AirbyteLibError):
         return str(error)
     text = error.get_message()
@@ -275,8 +259,8 @@ def mcp_tool_error_reason(error: BaseException) -> str | None:
 
 def agent_error_text(error: ToolError) -> str:
     """Return local guidance and Cloud details visible to an agent before redaction."""
-    if text := _format_cloud_error_with_local_guidance(error):
-        return text
+    if (problem := _cloud_error_info(error)) is not None:
+        return _cloud_problem_text(problem, error)
     cause = error.__cause__
     if isinstance(cause, AirbyteLibError):
         return format_user_facing_error(cause)

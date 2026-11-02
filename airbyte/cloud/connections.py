@@ -59,6 +59,7 @@ from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import (
     AirbyteCloudError,
     AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteLibInputError,
     AirbyteMissingResourceError,
@@ -522,13 +523,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 and ex.context.get("status_code") == HTTPStatus.CONFLICT
                 and not self.enabled
             ):
-                raise AirbyteLibInputError(
+                raise AirbyteConnectionSyncDisabledError(
                     message=(
                         f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
                         "so a sync cannot be started."
                     ),
                     guidance=(
-                        "Re-enable the connection first (e.g. "
+                        "The connection is disabled. Re-enable the connection first (e.g. "
                         "`connection.set_enabled(enabled=True)`, or the "
                         "`update_connection` MCP tool with `enabled=True`), then retry."
                     ),
@@ -570,22 +571,33 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         if problem.slug != "try-again-later":
             return None
 
-        sync_results = self.get_previous_sync_logs(
-            limit=1,
-            job_type=JobTypeEnum.SYNC,
-        )
-        sync_result = sync_results[0] if sync_results else None
-        if sync_result is None or sync_result.is_job_complete():
+        try:
+            running_job = next(
+                (
+                    (result, job_type)
+                    for job_type in JobTypeEnum
+                    for result in self.get_previous_sync_logs(limit=1, job_type=job_type)
+                    if not result.is_job_complete()
+                ),
+                None,
+            )
+        except AirbyteCloudError:
+            return None
+        if running_job is None:
             return None
 
+        sync_result, job_type = running_job
         job_id = sync_result.job_id
         return AirbyteConnectionSyncActiveError(
             connection_id=self.connection_id,
+            job_id=job_id,
+            workspace=self.workspace,
             message=(
-                f"A sync is already running for connection '{self.connection_id}' "
+                f"A {job_type.value} job is already running for connection '{self.connection_id}' "
                 f"(job {job_id})."
             ),
             guidance=(
+                f"A {job_type.value} job is already running (job {job_id}). "
                 "Don't start another sync. Monitor the running job with "
                 f"`connection.get_sync_result(job_id={job_id})` or the "
                 "`get_connection_sync_status` MCP tool "

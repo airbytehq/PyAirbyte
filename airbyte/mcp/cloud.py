@@ -1053,8 +1053,8 @@ def run_connection_sync(
     A disabled connection returns 409; re-enable it with `update_connection`
     (`enabled=True`) first. If a sync is already running, the error includes its job ID:
     monitor it with `get_connection_sync_status` instead of retrying, or call
-    `cancel_connection_sync` first if a restart is really wanted. After a `wait=True`
-    timeout, the sync keeps running;
+    `cancel_connection_sync`
+    first if a restart is really wanted. After a `wait=True` timeout, the sync keeps running;
     check `get_connection_sync_status` rather than starting another sync.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)

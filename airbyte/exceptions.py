@@ -223,6 +223,11 @@ class AirbyteUnsafeStreamConfigChangeError(AirbyteLibInputError):
 
 
 @dataclass
+class AirbyteConnectionSyncDisabledError(AirbyteLibInputError):
+    """A sync cannot start because the connection is disabled."""
+
+
+@dataclass
 class AirbyteDeletionGuardError(AirbyteLibInputError):
     """Deletion rejected: the resource name must contain 'delete-me' or 'deleteme'.
 
@@ -702,7 +707,7 @@ class AirbyteConnectionSyncError(AirbyteCloudConnectionError):
 
 
 @dataclass
-class AirbyteConnectionSyncActiveError(AirbyteCloudConnectionError):
+class AirbyteConnectionSyncActiveError(AirbyteConnectionSyncError):
     """Rejected because a sync is currently running on this connection."""
 
 

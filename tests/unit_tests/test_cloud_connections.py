@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 from urllib.parse import urlsplit
 
 import pytest
@@ -22,6 +22,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import (
     AirbyteCloudApiError,
     AirbyteConnectionSyncActiveError,
+    AirbyteConnectionSyncDisabledError,
     AirbyteConnectionSyncError,
     AirbyteCloudError,
     AirbyteMissingResourceError,
@@ -833,13 +834,17 @@ def _connection_info_with_status(status: str) -> MagicMock:
         pytest.param("running-job", "active", id="running-job"),
         pytest.param("no-jobs", "active", id="no-jobs"),
         pytest.param("completed-job", "active", id="completed-job"),
+        pytest.param("lookup-error", "active", id="lookup-error"),
+        pytest.param("status-error", "active", id="status-error"),
         pytest.param("disabled", "inactive", id="disabled-connection"),
     ],
 )
+@pytest.mark.parametrize("job_type", list(JobTypeEnum))
 def test_run_sync_handles_try_again_later_conflicts(
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
     connection_status: str,
+    job_type: JobTypeEnum,
 ) -> None:
     """Explain known running-sync conflicts and preserve unrelated errors."""
     connection = _connection()
@@ -867,22 +872,34 @@ def test_run_sync_handles_try_again_later_conflicts(
             job_url="https://cloud.airbyte.com/jobs/42",
             is_job_complete=MagicMock(return_value=False),
         )
-        get_logs = MagicMock(return_value=[sync_result])
+        get_logs = MagicMock(
+            side_effect=lambda **kwargs: [sync_result]
+            if kwargs["job_type"] == job_type
+            else []
+        )
         monkeypatch.setattr(connection, "get_previous_sync_logs", get_logs)
 
         with pytest.raises(AirbyteConnectionSyncActiveError) as exc_info:
             connection.run_sync()
 
         assert "job 42" in exc_info.value.get_message()
+        assert f"A {job_type.value} job" in exc_info.value.get_message()
+        assert isinstance(exc_info.value, AirbyteConnectionSyncError)
+        assert exc_info.value.job_id == 42
+        assert exc_info.value.job_url == f"{connection.job_history_url}#42::0"
         assert exc_info.value.context == {
             "connection_id": "connection-id",
             "job_id": 42,
             "job_url": "https://cloud.airbyte.com/jobs/42",
         }
         assert "`get_connection_sync_status`" in exc_info.value.guidance
-        get_logs.assert_called_once_with(limit=1, job_type=JobTypeEnum.SYNC)
+        assert "`cancel_connection_sync`" in exc_info.value.guidance
+        get_logs.assert_has_calls([
+            call(limit=1, job_type=kind)
+            for kind in list(JobTypeEnum)[: list(JobTypeEnum).index(job_type) + 1]
+        ])
         assert exc_info.value.__cause__ is sync_error
-    elif scenario in {"no-jobs", "completed-job"}:
+    elif scenario in {"no-jobs", "completed-job", "lookup-error", "status-error"}:
         sync_results = (
             []
             if scenario == "no-jobs"
@@ -893,11 +910,14 @@ def test_run_sync_handles_try_again_later_conflicts(
                 )
             ]
         )
-        monkeypatch.setattr(
-            connection,
-            "get_previous_sync_logs",
-            MagicMock(return_value=sync_results),
-        )
+        lookup = MagicMock(return_value=sync_results)
+        if scenario == "lookup-error":
+            lookup.side_effect = AirbyteCloudError(message="Job list unavailable")
+        elif scenario == "status-error":
+            sync_results[0].is_job_complete.side_effect = AirbyteCloudError(
+                message="Job status unavailable"
+            )
+        monkeypatch.setattr(connection, "get_previous_sync_logs", lookup)
 
         with pytest.raises(AirbyteConnectionSyncError) as exc_info:
             connection.run_sync()
@@ -907,9 +927,10 @@ def test_run_sync_handles_try_again_later_conflicts(
         get_logs = MagicMock()
         monkeypatch.setattr(connection, "get_previous_sync_logs", get_logs)
 
-        with pytest.raises(AirbyteLibInputError) as exc_info:
+        with pytest.raises(AirbyteConnectionSyncDisabledError) as exc_info:
             connection.run_sync()
 
+        assert isinstance(exc_info.value, AirbyteLibInputError)
         assert "disabled" in exc_info.value.message
         assert "enabled=True" in exc_info.value.guidance
         get_logs.assert_not_called()
