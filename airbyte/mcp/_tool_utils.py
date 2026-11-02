@@ -456,6 +456,7 @@ def get_tool_policy(tool: Tool | FastMCPTool) -> ToolPolicy:
 
 def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     *,
+    title: str | None = None,
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
@@ -480,6 +481,7 @@ def mcp_tool(  # noqa: PLR0913 - mirrors the upstream decorator's kwargs
     is returned unchanged and never registered.
     """
     base_decorator = _mcp_tool(
+        title=title,
         read_only=read_only,
         destructive=destructive,
         idempotent=idempotent,

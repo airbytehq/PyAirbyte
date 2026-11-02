@@ -1057,7 +1057,9 @@ def run_connection_sync(
     return f"Sync started. Job ID is '{sync_result.job_id}' and job URL is: {sync_result.job_url}"
 
 
-@mcp_tool()
+@mcp_tool(
+    title="Deploy no-op destination",  # Spell out 'no-op' in tool title
+)
 def deploy_noop_destination(
     ctx: Context,
     destination_name: Annotated[
@@ -1093,6 +1095,7 @@ def deploy_noop_destination(
 
 
 @mcp_tool(
+    title="Execute external API query",  # Use capital 'API' in tool title
     read_only=True,
     idempotent=True,
 )
@@ -1173,6 +1176,7 @@ def get_connection_sync_status(
 
 
 @mcp_tool(
+    title="Execute external SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
 )
@@ -1268,6 +1272,7 @@ def list_connection_sync_jobs(
 
 
 @mcp_tool(
+    title="Update connection (unsafe)",  # Parenthesize 'unsafe' qualifier in tool title
     destructive=True,
     pipeline_change=False,
 )
