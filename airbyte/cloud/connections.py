@@ -1056,7 +1056,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             ),
             reset_requested=reset_requested,
         )
-        self._connection_info = None
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.

@@ -4158,7 +4158,7 @@ def set_connection_selected_streams(
 
 
 def _is_unsafe_connection_update_tool_enabled(ctx: Context) -> bool:
-    """Return whether `update_cloud_connection_unsafe` is advertised to this caller.
+    """Return whether `update_connection_unsafe` is advertised to this caller.
 
     Mirrors the tool filters that can hide it: insiders mode, destructive tools, pipeline
     changes, and read-only mode. Update this helper when those filters change. It does not
@@ -4190,7 +4190,7 @@ def _apply_stream_config_overrides(
         )
     except AirbyteUnsafeStreamConfigChangeError as error:
         guidance = (
-            "Retry with `update_cloud_connection_unsafe`."
+            "Retry with `update_connection_unsafe`."
             if _is_unsafe_connection_update_tool_enabled(ctx)
             else "Ask the user to make this change in the Airbyte UI. "
             f"Connection URL: {connection.connection_url}"
@@ -4375,7 +4375,7 @@ def update_connection(
     destructive=True,
     insiders_only=True,
 )
-def update_cloud_connection_unsafe(
+def update_connection_unsafe(
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4481,7 +4481,7 @@ def update_cloud_connection_unsafe(
 
 
 @mcp_tool(destructive=False, pipeline_change=False)
-def discover_cloud_source_catalog(
+def discover_source_catalog(
     ctx: Context,
     *,
     source_id: Annotated[

@@ -51,7 +51,7 @@ def _server() -> FastMCP:
 
 async def _call_tool(server: FastMCP, arguments: dict[str, Any]) -> Any:
     async with Client(server) as client:
-        return await client.call_tool("discover_cloud_source_catalog", arguments)
+        return await client.call_tool("discover_source_catalog", arguments)
 
 
 def test_start_catalog_discover_uses_a_generated_request_id(
@@ -546,6 +546,6 @@ def test_discover_tool_rejects_invalid_argument_combinations(
 
 def test_discover_tool_is_advertised_as_nondestructive() -> None:
     server = _server()
-    tool = asyncio.run(server.get_tool("discover_cloud_source_catalog"))
+    tool = asyncio.run(server.get_tool("discover_source_catalog"))
 
     assert tool.annotations.destructive_hint is False
