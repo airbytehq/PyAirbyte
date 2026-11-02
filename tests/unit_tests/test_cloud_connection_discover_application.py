@@ -43,8 +43,11 @@ def _stream_entry(
     sync_mode: str = "full_refresh",
     destination_sync_mode: str = "append",
     cursor_field: list[str] | None = None,
+    primary_key: list[list[str]] | None = None,
+    source_defined_cursor: bool | None = None,
     selected: bool = True,
     schema_fields: tuple[str, ...] = ("id",),
+    include_namespace: bool = False,
 ) -> dict[str, Any]:
     stream: dict[str, Any] = {
         "name": name,
@@ -54,8 +57,10 @@ def _stream_entry(
         },
         "supportedSyncModes": list(supported_sync_modes),
     }
-    if namespace is not None:
+    if namespace is not None or include_namespace:
         stream["namespace"] = namespace
+    if source_defined_cursor is not None:
+        stream["sourceDefinedCursor"] = source_defined_cursor
 
     config: dict[str, Any] = {
         "syncMode": sync_mode,
@@ -66,6 +71,8 @@ def _stream_entry(
     }
     if cursor_field is not None:
         config["cursorField"] = cursor_field
+    if primary_key is not None:
+        config["primaryKey"] = primary_key
     return {"stream": stream, "config": config}
 
 
@@ -93,10 +100,32 @@ def test_incomplete_discover_is_rejected_without_writing(
     connection = _connection()
     connection.dump_raw_catalog = MagicMock()  # type: ignore[method-assign]
 
-    with pytest.raises(AirbyteLibInputError, match="has not completed") as error:
+    with pytest.raises(AirbyteLibInputError, match="still running") as error:
         connection.update_stream_configs([], discover_request_id=_DISCOVER_REQUEST_ID)
 
     assert "discover_source_catalog" in str(error.value)
+    get_status.assert_called_once()
+    get_output.assert_not_called()
+    connection.dump_raw_catalog.assert_not_called()
+    replace_catalog.assert_not_called()
+
+
+def test_cancelled_discover_requires_a_new_request_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_status, get_output = _configure_discover_api(
+        monkeypatch, output=None, status="cancelled"
+    )
+    replace_catalog = MagicMock()
+    monkeypatch.setattr(api_util, "replace_connection_catalog", replace_catalog)
+    connection = _connection()
+    connection.dump_raw_catalog = MagicMock()  # type: ignore[method-assign]
+
+    with pytest.raises(AirbyteLibInputError, match="ended without a catalog") as error:
+        connection.update_stream_configs([], discover_request_id=_DISCOVER_REQUEST_ID)
+
+    assert "Start a new `discover_source_catalog` request" in str(error.value)
+    assert "poll" not in str(error.value).lower()
     get_status.assert_called_once()
     get_output.assert_not_called()
     connection.dump_raw_catalog.assert_not_called()
@@ -304,6 +333,274 @@ def test_unsafe_update_writes_catalog_id_and_reports_reset_added_and_removed_str
     assert _SOURCE_CATALOG_ID in summary
     assert "added streams ['new']" in summary
     assert "removed streams ['removed']" in summary
+
+
+@pytest.mark.parametrize(
+    "include_discovered_namespace",
+    [
+        pytest.param(False, id="missing-namespace"),
+        pytest.param(True, id="null-namespace"),
+    ],
+)
+def test_empty_namespace_matches_missing_or_null_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+    include_discovered_namespace: bool,
+) -> None:
+    configured_catalog = {
+        "streams": [_stream_entry("users", namespace="", selected=True)]
+    }
+    discovered_entry = _stream_entry("users", selected=False)
+    if include_discovered_namespace:
+        discovered_entry["stream"]["namespace"] = None
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog={"streams": [discovered_entry]},
+        state_messages=[],
+    )
+
+    result = connection.update_stream_configs(
+        [], discover_request_id=_DISCOVER_REQUEST_ID
+    )
+
+    updated_catalog = replace_catalog.call_args.kwargs["configured_catalog_dict"]
+    assert updated_catalog["streams"][0]["config"]["selected"] is True
+    assert result.added_streams == []
+    assert result.removed_streams == []
+    replace_catalog.assert_called_once()
+
+
+@pytest.mark.parametrize("allow_unsafe", [False, True])
+def test_removed_incremental_cursor_is_rejected_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+    allow_unsafe: bool,
+) -> None:
+    configured_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                cursor_field=["removed_cursor"],
+            )
+        ]
+    }
+    discovered_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                cursor_field=["removed_cursor"],
+                schema_fields=("id",),
+            )
+        ]
+    }
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog=discovered_catalog,
+        state_messages=_state_for_users(),
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="removed_cursor") as error:
+        connection.update_stream_configs(
+            [],
+            allow_unsafe=allow_unsafe,
+            discover_request_id=_DISCOVER_REQUEST_ID,
+        )
+
+    assert "override_stream_configs" in str(error.value)
+    assert "users" in str(error.value)
+    replace_catalog.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "cursor_field",
+    [
+        pytest.param(None, id="missing-cursor-field"),
+        pytest.param([], id="empty-cursor-field"),
+    ],
+)
+def test_incremental_stream_without_cursor_field_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    cursor_field: list[str] | None,
+) -> None:
+    configured_catalog = {
+        "streams": [
+            _stream_entry("users", sync_mode="incremental", cursor_field=cursor_field)
+        ]
+    }
+    discovered_catalog = {
+        "streams": [
+            _stream_entry("users", sync_mode="incremental", cursor_field=cursor_field)
+        ]
+    }
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog=discovered_catalog,
+        state_messages=[],
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="empty or missing `cursorField`"):
+        connection.update_stream_configs([], discover_request_id=_DISCOVER_REQUEST_ID)
+
+    replace_catalog.assert_not_called()
+
+
+def test_cursor_override_can_replace_a_removed_cursor_with_a_discovered_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                cursor_field=["removed_cursor"],
+            )
+        ]
+    }
+    discovered_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                cursor_field=["removed_cursor"],
+                schema_fields=("id", "new_cursor"),
+            )
+        ]
+    }
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog=discovered_catalog,
+        state_messages=[],
+    )
+
+    connection.update_stream_configs(
+        [
+            StreamConfigOverride(
+                stream_name="users",
+                cursor_field="new_cursor",
+            )
+        ],
+        discover_request_id=_DISCOVER_REQUEST_ID,
+    )
+
+    saved_catalog = replace_catalog.call_args.kwargs["configured_catalog_dict"]
+    assert saved_catalog["streams"][0]["config"]["cursorField"] == ["new_cursor"]
+    replace_catalog.assert_called_once()
+
+
+def test_source_defined_cursor_does_not_require_user_defined_cursor_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                source_defined_cursor=True,
+            )
+        ]
+    }
+    discovered_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                source_defined_cursor=True,
+            )
+        ]
+    }
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog=discovered_catalog,
+        state_messages=[],
+    )
+
+    connection.update_stream_configs([], discover_request_id=_DISCOVER_REQUEST_ID)
+
+    replace_catalog.assert_called_once()
+
+
+def test_plain_override_does_not_validate_existing_cursor_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                sync_mode="incremental",
+                cursor_field=["removed_cursor"],
+            )
+        ]
+    }
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog={"streams": []},
+        state_messages=[],
+    )
+
+    connection.update_stream_configs([
+        StreamConfigOverride(
+            stream_name="users",
+            destination_sync_mode=DestinationSyncMode.overwrite,
+        )
+    ])
+
+    replace_catalog.assert_called_once()
+
+
+def test_removed_dedup_primary_key_is_rejected_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                destination_sync_mode="append_dedup",
+                primary_key=[["removed_key"]],
+            )
+        ]
+    }
+    discovered_catalog = {
+        "streams": [
+            _stream_entry(
+                "users",
+                destination_sync_mode="append",
+                schema_fields=("id",),
+            )
+        ]
+    }
+    connection = _connection()
+    replace_catalog = _set_catalog_and_discover(
+        monkeypatch,
+        connection,
+        configured_catalog=configured_catalog,
+        discovered_catalog=discovered_catalog,
+        state_messages=[],
+    )
+
+    with pytest.raises(AirbyteLibInputError, match="removed_key") as error:
+        connection.update_stream_configs([], discover_request_id=_DISCOVER_REQUEST_ID)
+
+    assert "override_stream_configs" in str(error.value)
+    assert "users" in str(error.value)
+    replace_catalog.assert_not_called()
 
 
 def test_discover_application_preserves_api_only_fields_and_applies_overrides_once(

@@ -13,6 +13,13 @@ from copy import deepcopy
 from typing import Any
 
 
+def _stream_descriptor(
+    name: str | None,
+    namespace: str | None,
+) -> tuple[str | None, str | None]:
+    return name, namespace or None
+
+
 def _top_level_fields(stream: dict[str, Any]) -> list[str]:
     schema = stream.get("jsonSchema")
     properties = schema.get("properties") if isinstance(schema, dict) else None
@@ -187,7 +194,7 @@ def _merge_catalog_with_configuration(
 ) -> dict[str, Any]:
     """Return the new discovery with applicable settings from the configured catalog."""
     configured_by_descriptor = {
-        (
+        _stream_descriptor(
             entry.get("stream", {}).get("name"),
             entry.get("stream", {}).get("namespace"),
         ): entry
@@ -198,7 +205,7 @@ def _merge_catalog_with_configuration(
         _merge_discovered_entry(
             discovered_entry,
             configured_by_descriptor.get(
-                (
+                _stream_descriptor(
                     discovered_entry.get("stream", {}).get("name"),
                     discovered_entry.get("stream", {}).get("namespace"),
                 )
@@ -219,7 +226,7 @@ def _preserve_api_only_catalog_fields(
         result.setdefault(key, deepcopy(value))
 
     raw_streams_by_descriptor = {
-        (
+        _stream_descriptor(
             entry.get("stream", {}).get("name"),
             entry.get("stream", {}).get("namespace"),
         ): entry
@@ -227,7 +234,9 @@ def _preserve_api_only_catalog_fields(
     }
     for entry in result.get("streams", []):
         stream = entry.get("stream", {})
-        raw_entry = raw_streams_by_descriptor.get((stream.get("name"), stream.get("namespace")))
+        raw_entry = raw_streams_by_descriptor.get(
+            _stream_descriptor(stream.get("name"), stream.get("namespace"))
+        )
         if raw_entry is None:
             continue
 

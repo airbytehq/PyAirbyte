@@ -7,13 +7,18 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-from airbyte_protocol.models import ConfiguredAirbyteCatalog
+from airbyte_protocol.models import (
+    ConfiguredAirbyteCatalog,
+    DestinationSyncMode,
+    SyncMode,
+)
 
 from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte.cloud._catalog_merge import (
     _merge_catalog_with_configuration,
     _preserve_api_only_catalog_fields,
+    _stream_descriptor,
 )
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
@@ -101,10 +106,12 @@ def _catalog_change_summary(
     updated_catalog: ConfiguredAirbyteCatalog,
 ) -> tuple[list[StreamConfigChange], list[str], list[str]]:
     current_streams = {
-        (entry.stream.name, entry.stream.namespace): entry for entry in current_catalog.streams
+        _stream_descriptor(entry.stream.name, entry.stream.namespace): entry
+        for entry in current_catalog.streams
     }
     updated_streams = {
-        (entry.stream.name, entry.stream.namespace): entry for entry in updated_catalog.streams
+        _stream_descriptor(entry.stream.name, entry.stream.namespace): entry
+        for entry in updated_catalog.streams
     }
     changed_streams = [
         StreamConfigChange(
@@ -136,6 +143,97 @@ def _catalog_change_summary(
         if descriptor not in updated_streams
     ]
     return changed_streams, added_streams, removed_streams
+
+
+def _validate_discovered_catalog_schema(
+    catalog: ConfiguredAirbyteCatalog,
+    base_catalog: dict[str, Any],
+) -> None:
+    selected_descriptors = {
+        _stream_descriptor(
+            entry.get("stream", {}).get("name"),
+            entry.get("stream", {}).get("namespace"),
+        )
+        for entry in base_catalog.get("streams", [])
+        if entry.get("config", {}).get("selected") is True
+    }
+    for entry in catalog.streams:
+        descriptor = _stream_descriptor(entry.stream.name, entry.stream.namespace)
+        if descriptor not in selected_descriptors:
+            continue
+
+        properties = entry.stream.json_schema.get("properties")
+        top_level_fields = properties if isinstance(properties, dict) else {}
+        stream_label = (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        if (
+            entry.sync_mode is SyncMode.incremental
+            and entry.stream.source_defined_cursor is not True
+        ):
+            cursor_field = entry.cursor_field
+            if not cursor_field or cursor_field[0] not in top_level_fields:
+                missing_field = cursor_field[0] if cursor_field else "cursorField"
+                if cursor_field:
+                    message = (
+                        f"Stream '{stream_label}' uses cursor field '{missing_field}', "
+                        "which is missing from the discovered schema."
+                    )
+                else:
+                    message = (
+                        f"Stream '{stream_label}' has an empty or missing `cursorField` "
+                        "for incremental sync in the discovered schema."
+                    )
+                raise AirbyteLibInputError(
+                    message=(
+                        f"{message} Pass `override_stream_configs` for this stream with "
+                        "a cursor field that exists, or choose a sync mode that does not "
+                        "require one."
+                    ),
+                    context={
+                        "stream": stream_label,
+                        "missing_field": missing_field,
+                    },
+                )
+
+        if entry.destination_sync_mode is DestinationSyncMode.append_dedup:
+            primary_key = entry.primary_key or []
+            missing_key = (
+                "primaryKey"
+                if not primary_key
+                else next(
+                    (
+                        path[0] if path else "primaryKey"
+                        for path in primary_key
+                        if not path or path[0] not in top_level_fields
+                    ),
+                    None,
+                )
+            )
+            if missing_key is not None:
+                if missing_key == "primaryKey":
+                    message = (
+                        f"Stream '{stream_label}' uses deduplication but has no primary "
+                        "key in the discovered schema."
+                    )
+                else:
+                    message = (
+                        f"Stream '{stream_label}' uses primary key field '{missing_key}', "
+                        "which is missing from the discovered schema."
+                    )
+                raise AirbyteLibInputError(
+                    message=(
+                        f"{message} Pass `override_stream_configs` for this stream with "
+                        "a primary key that exists, or choose a destination sync mode "
+                        "that does not require one."
+                    ),
+                    context={
+                        "stream": stream_label,
+                        "missing_field": missing_key,
+                    },
+                )
 
 
 class CloudConnection:  # noqa: PLR0904  # Too many public methods
@@ -1045,6 +1143,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         old_catalog = ConfiguredAirbyteCatalog.model_validate(
             _normalize_catalog_to_protocol(current_catalog)
         )
+        validate_discovered_catalog = base_catalog is not None
         base_catalog = current_catalog if base_catalog is None else base_catalog
         catalog = ConfiguredAirbyteCatalog.model_validate(
             _normalize_catalog_to_protocol(base_catalog)
@@ -1075,6 +1174,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             available_streams,
             connection_id=self.connection_id,
         )
+
+        if validate_discovered_catalog:
+            _validate_discovered_catalog_schema(catalog, base_catalog)
 
         catalog_changes, added_streams, removed_streams = _catalog_change_summary(
             old_catalog,
@@ -1120,15 +1222,23 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        if command_status.get("status") != "completed":
+        request_status = command_status.get("status")
+        if request_status != "completed":
+            if request_status in {"pending", "running"}:
+                message = (
+                    "The source catalog discover is still running. Poll "
+                    "`discover_source_catalog` and retry after it completes."
+                )
+            else:
+                message = (
+                    "The source catalog discover ended without a catalog. Start a new "
+                    "`discover_source_catalog` request before updating the connection."
+                )
             raise AirbyteLibInputError(
-                message=(
-                    "The source catalog discover has not completed. Poll "
-                    "`discover_source_catalog` with the request ID and retry."
-                ),
+                message=message,
                 context={
                     "discover_request_id": discover_request_id,
-                    "request_status": command_status.get("status"),
+                    "request_status": request_status,
                 },
             )
 
