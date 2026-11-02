@@ -3945,6 +3945,7 @@ def permanently_delete_connection(
 
 @mcp_tool(
     destructive=True,  # Overwrites the existing name
+    idempotent=True,
 )
 def rename_connector(
     ctx: Context,
@@ -3986,6 +3987,7 @@ def rename_connector(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
 def update_connector_config(
     ctx: Context,
@@ -4048,6 +4050,7 @@ def update_connector_config(
 
 @mcp_tool(
     destructive=True,  # Overwrites the existing name
+    idempotent=True,
 )
 def rename_connection(
     ctx: Context,
@@ -4082,6 +4085,7 @@ def rename_connection(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
 def set_connection_table_prefix(
     ctx: Context,
@@ -4121,6 +4125,7 @@ def set_connection_table_prefix(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
 def set_connection_selected_streams(
     ctx: Context,
@@ -4276,6 +4281,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
 
 @mcp_tool(
     destructive=False,
+    idempotent=True,
 )
 def update_connection(  # noqa: PLR0913
     ctx: Context,
