@@ -1006,6 +1006,7 @@ def create_connection(
 
 
 @mcp_tool(
+    destructive=True,  # May overwrite destination data (e.g. full refresh | overwrite)
     pipeline_change=False,
 )
 def run_connection_sync(
@@ -3938,7 +3939,9 @@ def permanently_delete_connection(
     return f"Successfully deleted connection '{actual_name}' (ID: {connection_id})"
 
 
-@mcp_tool()
+@mcp_tool(
+    destructive=True,  # Overwrites the existing name
+)
 def rename_connector(
     ctx: Context,
     connector_id: Annotated[
@@ -4039,7 +4042,9 @@ def update_connector_config(
     )
 
 
-@mcp_tool()
+@mcp_tool(
+    destructive=True,  # Overwrites the existing name
+)
 def rename_connection(
     ctx: Context,
     connection_id: Annotated[
