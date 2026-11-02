@@ -416,6 +416,7 @@
     "streams": "fingerprint list"
   },
   "update_connection": {
+    "apply_discover_request_id": "hash",
     "connection_id": "hash",
     "cron_expression": "fingerprint",
     "enabled": "value allowed=[false,true]",
@@ -425,6 +426,7 @@
     "workspace_id": "omit"
   },
   "update_connection_unsafe": {
+    "apply_discover_request_id": "hash",
     "connection_id": "hash",
     "cron_expression": "fingerprint",
     "enabled": "value allowed=[false,true]",
