@@ -22,6 +22,7 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 from airbyte_api.errors import SDKError
+from requests.adapters import HTTPAdapter, Retry
 
 from airbyte._util.meta import AIRBYTE_ANALYTIC_SOURCE_HEADER, get_cloud_api_analytic_source
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
@@ -193,6 +194,12 @@ def get_web_url_root(api_root: str) -> str:
     return api_root
 
 
+class _RateLimitRetry(Retry):
+    """Honor Retry-After only for rate limiting, not unrelated error responses."""
+
+    RETRY_AFTER_STATUS_CODES = frozenset({429})
+
+
 def get_airbyte_server_instance(
     *,
     api_root: str,
@@ -233,6 +240,23 @@ def get_airbyte_server_instance(
         )
 
     client = requests.Session()
+    # Retry idempotent requests rejected by rate limiting, without replaying POST/PATCH
+    # or retrying ambiguous connection/read failures. Preserve SDK errors on exhaustion.
+    for scheme in ("http://", "https://"):
+        client.mount(
+            scheme,
+            HTTPAdapter(
+                max_retries=_RateLimitRetry(
+                    total=3,
+                    connect=0,
+                    read=0,
+                    other=0,
+                    status_forcelist=(429,),
+                    backoff_factor=1,
+                    raise_on_status=False,
+                ),
+            ),
+        )
     client.headers[AIRBYTE_ANALYTIC_SOURCE_HEADER] = get_cloud_api_analytic_source()
 
     # Option 1: Bearer token authentication
