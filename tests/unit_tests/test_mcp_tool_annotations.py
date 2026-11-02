@@ -28,6 +28,14 @@ OPEN_WORLD_TOOL_NAMES = {
     "execute_external_sql_query",
     "execute_external_search_query",
 }
+IDEMPOTENT_UPDATE_TOOL_NAMES = {
+    "rename_connector",
+    "rename_connection",
+    "set_connection_table_prefix",
+    "set_connection_selected_streams",
+    "update_connector_config",
+    "update_connection",
+}
 
 
 def _cloud_tool_entries() -> list[tuple[object, dict]]:
@@ -111,3 +119,16 @@ def test_server_tools_have_human_readable_titles() -> None:
     assert rename_tool.title == "Rename connection"
     assert rename_tool.annotations is not None
     assert rename_tool.annotations.title == "Rename connection"
+
+
+def test_absolute_value_update_tools_are_idempotent() -> None:
+    """Tools that set absolute values through PATCH have no extra effect when repeated."""
+    not_idempotent = [
+        f.__name__
+        for f, a in _cloud_tool_entries()
+        if f.__name__ in IDEMPOTENT_UPDATE_TOOL_NAMES
+        and a.get("idempotentHint") is not True
+    ]
+    assert not_idempotent == []
+    registered = {f.__name__ for f, _ in _cloud_tool_entries()}
+    assert registered >= IDEMPOTENT_UPDATE_TOOL_NAMES

@@ -1006,6 +1006,7 @@ def create_connection(
 
 
 @mcp_tool(
+    destructive=True,  # May overwrite destination data (e.g. full refresh | overwrite)
     pipeline_change=False,
 )
 def run_connection_sync(
@@ -2354,6 +2355,7 @@ def get_search_index_status(
 
 
 @mcp_tool(
+    destructive=True,  # Re-running a stream may rewrite existing index entries
     pipeline_change=False,
     external_access=True,
 )
@@ -3327,7 +3329,10 @@ def _get_custom_source_definition_description(
     )
 
 
-@mcp_tool(extra_help_text=_manifest_and_testing_values_hint)
+@mcp_tool(
+    destructive=True,  # testing_values replace existing Builder project testing values
+    extra_help_text=_manifest_and_testing_values_hint,
+)
 def publish_custom_source_definition(  # noqa: PLR0913  # Explicit args mirror MCP tool schema.
     ctx: Context,
     name: Annotated[
@@ -3942,7 +3947,10 @@ def permanently_delete_connection(
     return f"Successfully deleted connection '{actual_name}' (ID: {connection_id})"
 
 
-@mcp_tool()
+@mcp_tool(
+    destructive=True,  # Overwrites the existing name
+    idempotent=True,
+)
 def rename_connector(
     ctx: Context,
     connector_id: Annotated[
@@ -3983,6 +3991,7 @@ def rename_connector(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
 def update_connector_config(
     ctx: Context,
@@ -4043,7 +4052,10 @@ def update_connector_config(
     )
 
 
-@mcp_tool()
+@mcp_tool(
+    destructive=True,  # Overwrites the existing name
+    idempotent=True,
+)
 def rename_connection(
     ctx: Context,
     connection_id: Annotated[
@@ -4077,6 +4089,7 @@ def rename_connection(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
 def set_connection_table_prefix(
     ctx: Context,
@@ -4116,6 +4129,7 @@ def set_connection_table_prefix(
 
 @mcp_tool(
     destructive=True,
+    idempotent=True,
 )
 def set_connection_selected_streams(
     ctx: Context,
@@ -4182,15 +4196,17 @@ def _apply_stream_config_overrides(
     overrides: list[StreamConfigOverride] | None,
     *,
     allow_unsafe: bool,
+    apply_discover_request_id: str | None,
 ) -> StreamConfigUpdateResult | None:
     """Apply overrides before other connection writes and add safety guidance."""
-    if not overrides:
+    if not overrides and apply_discover_request_id is None:
         return None
 
     try:
         return connection.update_stream_configs(
-            overrides,
+            overrides or [],
             allow_unsafe=allow_unsafe,
+            discover_request_id=apply_discover_request_id,
         )
     except AirbyteUnsafeStreamConfigChangeError as error:
         guidance = (
@@ -4215,6 +4231,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
     interval_hours: int | None,
     manual_schedule: bool | None,
     override_stream_configs: list[StreamConfigOverride] | None,
+    apply_discover_request_id: str | None,
     workspace_id: str | None,
     allow_unsafe: bool,
 ) -> str:
@@ -4225,6 +4242,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         interval_hours=interval_hours,
         manual_schedule=manual_schedule,
         override_stream_configs=override_stream_configs,
+        apply_discover_request_id=apply_discover_request_id,
     )
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -4235,6 +4253,7 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
         connection,
         override_stream_configs,
         allow_unsafe=allow_unsafe,
+        apply_discover_request_id=apply_discover_request_id,
     )
 
     if enabled is not None:
@@ -4266,8 +4285,9 @@ def _update_cloud_connection_impl(  # noqa: PLR0913
 
 @mcp_tool(
     destructive=False,
+    idempotent=True,
 )
-def update_connection(
+def update_connection(  # noqa: PLR0913
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4345,6 +4365,17 @@ def update_connection(
         ),
         TraceArg.FINGERPRINT,
     ],
+    apply_discover_request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Apply the catalog from a completed `discover_source_catalog` request. "
+                "Use a request started for this connection's source; its output must "
+                "still be available."
+            ),
+            default=None,
+        ),
+    ],
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4370,6 +4401,7 @@ def update_connection(
         interval_hours=interval_hours,
         manual_schedule=manual_schedule,
         override_stream_configs=override_stream_configs,
+        apply_discover_request_id=apply_discover_request_id,
         workspace_id=workspace_id,
         allow_unsafe=False,
     )
@@ -4380,7 +4412,7 @@ def update_connection(
     destructive=True,
     insiders_only=True,
 )
-def update_connection_unsafe(
+def update_connection_unsafe(  # noqa: PLR0913
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -4457,6 +4489,17 @@ def update_connection_unsafe(
         ),
         TraceArg.FINGERPRINT,
     ],
+    apply_discover_request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Apply the catalog from a completed `discover_source_catalog` request. "
+                "Use a request started for this connection's source; its output must "
+                "still be available."
+            ),
+            default=None,
+        ),
+    ],
     workspace_id: Annotated[
         str | None,
         Field(
@@ -4480,6 +4523,7 @@ def update_connection_unsafe(
         interval_hours=interval_hours,
         manual_schedule=manual_schedule,
         override_stream_configs=override_stream_configs,
+        apply_discover_request_id=apply_discover_request_id,
         workspace_id=workspace_id,
         allow_unsafe=True,
     )
@@ -4505,7 +4549,8 @@ def discover_source_catalog(
         Field(
             description=(
                 "The request ID returned when a discover was started. Poll with this "
-                "value to retrieve its status and completed outcome."
+                "value to retrieve its status and completed outcome. Pass it as "
+                "`apply_discover_request_id` to `update_connection` to apply the catalog."
             ),
             default=None,
         ),
@@ -4563,7 +4608,8 @@ def discover_source_catalog(
     its status and outcome. Use `no_refresh=True` with `source_id` to read the latest
     saved catalog; this mode cannot be applied to a connection. Compare catalogs by
     passing `source_catalog_id` and exactly one comparison target. A catalog summary
-    by ID alone is not supported yet.
+    by ID alone is not supported yet. To apply a completed discover catalog, pass its
+    `discover_request_id` as `apply_discover_request_id` to `update_connection`.
     """
     if compare_to_source_catalog_id is not None and compare_to_connection_id is not None:
         raise AirbyteLibInputError(

@@ -446,11 +446,22 @@ class StreamConfigUpdateResult(BaseModel):
     unsafe_streams: list[StreamConfigChange]
     reset_streams: list[StreamConfigChange]
     reset_requested: bool
+    applied_source_catalog_id: str | None = None
+    added_streams: list[str] = Field(default_factory=list)
+    removed_streams: list[str] = Field(default_factory=list)
 
     def summary_lines(self) -> list[str]:
-        """Return concise summaries of updated streams and any requested resets."""
+        """Return concise summaries of catalog and stream configuration updates."""
         updated_names = [stream.label for stream in self.updated_streams]
-        changes = [f"updated stream configs for {updated_names}"]
+        changes: list[str] = []
+        if updated_names:
+            changes.append(f"updated stream configs for {updated_names}")
+        if self.applied_source_catalog_id is not None:
+            changes.append(f"applied source catalog '{self.applied_source_catalog_id}'")
+        if self.added_streams:
+            changes.append(f"added streams {self.added_streams}")
+        if self.removed_streams:
+            changes.append(f"removed streams {self.removed_streams}")
         if not self.unsafe_streams:
             return changes
 
