@@ -2402,102 +2402,18 @@ def _call_create_connection() -> None:
 
 
 @pytest.mark.parametrize(
-    ("problem_type", "data", "expected_guidance"),
+    "problem_type",
     [
-        pytest.param(
-            "https://reference.airbyte.com/reference/errors"
-            "#error:connection-conflicting-destination-stream",
-            {
-                "streams": [
-                    {
-                        "streamName": "users",
-                        "connectionIds": ["users-connection"],
-                    },
-                    {
-                        "streamName": "orders",
-                        "streamNamespace": "",
-                        "connectionIds": ["orders-connection"],
-                    },
-                ]
-            },
-            "Another connection on this destination already writes to these tables: "
-            "`users` (connection `users-connection`), `orders` "
-            "(connection `orders-connection`). Set `table_prefix` (for example "
-            "`<source>_`) so this connection writes to different table names.",
-            id="conflicting-streams",
-        ),
-        pytest.param(
-            "https://reference.airbyte.com/reference/errors"
-            "#error:connection-conflicting-destination-stream",
-            {
-                "streams": [
-                    {
-                        "streamName": f"stream-{index}",
-                        "streamNamespace": "",
-                        "connectionIds": [f"connection-{index}"],
-                    }
-                    for index in range(12)
-                ]
-            },
-            (
-                "Another connection on this destination already writes to these tables: "
-                + ", ".join(
-                    f"`stream-{index}` (connection `connection-{index}`)"
-                    for index in range(10)
-                )
-                + ", and 2 more. Set `table_prefix` (for example `<source>_`) so this "
-                "connection writes to different table names."
-            ),
-            id="stream-list-capped",
-        ),
-        pytest.param(
-            "https://reference.airbyte.com/reference/errors"
-            "#error:connection-conflicting-destination-stream",
-            {
-                "streams": [
-                    {
-                        "streamName": "users",
-                        "streamNamespace": "analytics",
-                        "connectionIds": ["users-connection"],
-                    },
-                    {"streamName": 42},
-                    {
-                        "streamName": "orders",
-                        "streamNamespace": None,
-                        "connectionIds": ["orders-connection"],
-                    },
-                ]
-            },
-            "Another connection on this destination already writes to these tables: "
-            "`analytics.users` (connection `users-connection`), `orders` "
-            "(connection `orders-connection`). Set `table_prefix` (for example "
-            "`<source>_`) so this connection writes to different table names.",
-            id="malformed-stream-item-skipped",
-        ),
-        pytest.param(
-            "https://reference.airbyte.com/reference/errors"
-            "#error:connection-conflicting-destination-stream",
-            {"streams": [{"streamName": ""}, {"streamName": "orders"}]},
-            "Another connection on this destination may already write to the same tables. "
-            "Set `table_prefix` (for example `<source>_`) so this connection writes to "
-            "different table names.",
-            id="all-stream-items-malformed",
-        ),
-        pytest.param(
-            "https://reference.airbyte.com/reference/errors#bad-request",
-            {"message": "Internal API message"},
-            None,
-            id="non-conflict-400",
-        ),
+        "https://reference.airbyte.com/reference/errors"
+        "#error:connection-conflicting-destination-stream",
+        "https://reference.airbyte.com/reference/errors#bad-request",
     ],
 )
-def test_create_connection_400_guidance(
+def test_create_connection_400_preserves_cloud_detail_without_guidance(
     monkeypatch: pytest.MonkeyPatch,
     problem_type: str,
-    data: Any,
-    expected_guidance: str | None,
 ) -> None:
-    """Use conflicting-stream data for guidance without exposing other API details."""
+    """A 400 preserves Cloud's detail without adding local guidance."""
     detail = (
         "The request could not be understood by the server due to malformed syntax."
     )
@@ -2507,7 +2423,10 @@ def test_create_connection_400_guidance(
         "title": "bad-request",
         "detail": detail,
         "documentationUrl": None,
-        "data": data,
+        "data": {
+            "message": "Internal API message",
+            "streams": [{"streamName": "users", "connectionIds": ["users-connection"]}],
+        },
     })
     raw_response = requests.Response()
     raw_response.status_code = 400
@@ -2527,48 +2446,13 @@ def test_create_connection_400_guidance(
         _call_create_connection()
 
     assert exc_info.value.get_message() == detail
-    assert exc_info.value.guidance == expected_guidance
+    assert exc_info.value.guidance is None
     assert "Internal API message" not in str(exc_info.value)
     assert exc_info.value.context["source_id"] == "source-id"
     assert exc_info.value.context["destination_id"] == "destination-id"
     assert exc_info.value.context["status_code"] == 400
     assert exc_info.value.__cause__ is sdk_error
-    expected_text = f"{detail} {expected_guidance}" if expected_guidance else detail
-    assert format_user_facing_error(exc_info.value) == expected_text
-
-
-@pytest.mark.parametrize("field", ["streamName", "streamNamespace", "connectionIds"])
-@pytest.mark.parametrize("include_valid_stream", [False, True])
-def test_create_connection_conflict_skips_escaped_lone_surrogate(
-    monkeypatch: pytest.MonkeyPatch,
-    field: str,
-    include_valid_stream: bool,
-) -> None:
-    stream = {
-        "streamName": "users",
-        "streamNamespace": "analytics",
-        "connectionIds": ["users-connection"],
-    }
-    stream[field] = ["\ud800"] if field == "connectionIds" else "\ud800"
-    streams = [stream]
-    if include_valid_stream:
-        streams.append({"streamName": "orders", "connectionIds": ["orders-connection"]})
-    expected_guidance = (
-        "Another connection on this destination already writes to these tables: "
-        "`orders` (connection `orders-connection`). Set `table_prefix` (for example "
-        "`<source>_`) so this connection writes to different table names."
-        if include_valid_stream
-        else "Another connection on this destination may already write to the same tables. "
-        "Set `table_prefix` (for example `<source>_`) so this connection writes to "
-        "different table names."
-    )
-    test_create_connection_400_guidance(
-        monkeypatch,
-        "https://reference.airbyte.com/reference/errors"
-        "#error:connection-conflicting-destination-stream",
-        {"streams": streams},
-        expected_guidance,
-    )
+    assert format_user_facing_error(exc_info.value) == detail
 
 
 def test_create_connection_400_with_non_json_body_uses_fallback_message(
