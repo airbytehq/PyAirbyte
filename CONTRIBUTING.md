@@ -28,17 +28,20 @@ as a "presentation" layer on top of the core modules.)
 
 ## MCP Tool Titles and Annotations
 
-Every MCP tool must declare a `title` and explicit `read_only`, `destructive`, and `open_world`
-values on `@mcp_tool(...)`. This is a requirement for listing the MCP server in client
+Every MCP tool must have a `title` and must declare explicit `read_only`, `destructive`, and
+`open_world` values on `@mcp_tool(...)`. This is a requirement for listing the MCP server in client
 marketplaces such as the ChatGPT app directory, and clients use these values to decide when to
 ask the user for confirmation. Set them from what the tool actually does, not from what the
 wrapper defaults to.
 
-- `title`: a short, human-readable, verb-first action (for example `Rename connection` or
-  `Run connection sync`). It is display text only. It must not tell the model when or how to use
-  this or any other tool. Don't include the product or server name, because clients already show
-  it. Qualify the noun only to tell apart tools on the same server (for example `Search the web`
-  vs. `Search Drive files`).
+- `title`: a short, human-readable, verb-first action. By default it is derived from the tool name
+  in sentence case (`rename_connection` becomes `Rename connection`), so name tools accordingly.
+  Pass `title=` only when the derived title reads poorly, and add a short inline comment giving
+  the reason, for example `title="Run local SQL query",  # Use capital 'SQL' in tool title`.
+  Titles are display text only and must not tell the model when or how to use this or any other
+  tool. Don't include the product or server name, because clients already show it. Qualify the
+  noun only to tell apart tools on the same server (for example `Search the web` vs.
+  `Search Drive files`).
 - `read_only`: `True` only when the tool cannot change any state. Starting jobs, queuing work, and
   persisting artifacts are not read-only.
 - `destructive`: for non-read-only tools, `True` when the tool may delete, overwrite, cancel, or
