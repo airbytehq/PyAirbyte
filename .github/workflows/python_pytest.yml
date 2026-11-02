@@ -26,7 +26,7 @@ permissions:
 jobs:
   pytest-no-creds:
     name: Pytest (No Creds)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       code-quality: write
@@ -110,7 +110,7 @@ jobs:
         ]
       fail-fast: false
 
-    runs-on: "${{ matrix.os }}-latest"
+    runs-on: "${{ matrix.os == 'Ubuntu' && 'ubuntu-24.04' || format('{0}-latest', matrix.os) }}"
     permissions:
       checks: write
       contents: read
@@ -218,7 +218,7 @@ jobs:
             pytest-args: tests/integration_tests/cloud/
           - shard: other
             pytest-args: tests/integration_tests/ --ignore=tests/integration_tests/test_all_cache_types.py --ignore=tests/integration_tests/cloud/
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       checks: write
       contents: read
@@ -297,7 +297,7 @@ jobs:
     needs: [pytest-unit, pytest-integration]
     # Runs whenever the upstream jobs ran (even if some tests failed); skipped on forks with them.
     if: always() && needs.pytest-integration.result != 'skipped'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       code-quality: write
@@ -349,7 +349,7 @@ jobs:
 
   dependency-analysis:
     name: Dependency Analysis with Deptry
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6

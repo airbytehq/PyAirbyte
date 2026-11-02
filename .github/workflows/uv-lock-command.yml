@@ -33,7 +33,7 @@ jobs:
         ]
       fail-fast: false
 
-    runs-on: "${{ matrix.os }}-latest"
+    runs-on: "${{ matrix.os == 'Ubuntu' && 'ubuntu-24.04' || format('{0}-latest', matrix.os) }}"
     steps:
 
     # Custom steps to fetch the PR and checkout the code:

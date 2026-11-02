@@ -46,7 +46,7 @@ concurrency:
 jobs:
   sync:
     name: Fast-forward, merge, or open PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # ---------- Setup ----------
       - name: Authenticate as GitHub App
