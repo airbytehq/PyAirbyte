@@ -86,6 +86,7 @@ def is_knowledge_search_available(app: FastMCP) -> bool:
 
 
 @mcp_tool(
+    title="Search Airbyte knowledge sources",  # Capitalize proper noun 'Airbyte' in tool title
     read_only=True,
     idempotent=True,
     required_capabilities=[KNOWLEDGE_SEARCH_CAPABILITY],
@@ -333,6 +334,7 @@ def get_connector_definition(
 
 
 @mcp_tool(
+    title="Get API docs URLs",  # Use capital 'API' and 'URLs' in tool title
     read_only=True,
     idempotent=True,
 )

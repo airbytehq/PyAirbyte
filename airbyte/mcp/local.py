@@ -354,6 +354,7 @@ def list_local_source_streams(
 
 
 @mcp_tool(
+    title="Get local source stream JSON schema",  # Use capital 'JSON' in tool title
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,
@@ -844,6 +845,7 @@ def _is_safe_sql(sql_query: str) -> bool:
 
 
 @mcp_tool(
+    title="Run local SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
     requires_client_filesystem=True,

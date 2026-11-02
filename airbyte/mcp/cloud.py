@@ -1058,7 +1058,9 @@ def run_connection_sync(
     return f"Sync started. Job ID is '{sync_result.job_id}' and job URL is: {sync_result.job_url}"
 
 
-@mcp_tool()
+@mcp_tool(
+    title="Deploy no-op destination",  # Spell out 'no-op' in tool title
+)
 def deploy_noop_destination(
     ctx: Context,
     destination_name: Annotated[
@@ -1707,6 +1709,7 @@ def _direct_access_disabled_message(
 
 
 @mcp_tool(
+    title="Execute external API query",  # Use capital 'API' in tool title
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1944,6 +1947,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
 
 
 @mcp_tool(
+    title="Execute external SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -4404,6 +4408,7 @@ def update_connection(  # noqa: PLR0913
 
 
 @mcp_tool(
+    title="Update connection (unsafe)",  # Parenthesize 'unsafe' qualifier in tool title
     destructive=True,
     insiders_only=True,
 )
