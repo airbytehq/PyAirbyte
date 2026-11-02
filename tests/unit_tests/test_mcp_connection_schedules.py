@@ -137,7 +137,7 @@ def test_interval_schema() -> None:
         assert interval["default"] is None
         assert "interval_hours" not in update.input_schema.get("required", [])
         assert update.annotations is not None
-        assert update.annotations.destructive_hint is False
+        assert update.annotations.destructive_hint is True
         assert update.annotations.read_only_hint is False
         unsafe = tools["update_connection_unsafe"]
         assert unsafe.annotations is not None
