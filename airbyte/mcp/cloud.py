@@ -1095,7 +1095,6 @@ def deploy_noop_destination(
 
 
 @mcp_tool(
-    title="Execute external API query",  # Use capital 'API' in tool title
     read_only=True,
     idempotent=True,
 )
@@ -1176,7 +1175,6 @@ def get_connection_sync_status(
 
 
 @mcp_tool(
-    title="Execute external SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
 )
@@ -1272,7 +1270,6 @@ def list_connection_sync_jobs(
 
 
 @mcp_tool(
-    title="Update connection (unsafe)",  # Parenthesize 'unsafe' qualifier in tool title
     destructive=True,
     pipeline_change=False,
 )
@@ -1711,6 +1708,7 @@ def _direct_access_disabled_message(
 
 
 @mcp_tool(
+    title="Execute external API query",  # Use capital 'API' in tool title
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1948,6 +1946,7 @@ def _execute_external_api_action(  # noqa: PLR0913  # Explicit args mirror the c
 
 
 @mcp_tool(
+    title="Execute external SQL query",  # Use capital 'SQL' in tool title
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -4377,6 +4376,7 @@ def update_connection(
 
 
 @mcp_tool(
+    title="Update connection (unsafe)",  # Parenthesize 'unsafe' qualifier in tool title
     destructive=True,
     insiders_only=True,
 )

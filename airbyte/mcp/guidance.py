@@ -177,7 +177,6 @@ def test_my_tools_prompt(
 
 
 @mcp_tool(
-    title="Get API docs URLs",  # Use capital 'API' and 'URLs' in tool title
     read_only=True,
     idempotent=True,
     extra_help_text=SKILL_DOCS_SECTION_HINT,
@@ -335,6 +334,7 @@ def get_connector_definition(
 
 
 @mcp_tool(
+    title="Get API docs URLs",  # Use capital 'API' and 'URLs' in tool title
     read_only=True,
     idempotent=True,
 )
