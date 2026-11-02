@@ -26,6 +26,34 @@ As a general rule (with rare exceptions), there shouldn't be anything that you c
 the MCP tools which you couldn't also do with the public Python interface. (Hence the framing
 as a "presentation" layer on top of the core modules.)
 
+## MCP Tool Titles and Annotations
+
+Every MCP tool must declare a `title` and explicit `read_only`, `destructive`, and `open_world`
+values on `@mcp_tool(...)`. This is a requirement for listing the MCP server in client
+marketplaces such as the ChatGPT app directory, and clients use these values to decide when to
+ask the user for confirmation. Set them from what the tool actually does, not from what the
+wrapper defaults to.
+
+- `title`: a short, human-readable, verb-first action (for example `Rename connection` or
+  `Run connection sync`). It is display text only. It must not tell the model when or how to use
+  this or any other tool.
+- `read_only`: `True` only when the tool cannot change any state. Starting jobs, queuing work, and
+  persisting artifacts are not read-only.
+- `destructive`: for non-read-only tools, `True` when the tool may delete, overwrite, cancel, or
+  otherwise make a non-additive change. Use `False` only for purely additive writes. Being able
+  to undo a change does not by itself make it non-destructive.
+- `open_world`: `True` when the tool reaches the public internet or open-ended external entities.
+  A tool confined to the user's own account or workspace may use `False`, even when the service
+  is hosted remotely.
+
+Authoritative references:
+
+- MCP [`ToolAnnotations`](https://modelcontextprotocol.io/specification/2025-11-25/schema#toolannotations)
+  and [`BaseMetadata.title`](https://modelcontextprotocol.io/specification/2025-11-25/schema#basemetadata)
+- OpenAI app submission guidelines, ["Correct annotation"](https://developers.openai.com/apps-sdk/app-submission-guidelines)
+- OpenAI [Build your MCP server](https://developers.openai.com/apps-sdk/build/mcp-server)
+  and [Plan tools](https://developers.openai.com/apps-sdk/plan/tools)
+
 ## Agent-facing Cloud Error Messages
 
 Cloud API error text comes from the response's nonempty `detail`, falling back to `title`.
