@@ -3737,7 +3737,7 @@ def test_request_cloud_search_index_backfill_is_a_write_tool() -> None:
         a for f, a in _REGISTERED_TOOLS if f is cloud_mcp.request_search_index_backfill
     ]
     assert annotations["readOnlyHint"] is False
-    assert annotations["destructiveHint"] is False
+    assert annotations["destructiveHint"] is True
     assert annotations["idempotentHint"] is False
     assert annotations["openWorldHint"] is False
     policy = _TOOL_POLICIES["request_search_index_backfill"]

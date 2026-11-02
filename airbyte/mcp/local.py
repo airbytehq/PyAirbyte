@@ -653,7 +653,7 @@ def get_local_stream_previews(
 
 
 @mcp_tool(
-    destructive=False,
+    destructive=True,  # AUTO write strategy may replace tables without a primary key or cursor
     requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
