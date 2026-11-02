@@ -90,6 +90,8 @@ from airbyte._direct_connectors.models import (
 )
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud.connector_builder import CloudConnectorBuilderProject
+from airbyte.cloud.connector_builder._util import unwrap_builder_manifest
 from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
@@ -622,7 +624,8 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
         """Search this connector's indexed data.
 
         A source searches its own indexed streams; a destination searches every indexed
-        source synced to it. `min_similarity` and `max_similarity_diff` apply only to
+        source synced to it, so each `streams` entry on a destination search must name its
+        `source_id`. `min_similarity` and `max_similarity_diff` apply only to
         `semantic` and `hybrid` searches. `destination_id` selects the destination for a
         source synced to more than one enabled destination. Arguments left as `None` are
         omitted so the backend defaults apply. Requires search indexing to be enabled for
@@ -677,6 +680,17 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                 ),
                 context={"errors": ex.errors(include_url=False)},
             ) from None
+        if self.connector_type == ConnectorType.DESTINATION and any(
+            "source_id" not in stream for stream in resolved_streams or []
+        ):
+            raise exc.AirbyteLibInputError(
+                message="Every `streams` entry needs a `source_id` on a destination search.",
+                guidance=(
+                    "Add the `source_id` of the source each stream belongs to; the "
+                    "destination's search status lists them."
+                ),
+                context={"connector_id": self.connector_id},
+            )
 
         optional_fields: dict[str, Any] = {
             "limit": limit,
@@ -997,19 +1011,16 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
     def read_agent_skill_docs(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's skill docs from the Agents API without enrichment.
 
-        Sources are addressed by the `docs_skill_id` reported by Context Layer
-        `inspect`; SQL passthrough destinations by their conventional
-        `connector-destination:` skill ID. `section` is passed through unchanged
-        and Agents API errors (including not-enabled 403/404s) propagate. Other
-        destinations do not support direct access docs.
+        Sources are addressed by their `connector-source:` skill ID; SQL passthrough
+        destinations by their conventional `connector-destination:` skill ID.
+        `section` is passed through unchanged. Not-enabled 403/404s raise
+        `AirbyteExternalAccessNotEnabledError` with an `enablement_url`; when the
+        Context Layer API is unavailable, that error has no URL. Other errors
+        propagate. Other destinations do not support direct access docs.
         """
         if self.connector_type == ConnectorType.SOURCE:
-            skill_id: str | None = self._direct_access_guidance_id()
-            if skill_id is None:
-                raise exc.AirbyteExternalAccessNotEnabledError(
-                    connector_name=self.name,
-                    connector_id=self.connector_id,
-                )
+            self._require_context_layer_api()
+            skill_id = connector_docs.source_skill_id(self.connector_id)
         elif self.definition_id in _SQL_PASSTHROUGH_DESTINATION_DIALECTS:
             skill_id = connector_docs.destination_skill_id(self.connector_id)
         else:
@@ -1024,14 +1035,22 @@ class CloudConnector:  # noqa: PLR0904  # Too many public methods
                     "definition_id": self.definition_id,
                 },
             )
-        return DirectAccessGuidance.model_validate(
-            agents_api_util.read_cloud_skill_docs(
-                workspace_id=self.workspace.workspace_id,
-                skill_id=skill_id,
-                credentials=self.workspace._credentials,  # noqa: SLF001
-                section=section,
+        try:
+            return DirectAccessGuidance.model_validate(
+                agents_api_util.read_cloud_skill_docs(
+                    workspace_id=self.workspace.workspace_id,
+                    skill_id=skill_id,
+                    credentials=self.workspace._credentials,  # noqa: SLF001
+                    section=section,
+                )
             )
-        )
+        except exc.AirbyteCloudError as error:
+            self._raise_if_feature_not_enabled(
+                error,
+                ConnectorFeature.DIRECT_ACCESS,
+                enablement_url=self._direct_access_enablement_url,
+            )
+            raise
 
     def get_direct_access_guidance(self, *, section: str | None = None) -> DirectAccessGuidance:
         """Read this connector's direct-access docs, optionally scoped to a section.
@@ -1413,25 +1432,6 @@ class CloudDestination(CloudConnector):
         return result
 
 
-_MANIFEST_KEYS = frozenset({"streams", "definitions", "check"})
-
-
-def _unwrap_builder_manifest(value: object) -> dict[str, Any] | None:
-    """Return the connector manifest from a builder manifest payload.
-
-    Some builder projects store their draft as a `DeclarativeSourceManifest`
-    envelope (`{"manifest": {...}, "spec": ..., "version": ...}`) rather than
-    the bare manifest; unwrap that envelope so the result matches the shape of
-    `manifest`.
-    """
-    if not isinstance(value, dict):
-        return None
-    nested = value.get("manifest")
-    if isinstance(nested, dict) and not any(key in value for key in _MANIFEST_KEYS):
-        return nested
-    return value
-
-
 class CustomCloudSourceDefinition:  # noqa: PLR0904
     """A custom source connector definition in Airbyte Cloud.
 
@@ -1606,6 +1606,22 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
         return self._connector_builder_project_id
 
     @property
+    def _connector_builder_project(self) -> CloudConnectorBuilderProject | None:
+        """The Connector Builder project behind this definition. YAML connectors only."""
+        if self.definition_type != "yaml":
+            return None
+
+        project_id = self.connector_builder_project_id
+        if not project_id:
+            return None
+
+        return CloudConnectorBuilderProject(
+            workspace=self.workspace,
+            builder_project_id=project_id,
+            owner_workspace_id=self._builder_project_workspace_id,
+        )
+
+    @property
     def connector_builder_project_url(self) -> str | None:
         """Get the connector builder project URL. Only present for YAML connectors."""
         if self.definition_type != "yaml":
@@ -1717,7 +1733,7 @@ class CustomCloudSourceDefinition:  # noqa: PLR0904
             return None
 
         declarative_manifest = project_data.get("declarativeManifest", {})
-        return _unwrap_builder_manifest(declarative_manifest.get("manifest"))
+        return unwrap_builder_manifest(declarative_manifest.get("manifest"))
 
     @property
     def definition_url(self) -> str:

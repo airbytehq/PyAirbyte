@@ -39,6 +39,7 @@ jobs:
             uv-lock
             poe
             prerelease
+            evals
           static-args: |
             pr=${{ github.event.issue.number }}
             comment-id=${{ github.event.comment.id }}

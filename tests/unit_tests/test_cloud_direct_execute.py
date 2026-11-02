@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -17,6 +18,7 @@ from airbyte._util import api_util
 from airbyte._direct_connectors.models import (
     ConnectorEnablement,
     ExternalApiExecuteResult,
+    ExternalSearchBackfillRequestResult,
     ExternalSearchHit,
     ExternalSearchResult,
     ExternalSearchStatusResult,
@@ -24,6 +26,7 @@ from airbyte._direct_connectors.models import (
     ExternalSearchType,
 )
 from airbyte.cloud import workspaces as cloud_workspaces
+from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudConnector,
     CloudDestination,
@@ -42,6 +45,7 @@ from airbyte.cloud.models import (
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.exceptions import (
+    AirbyteAgentsUnavailableError,
     AirbyteCloudApiError,
     AirbyteCloudError,
     AirbyteExternalAccessNotEnabledError,
@@ -1161,6 +1165,12 @@ def test_search_rejects_malformed_response(
         pytest.param(
             "source", {"streams": [{"fields": ["id"]}]}, "`streams`", id="bad_stream"
         ),
+        pytest.param(
+            "destination",
+            {"streams": [{"stream_name": "issues"}]},
+            "`source_id`",
+            id="destination_stream_without_source_id",
+        ),
     ],
 )
 def test_search_input_validation(
@@ -1501,7 +1511,7 @@ def test_search_result_warns_when_no_index_was_searched() -> None:
 
     assert len(result.warnings) == 1
     assert "No index matched" in result.warnings[0]
-    assert "get_cloud_search_status" in result.warnings[0]
+    assert "get_search_index_status" in result.warnings[0]
 
 
 def test_search_status_result_accepts_null_warnings() -> None:
@@ -1643,3 +1653,291 @@ def test_docs_probe_not_enabled_handling_unchanged(
     assert source._context_layer_inspect(warnings=warnings) is None  # noqa: SLF001
     assert len(warnings) == 1
     assert "docs lookup failed" in warnings[0]
+
+
+def test_read_agent_skill_docs_translates_disabled_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    cloud_error = AirbyteCloudApiError(status_code=403)
+
+    def fail_read_docs(**_: Any) -> Any:  # noqa: ANN401
+        raise cloud_error
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
+    with _patch_direct_access(enabled=False):
+        with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+            source.read_agent_skill_docs()
+
+    assert exc_info.value.connector_id == "source-1"
+    assert (
+        exc_info.value.enablement_url
+        == f"{source.connector_url}/enable-direct-access?skip-consent-screen=false"
+    )
+
+
+def test_read_agent_skill_docs_propagates_cloud_error_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    cloud_error = AirbyteCloudApiError(status_code=403)
+
+    def fail_read_docs(**_: Any) -> Any:  # noqa: ANN401
+        raise cloud_error
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", fail_read_docs)
+    with _patch_direct_access(enabled=True):
+        with pytest.raises(AirbyteCloudApiError) as exc_info:
+            source.read_agent_skill_docs()
+
+    assert exc_info.value is cloud_error
+    assert not isinstance(exc_info.value, AirbyteExternalAccessNotEnabledError)
+
+
+def test_read_agent_skill_docs_without_context_layer_skips_docs_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch, available=False)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    calls: list[dict[str, Any]] = []
+
+    def read_docs(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+
+    with pytest.raises(AirbyteExternalAccessNotEnabledError) as exc_info:
+        source.read_agent_skill_docs()
+
+    assert exc_info.value.connector_id == "source-1"
+    assert exc_info.value.enablement_url is None
+    assert calls == []
+
+
+def test_read_agent_skill_docs_uses_source_skill_id_and_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    source = _seed_source(workspace, "source-1", "GitHub Issues")
+    calls: list[dict[str, Any]] = []
+
+    def read_docs(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {
+            "metadata": {
+                "id": "connector-source:source-1",
+                "kind": "connector_source",
+                "title": "GitHub Issues",
+            },
+            "content": [],
+        }
+
+    monkeypatch.setattr(agents_api_util, "read_cloud_skill_docs", read_docs)
+
+    docs = source.read_agent_skill_docs(section="actions.issues.list")
+
+    assert docs.metadata.id == "connector-source:source-1"
+    assert calls[0]["skill_id"] == "connector-source:source-1"
+    assert calls[0]["section"] == "actions.issues.list"
+
+
+_BACKFILL_RESPONSE = {
+    "streams": [
+        {
+            "stream_name": "issues",
+            "outcome": "requested",
+            "run_id": "run-1",
+            "backfill": {
+                "id": "backfill-1",
+                "stream_name": "issues",
+                "connection_id": "connection-1",
+                "source_id": "source-1",
+                "destination_id": "destination-1",
+                "workspace_id": "workspace-id",
+                "requested_at": "2026-10-16T12:00:00Z",
+                "started_at": None,
+                "completed_at": None,
+                "failed_at": None,
+                "cancel_requested_at": None,
+                "cancelled_at": None,
+                "expected_total_rows": None,
+                "error": None,
+            },
+        },
+        {
+            "stream_name": "users",
+            "outcome": "running",
+            "run_id": "run-0",
+            "backfill": {
+                "id": "backfill-0",
+                "stream_name": "users",
+                "source_id": "source-1",
+                "workspace_id": "workspace-id",
+                "started_at": "2026-10-16T11:00:00Z",
+                "expected_total_rows": 1200,
+            },
+        },
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_body"),
+    [
+        pytest.param({}, {}, id="all_streams_whole_history"),
+        pytest.param(
+            {
+                "streams": ["issues", "users"],
+                "backfill_start_time": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            },
+            {"streams": ["issues", "users"], "start_time": "2026-01-01T00:00:00+00:00"},
+            id="streams_and_start_time",
+        ),
+        pytest.param(
+            {
+                "backfill_start_time": datetime(
+                    2026, 1, 1, 9, tzinfo=timezone(timedelta(hours=2))
+                )
+            },
+            {"start_time": "2026-01-01T09:00:00+02:00"},
+            id="start_time_keeps_offset",
+        ),
+    ],
+)
+def test_request_search_index_backfill_request_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs: dict[str, Any],
+    expected_body: dict[str, Any],
+) -> None:
+    """The request posts to the Config API backfill route with Cloud's field names."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _BACKFILL_RESPONSE)
+    connection = CloudConnection(workspace=workspace, connection_id="connection-1")
+
+    connection.request_search_index_backfill(**kwargs)
+
+    assert len(calls) == 1
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"].endswith("/api/v1/connections/connection-1/backfill")
+    assert calls[0]["json"] == expected_body
+
+
+def test_request_search_index_backfill_parses_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, _BACKFILL_RESPONSE)
+    connection = CloudConnection(workspace=workspace, connection_id="connection-1")
+
+    result = connection.request_search_index_backfill(streams=["issues", "users"])
+
+    assert isinstance(result, ExternalSearchBackfillRequestResult)
+    assert [(s.stream_name, s.outcome) for s in result.streams] == [
+        ("issues", "requested"),
+        ("users", "running"),
+    ]
+    requested = result.streams[0].backfill
+    assert requested.connection_id == "connection-1"
+    assert requested.requested_at == datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
+    assert requested.error is None
+    running = result.streams[1].backfill
+    assert running.connection_id is None
+    assert running.expected_total_rows == 1200
+
+
+def test_request_search_index_backfill_rejects_naive_start_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cloud requires an RFC 3339 offset, so a naive time fails before any request."""
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    calls = _patch_search(monkeypatch, _BACKFILL_RESPONSE)
+    connection = CloudConnection(workspace=workspace, connection_id="connection-1")
+
+    with pytest.raises(AirbyteLibInputError, match="timezone"):
+        connection.request_search_index_backfill(
+            backfill_start_time=datetime(2026, 1, 1)
+        )
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({}, id="missing_streams"),
+        pytest.param({"streams": [{"stream_name": "issues"}]}, id="missing_backfill"),
+    ],
+)
+def test_request_search_index_backfill_rejects_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, Any],
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch)
+    _patch_search(monkeypatch, payload)
+    connection = CloudConnection(workspace=workspace, connection_id="connection-1")
+
+    with pytest.raises(AirbyteCloudError, match="Malformed Airbyte Cloud backfill"):
+        connection.request_search_index_backfill()
+
+
+def test_request_search_index_backfill_requires_context_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _make_workspace(monkeypatch)
+    _patch_context_layer(monkeypatch, available=False)
+    calls = _patch_search(monkeypatch, _BACKFILL_RESPONSE)
+    connection = CloudConnection(workspace=workspace, connection_id="connection-1")
+
+    with pytest.raises(AirbyteAgentsUnavailableError):
+        connection.request_search_index_backfill()
+
+    assert calls == []
+
+
+def test_search_status_parses_failed_backfill() -> None:
+    """Cloud reports a failed run's status and `failed_at`."""
+    result = ExternalSearchStatusResult.model_validate({
+        "sources": [
+            {
+                "source_id": "source-1",
+                "destination_id": "destination-1",
+                "connection_id": "connection-1",
+                "streams": [
+                    {
+                        "name": "issues",
+                        "namespace": None,
+                        "backfill": {
+                            "backfill_start_time": "2026-01-01T00:00:00Z",
+                            "expected_total_records": 0,
+                            "collected_records": 0,
+                            "indexed_records": 0,
+                            "started_at": "2026-10-16T11:00:00Z",
+                            "completed_at": None,
+                            "failed_at": "2026-10-16T11:05:00Z",
+                            "cancelled_at": None,
+                            "status": "failed",
+                        },
+                        "indexes": [],
+                    }
+                ],
+            }
+        ]
+    })
+
+    backfill = result.sources[0].streams[0].backfill
+    assert backfill is not None
+    assert backfill.status == "failed"
+    assert backfill.failed_at == datetime(2026, 10, 16, 11, 5, tzinfo=timezone.utc)
+    assert backfill.cancelled_at is None
+    assert backfill.completed_at is None

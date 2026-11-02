@@ -11,13 +11,16 @@ from mcp.types import TextContent
 
 from airbyte import exceptions as exc
 from airbyte.mcp._tool_utils import _mcp_module_for_tool
-from airbyte.mcp.interactive import show_connectors_list, show_workspace_sync_status
+from airbyte.mcp.interactive import (
+    show_connector_definitions,
+    show_workspace_sync_status,
+)
 from airbyte.mcp.interactive._registry_ui import (
     _connector_metadata_to_public_summary,
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.guidance import get_api_docs_urls, get_connector_info
+from airbyte.mcp.guidance import get_api_docs_urls, get_connector_definition
 from airbyte.mcp.registry import get_available_connectors
 from airbyte.registry import (
     ApiDocsUrl,
@@ -263,12 +266,12 @@ def test_show_connectors_list_limits_text_and_meta_payload() -> None:
 
     with patch(
         "airbyte.mcp.interactive._registry_ui._list_public_registry_connectors"
-    ) as mock_list_connectors:
-        mock_list_connectors.return_value = [
+    ) as mock_list_connector_definitions:
+        mock_list_connector_definitions.return_value = [
             _connector_metadata_to_public_summary(connector)
             for connector in connector_metadata
         ]
-        result = show_connectors_list()
+        result = show_connector_definitions()
 
     text_content = result.content[0]
     assert isinstance(text_content, TextContent)
@@ -289,9 +292,9 @@ def test_list_public_registry_connectors_uses_existing_registry_tool() -> None:
     """Test that the interactive list starts from the existing MCP registry tool."""
     with (
         patch(
-            "airbyte.mcp.interactive._registry_ui._list_connectors",
+            "airbyte.mcp.interactive._registry_ui._list_connector_definitions",
             return_value=[],
-        ) as mock_list_connectors,
+        ) as mock_list_connector_definitions,
         patch("airbyte.mcp.interactive._registry_ui.get_connector_metadata"),
     ):
         _list_public_registry_connectors(
@@ -302,7 +305,7 @@ def test_list_public_registry_connectors_uses_existing_registry_tool() -> None:
             limit=10,
         )
 
-    mock_list_connectors.assert_called_once_with(
+    mock_list_connector_definitions.assert_called_once_with(
         keyword_filter=None,
         connector_type_filter="source",
         install_types=None,
@@ -378,7 +381,7 @@ def test_list_public_registry_connectors_applies_filters(
     """Test that connector metadata filters are applied by the interactive list."""
     with (
         patch(
-            "airbyte.mcp.interactive._registry_ui._list_connectors",
+            "airbyte.mcp.interactive._registry_ui._list_connector_definitions",
             return_value=list(connector_metadata_cache),
         ),
         patch(
@@ -404,7 +407,7 @@ def test_show_connectors_list_rejects_negative_limit() -> None:
     with pytest.raises(
         exc.AirbyteLibInputError, match="Limit parameter must be non-negative."
     ):
-        show_connectors_list(limit=-1)
+        show_connector_definitions(limit=-1)
 
 
 def test_show_connectors_list_uses_resolved_registry_url(
@@ -414,7 +417,7 @@ def test_show_connectors_list_uses_resolved_registry_url(
     registry_url = "file:///tmp/local_registry.json"
     with (
         patch(
-            "airbyte.mcp.interactive._registry_ui._list_connectors",
+            "airbyte.mcp.interactive._registry_ui._list_connector_definitions",
             return_value=list(connector_metadata_cache),
         ),
         patch(
@@ -426,7 +429,7 @@ def test_show_connectors_list_uses_resolved_registry_url(
             return_value=registry_url,
         ),
     ):
-        result = show_connectors_list(limit=1)
+        result = show_connector_definitions(limit=1)
 
     assert result.meta is not None
     assert result.meta["airbyte_mcp_raw_result"]["registry_url"] == registry_url
@@ -437,7 +440,7 @@ def test_show_connectors_list_rejects_conflicting_support_filters() -> None:
     with pytest.raises(
         ValueError, match="Cannot specify both `certified` and `support_level`"
     ):
-        show_connectors_list(certified=True, support_level="community")
+        show_connector_definitions(certified=True, support_level="community")
 
 
 @pytest.mark.parametrize(
@@ -468,7 +471,7 @@ def test_interactive_tools_are_filtered_by_ui_support(
         tools = asyncio.run(app.list_tools())
 
     tool_names = {tool.name for tool in tools}
-    assert ("show_connectors_list" in tool_names) is expected_visible
+    assert ("show_connector_definitions" in tool_names) is expected_visible
     assert ("show_workspace_sync_status" in tool_names) is expected_visible
 
 
@@ -485,7 +488,7 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
     interactive.register_interactive_tools(app)
 
     with pytest.raises(ValueError, match="not available"):
-        asyncio.run(app.call_tool("show_connectors_list"))
+        asyncio.run(app.call_tool("show_connector_definitions"))
 
 
 def test_interactive_tools_include_prefab_metadata() -> None:
@@ -498,7 +501,7 @@ def test_interactive_tools_include_prefab_metadata() -> None:
     interactive.register_interactive_tools(app)
 
     provider = getattr(app, "_local_provider")
-    tool = provider._components["tool:show_connectors_list@"]  # noqa: SLF001
+    tool = provider._components["tool:show_connector_definitions@"]  # noqa: SLF001
 
     assert tool.meta is not None
     assert tool.meta["ui"]["resourceUri"] == "ui://prefab/renderer.html"
@@ -506,13 +509,13 @@ def test_interactive_tools_include_prefab_metadata() -> None:
 
 def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
-    assert _mcp_module_for_tool(show_connectors_list) == "interactive"
+    assert _mcp_module_for_tool(show_connector_definitions) == "interactive"
     assert _mcp_module_for_tool(show_workspace_sync_status) == "interactive"
     assert _mcp_module_for_tool(get_api_docs_urls) == "guidance"
 
 
 def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None:
-    """`get_connector_info` must resolve the config spec over HTTP, never via install.
+    """`get_connector_definition` must resolve the config spec over HTTP, never via install.
 
     The spec is fetched from the public connector registry keyed by version, so it
     works in a hosted, no-Docker runtime without the unbounded `connector.install()`
@@ -536,7 +539,7 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
             return_value=cloud_spec,
         ) as mock_get_spec,
     ):
-        result = get_connector_info("source-faker")
+        result = get_connector_definition("source-faker")
 
     assert not isinstance(result, str)
     assert result.config_spec_jsonschema == cloud_spec
@@ -585,14 +588,14 @@ def test_get_connector_info_finds_java_connector_without_docker() -> None:
         ),
     ):
         assert get_available_connectors() == []
-        result = get_connector_info("source-postgres")
+        result = get_connector_definition("source-postgres")
 
     assert not isinstance(result, str)
     assert result.connector_name == "source-postgres"
 
 
 def test_get_connector_info_falls_back_to_oss_spec() -> None:
-    """When the `cloud` spec is unavailable, `get_connector_info` uses the `oss` spec."""
+    """When the `cloud` spec is unavailable, `get_connector_definition` uses the `oss` spec."""
     connector = MagicMock()
     connector.name = "source-faker"
     connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
@@ -611,7 +614,7 @@ def test_get_connector_info_falls_back_to_oss_spec() -> None:
             side_effect=[None, oss_spec],
         ) as mock_get_spec,
     ):
-        result = get_connector_info("source-faker")
+        result = get_connector_definition("source-faker")
 
     assert not isinstance(result, str)
     assert result.config_spec_jsonschema == oss_spec
@@ -640,7 +643,7 @@ def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
             return_value=None,
         ),
     ):
-        result = get_connector_info("source-faker")
+        result = get_connector_definition("source-faker")
 
     assert not isinstance(result, str)
     assert result.config_spec_jsonschema is None

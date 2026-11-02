@@ -337,6 +337,19 @@ class SyncResult:
                     return ab_datetime_parse(raw_start_time)
             raise
 
+    @property
+    def duration(self) -> str | None:
+        """The job's ISO 8601 duration (e.g. `PT1M9S`), if available."""
+        return self._fetch_latest_job_info().duration
+
+    @property
+    def last_updated_at(self) -> str | None:
+        """When the job was last updated, if available.
+
+        For a finished job, this is when it ended.
+        """
+        return self._fetch_latest_job_info().last_updated_at
+
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
         """Fetch job info with attempts from Config API using lazy loading pattern."""
         if self._job_with_attempts_info is not None:

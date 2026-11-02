@@ -7,6 +7,9 @@ import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from airbyte_protocol.models import ConfiguredAirbyteCatalog
+
+from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
@@ -21,6 +24,13 @@ from airbyte.cloud._connection_state import (
     _match_stream,
     _normalize_state_to_protocol,
 )
+from airbyte.cloud._stream_config_overrides import (
+    _apply_stream_override,
+    _find_unsafe_stream_changes,
+    _index_catalog_streams,
+    _raise_for_override_errors,
+    _raise_for_unsafe_stream_config_changes,
+)
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
@@ -29,6 +39,9 @@ from airbyte.cloud.models import (
     ConnectionSchedule,
     ConnectionStatus,
     JobTypeEnum,
+    StreamConfigChange,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
@@ -72,6 +85,9 @@ def _validate_quartz_cron_expression(cron_expression: str) -> None:
 
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from airbyte._direct_connectors.models import ExternalSearchBackfillRequestResult
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
@@ -367,7 +383,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     guidance=(
                         "Re-enable the connection first (e.g. "
                         "`connection.set_enabled(enabled=True)`, or the "
-                        "`update_cloud_connection` MCP tool with `enabled=True`), then retry."
+                        "`update_connection` MCP tool with `enabled=True`), then retry."
                     ),
                     context={"connection_id": self.connection_id},
                 ) from ex
@@ -455,6 +471,40 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             connection=self,
             job_id=job_response.job_id,
             _latest_job_info=CloudJobInfo.from_api_response(job_response),
+        )
+
+    def request_search_index_backfill(
+        self,
+        *,
+        streams: list[str] | None = None,
+        backfill_start_time: datetime | None = None,
+    ) -> ExternalSearchBackfillRequestResult:
+        """Request a search backfill that indexes data already in the connection's destination.
+
+        Turning search on for a connection indexes only data from syncs that run afterwards;
+        existing destination data is indexed only by a backfill. `streams` names the streams
+        to backfill; omitted, every stream selected in the connection is backfilled.
+        `backfill_start_time` must be timezone-aware and keeps only rows whose cursor field (a
+        top-level timestamp or date) is at or after it; streams without such a cursor are
+        backfilled in full. Omitted, the whole history is backfilled. A stream whose current
+        run is still queued or running keeps it and is reported as `running`, so retrying is
+        safe. Requires search indexing to be enabled for the connection.
+        """
+        if backfill_start_time is not None and backfill_start_time.utcoffset() is None:
+            raise AirbyteLibInputError(
+                message="`backfill_start_time` must include a timezone.",
+                guidance="For example, use `2026-01-01T00:00:00+00:00`.",
+                input_value=backfill_start_time.isoformat(),
+            )
+        request_body: dict[str, Any] = {}
+        if streams is not None:
+            request_body["streams"] = list(streams)
+        if backfill_start_time is not None:
+            request_body["start_time"] = backfill_start_time.isoformat()
+        return agents_api_util.request_cloud_connection_search_index_backfill(
+            connection_id=self.connection_id,
+            request_body=request_body,
+            credentials=self.workspace._credentials,  # noqa: SLF001
         )
 
     def __repr__(self) -> str:
@@ -561,7 +611,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                         "or you don't have access to it."
                     ),
                     guidance=(
-                        "Use `list_cloud_sync_jobs` to find valid job IDs for this connection."
+                        "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
                     ),
                     context={"connection_id": self.connection_id, "job_id": job_id},
                 ) from ex
@@ -574,7 +624,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 message=(
                     f"Job {job_id} belongs to a different connection, not {self.connection_id}."
                 ),
-                guidance="Use `list_cloud_sync_jobs` to find valid job IDs for this connection.",
+                guidance=(
+                    "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
+                ),
                 context={"connection_id": self.connection_id, "job_id": job_id},
             )
 
@@ -871,7 +923,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return _normalize_catalog_to_protocol(raw)
         return raw
 
-    def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
+    def import_raw_catalog(
+        self,
+        catalog: dict[str, Any],
+        *,
+        skip_reset: bool = True,
+    ) -> None:
         """Replace the configured catalog for this connection.
 
         > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and
@@ -889,6 +946,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             catalog: The configured catalog dict in either format.
+            skip_reset: Whether to skip the platform reset of changed streams.
         """
         if _is_protocol_catalog_format(catalog):
             catalog = _denormalize_catalog_to_api(catalog)
@@ -901,6 +959,102 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
+            skip_reset=skip_reset,
+        )
+        self._connection_info = None
+
+    def _evaluate_stream_config_updates(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+    ) -> tuple[ConfiguredAirbyteCatalog, list[StreamConfigChange], list[StreamConfigChange]]:
+        """Validate overrides and evaluate their effect without writing the catalog."""
+        if not overrides:
+            raise AirbyteLibInputError(
+                message="At least one stream configuration override must be provided.",
+            )
+
+        raw_catalog = self.dump_raw_catalog(normalize=False)
+        if raw_catalog is None:
+            raise AirbyteLibInputError(
+                message="Connection catalog is empty or missing.",
+                context={"connection_id": self.connection_id},
+            )
+
+        catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(raw_catalog)
+        )
+        available_streams = _index_catalog_streams(
+            catalog,
+            connection_id=self.connection_id,
+        )
+        old_catalog = catalog
+        catalog = catalog.model_copy(deep=True)
+
+        validation_errors: list[str] = []
+        updated_streams: list[StreamConfigChange] = []
+        override_keys: set[tuple[str, str | None]] = set()
+        for index, override in enumerate(overrides, start=1):
+            result = _apply_stream_override(
+                catalog,
+                override,
+                override_index=index,
+                override_keys=override_keys,
+            )
+            if isinstance(result, str):
+                validation_errors.append(result)
+            else:
+                updated_streams.append(result)
+
+        _raise_for_override_errors(
+            validation_errors,
+            available_streams,
+            connection_id=self.connection_id,
+        )
+
+        changed_streams = [stream for stream in updated_streams if stream.changed_fields]
+        unsafe_streams: list[StreamConfigChange] = []
+        if changed_streams:
+            state_messages = self.dump_raw_state(normalize=True)
+            unsafe_streams = _find_unsafe_stream_changes(
+                old_catalog,
+                catalog,
+                state_messages,
+            )
+
+        _raise_for_unsafe_stream_config_changes(
+            unsafe_streams,
+            allow_unsafe=allow_unsafe,
+            connection_id=self.connection_id,
+        )
+        return catalog, updated_streams, unsafe_streams
+
+    def update_stream_configs(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+    ) -> StreamConfigUpdateResult:
+        """Update one or more stream configurations in a single catalog write."""
+        catalog, updated_streams, unsafe_streams = self._evaluate_stream_config_updates(
+            overrides,
+            allow_unsafe=allow_unsafe,
+        )
+        reset_requested = bool(unsafe_streams and allow_unsafe)
+        self.import_raw_catalog(
+            _denormalize_catalog_to_api(catalog.model_dump(mode="json", exclude_unset=True)),
+            skip_reset=not reset_requested,
+        )
+        return StreamConfigUpdateResult(
+            updated_streams=updated_streams,
+            unsafe_streams=unsafe_streams,
+            reset_streams=(
+                [stream for stream in updated_streams if stream.changed_fields]
+                if reset_requested
+                else []
+            ),
+            reset_requested=reset_requested,
         )
         self._connection_info = None
 

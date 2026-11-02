@@ -18,7 +18,7 @@ from airbyte.exceptions import (
     AirbyteLibInputError,
     AirbyteTrustedExecutionRequiredError,
 )
-from airbyte.mcp import cloud, local
+from airbyte.mcp import cloud, connector_builder, local
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_manifest_yaml
 from airbyte.mcp._guards import (
     is_trusted_execution_enabled,
@@ -261,6 +261,7 @@ def test_manifest_file_schema_depends_on_trusted_execution(
         _set_trusted(monkeypatch, enabled=enabled)
         app = FastMCP(f"manifest-schema-{enabled}")
         cloud.register_cloud_tools(app)
+        connector_builder.register_connector_builder_tools(app)
 
         async def list_tools() -> dict[str, object]:
             async with Client(app) as client:
@@ -269,6 +270,7 @@ def test_manifest_file_schema_depends_on_trusted_execution(
         tools = asyncio.run(list_tools())
 
         for tool_name in (
+            "create_connector_builder_project",
             "publish_custom_source_definition",
             "update_custom_source_definition",
         ):
@@ -286,6 +288,22 @@ def test_manifest_file_schema_depends_on_trusted_execution(
                     "manifest_yaml_text"
                     not in properties["manifest_yaml_file"]["description"]
                 )
+
+        for tool_name in (
+            "publish_custom_source_definition",
+            "update_custom_source_definition",
+        ):
+            tool = tools[tool_name]
+            properties = tool.input_schema["properties"]  # type: ignore[attr-defined]
+            assert "testing_values" in properties
+            assert ("testing_values_secret_name" in properties) is enabled
+            assert (
+                "secret_reference::" not in properties["testing_values"]["description"]
+            )
+            assert (
+                cloud.TESTING_VALUES_SECRET_HINT
+                in (getattr(tool, "description", None) or "")
+            ) is enabled
 
 
 @pytest.mark.parametrize("enabled", [False, True], ids=["untrusted", "trusted"])
@@ -317,16 +335,24 @@ _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
         lambda: local._get_mcp_source("source-faker", manifest_path=None),
         id="_get_mcp_source",
     ),
-    pytest.param(lambda: local.list_cached_streams(), id="list_cached_streams"),
-    pytest.param(lambda: local.describe_default_cache(), id="describe_default_cache"),
-    pytest.param(lambda: local.run_sql_query("SELECT 1", 10), id="run_sql_query"),
-    pytest.param(lambda: local.list_dotenv_secrets(), id="list_dotenv_secrets"),
     pytest.param(
-        lambda: local.list_connector_config_secrets("source-faker"),
-        id="list_connector_config_secrets",
+        lambda: local.list_local_cached_streams(), id="list_local_cached_streams"
     ),
     pytest.param(
-        lambda: local.destination_smoke_test(
+        lambda: local.describe_local_default_cache(), id="describe_local_default_cache"
+    ),
+    pytest.param(
+        lambda: local.run_local_sql_query("SELECT 1", 10), id="run_local_sql_query"
+    ),
+    pytest.param(
+        lambda: local.list_local_dotenv_secrets(), id="list_local_dotenv_secrets"
+    ),
+    pytest.param(
+        lambda: local.list_local_connector_config_secrets("source-faker"),
+        id="list_local_connector_config_secrets",
+    ),
+    pytest.param(
+        lambda: local.run_local_destination_smoke_test(
             "destination-dev-null",
             None,
             None,
@@ -338,7 +364,7 @@ _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
             None,
             False,
         ),
-        id="destination_smoke_test",
+        id="run_local_destination_smoke_test",
     ),
 ]
 
@@ -373,7 +399,7 @@ def test_run_sql_query_log_omits_exception_text(
     local.logger.addHandler(caplog.handler)
     try:
         caplog.set_level(logging.WARNING, logger=local.logger.name)
-        local.run_sql_query("SELECT 1", 10)
+        local.run_local_sql_query("SELECT 1", 10)
     finally:
         local.logger.removeHandler(caplog.handler)
 

@@ -28,6 +28,10 @@ from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
 
+# Opt out of telemetry before test modules are imported. `airbyte.mcp.server` builds its
+# Segment sink at import time, which is earlier than the per-test `do_not_track` fixture runs.
+os.environ["DO_NOT_TRACK"] = "true"
+
 
 PYTEST_POSTGRES_IMAGE = "postgres:13"
 PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
