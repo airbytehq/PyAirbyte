@@ -78,7 +78,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
             result = f"_{result}"
 
         if not result.replace("_", ""):
-            raise exc.PyAirbyteNameNormalizationError(
+            raise exc.AirbyteLibNameNormalizationError(
                 message="Name cannot be empty after normalization.",
                 raw_name=name,
                 normalization_result=result,

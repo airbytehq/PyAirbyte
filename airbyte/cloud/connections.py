@@ -4,11 +4,22 @@
 from __future__ import annotations
 
 import logging
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal, overload
 
-from typing_extensions import deprecated
+from airbyte_protocol.models import (
+    ConfiguredAirbyteCatalog,
+    DestinationSyncMode,
+    SyncMode,
+)
 
+from airbyte._direct_connectors import api_util as agents_api_util
 from airbyte._util import api_util
+from airbyte.cloud._catalog_merge import (
+    _merge_catalog_with_configuration,
+    _preserve_api_only_catalog_fields,
+    _stream_descriptor,
+)
 from airbyte.cloud._connection_catalog import (
     _denormalize_catalog_to_api,
     _is_protocol_catalog_format,
@@ -22,23 +33,207 @@ from airbyte.cloud._connection_state import (
     _match_stream,
     _normalize_state_to_protocol,
 )
+from airbyte.cloud._stream_config_overrides import (
+    _apply_stream_override,
+    _changed_stream_config_fields,
+    _find_unsafe_stream_changes,
+    _index_catalog_streams,
+    _raise_for_override_errors,
+    _raise_for_unsafe_stream_config_changes,
+)
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
+    ConnectionSchedule,
+    ConnectionStatus,
     JobTypeEnum,
+    StreamConfigChange,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     _ConnectionResponseLike,
 )
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteCloudError,
+    AirbyteConnectionSyncError,
+    AirbyteLibInputError,
+    AirbyteMissingResourceError,
+    AirbyteWorkspaceMismatchError,
+)
 
 
 logger = logging.getLogger(__name__)
 
+_QUARTZ_CRON_MIN_FIELDS = 6
+_QUARTZ_CRON_MAX_FIELDS = 8  # 7 fields plus an optional trailing timezone ID
+
+
+def _validate_quartz_cron_expression(cron_expression: str) -> None:
+    """Raise `AirbyteLibInputError` if the expression is not a plausible Quartz cron.
+
+    This is a light client-side check so that 5-field Unix cron expressions fail
+    fast with actionable guidance instead of an opaque HTTP 400 from the API.
+    """
+    fields = cron_expression.split()
+    if not _QUARTZ_CRON_MIN_FIELDS <= len(fields) <= _QUARTZ_CRON_MAX_FIELDS:
+        raise AirbyteLibInputError(
+            message=(
+                "Cron schedules must use a Quartz expression with 6 or 7 space-separated "
+                "fields (seconds, minutes, hours, day-of-month, month, day-of-week[, year]), "
+                "optionally followed by a timezone ID. Standard 5-field Unix cron "
+                "expressions are not accepted."
+            ),
+            guidance=(
+                "Prepend a seconds field and use '?' for the unused day field. For example, "
+                "use '0 0 0 * * ?' (daily at midnight UTC) instead of '0 0 * * *'. "
+                "Schedules may run at most once per hour."
+            ),
+            input_value=cron_expression,
+        )
+
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
+    from airbyte._direct_connectors.models import ExternalSearchBackfillRequestResult
     from airbyte.cloud.workspaces import CloudWorkspace
+
+
+def _catalog_change_summary(
+    current_catalog: ConfiguredAirbyteCatalog,
+    updated_catalog: ConfiguredAirbyteCatalog,
+) -> tuple[list[StreamConfigChange], list[str], list[str]]:
+    current_streams = {
+        _stream_descriptor(entry.stream.name, entry.stream.namespace): entry
+        for entry in current_catalog.streams
+    }
+    updated_streams = {
+        _stream_descriptor(entry.stream.name, entry.stream.namespace): entry
+        for entry in updated_catalog.streams
+    }
+    changed_streams = [
+        StreamConfigChange(
+            name=entry.stream.name,
+            namespace=entry.stream.namespace,
+            changed_fields=changed_fields,
+        )
+        for descriptor, entry in updated_streams.items()
+        if (current_entry := current_streams.get(descriptor)) is not None
+        and (changed_fields := _changed_stream_config_fields(current_entry, entry))
+    ]
+
+    added_streams = [
+        (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        for descriptor, entry in updated_streams.items()
+        if descriptor not in current_streams
+    ]
+    removed_streams = [
+        (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        for descriptor, entry in current_streams.items()
+        if descriptor not in updated_streams
+    ]
+    return changed_streams, added_streams, removed_streams
+
+
+def _validate_discovered_catalog_schema(
+    catalog: ConfiguredAirbyteCatalog,
+    base_catalog: dict[str, Any],
+) -> None:
+    selected_descriptors = {
+        _stream_descriptor(
+            entry.get("stream", {}).get("name"),
+            entry.get("stream", {}).get("namespace"),
+        )
+        for entry in base_catalog.get("streams", [])
+        if entry.get("config", {}).get("selected") is True
+    }
+    for entry in catalog.streams:
+        descriptor = _stream_descriptor(entry.stream.name, entry.stream.namespace)
+        if descriptor not in selected_descriptors:
+            continue
+
+        properties = entry.stream.json_schema.get("properties")
+        top_level_fields = properties if isinstance(properties, dict) else {}
+        stream_label = (
+            f"{entry.stream.namespace}.{entry.stream.name}"
+            if entry.stream.namespace
+            else entry.stream.name
+        )
+        if (
+            entry.sync_mode is SyncMode.incremental
+            and entry.stream.source_defined_cursor is not True
+        ):
+            cursor_field = entry.cursor_field
+            if not cursor_field or cursor_field[0] not in top_level_fields:
+                missing_field = cursor_field[0] if cursor_field else "cursorField"
+                if cursor_field:
+                    message = (
+                        f"Stream '{stream_label}' uses cursor field '{missing_field}', "
+                        "which is missing from the discovered schema."
+                    )
+                else:
+                    message = (
+                        f"Stream '{stream_label}' has an empty or missing `cursorField` "
+                        "for incremental sync in the discovered schema."
+                    )
+                raise AirbyteLibInputError(
+                    message=(
+                        f"{message} Pass `override_stream_configs` for this stream with "
+                        "a cursor field that exists, or choose a sync mode that does not "
+                        "require one."
+                    ),
+                    context={
+                        "stream": stream_label,
+                        "missing_field": missing_field,
+                    },
+                )
+
+        if entry.destination_sync_mode is DestinationSyncMode.append_dedup:
+            primary_key = entry.primary_key or []
+            missing_key = (
+                "primaryKey"
+                if not primary_key
+                else next(
+                    (
+                        path[0] if path else "primaryKey"
+                        for path in primary_key
+                        if not path or path[0] not in top_level_fields
+                    ),
+                    None,
+                )
+            )
+            if missing_key is not None:
+                if missing_key == "primaryKey":
+                    message = (
+                        f"Stream '{stream_label}' uses deduplication but has no primary "
+                        "key in the discovered schema."
+                    )
+                else:
+                    message = (
+                        f"Stream '{stream_label}' uses primary key field '{missing_key}', "
+                        "which is missing from the discovered schema."
+                    )
+                raise AirbyteLibInputError(
+                    message=(
+                        f"{message} Pass `override_stream_configs` for this stream with "
+                        "a primary key that exists, or choose a destination sync mode "
+                        "that does not require one."
+                    ),
+                    context={
+                        "stream": stream_label,
+                        "missing_field": missing_key,
+                    },
+                )
 
 
 class CloudConnection:  # noqa: PLR0904  # Too many public methods
@@ -276,6 +471,22 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._connection_info.namespace_format
 
     @property
+    def schedule(self) -> ConnectionSchedule | None:
+        """The connection's sync schedule, or `None` if unknown."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.schedule
+
+    @property
+    def status(self) -> ConnectionStatus:
+        """The connection's status."""
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.status
+
+    @property
     def connection_url(self) -> str | None:
         """The web URL to the connection."""
         return f"{self.workspace.workspace_url}/connections/{self.connection_id}"
@@ -294,14 +505,34 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response = api_util.run_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            workspace_id=self.workspace.workspace_id,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-        )
+        try:
+            connection_response = api_util.run_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                workspace_id=self.workspace.workspace_id,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteConnectionSyncError as ex:
+            if (
+                ex.context
+                and ex.context.get("status_code") == HTTPStatus.CONFLICT
+                and not self.enabled
+            ):
+                raise AirbyteLibInputError(
+                    message=(
+                        f"Connection '{self.connection_id}' is disabled (status 'inactive'), "
+                        "so a sync cannot be started."
+                    ),
+                    guidance=(
+                        "Re-enable the connection first (e.g. "
+                        "`connection.set_enabled(enabled=True)`, or the "
+                        "`update_connection` MCP tool with `enabled=True`), then retry."
+                    ),
+                    context={"connection_id": self.connection_id},
+                ) from ex
+            raise
         sync_result = SyncResult(
             workspace=self.workspace,
             connection=self,
@@ -325,11 +556,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         )
         sync_result = sync_results[0] if sync_results else None
         if sync_result is None:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="No sync jobs found for this connection.",
             )
         if sync_result.is_job_complete():
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"The latest sync job is already finished with status "
                     f"'{sync_result.get_job_status().value}'. "
@@ -348,7 +579,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
         if job_info.connection_id != self.connection_id:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=(
                     f"Job {job_id} belongs to connection '{job_info.connection_id}', "
                     f"not '{self.connection_id}'."
@@ -356,7 +587,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
         job_status = CloudJobInfo.from_api_response(job_info).status
         if job_status in FINAL_STATUSES:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message=f"Job {job_id} is already finished with status " f"'{job_status.value}'.",
             )
         return job_id
@@ -385,6 +616,40 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             connection=self,
             job_id=job_response.job_id,
             _latest_job_info=CloudJobInfo.from_api_response(job_response),
+        )
+
+    def request_search_index_backfill(
+        self,
+        *,
+        streams: list[str] | None = None,
+        backfill_start_time: datetime | None = None,
+    ) -> ExternalSearchBackfillRequestResult:
+        """Request a search backfill that indexes data already in the connection's destination.
+
+        Turning search on for a connection indexes only data from syncs that run afterwards;
+        existing destination data is indexed only by a backfill. `streams` names the streams
+        to backfill; omitted, every stream selected in the connection is backfilled.
+        `backfill_start_time` must be timezone-aware and keeps only rows whose cursor field (a
+        top-level timestamp or date) is at or after it; streams without such a cursor are
+        backfilled in full. Omitted, the whole history is backfilled. A stream whose current
+        run is still queued or running keeps it and is reported as `running`, so retrying is
+        safe. Requires search indexing to be enabled for the connection.
+        """
+        if backfill_start_time is not None and backfill_start_time.utcoffset() is None:
+            raise AirbyteLibInputError(
+                message="`backfill_start_time` must include a timezone.",
+                guidance="For example, use `2026-01-01T00:00:00+00:00`.",
+                input_value=backfill_start_time.isoformat(),
+            )
+        request_body: dict[str, Any] = {}
+        if streams is not None:
+            request_body["streams"] = list(streams)
+        if backfill_start_time is not None:
+            request_body["start_time"] = backfill_start_time.isoformat()
+        return agents_api_util.request_cloud_connection_search_index_backfill(
+            connection_id=self.connection_id,
+            request_body=request_body,
+            credentials=self.workspace._credentials,  # noqa: SLF001
         )
 
     def __repr__(self) -> str:
@@ -456,6 +721,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Get the sync result for the connection.
 
         If `job_id` is not provided, the most recent sync job will be used.
+        A supplied `job_id` must belong to this connection.
 
         Returns `None` if job_id is omitted and no previous jobs are found.
         """
@@ -469,29 +735,54 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
             return None
 
-        # Get the sync job by ID (lazy loaded)
+        try:
+            job_response = api_util.get_job_info(
+                job_id=job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+        except AirbyteCloudError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+                raise AirbyteMissingResourceError(
+                    resource_type="sync job",
+                    resource_name_or_id=str(job_id),
+                    message=(
+                        f"Job {job_id} was not found on connection {self.connection_id}, "
+                        "or you don't have access to it."
+                    ),
+                    guidance=(
+                        "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
+                    ),
+                    context={"connection_id": self.connection_id, "job_id": job_id},
+                ) from ex
+            raise
+
+        if job_response.connection_id != self.connection_id:
+            raise AirbyteMissingResourceError(
+                resource_type="sync job",
+                resource_name_or_id=str(job_id),
+                message=(
+                    f"Job {job_id} belongs to a different connection, not {self.connection_id}."
+                ),
+                guidance=(
+                    "Use `list_connection_sync_jobs` to find valid job IDs for this connection."
+                ),
+                context={"connection_id": self.connection_id, "job_id": job_id},
+            )
+
         return SyncResult(
             workspace=self.workspace,
             connection=self,
             job_id=job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
         )
 
     # Artifacts
-
-    @deprecated("Use 'dump_raw_state()' instead.")
-    def get_state_artifacts(self) -> list[dict[str, Any]] | None:
-        """Deprecated. Use `dump_raw_state()` instead."""
-        state_response = api_util.get_connection_state(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            config_api_root=self.workspace.config_api_root,
-        )
-        if state_response.get("stateType") == "not_set":
-            return None
-        return state_response.get("streamState", [])
 
     @overload
     def dump_raw_state(self, *, normalize: Literal[True] = True) -> list[dict[str, Any]]: ...
@@ -573,7 +864,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     "message dicts (each with a top-level `type` of STREAM, GLOBAL, "
                     "or LEGACY). Got a list that does not match protocol format."
                 )
-                raise ValueError(msg)
+                raise AirbyteLibInputError(message=msg)
             api_state = _denormalize_protocol_state_to_api(
                 protocol_messages=connection_state,
                 connection_id=self.connection_id,
@@ -588,7 +879,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 api_state = connection_state
         else:
             msg = f"Expected a dict or list, got {type(connection_state)}"
-            raise TypeError(msg)
+            raise AirbyteLibInputError(message=msg)
 
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
@@ -670,7 +961,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 namespace override set in connection advanced settings.
 
         Raises:
-            PyAirbyteInputError: If the connection state type is not supported for
+            AirbyteLibInputError: If the connection state type is not supported for
                 stream-level operations (not_set, legacy).
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
@@ -679,13 +970,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot set stream state: connection has no existing state.",
                 context={"connection_id": self.connection_id},
             )
 
         if current.state_type == "legacy":
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Cannot set stream state on a legacy-type connection state.",
                 context={"connection_id": self.connection_id},
             )
@@ -740,20 +1031,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         self.import_raw_state(full_state)
 
-    @deprecated("Use 'dump_raw_catalog()' instead.")
-    def get_catalog_artifact(self) -> dict[str, Any] | None:
-        """Get the configured catalog for this connection.
-
-        Returns the full configured catalog (syncCatalog) for this connection,
-        including stream schemas, sync modes, cursor fields, and primary keys.
-
-        Uses the Config API endpoint: POST /v1/web_backend/connections/get
-
-        Returns:
-            Dictionary containing the configured catalog, or `None` if not found.
-        """
-        return self.dump_raw_catalog()
-
     def dump_raw_catalog(
         self,
         *,
@@ -791,7 +1068,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return _normalize_catalog_to_protocol(raw)
         return raw
 
-    def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
+    def import_raw_catalog(
+        self,
+        catalog: dict[str, Any],
+        *,
+        skip_reset: bool = True,
+        source_catalog_id: str | None = None,
+    ) -> None:
         """Replace the configured catalog for this connection.
 
         > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and
@@ -809,6 +1092,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             catalog: The configured catalog dict in either format.
+            skip_reset: Whether to skip the platform reset of changed streams.
+            source_catalog_id: Optional source catalog ID associated with the update.
         """
         if _is_protocol_catalog_format(catalog):
             catalog = _denormalize_catalog_to_api(catalog)
@@ -821,6 +1106,244 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             config_api_root=self.workspace.config_api_root,
+            skip_reset=skip_reset,
+            source_catalog_id=source_catalog_id,
+        )
+        self._connection_info = None
+
+    def _evaluate_stream_config_updates(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+        current_catalog: dict[str, Any] | None = None,
+        base_catalog: dict[str, Any] | None = None,
+    ) -> tuple[
+        ConfiguredAirbyteCatalog,
+        list[StreamConfigChange],
+        list[StreamConfigChange],
+        list[StreamConfigChange],
+        list[str],
+        list[str],
+    ]:
+        """Validate overrides and evaluate their effect without writing the catalog."""
+        if not overrides and base_catalog is None:
+            raise AirbyteLibInputError(
+                message="At least one stream configuration override must be provided.",
+            )
+
+        if current_catalog is None:
+            current_catalog = self.dump_raw_catalog(normalize=False)
+        if current_catalog is None:
+            raise AirbyteLibInputError(
+                message="Connection catalog is empty or missing.",
+                context={"connection_id": self.connection_id},
+            )
+
+        old_catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(current_catalog)
+        )
+        validate_discovered_catalog = base_catalog is not None
+        base_catalog = current_catalog if base_catalog is None else base_catalog
+        catalog = ConfiguredAirbyteCatalog.model_validate(
+            _normalize_catalog_to_protocol(base_catalog)
+        )
+        available_streams = _index_catalog_streams(
+            catalog,
+            connection_id=self.connection_id,
+        )
+        catalog = catalog.model_copy(deep=True)
+
+        validation_errors: list[str] = []
+        updated_streams: list[StreamConfigChange] = []
+        override_keys: set[tuple[str, str | None]] = set()
+        for index, override in enumerate(overrides, start=1):
+            result = _apply_stream_override(
+                catalog,
+                override,
+                override_index=index,
+                override_keys=override_keys,
+            )
+            if isinstance(result, str):
+                validation_errors.append(result)
+            else:
+                updated_streams.append(result)
+
+        _raise_for_override_errors(
+            validation_errors,
+            available_streams,
+            connection_id=self.connection_id,
+        )
+
+        if validate_discovered_catalog:
+            _validate_discovered_catalog_schema(catalog, base_catalog)
+
+        catalog_changes, added_streams, removed_streams = _catalog_change_summary(
+            old_catalog,
+            catalog,
+        )
+        unsafe_streams: list[StreamConfigChange] = []
+        if catalog_changes:
+            state_messages = self.dump_raw_state(normalize=True)
+            unsafe_streams = _find_unsafe_stream_changes(
+                old_catalog,
+                catalog,
+                state_messages,
+            )
+
+        _raise_for_unsafe_stream_config_changes(
+            unsafe_streams,
+            allow_unsafe=allow_unsafe,
+            connection_id=self.connection_id,
+        )
+        return (
+            catalog,
+            updated_streams,
+            unsafe_streams,
+            catalog_changes,
+            added_streams,
+            removed_streams,
+        )
+
+    def _get_discover_catalog_and_id(
+        self,
+        discover_request_id: str,
+    ) -> tuple[dict[str, Any], str]:
+        if not isinstance(discover_request_id, str) or not discover_request_id.strip():
+            raise AirbyteLibInputError(
+                message="`discover_request_id` must be a non-empty string.",
+            )
+
+        command_status = api_util.get_command_status(
+            discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        request_status = command_status.get("status")
+        if request_status != "completed":
+            if request_status in {"pending", "running"}:
+                message = (
+                    "The source catalog discover is still running. Poll "
+                    "`discover_source_catalog` and retry after it completes."
+                )
+            else:
+                message = (
+                    "The source catalog discover ended without a catalog. Start a new "
+                    "`discover_source_catalog` request before updating the connection."
+                )
+            raise AirbyteLibInputError(
+                message=message,
+                context={
+                    "discover_request_id": discover_request_id,
+                    "request_status": request_status,
+                },
+            )
+
+        output = api_util.get_discover_command_output(
+            discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        if output.get("status") == "failed":
+            failure = output.get("failureReason")
+            external_message = failure.get("externalMessage") if isinstance(failure, dict) else None
+            message = "The source catalog discover failed."
+            if isinstance(external_message, str) and external_message.strip():
+                message = (
+                    f"{message}\n{external_message.strip()}\n"
+                    "Run `discover_source_catalog` again after correcting the source issue."
+                )
+            else:
+                message = (
+                    f"{message} Run `discover_source_catalog` again after correcting "
+                    "the source issue."
+                )
+            raise AirbyteLibInputError(
+                message=message,
+                context={"discover_request_id": discover_request_id},
+            )
+
+        discovered_catalog = output.get("catalog")
+        catalog_id = output.get("catalogId")
+        if (
+            output.get("status") != "succeeded"
+            or not isinstance(discovered_catalog, dict)
+            or not isinstance(catalog_id, str)
+            or not catalog_id
+        ):
+            raise AirbyteLibInputError(
+                message=(
+                    "The discover output is no longer available. Run "
+                    "`discover_source_catalog` again before updating the connection."
+                ),
+                context={"discover_request_id": discover_request_id},
+            )
+        return discovered_catalog, catalog_id
+
+    def update_stream_configs(
+        self,
+        overrides: list[StreamConfigOverride],
+        *,
+        allow_unsafe: bool = False,
+        discover_request_id: str | None = None,
+    ) -> StreamConfigUpdateResult:
+        """Update one or more stream configurations in a single catalog write."""
+        current_catalog: dict[str, Any] | None = None
+        base_catalog: dict[str, Any] | None = None
+        applied_source_catalog_id: str | None = None
+        if discover_request_id is not None:
+            discovered_catalog, applied_source_catalog_id = self._get_discover_catalog_and_id(
+                discover_request_id
+            )
+            current_catalog = self.dump_raw_catalog(normalize=False)
+            if current_catalog is None:
+                raise AirbyteLibInputError(
+                    message="Connection catalog is empty or missing.",
+                    context={"connection_id": self.connection_id},
+                )
+            base_catalog = _merge_catalog_with_configuration(
+                current_catalog,
+                discovered_catalog,
+            )
+
+        (
+            catalog,
+            updated_streams,
+            unsafe_streams,
+            catalog_changes,
+            added_streams,
+            removed_streams,
+        ) = self._evaluate_stream_config_updates(
+            overrides,
+            allow_unsafe=allow_unsafe,
+            current_catalog=current_catalog,
+            base_catalog=base_catalog,
+        )
+        reset_requested = bool(unsafe_streams and allow_unsafe)
+        raw_catalog = _denormalize_catalog_to_api(
+            catalog.model_dump(mode="json", exclude_unset=True)
+        )
+        if base_catalog is not None:
+            raw_catalog = _preserve_api_only_catalog_fields(base_catalog, raw_catalog)
+        self.import_raw_catalog(
+            raw_catalog,
+            skip_reset=not reset_requested,
+            source_catalog_id=applied_source_catalog_id,
+        )
+        return StreamConfigUpdateResult(
+            updated_streams=updated_streams,
+            unsafe_streams=unsafe_streams,
+            reset_streams=catalog_changes if reset_requested else [],
+            reset_requested=reset_requested,
+            applied_source_catalog_id=applied_source_catalog_id,
+            added_streams=added_streams,
+            removed_streams=removed_streams,
         )
 
     def rename(self, name: str) -> CloudConnection:
@@ -877,14 +1400,55 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """
         configurations = api_util.build_stream_configurations(stream_names)
 
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            configurations=configurations,
-        )
+        try:
+            updated_response = api_util.patch_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                configurations=configurations,
+            )
+        except AirbyteCloudError as ex:
+            status_code = (ex.context or {}).get("status_code")
+            if status_code is None:
+                status_code = getattr(ex, "status_code", None)
+            if status_code != HTTPStatus.BAD_REQUEST:
+                raise
+
+            try:
+                catalog = self.dump_raw_catalog()
+            except Exception:
+                catalog = None
+
+            if not isinstance(catalog, dict) or not isinstance(catalog.get("streams"), list):
+                raise
+
+            stream_entries = catalog["streams"]
+            available_streams = [
+                stream["stream"]["name"]
+                for stream in stream_entries
+                if isinstance(stream, dict)
+                and isinstance(stream.get("stream"), dict)
+                and isinstance(stream["stream"].get("name"), str)
+                and stream["stream"]["name"]
+            ]
+            if stream_entries and not available_streams:
+                raise
+
+            raise AirbyteLibInputError(
+                message=(
+                    f"Could not set selected streams for connection '{self.connection_id}': "
+                    f"{ex}"
+                ),
+                guidance="Use stream names from `available_streams`.",
+                context={
+                    "connection_id": self.connection_id,
+                    "requested_streams": stream_names,
+                    "available_streams": available_streams,
+                },
+            ) from ex
+
         self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
@@ -901,7 +1465,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             True if the connection status is 'active', False otherwise.
         """
         connection_info = self._fetch_connection_info(force_refresh=True)
-        return connection_info.status == "active"
+        return connection_info.status == ConnectionStatus.ACTIVE
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
@@ -925,24 +1489,26 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             enabled: True to enable (set status to 'active'), False to disable
                 (set status to 'inactive').
             ignore_noop: If True (default), silently return if the connection is already
-                in the requested state. If False, raise ValueError when the requested
+                in the requested state. If False, raise `AirbyteLibInputError` when the requested
                 state matches the current state.
 
         Raises:
-            ValueError: If ignore_noop is False and the connection is already in the
+            AirbyteLibInputError: If ignore_noop is False and the connection is already in the
                 requested state.
         """
         # Always fetch fresh data to check current status
         connection_info = self._fetch_connection_info(force_refresh=True)
         current_status = connection_info.status
-        desired_status = "active" if enabled else "inactive"
+        desired_status = ConnectionStatus.ACTIVE if enabled else ConnectionStatus.INACTIVE
 
         if current_status == desired_status:
             if ignore_noop:
                 return
-            raise ValueError(
-                f"Connection is already {'enabled' if enabled else 'disabled'}. "
-                f"Current status: {current_status}"
+            raise AirbyteLibInputError(
+                message=(
+                    f"Connection is already {'enabled' if enabled else 'disabled'}. "
+                    f"Current status: {current_status}"
+                ),
             )
 
         updated_response = api_util.patch_connection(
@@ -959,30 +1525,69 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     def set_schedule(
         self,
-        cron_expression: str,
+        cron_expression: str | None = None,
+        *,
+        interval_hours: int | None = None,
     ) -> None:
-        """Set a cron schedule for the connection.
+        """Set a cron or basic interval schedule for the connection.
+
+        Provide exactly one of `cron_expression` or `interval_hours`.
 
         Args:
-            cron_expression: A cron expression defining when syncs should run.
+            cron_expression: A Quartz cron expression defining when syncs should run.
+                Quartz expressions have 6 or 7 space-separated fields
+                (seconds, minutes, hours, day-of-month, month, day-of-week[, year]),
+                optionally followed by a timezone ID. The Airbyte API rejects standard
+                5-field Unix cron expressions and schedules that run more often than
+                once per hour.
+            interval_hours: A positive whole number of hours between syncs. On an active
+                connection, interval scheduling runs a first sync as soon as it is enabled,
+                then measures each interval from the previous sync.
+
+        Raises:
+            AirbyteLibInputError: If both or neither schedule options are provided, or
+                the selected schedule is invalid.
 
         Examples:
-            - "0 0 * * *"  # Daily at midnight UTC
-            - "0 */6 * * *"  # Every 6 hours
-            - "0 0 * * 0"  # Weekly on Sunday at midnight UTC
+            - "0 0 0 * * ?"  # Daily at midnight UTC
+            - "0 0 */6 * * ?"  # Every 6 hours
+            - "0 0 0 ? * SUN"  # Weekly on Sunday at midnight UTC
+            - "0 0 9 ? * MON-FRI US/Pacific"  # Weekdays at 9am Pacific
         """
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            schedule=api_util.build_connection_schedule(
-                schedule_type="cron",
-                cron_expression=cron_expression,
-            ),
-        )
-        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
+        if (cron_expression is None) == (interval_hours is None):
+            raise AirbyteLibInputError(
+                message="Provide exactly one of `cron_expression` or `interval_hours`.",
+            )
+
+        if interval_hours is not None:
+            api_util.set_connection_interval_schedule(
+                connection_id=self.connection_id,
+                interval_hours=interval_hours,
+                api_root=self.workspace.api_root,
+                config_api_root=self.workspace.config_api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            # The Config API response differs from the public API connection model.
+            # Clear cached details so the next property read fetches the updated schedule.
+            self._connection_info = None
+            return
+
+        if cron_expression is not None:
+            _validate_quartz_cron_expression(cron_expression)
+            updated_response = api_util.patch_connection(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                schedule=api_util.build_connection_schedule(
+                    schedule_type="cron",
+                    cron_expression=cron_expression,
+                ),
+            )
+            self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
 
     def set_manual_schedule(self) -> None:
         """Set the connection to manual scheduling.

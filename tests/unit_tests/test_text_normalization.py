@@ -233,7 +233,7 @@ def test_lower_case_normalizer(
 ):
     normalizer = normalizer_class()
     if should_raise:
-        with pytest.raises(exc.PyAirbyteNameNormalizationError):
+        with pytest.raises(exc.AirbyteLibNameNormalizationError):
             assert normalizer.normalize(raw_value) == expected_result
     else:
         assert normalizer.normalize(raw_value) == expected_result

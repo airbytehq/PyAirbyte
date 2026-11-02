@@ -67,16 +67,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 import yaml
-from cyclopts import App, Parameter
+from cyclopts import App, ArgumentCollection, Parameter
 
 from airbyte._util.destination_smoke_tests import run_destination_smoke_test
+from airbyte._util.unsupported_inputs import check_unsupported_env_vars
 from airbyte.destinations.util import get_destination, get_noop_destination
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.secrets.util import get_secret
 from airbyte.sources.util import get_benchmark_source, get_source
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
@@ -156,7 +159,7 @@ def _resolve_config(
         # Treat this as a path to a config file:
         config_path = Path(config)
         if not config_path.exists():
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Config file not found.",
                 input_value=str(config_path),
             )
@@ -255,7 +258,7 @@ def _resolve_source_job(
         # Treat the source as a path.
         source_executable = Path(source)
         if not source_executable.exists():
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Source executable not found.",
                 context={
                     "source": source,
@@ -272,7 +275,7 @@ def _resolve_source_job(
         return source_obj
 
     if not source or not source.startswith("source-"):
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="Expected a source name, docker image, or path to executable.",
             input_value=source,
         )
@@ -335,7 +338,7 @@ def _resolve_destination_job(
         # Treat the destination as a path.
         destination_executable = Path(destination)
         if not destination_executable.exists():
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Destination executable not found.",
                 context={
                     "destination": destination,
@@ -359,11 +362,21 @@ def _resolve_destination_job(
     )
 
 
+def _check_unsupported_env_vars_hook(
+    apps: Sequence[App],  # noqa: ARG001
+    commands: tuple[str, ...],  # noqa: ARG001
+    arguments: ArgumentCollection,  # noqa: ARG001
+) -> None:
+    """Fail any CLI command when a removed env var is set."""
+    check_unsupported_env_vars()
+
+
 cli = App(
     name="pyab",  # pyrefly: ignore[unexpected-keyword]
     help="PyAirbyte CLI.",  # pyrefly: ignore[unexpected-keyword]
     help_format="plaintext",  # pyrefly: ignore[unexpected-keyword]
     version_flags=[],  # pyrefly: ignore[unexpected-keyword]
+    config=[_check_unsupported_env_vars_hook],  # pyrefly: ignore[unexpected-keyword]
 )
 
 
@@ -399,7 +412,7 @@ def validate(
     with the provided config.
     """
     if not connector:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="No connector provided.",
         )
 
@@ -498,7 +511,7 @@ def benchmark(
     definition file to run the source job.
     """
     if source and destination:
-        raise PyAirbyteInputError(
+        raise AirbyteLibInputError(
             message="For benchmarking, source or destination can be provided, but not both.",
         )
     destination_obj: Destination

@@ -41,7 +41,7 @@ not set, the default value is `False`.
 _warned_messages: set[str] = set()
 
 
-def warn_once(
+def _warn_once(
     message: str,
     logger: logging.Logger | None = None,
     *,
@@ -96,7 +96,7 @@ def _get_logging_root() -> Path | None:
         log_root.mkdir(parents=True, exist_ok=True)
     except OSError:
         # Handle the error by returning None
-        warn_once(
+        _warn_once(
             (
                 f"Failed to create PyAirbyte logging directory at `{log_root}`. "
                 "You can override the default path by setting the `AIRBYTE_LOGGING_ROOT` "
@@ -145,7 +145,7 @@ def get_global_file_logger() -> logging.Logger | None:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warn_once(
+        _warn_once(
             f"Failed to create logging directory at '{folder!s}'.",
             with_stack=False,
         )
@@ -207,7 +207,7 @@ def get_global_stats_log_path() -> Path | None:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warn_once(
+        _warn_once(
             f"Failed to create logging directory at '{folder!s}'.",
             with_stack=False,
         )
@@ -251,7 +251,7 @@ def get_global_stats_logger() -> structlog.BoundLogger:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warn_once(
+        _warn_once(
             f"Failed to create logging directory at '{folder!s}'.",
             with_stack=False,
         )

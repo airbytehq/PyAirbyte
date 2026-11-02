@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import warnings
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteLibInputError
 from airbyte.sources.base import Source
 
 
@@ -16,32 +15,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from airbyte.callbacks import ConfigChangeCallback
-
-
-def get_connector(
-    name: str,
-    config: dict[str, Any] | None = None,
-    *,
-    version: str | None = None,
-    pip_url: str | None = None,
-    local_executable: Path | str | None = None,
-    install_if_missing: bool = True,
-) -> Source:
-    """Deprecated. Use get_source instead."""
-    warnings.warn(
-        "The `get_connector()` function is deprecated and will be removed in a future version."
-        "Please use `get_source()` instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return get_source(
-        name=name,
-        config=config,
-        version=version,
-        pip_url=pip_url,
-        local_executable=local_executable,
-        install_if_missing=install_if_missing,
-    )
 
 
 def get_source(  # noqa: PLR0913 # Too many arguments
@@ -166,7 +139,7 @@ def get_benchmark_source(
         try:
             num_records = int(Decimal(num_records.replace("_", "")))
         except InvalidOperation as ex:
-            raise PyAirbyteInputError(
+            raise AirbyteLibInputError(
                 message="Invalid number format.",
                 original_exception=ex,
                 input_value=str(num_records),

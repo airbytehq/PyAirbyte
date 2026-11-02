@@ -84,14 +84,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from airbyte._direct_connectors.models import (
+    ExternalApiReadOnlyAction,
+    ExternalApiWriteAction,
+    ExternalSearchType,
+)
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.models import (
     CloudDefaultContextInfo,
+    CloudSourceCatalogDiffStreamSummary,
+    CloudSourceCatalogDiscoverResult,
     CloudWorkspaceInfo,
+    ConnectionStatus,
     JobStatusEnum,
     JobTypeEnum,
+    StreamConfigChange,
+    StreamConfigOverride,
+    StreamConfigUpdateResult,
     WorkspacePrivilegeScope,
 )
 from airbyte.cloud.organizations import CloudOrganization
@@ -106,6 +117,7 @@ if TYPE_CHECKING:
         client,
         client_config,
         connections,
+        connector_builder,
         constants,
         organizations,
         sync_results,
@@ -119,6 +131,7 @@ __all__ = [
     "client",
     "organizations",
     "connections",
+    "connector_builder",
     "constants",
     "client_config",
     "sync_results",
@@ -127,11 +140,20 @@ __all__ = [
     "CloudOrganization",
     "CloudWorkspace",
     "CloudConnection",
+    "CloudSourceCatalogDiffStreamSummary",
+    "CloudSourceCatalogDiscoverResult",
     "CloudClientConfig",
     "CloudDefaultContextInfo",
     "CloudWorkspaceInfo",
+    "StreamConfigOverride",
+    "StreamConfigChange",
+    "StreamConfigUpdateResult",
     "SyncResult",
     # Enums
+    "ExternalApiReadOnlyAction",
+    "ExternalApiWriteAction",
+    "ExternalSearchType",
+    "ConnectionStatus",
     "JobStatusEnum",
     "JobTypeEnum",
     "WorkspacePrivilegeScope",

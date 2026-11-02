@@ -10,13 +10,10 @@ following methods to generate documents from records:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import datetime  # noqa: TC003  # Pydantic resolves this annotation at runtime.
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-
-if TYPE_CHECKING:
-    import datetime
 
 
 MAX_SINGLE_LINE_LENGTH = 60
