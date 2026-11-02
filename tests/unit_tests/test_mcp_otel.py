@@ -285,6 +285,30 @@ def test_requests_spans_keep_allowlisted_urls_and_redact_queries() -> None:
         with capture_tool_spans() as spans:
             async with Client(app) as client:
                 await client.call_tool("echo")
+            safe_routes = {
+                "safe-discover-command": (
+                    f"{observability.CLOUD_CONFIG_API_ROOT}/commands/run/discover"
+                ),
+                "safe-command-status": (
+                    f"{observability.CLOUD_CONFIG_API_ROOT}/commands/status"
+                ),
+                "safe-discover-output": (
+                    f"{observability.CLOUD_CONFIG_API_ROOT}/commands/output/discover"
+                ),
+                "safe-most-recent-catalog": (
+                    f"{observability.CLOUD_CONFIG_API_ROOT}/sources/"
+                    "most_recent_source_actor_catalog"
+                ),
+                "safe-catalog-diff": (
+                    f"{observability.CLOUD_CONFIG_API_ROOT}/catalogs/diff"
+                ),
+            }
+            for span_name, route in safe_routes.items():
+                with tracer.start_as_current_span(
+                    span_name, kind=SpanKind.CLIENT
+                ) as span:
+                    span.set_attribute("http.url", route)
+                    span.set_attribute("http.request.method", "POST")
             with tracer.start_as_current_span(
                 "safe-request", kind=SpanKind.CLIENT
             ) as span:
@@ -306,12 +330,17 @@ def test_requests_spans_keep_allowlisted_urls_and_redact_queries() -> None:
 
         safe = next(span for span in spans if span.name == "safe-request")
         unknown = next(span for span in spans if span.name == "unknown-request")
+        safe_route_spans = {
+            span.name: span for span in spans if span.name in safe_routes
+        }
         safe_attributes = safe.attributes or {}
         assert safe_attributes["http.url"] == f"{CLOUD_API_ROOT}/applications/token"
         assert safe_attributes["http.request.method"] == "POST"
         assert "url.query" not in safe_attributes
         assert "http.user_agent" not in safe_attributes
         assert "server.address" not in safe_attributes
+        for span_name, route in safe_routes.items():
+            assert (safe_route_spans[span_name].attributes or {})["http.url"] == route
         assert (unknown.attributes or {})[
             "url.full"
         ] == observability.REDACTED_PLACEHOLDER

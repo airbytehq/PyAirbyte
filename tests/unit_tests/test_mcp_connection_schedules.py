@@ -114,7 +114,7 @@ async def _unsafe_update(
 ) -> str:
     async with Client(server) as client:
         result = await client.call_tool(
-            "update_cloud_connection_unsafe",
+            "update_connection_unsafe",
             {"connection_id": "12345678-1234-1234-1234-1234567890ab", **arguments},
         )
     return str(result)
@@ -139,7 +139,7 @@ def test_interval_schema() -> None:
         assert update.annotations is not None
         assert update.annotations.destructive_hint is False
         assert update.annotations.read_only_hint is False
-        unsafe = tools["update_cloud_connection_unsafe"]
+        unsafe = tools["update_connection_unsafe"]
         assert unsafe.annotations is not None
         assert unsafe.annotations.destructive_hint is True
         assert "set_cloud_connection_stream_sync_mode" not in tools
@@ -435,7 +435,7 @@ def test_unsafe_update_always_requests_catalog_reset(
     ("enabled", "expected_guidance"),
     [
         (False, "Airbyte UI"),
-        (True, "update_cloud_connection_unsafe"),
+        (True, "update_connection_unsafe"),
     ],
 )
 def test_unsafe_change_guidance_uses_unsafe_tool_enabled(
@@ -467,7 +467,7 @@ def test_unsafe_change_guidance_uses_unsafe_tool_enabled(
     )
 
     with pytest.raises(AirbyteUnsafeStreamConfigChangeError) as exc_info:
-        cloud_mcp.update_cloud_connection(
+        cloud_mcp.update_connection(
             ctx=None,
             connection_id="12345678-1234-1234-1234-1234567890ab",
             enabled=True,
@@ -486,7 +486,7 @@ def test_unsafe_change_guidance_uses_unsafe_tool_enabled(
 
     assert expected_guidance in (exc_info.value.guidance or "")
     if not enabled:
-        assert "update_cloud_connection_unsafe" not in (exc_info.value.guidance or "")
+        assert "update_connection_unsafe" not in (exc_info.value.guidance or "")
         assert "Connection URL:" in (exc_info.value.guidance or "")
     set_enabled.assert_not_called()
     set_schedule.assert_not_called()

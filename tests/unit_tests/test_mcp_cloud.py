@@ -2762,8 +2762,8 @@ def test_unsafe_connection_update_visibility(
         monkeypatch.delenv(env_var, raising=False)
 
     names = {tool.name for tool in asyncio.run(server.app.list_tools())}
-    assert "update_cloud_connection" in names
-    assert ("update_cloud_connection_unsafe" in names) is unsafe_visible
+    assert "update_connection" in names
+    assert ("update_connection_unsafe" in names) is unsafe_visible
 
 
 @pytest.mark.parametrize(
@@ -3099,7 +3099,7 @@ def test_describe_helper_config_failure_warns(
     assert any("Connector configuration lookup failed" in w for w in result.warnings)
 
 
-def test_describe_cloud_connection_includes_status_and_schedule(
+def test_describe_connection_includes_status_and_schedule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The connection detail response exposes connection status and schedule."""

@@ -55,9 +55,11 @@ for hit in search_result.hits:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
+from uuid import uuid4
 
 import jsonschema
 import requests
@@ -94,6 +96,8 @@ from airbyte.cloud.models import (
     CheckResult,
     CloudCustomSourceDefinitionInfo,
     CloudDestinationInfo,
+    CloudSourceCatalogDiffStreamSummary,
+    CloudSourceCatalogDiscoverResult,
     CloudSourceInfo,
     ConnectorFeature,
     ConnectorType,
@@ -129,6 +133,92 @@ _GENERIC_CONFLICT_MESSAGES = frozenset(
     }
 )
 """409 messages that carry no Cloud detail: the platform default and PyAirbyte's fallback."""
+
+
+def _get_catalog_discover_result(
+    workspace: CloudWorkspace,
+    discover_request_id: str,
+) -> CloudSourceCatalogDiscoverResult:
+    """Get a source-discover result using a workspace's Config API credentials."""
+    if not isinstance(discover_request_id, str) or not discover_request_id.strip():
+        raise exc.AirbyteLibInputError(
+            message="`discover_request_id` must be a non-empty string.",
+            context={"discover_request_id": discover_request_id},
+        )
+
+    command_status = api_util.get_command_status(
+        discover_request_id,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    request_status = command_status["status"]
+    if request_status != "completed":
+        return CloudSourceCatalogDiscoverResult(
+            discover_request_id=discover_request_id,
+            request_status=request_status,
+        )
+
+    output = api_util.get_discover_command_output(
+        discover_request_id,
+        api_root=workspace.api_root,
+        config_api_root=workspace.config_api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+    failure = output.get("failureReason")
+    failure_reason = failure.get("externalMessage") if isinstance(failure, dict) else None
+    catalog = output.get("catalog")
+    stream_count = len(catalog["streams"]) if catalog is not None else None
+    return CloudSourceCatalogDiscoverResult(
+        discover_request_id=discover_request_id,
+        request_status=request_status,
+        outcome=output["status"],
+        source_catalog_id=output.get("catalogId"),
+        stream_count=stream_count,
+        failure_reason=failure_reason,
+    )
+
+
+def _build_catalog_diff_result(
+    source_catalog_id: str,
+    response: dict[str, Any],
+) -> CloudSourceCatalogDiscoverResult:
+    """Build a bounded summary of the Config API catalog-diff response."""
+    transforms = response["catalog_diff"]["transforms"]
+    summaries = []
+    for transform in transforms:
+        descriptor = transform["streamDescriptor"]
+        update_stream = transform.get("updateStream") or {}
+        field_transforms = update_stream.get("fieldTransforms", [])
+        attribute_transforms = update_stream.get("streamAttributeTransforms", [])
+        breaking_flags = [
+            change["breaking"]
+            for change in [*field_transforms, *attribute_transforms]
+            if "breaking" in change
+        ]
+        summaries.append(
+            CloudSourceCatalogDiffStreamSummary(
+                stream_name=descriptor["name"],
+                stream_namespace=descriptor.get("namespace"),
+                transform_type=transform["transformType"],
+                breaking_flags=breaking_flags,
+                field_additions_count=sum(
+                    change["transformType"] == "add_field" for change in field_transforms
+                ),
+                field_removals_count=sum(
+                    change["transformType"] == "remove_field" for change in field_transforms
+                ),
+            )
+        )
+    return CloudSourceCatalogDiscoverResult(
+        source_catalog_id=source_catalog_id,
+        catalog_diff_summary=summaries,
+        schema_change=response["schema_change"],
+    )
 
 
 class _ConnectorDefinitionLike(Protocol):
@@ -1102,6 +1192,68 @@ class CloudSource(CloudConnector):
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
             )
+        )
+
+    def _validate_source_id(self) -> None:
+        if not self.source_id.strip():
+            raise exc.AirbyteLibInputError(
+                message="`source_id` must be a non-empty string.",
+                context={"source_id": self.source_id},
+            )
+
+    def start_catalog_discover(self) -> CloudSourceCatalogDiscoverResult:
+        """Start an asynchronous source catalog discover command."""
+        self._validate_source_id()
+        discover_request_id = str(uuid4())
+        api_util.run_source_discover_command(
+            source_id=self.source_id,
+            discover_request_id=discover_request_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return CloudSourceCatalogDiscoverResult(
+            source_id=self.source_id,
+            discover_request_id=discover_request_id,
+            request_status="pending",
+        )
+
+    def get_catalog_discover_result(
+        self,
+        discover_request_id: str,
+    ) -> CloudSourceCatalogDiscoverResult:
+        """Get the status and completed output of a source catalog discover."""
+        result = _get_catalog_discover_result(
+            workspace=self.workspace,
+            discover_request_id=discover_request_id,
+        )
+        return result.model_copy(update={"source_id": self.source_id})
+
+    def get_latest_saved_catalog(self) -> CloudSourceCatalogDiscoverResult:
+        """Get the timestamp and stream count of the latest saved catalog."""
+        self._validate_source_id()
+        response = api_util.get_most_recent_source_catalog(
+            source_id=self.source_id,
+            api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        catalog = response.get("catalog")
+        streams = catalog.get("streams", []) if isinstance(catalog, dict) else []
+        if not streams:
+            return CloudSourceCatalogDiscoverResult(source_id=self.source_id)
+
+        updated_at = response.get("updatedAt")
+        return CloudSourceCatalogDiscoverResult(
+            source_id=self.source_id,
+            stream_count=len(streams),
+            updated_at=(
+                datetime.fromtimestamp(updated_at, tz=UTC) if updated_at is not None else None
+            ),
         )
 
     def rename(self, name: str) -> CloudSource:
